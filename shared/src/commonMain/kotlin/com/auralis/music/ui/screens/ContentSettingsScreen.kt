@@ -1,13 +1,9 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,7 +76,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -110,9 +105,10 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun ContentSettingsScreen(onDismiss: () -> Unit) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val scope = rememberCoroutineScope()
-    val store = remember { ContentSettingsDataStore(context) }
+    val store = com.auralis.music.data.datastore.LocalSettingsStores.current.content
+    val appLanguage = com.auralis.music.ui.settings.LocalSettingsPlatform.current.appLanguage
     val settings by ContentSettingsStore.current.collectAsState()
     fun update(transform: (ContentSettings) -> ContentSettings) {
         scope.launch { store.update(transform) }
@@ -134,11 +130,11 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.back), tint = onBackground)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(Strings.back), tint = onBackground)
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = str(R.string.content),
+                    text = str(Strings.content),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -152,58 +148,59 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 item(key = "general") {
-                    Section(str(R.string.general), primary, surface) {
-                        ValueRow(Icons.Default.Language, str(R.string.content_language),
+                    Section(str(Strings.general), primary, surface) {
+                        ValueRow(Icons.Default.Language, str(Strings.content_language),
                             languageName(settings.contentLanguage), colors) { dialog = ContentDialog.CONTENT_LANGUAGE }
                         Divider()
-                        ValueRow(Icons.Default.Public, str(R.string.content_country),
+                        ValueRow(Icons.Default.Public, str(Strings.content_country),
                             countryName(settings.contentCountry), colors) { dialog = ContentDialog.CONTENT_COUNTRY }
                     }
                 }
 
                 item(key = "playlists") {
-                    Section(str(R.string.playlists), primary, surface) {
-                        ValueRow(Icons.AutoMirrored.Filled.PlaylistAdd, str(R.string.add_to_playlist_position),
+                    Section(str(Strings.playlists), primary, surface) {
+                        ValueRow(Icons.AutoMirrored.Filled.PlaylistAdd, str(Strings.add_to_playlist_position),
                             com.auralis.music.ui.i18n.UiLabels.of(settings.addToPlaylistPosition.displayName), colors) { dialog = ContentDialog.PLAYLIST_POSITION }
                     }
                 }
 
                 item(key = "artist") {
-                    Section(str(R.string.artist_page), primary, surface) {
-                        SwitchRow(Icons.Default.Description, str(R.string.show_artist_description), null, settings.showArtistDescription, colors) { v ->
+                    Section(str(Strings.artist_page), primary, surface) {
+                        SwitchRow(Icons.Default.Description, str(Strings.show_artist_description), null, settings.showArtistDescription, colors) { v ->
                             update { it.copy(showArtistDescription = v) }
                         }
                         Divider()
-                        SwitchRow(Icons.Default.People, str(R.string.show_subscriber_count), null, settings.showArtistSubscriberCount, colors) { v ->
+                        SwitchRow(Icons.Default.People, str(Strings.show_subscriber_count), null, settings.showArtistSubscriberCount, colors) { v ->
                             update { it.copy(showArtistSubscriberCount = v) }
                         }
                         Divider()
-                        SwitchRow(Icons.Default.Groups, str(R.string.show_monthly_listeners), null, settings.showMonthlyListeners, colors) { v ->
+                        SwitchRow(Icons.Default.Groups, str(Strings.show_monthly_listeners), null, settings.showMonthlyListeners, colors) { v ->
                             update { it.copy(showMonthlyListeners = v) }
                         }
                     }
                 }
 
                 item(key = "app_language") {
-                    Section(str(R.string.app_language), primary, surface) {
-                        ValueRow(Icons.Default.Translate, str(R.string.app_language), currentAppLanguageLabel(context), colors) {
-                            dialog = ContentDialog.APP_LANGUAGE
+                    Section(str(Strings.app_language), primary, surface) {
+                        ValueRow(Icons.Default.Translate, str(Strings.app_language), appLanguage?.currentLabel() ?: str(Strings.system_default), colors) {
+                            if (appLanguage != null) dialog = ContentDialog.APP_LANGUAGE
+                            else platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.appLanguageFollowsSystem)
                         }
                     }
                 }
 
                 item(key = "proxy") {
-                    Section(str(R.string.proxy), primary, surface) {
-                        SwitchRow(Icons.Default.VpnLock, str(R.string.enable_proxy),
-                            if (settings.proxyEnabled && ContentProxy.configuredProxy(settings) == null) str(R.string.set_a_host_port_to_use_it) else null,
+                    Section(str(Strings.proxy), primary, surface) {
+                        SwitchRow(Icons.Default.VpnLock, str(Strings.enable_proxy),
+                            if (settings.proxyEnabled && ContentProxy.configuredProxy(settings) == null) str(Strings.set_a_host_port_to_use_it) else null,
                             settings.proxyEnabled, colors) { v ->
                             update { it.copy(proxyEnabled = v) }
                             if (v && settings.proxyUrl.isBlank()) dialog = ContentDialog.PROXY
                         }
                         if (settings.proxyEnabled) {
                             Divider()
-                            ValueRow(Icons.Default.Tune, str(R.string.configure_proxy),
-                                settings.proxyUrl.ifBlank { str(R.string.not_set) }.let { "${settings.proxyType} · $it" }, colors) {
+                            ValueRow(Icons.Default.Tune, str(Strings.configure_proxy),
+                                settings.proxyUrl.ifBlank { str(Strings.not_set) }.let { "${settings.proxyType} · $it" }, colors) {
                                 dialog = ContentDialog.PROXY
                             }
                         }
@@ -211,18 +208,18 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 }
 
                 item(key = "lyrics") {
-                    Section(str(R.string.lyrics), primary, surface) {
+                    Section(str(Strings.lyrics), primary, surface) {
                         val enabledCount = LyricsProviderId.entries.size - settings.disabledLyricsProviders.size
-                        ValueRow(Icons.Default.Lyrics, str(R.string.lyrics_providers),
-                            str(R.string.x_of_x_enabled, enabledCount, LyricsProviderId.entries.size), colors) { dialog = ContentDialog.LYRICS_PROVIDERS }
+                        ValueRow(Icons.Default.Lyrics, str(Strings.lyrics_providers),
+                            str(Strings.x_of_x_enabled, enabledCount, LyricsProviderId.entries.size), colors) { dialog = ContentDialog.LYRICS_PROVIDERS }
                         Divider()
-                        SwitchRow(Icons.Default.SortByAlpha, str(R.string.romanize_lyrics),
-                            str(R.string.latin_spelling_as_a_small_line_under_the), settings.romanizationEnabled, colors) { v ->
+                        SwitchRow(Icons.Default.SortByAlpha, str(Strings.romanize_lyrics),
+                            str(Strings.latin_spelling_as_a_small_line_under_the), settings.romanizationEnabled, colors) { v ->
                             update { it.copy(romanizationEnabled = v) }
                         }
                         if (settings.romanizationEnabled) {
                             Divider()
-                            ValueRow(Icons.Default.Translate, str(R.string.romanized_scripts),
+                            ValueRow(Icons.Default.Translate, str(Strings.romanized_scripts),
                                 settings.romanizedScripts.size.let { if (it == RomanizationScript.entries.size) "All" else "$it selected" },
                                 colors) { dialog = ContentDialog.ROMANIZATION }
                         }
@@ -230,29 +227,29 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 }
 
                 item(key = "wrapped") {
-                    Section(str(R.string.wrapped), primary, surface) {
-                        SwitchRow(Icons.Default.Leaderboard, str(R.string.weekly_and_monthly_most_playlists),
-                            str(R.string.your_most_played_songs_of_the_last_7_and), settings.showMostStatsPlaylists, colors) { v ->
+                    Section(str(Strings.wrapped), primary, surface) {
+                        SwitchRow(Icons.Default.Leaderboard, str(Strings.weekly_and_monthly_most_playlists),
+                            str(Strings.your_most_played_songs_of_the_last_7_and), settings.showMostStatsPlaylists, colors) { v ->
                             update { it.copy(showMostStatsPlaylists = v) }
                         }
                         Divider()
-                        SwitchRow(Icons.Default.AutoAwesome, str(R.string.show_wrapped_card), str(R.string.on_the_home_screen), settings.showWrappedCard, colors) { v ->
+                        SwitchRow(Icons.Default.AutoAwesome, str(Strings.show_wrapped_card), str(Strings.on_the_home_screen), settings.showWrappedCard, colors) { v ->
                             update { it.copy(showWrappedCard = v) }
                         }
                     }
                 }
 
                 item(key = "misc") {
-                    Section(str(R.string.misc), primary, surface) {
-                        SwitchRow(Icons.Default.Shuffle, str(R.string.randomize_home_order),
-                            str(R.string.shuffle_the_home_shelves_keeping_higher), settings.randomizeHomeOrder, colors) { v ->
+                    Section(str(Strings.misc), primary, surface) {
+                        SwitchRow(Icons.Default.Shuffle, str(Strings.randomize_home_order),
+                            str(Strings.shuffle_the_home_shelves_keeping_higher), settings.randomizeHomeOrder, colors) { v ->
                             update { it.copy(randomizeHomeOrder = v) }
                         }
                         Divider()
-                        ValueRow(Icons.Default.FormatListNumbered, str(R.string.my_top_list_length),
-                            str(R.string.x_songs, settings.topLength), colors) { dialog = ContentDialog.TOP_LENGTH }
+                        ValueRow(Icons.Default.FormatListNumbered, str(Strings.my_top_list_length),
+                            str(Strings.x_songs, settings.topLength), colors) { dialog = ContentDialog.TOP_LENGTH }
                         Divider()
-                        ValueRow(Icons.Default.FlashOn, str(R.string.quick_picks),
+                        ValueRow(Icons.Default.FlashOn, str(Strings.quick_picks),
                             com.auralis.music.ui.i18n.UiLabels.of(settings.quickPicksMode.displayName), colors) { dialog = ContentDialog.QUICK_PICKS }
                     }
                 }
@@ -262,24 +259,24 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
 
     when (dialog) {
         ContentDialog.CONTENT_LANGUAGE -> ChoiceDialog(
-            title = str(R.string.content_language),
-            note = str(R.string.youtube_shows_home_search_artist_pages_a) +
-                str(R.string.some_languages_leave_out_play_counts_so),
-            options = listOf(ContentSettings.SYSTEM to str(R.string.system_default)) + YouTubeLocales.languages.toList(),
+            title = str(Strings.content_language),
+            note = str(Strings.youtube_shows_home_search_artist_pages_a) +
+                str(Strings.some_languages_leave_out_play_counts_so),
+            options = listOf(ContentSettings.SYSTEM to str(Strings.system_default)) + YouTubeLocales.languages.toList(),
             selected = settings.contentLanguage,
             onSelect = { code -> update { it.copy(contentLanguage = code) }; dialog = null },
             onDismiss = { dialog = null }
         )
         ContentDialog.CONTENT_COUNTRY -> ChoiceDialog(
-            title = str(R.string.content_country),
-            note = str(R.string.charts_recommendations_and_what_s_availa),
-            options = listOf(ContentSettings.SYSTEM to str(R.string.system_default)) + YouTubeLocales.countries.toList(),
+            title = str(Strings.content_country),
+            note = str(Strings.charts_recommendations_and_what_s_availa),
+            options = listOf(ContentSettings.SYSTEM to str(Strings.system_default)) + YouTubeLocales.countries.toList(),
             selected = settings.contentCountry,
             onSelect = { code -> update { it.copy(contentCountry = code) }; dialog = null },
             onDismiss = { dialog = null }
         )
         ContentDialog.PLAYLIST_POSITION -> ChoiceDialog(
-            title = str(R.string.add_to_playlist_position),
+            title = str(Strings.add_to_playlist_position),
             note = null,
             options = AddToPlaylistPosition.entries.map { it.name to "${com.auralis.music.ui.i18n.UiLabels.of(it.displayName)} — ${com.auralis.music.ui.i18n.UiLabels.of(it.description)}" },
             selected = settings.addToPlaylistPosition.name,
@@ -287,8 +284,8 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
             onDismiss = { dialog = null }
         )
         ContentDialog.QUICK_PICKS -> ChoiceDialog(
-            title = str(R.string.quick_picks),
-            note = str(R.string.last_song_listened_builds_the_row_from_y),
+            title = str(Strings.quick_picks),
+            note = str(Strings.last_song_listened_builds_the_row_from_y),
             options = QuickPicksMode.entries.map { it.name to com.auralis.music.ui.i18n.UiLabels.of(it.displayName) },
             selected = settings.quickPicksMode.name,
             onSelect = { name -> update { it.copy(quickPicksMode = QuickPicksMode.valueOf(name)) }; dialog = null },
@@ -302,7 +299,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
             dialog = null
         }, onDismiss = { dialog = null })
         ContentDialog.LYRICS_PROVIDERS -> CheckListDialog(
-            title = str(R.string.lyrics_providers),
+            title = str(Strings.lyrics_providers),
             items = LyricsProviderId.entries.map { Triple(it.name, it.displayName, com.auralis.music.ui.i18n.UiLabels.of(it.description)) },
             checked = LyricsProviderId.entries.filterNot { it in settings.disabledLyricsProviders }.map { it.name }.toSet(),
             onSave = { enabled ->
@@ -312,7 +309,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
             onDismiss = { dialog = null }
         )
         ContentDialog.ROMANIZATION -> CheckListDialog(
-            title = str(R.string.romanized_scripts),
+            title = str(Strings.romanized_scripts),
             items = RomanizationScript.entries.map { Triple(it.name, com.auralis.music.ui.i18n.UiLabels.of(it.displayName), null) },
             checked = settings.romanizedScripts.map { it.name }.toSet(),
             onSave = { chosen ->
@@ -324,12 +321,12 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
         ContentDialog.APP_LANGUAGE -> {
             // Picked here on every Android version: Android 13+'s own page proved unreliable on
             // some phones (the choice didn't save), and this applies at once.
-            val current = com.auralis.music.ui.i18n.AppLanguage.currentTag(context)
+            val current = appLanguage?.currentTag().orEmpty()
             ChoiceDialog(
-                title = str(R.string.app_language),
+                title = str(Strings.app_language),
                 note = null,
-                options = listOf("" to str(R.string.system_default)) +
-                    com.auralis.music.ui.i18n.AppLanguage.available(context).map { tag ->
+                options = listOf("" to str(Strings.system_default)) +
+                    appLanguage?.available().orEmpty().map { tag ->
                         val locale = java.util.Locale.forLanguageTag(tag)
                         tag to locale.getDisplayName(locale).replaceFirstChar { it.titlecase(locale) }
                     },
@@ -337,7 +334,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 onSelect = { tag ->
                     dialog = null
                     if (tag != current) {
-                        com.auralis.music.ui.i18n.AppLanguage.apply(context, tag)
+                        appLanguage?.apply(tag)
                     }
                 },
                 onDismiss = { dialog = null }
@@ -350,7 +347,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
     val proxyUnusable = settings.proxyEnabled && settings.proxyUrl.isNotBlank() && ContentProxy.configuredProxy(settings) == null
     androidx.compose.runtime.LaunchedEffect(proxyUnusable, settings.proxyUrl) {
         if (proxyUnusable) {
-            Toast.makeText(context, str(R.string.proxy_address_isn_t_host_port_connecting), Toast.LENGTH_SHORT).show()
+            platformActions.showMessage(str(Strings.proxy_address_isn_t_host_port_connecting))
         }
     }
 }
@@ -363,21 +360,10 @@ private enum class ContentDialog {
 private data class RowColors(val primary: Color, val onSurface: Color, val onSurfaceVariant: Color)
 
 private fun languageName(code: String): String =
-    if (code == ContentSettings.SYSTEM) str(R.string.system_default) else YouTubeLocales.languages[code] ?: code
+    if (code == ContentSettings.SYSTEM) str(Strings.system_default) else YouTubeLocales.languages[code] ?: code
 
 private fun countryName(code: String): String =
-    if (code == ContentSettings.SYSTEM) str(R.string.system_default) else YouTubeLocales.countries[code] ?: code
-
-private fun currentAppLanguageLabel(context: android.content.Context): String {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val locales = context.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales
-        if (locales != null && !locales.isEmpty) return locales[0].let { it.getDisplayName(it) }
-        return str(R.string.system_default)
-    }
-    val tag = com.auralis.music.ui.i18n.AppLanguage.storedTag(context)
-    if (tag.isBlank()) return str(R.string.system_default)
-    return java.util.Locale.forLanguageTag(tag).let { it.getDisplayName(it) }
-}
+    if (code == ContentSettings.SYSTEM) str(Strings.system_default) else YouTubeLocales.countries[code] ?: code
 
 @Composable
 private fun Section(title: String, primary: Color, surface: Color, content: @Composable () -> Unit) {
@@ -497,7 +483,7 @@ private fun ChoiceDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(str(R.string.close)) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text(str(Strings.close)) } }
     )
 }
 
@@ -540,8 +526,8 @@ private fun CheckListDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(current) }) { Text(str(R.string.save)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(str(R.string.cancel)) } }
+        confirmButton = { TextButton(onClick = { onSave(current) }) { Text(str(Strings.save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(str(Strings.cancel)) } }
     )
 }
 
@@ -552,19 +538,19 @@ private fun TopLengthDialog(current: Int, onSave: (Int) -> Unit, onDismiss: () -
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.dynamicSurface,
-        title = { Text(str(R.string.my_top_list_length), fontWeight = FontWeight.Bold) },
+        title = { Text(str(Strings.my_top_list_length), fontWeight = FontWeight.Bold) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it.filter(Char::isDigit).take(3) },
-                label = { Text(str(R.string.songs_1_500)) },
+                label = { Text(str(Strings.songs_1_500)) },
                 singleLine = true,
                 isError = parsed == null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
         },
-        confirmButton = { TextButton(onClick = { parsed?.let(onSave) }, enabled = parsed != null) { Text(str(R.string.save)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(str(R.string.cancel)) } }
+        confirmButton = { TextButton(onClick = { parsed?.let(onSave) }, enabled = parsed != null) { Text(str(Strings.save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(str(Strings.cancel)) } }
     )
 }
 
@@ -583,7 +569,7 @@ private fun ProxyDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.dynamicSurface,
-        title = { Text(str(R.string.configure_proxy), fontWeight = FontWeight.Bold) },
+        title = { Text(str(Strings.configure_proxy), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -598,24 +584,24 @@ private fun ProxyDialog(
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it.trim() },
-                    label = { Text(str(R.string.host_port)) },
+                    label = { Text(str(Strings.host_port)) },
                     singleLine = true,
                     isError = url.isNotBlank() && ContentProxy.parseHostPort(url) == null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(str(R.string.authentication), modifier = Modifier.weight(1f))
+                    Text(str(Strings.authentication), modifier = Modifier.weight(1f))
                     Switch(checked = auth, onCheckedChange = {
                         auth = it
                         if (!it) { user = ""; pass = "" }
                     })
                 }
                 if (auth) {
-                    OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text(str(R.string.username)) }, singleLine = true)
+                    OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text(str(Strings.username)) }, singleLine = true)
                     OutlinedTextField(
                         value = pass,
                         onValueChange = { pass = it },
-                        label = { Text(str(R.string.password)) },
+                        label = { Text(str(Strings.password)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
@@ -625,9 +611,9 @@ private fun ProxyDialog(
         },
         confirmButton = {
             TextButton(onClick = { onSave(type, url, if (auth) user else "", if (auth) pass else "") }, enabled = valid) {
-                Text(str(R.string.save))
+                Text(str(Strings.save))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(str(R.string.cancel)) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(str(Strings.cancel)) } }
     )
 }

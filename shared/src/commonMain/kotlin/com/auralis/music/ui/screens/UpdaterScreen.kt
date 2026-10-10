@@ -1,6 +1,7 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
 import androidx.compose.foundation.BorderStroke
@@ -18,14 +19,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.auralis.music.data.datastore.UpdaterDataStore
 import com.auralis.music.data.datastore.UpdaterSettings
-import com.auralis.music.data.network.UpdateChecker
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
@@ -38,19 +37,19 @@ import com.auralis.music.ui.components.bottomChromePadding
 fun UpdaterScreen(
     onDismiss: () -> Unit
 ) {
-    androidx.activity.compose.BackHandler(enabled = true) {
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
         onDismiss()
     }
 
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val scope = rememberCoroutineScope()
-    val dataStore = remember { UpdaterDataStore(context) }
+    val dataStore = com.auralis.music.data.datastore.LocalSettingsStores.current.updater
+    val updater = com.auralis.music.ui.settings.LocalSettingsPlatform.current.updater
     val settings by dataStore.settingsFlow.collectAsState(initial = UpdaterSettings())
 
-    val currentVersion = remember { UpdateChecker.getCurrentVersion(context) }
+    val currentVersion = com.auralis.music.ui.settings.LocalSettingsPlatform.current.appVersion
     var showUpdateFlow by rememberSaveable { mutableStateOf(false) }
-    val updatePhase by UpdateFlow.phase.collectAsState()
-    val isChecking = updatePhase == UpdatePhase.Checking
+    val isChecking = updater?.isChecking?.collectAsState()?.value ?: false
 
     val primaryColor = MaterialTheme.dynamicPrimary
     val surfaceColor = MaterialTheme.dynamicSurface
@@ -78,13 +77,13 @@ fun UpdaterScreen(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
+                        contentDescription = str(Strings.back),
                         tint = onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = str(R.string.updater),
+                    text = str(Strings.updater),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = onBackground,
@@ -104,7 +103,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.current_version),
+                            text = str(Strings.current_version),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -124,14 +123,14 @@ fun UpdaterScreen(
                                     .padding(horizontal = 18.dp, vertical = 18.dp)
                             ) {
                                 Text(
-                                    text = str(R.string.version_x, currentVersion),
+                                    text = str(Strings.version_x, currentVersion),
                                     color = onSurface,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = str(R.string.universal_foss),
+                                    text = str(Strings.universal_foss),
                                     color = onSurfaceVariant,
                                     fontSize = 13.sp
                                 )
@@ -144,7 +143,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.update_settings),
+                            text = str(Strings.update_settings),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -161,7 +160,7 @@ fun UpdaterScreen(
                             Column {
                                 UpdaterSwitchRow(
                                     icon = Icons.Default.Update,
-                                    title = str(R.string.automatically_check_for_updates),
+                                    title = str(Strings.automatically_check_for_updates),
                                     checked = settings.autoCheckUpdates,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setAutoCheckUpdates(isChecked) }
@@ -175,7 +174,7 @@ fun UpdaterScreen(
 
                                 UpdaterSwitchRow(
                                     icon = Icons.Default.NotificationsNone,
-                                    title = str(R.string.enable_update_notifications),
+                                    title = str(Strings.enable_update_notifications),
                                     checked = settings.enableNotifications,
                                     onCheckedChange = { isChecked ->
                                         scope.launch { dataStore.setEnableNotifications(isChecked) }
@@ -190,7 +189,7 @@ fun UpdaterScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = str(R.string.check_for_updates_2),
+                            text = str(Strings.check_for_updates_2),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor,
@@ -208,8 +207,12 @@ fun UpdaterScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        showUpdateFlow = true
-                                        UpdateFlow.open(context)
+                                        if (updater != null) {
+                                            showUpdateFlow = true
+                                            updater.checkNow()
+                                        } else {
+                                            platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noInAppUpdates)
+                                        }
                                     }
                                     .padding(horizontal = 16.dp, vertical = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -240,7 +243,7 @@ fun UpdaterScreen(
                                 Spacer(modifier = Modifier.width(14.dp))
 
                                 Text(
-                                    text = if (isChecking) str(R.string.checking_for_updates) else str(R.string.check_for_updates_2),
+                                    text = if (isChecking) str(Strings.checking_for_updates) else str(Strings.check_for_updates_2),
                                     color = onSurface,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp,
@@ -254,7 +257,7 @@ fun UpdaterScreen(
         }
 
         if (showUpdateFlow) {
-            UpdateFlowScreen(onDismiss = { showUpdateFlow = false })
+            updater?.UpdateFlowOverlay(onDismiss = { showUpdateFlow = false })
         }
     }
 }

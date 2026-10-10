@@ -1,13 +1,9 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings as AndroidSettings
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -46,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,12 +67,13 @@ fun SettingsScreen(
     hasActiveTrack: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val settingsStore = remember(context) { com.auralis.music.data.datastore.SettingsDataStore(context) }
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
+    val settingsStore = com.auralis.music.data.datastore.LocalSettingsStores.current.settings
+    val settingsPlatform = com.auralis.music.ui.settings.LocalSettingsPlatform.current
     val settingsScope = rememberCoroutineScope()
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<SettingsDialogType?>(null) }
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
         if (activeDialog != null) {
             activeDialog = null
         } else {
@@ -123,14 +119,14 @@ fun SettingsScreen(
                     IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
+                            contentDescription = str(Strings.back),
                             tint = onBackground,
                             modifier = Modifier.size(26.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.settings),
+                        text = str(Strings.settings),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = onBackground,
@@ -150,11 +146,11 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // ── INTERFACE ──
-                        item(key = "hdr_interface") { SettingsCategoryHeader(title = str(R.string.text_interface), color = cardPrimary) }
+                        item(key = "hdr_interface") { SettingsCategoryHeader(title = str(Strings.text_interface), color = cardPrimary) }
                         item(key = "item_appearance") {
                             SettingsRowItem(
                                 icon = Icons.Default.Palette,
-                                title = str(R.string.appearance),
+                                title = str(Strings.appearance),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -165,11 +161,11 @@ fun SettingsScreen(
                         }
 
                         // ── PLAYER & CONTENT ──
-                        item(key = "hdr_player") { SettingsCategoryHeader(title = str(R.string.player_content), color = cardPrimary) }
+                        item(key = "hdr_player") { SettingsCategoryHeader(title = str(Strings.player_content), color = cardPrimary) }
                         item(key = "item_player_audio") {
                             SettingsRowItem(
                                 icon = Icons.Default.PlayArrow,
-                                title = str(R.string.player_and_audio),
+                                title = str(Strings.player_and_audio),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -181,7 +177,7 @@ fun SettingsScreen(
                         item(key = "item_content") {
                             SettingsRowItem(
                                 icon = Icons.Default.LibraryMusic,
-                                title = str(R.string.content),
+                                title = str(Strings.content),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -193,7 +189,7 @@ fun SettingsScreen(
                         item(key = "item_ai_lyrics") {
                             SettingsRowItem(
                                 icon = Icons.Default.Translate,
-                                title = str(R.string.ai_lyrics_translation),
+                                title = str(Strings.ai_lyrics_translation),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -204,11 +200,11 @@ fun SettingsScreen(
                         }
 
                         // ── PRIVACY & STORAGE ──
-                        item(key = "hdr_privacy") { SettingsCategoryHeader(title = str(R.string.privacy_storage), color = cardPrimary) }
+                        item(key = "hdr_privacy") { SettingsCategoryHeader(title = str(Strings.privacy_storage), color = cardPrimary) }
                         item(key = "item_privacy") {
                             SettingsRowItem(
                                 icon = Icons.Default.Security,
-                                title = str(R.string.privacy),
+                                title = str(Strings.privacy),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -220,7 +216,7 @@ fun SettingsScreen(
                         item(key = "item_storage") {
                             SettingsRowItem(
                                 icon = Icons.Default.Storage,
-                                title = str(R.string.storage),
+                                title = str(Strings.storage),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -231,11 +227,11 @@ fun SettingsScreen(
                         }
 
                         // ── SYSTEM & ABOUT ──
-                        item(key = "hdr_system") { SettingsCategoryHeader(title = str(R.string.system_about), color = cardPrimary) }
+                        item(key = "hdr_system") { SettingsCategoryHeader(title = str(Strings.system_about), color = cardPrimary) }
                         item(key = "item_updater") {
                             SettingsRowItem(
                                 icon = Icons.Default.SystemUpdate,
-                                title = str(R.string.updater),
+                                title = str(Strings.updater),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -247,21 +243,22 @@ fun SettingsScreen(
                         item(key = "item_sys_app") {
                             SettingsRowItem(
                                 icon = Icons.Default.AppSettingsAlt,
-                                title = str(R.string.system_app_settings),
+                                title = str(Strings.system_app_settings),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
                                 iconTint = cardPrimary,
                                 iconBackground = cardIconBg,
                                 onClick = {
-                                    try {
-                                        val intent = Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = Uri.fromParts("package", context.packageName, null)
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    val open = settingsPlatform.openSystemAppSettings
+                                    if (open != null) {
+                                        try {
+                                            open()
+                                        } catch (e: Exception) {
+                                            platformActions.showMessage(str(Strings.unable_to_open_system_settings))
                                         }
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, str(R.string.unable_to_open_system_settings), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noSystemAppSettings)
                                     }
                                 }
                             )
@@ -269,7 +266,7 @@ fun SettingsScreen(
                         item(key = "item_about") {
                             SettingsRowItem(
                                 icon = Icons.Default.Info,
-                                title = str(R.string.about),
+                                title = str(Strings.about),
                                 cardBackground = cardBackground,
                                 borderColor = cardBorder,
                                 textColor = cardText,
@@ -310,13 +307,13 @@ fun SettingsScreen(
                                     IconButton(onClick = { activeDialog = null }) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = str(R.string.back),
+                                            contentDescription = str(Strings.back),
                                             tint = onBackground
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = str(R.string.player_and_audio),
+                                        text = str(Strings.player_and_audio),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = onBackground,
@@ -331,7 +328,7 @@ fun SettingsScreen(
                                         .padding(horizontal = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
-                                    SettingsCategoryHeader(str(R.string.player), primaryColor)
+                                    SettingsCategoryHeader(str(Strings.player), primaryColor)
                                     // Quality
                                     Column(
                                         modifier = Modifier
@@ -342,7 +339,7 @@ fun SettingsScreen(
                                             .clickable { showQualityPicker = !showQualityPicker }
                                             .padding(12.dp)
                                     ) {
-                                        Text(str(R.string.streaming_quality), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        Text(str(Strings.streaming_quality), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                         Text(com.auralis.music.ui.i18n.UiLabels.of(settings.audioQuality.displayName), color = primaryColor, fontSize = 12.sp)
 
                                         AnimatedVisibility(
@@ -396,8 +393,8 @@ fun SettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(str(R.string.t_3d_spatial_soundstage), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text(str(R.string.android_audio_virtualization_when_suppor), color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text(str(Strings.t_3d_spatial_soundstage), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text(str(Strings.android_audio_virtualization_when_suppor), color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.spatialAudio,
@@ -435,8 +432,8 @@ fun SettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(str(R.string.gapless_playback), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text(str(R.string.preload_the_next_track_for_smoother_tran), color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text(str(Strings.gapless_playback), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text(str(Strings.preload_the_next_track_for_smoother_tran), color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.gaplessPlayback,
@@ -474,8 +471,8 @@ fun SettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(str(R.string.remove_silence), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                            Text(str(R.string.skip_quiet_passages_during_playback), color = onSurfaceVariant, fontSize = 11.sp)
+                                            Text(str(Strings.remove_silence), color = onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text(str(Strings.skip_quiet_passages_during_playback), color = onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Switch(
                                             checked = settings.skipSilence,
@@ -500,24 +497,24 @@ fun SettingsScreen(
                                             )
                                         )
                                     }
-                                    SettingsCategoryHeader(str(R.string.queue), primaryColor)
-                                    PlayerPreferenceToggle(str(R.string.persistent_queue), str(R.string.restore_your_queue_and_position_after_re), settings.persistentQueue) {
+                                    SettingsCategoryHeader(str(Strings.queue), primaryColor)
+                                    PlayerPreferenceToggle(str(Strings.persistent_queue), str(Strings.restore_your_queue_and_position_after_re), settings.persistentQueue) {
                                         settingsScope.launch { settingsStore.setPersistentQueue(it) }
                                     }
-                                    PlayerPreferenceToggle(str(R.string.auto_load_more_songs), str(R.string.add_recommendations_as_your_radio_queue), settings.autoLoadMore) {
+                                    PlayerPreferenceToggle(str(Strings.auto_load_more_songs), str(Strings.add_recommendations_as_your_radio_queue), settings.autoLoadMore) {
                                         settingsScope.launch { settingsStore.setAutoLoadMore(it) }
                                     }
-                                    SettingsCategoryHeader(str(R.string.misc), primaryColor)
-                                    PlayerPreferenceToggle(str(R.string.stop_music_on_task_clear), str(R.string.stop_playback_when_auralis_is_swiped_awa), settings.stopMusicOnTaskClear) {
+                                    SettingsCategoryHeader(str(Strings.misc), primaryColor)
+                                    PlayerPreferenceToggle(str(Strings.stop_music_on_task_clear), str(Strings.stop_playback_when_auralis_is_swiped_awa), settings.stopMusicOnTaskClear) {
                                         settingsScope.launch { settingsStore.setStopMusicOnTaskClear(it) }
                                     }
-                                    PlayerPreferenceToggle(str(R.string.pause_music_when_media_is_muted), str(R.string.pause_when_device_media_volume_reaches_z), settings.pauseOnMediaMute) {
+                                    PlayerPreferenceToggle(str(Strings.pause_music_when_media_is_muted), str(Strings.pause_when_device_media_volume_reaches_z), settings.pauseOnMediaMute) {
                                         settingsScope.launch { settingsStore.setPauseOnMediaMute(it) }
                                     }
-                                    PlayerPreferenceToggle(str(R.string.resume_on_bluetooth_connect), str(R.string.resume_the_current_song_when_bluetooth_a), settings.resumeOnBluetoothConnect) {
+                                    PlayerPreferenceToggle(str(Strings.resume_on_bluetooth_connect), str(Strings.resume_the_current_song_when_bluetooth_a), settings.resumeOnBluetoothConnect) {
                                         settingsScope.launch { settingsStore.setResumeOnBluetoothConnect(it) }
                                     }
-                                    PlayerPreferenceToggle(str(R.string.keep_screen_on_when_player_is_expanded), str(R.string.keep_the_display_awake_while_the_expande), settings.keepScreenOn) {
+                                    PlayerPreferenceToggle(str(Strings.keep_screen_on_when_player_is_expanded), str(Strings.keep_the_display_awake_while_the_expande), settings.keepScreenOn) {
                                         settingsScope.launch { settingsStore.setKeepScreenOn(it) }
                                     }
                                     Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 2.dp, includeNavigationBar = false)))
