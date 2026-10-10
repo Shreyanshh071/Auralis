@@ -196,7 +196,10 @@ object AlbumMetadataResolver {
         trackTitle: String,
         artistName: String,
         innerTubeClient: InnerTubeClient? = null,
-        knownAlbum: String? = null
+        knownAlbum: String? = null,
+        // Called as soon as iTunes names the album, before its YouTube Music page is looked up
+        // (a second ~1 s request), so a caller can show the album right away.
+        onAlbumNamed: ((ResolvedAlbum) -> Unit)? = null
     ): ResolvedAlbum? = withContext(Dispatchers.IO) {
         val cleanTitle = cleanTrackTitle(trackTitle)
         val soundtrackTag = extractSoundtrackTag(trackTitle)
@@ -413,6 +416,12 @@ object AlbumMetadataResolver {
                     }
             }
             if (bestCandidate != null && !bestCandidate.isSingle) {
+                onAlbumNamed?.invoke(ResolvedAlbum(
+                    albumTitle = bestCandidate.collectionName,
+                    albumArt = bestCandidate.artworkUrl,
+                    artistName = bestCandidate.itArtist.ifBlank { cleanArtist },
+                    isSingle = false
+                ))
                 var ytmAlbumId: String? = null
                 var ytmArt: String? = null
                 var ytmAuthor: String? = null
