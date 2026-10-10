@@ -53,9 +53,16 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
 fun AuralisDesktopApp(
     searchRepository: com.auralis.music.domain.repository.SearchRepository,
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
-    lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?
+    lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
+    /** Main points the window's key handler here. */
+    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
+    selfTest: SelfTest? = null,
+    onSelfTestDone: (Boolean) -> Unit = {}
 ) {
     var showPlayer by remember { mutableStateOf(false) }
+    var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
+    var searchFocusRequests by remember { mutableStateOf(0) }
+    var typing by remember { mutableStateOf(false) }
     // Search is the first working page on Windows, so the app opens on it.
     var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -67,6 +74,50 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
     val queue = playback?.queue?.collectAsState()?.value
     val playerState = playback?.state?.collectAsState()?.value
+    val canShowPlayer = playback != null && lyrics != null && queue?.current != null
+
+    val actions = remember(playback) {
+        object : ShortcutActions {
+            override fun togglePlayPause() { playback?.togglePlayPause() }
+            override fun next() { playback?.next() }
+            override fun previous() { playback?.previous() }
+            override fun seekBy(deltaMs: Long) { playback?.seekBy(deltaMs) }
+            override fun volumeBy(delta: Float) { playback?.volumeBy(delta) }
+            override fun toggleMute() { playback?.toggleMute() }
+            override fun focusSearch() {
+                showPlayer = false
+                destination = DesktopDestination.SEARCH
+                searchFocusRequests++
+            }
+            override fun togglePlayer() { showPlayer = !showPlayer && playback?.queue?.value?.current != null }
+            override fun showLyrics() = openPanel(com.auralis.music.windows.player.PlayerPanel.LYRICS)
+            override fun showQueue() = openPanel(com.auralis.music.windows.player.PlayerPanel.QUEUE)
+            private fun openPanel(panel: com.auralis.music.windows.player.PlayerPanel) {
+                if (playback?.queue?.value?.current == null) return
+                playerPanel = panel
+                showPlayer = true
+            }
+            override fun closePlayer(): Boolean {
+                if (!showPlayer) return false
+                showPlayer = false
+                return true
+            }
+        }
+    }
+    if (selfTest != null) {
+        androidx.compose.runtime.LaunchedEffect(selfTest) {
+            val passed = selfTest.run(searchState, playback, lyrics, openPlayer = { showPlayer = true })
+            onSelfTestDone(passed)
+        }
+    }
+    // The player covers the search field, so it must not keep the keyboard.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    androidx.compose.runtime.LaunchedEffect(showPlayer) { if (showPlayer) focusManager.clearFocus() }
+    val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing && !showPlayer)
+    androidx.compose.runtime.DisposableEffect(actions) {
+        onShortcutHandler { event -> handleShortcut(event, currentTyping.value, actions) }
+        onDispose { onShortcutHandler(null) }
+    }
 
     AuralisDesktopTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -83,7 +134,9 @@ fun AuralisDesktopApp(
                                 currentTrackId = queue?.current?.id,
                                 isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
                                 onPlay = playback?.let { it::playFrom },
-                                onUnavailable = showUnavailable
+                                onUnavailable = showUnavailable,
+                                focusRequests = searchFocusRequests,
+                                onTypingChange = { typing = it }
                             )
                             DesktopDestination.LIBRARY -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
                                 NotBuiltYet("Library", "Local library comes after playback.")
@@ -95,7 +148,7 @@ fun AuralisDesktopApp(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
-                    onOpenPlayer = { if (queue?.current != null) showPlayer = true }
+                    onOpenPlayer = { if (canShowPlayer) showPlayer = true }
                 )
             }
             // The full player slides up over everything, like the phone's player sheet.
@@ -107,7 +160,13 @@ fun AuralisDesktopApp(
                     androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240))
             ) {
                 if (playback != null && lyrics != null) {
-                    com.auralis.music.windows.player.PlayerScreen(playback, lyrics, onClose = { showPlayer = false })
+                    com.auralis.music.windows.player.PlayerScreen(
+                        playback,
+                        lyrics,
+                        panel = playerPanel,
+                        onPanelChange = { playerPanel = it },
+                        onClose = { showPlayer = false }
+                    )
                 }
             }
         }

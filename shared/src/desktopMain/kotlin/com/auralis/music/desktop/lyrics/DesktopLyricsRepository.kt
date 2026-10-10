@@ -8,19 +8,29 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Lyrics for the desktop app: the phone's provider race (LyricsClient) and its playback
- * alignment, with an in-memory cache. The phone's repository adds a Room database on top;
- * desktop has no persistent lyrics cache yet.
+ * alignment, cached in memory and on disk ([LyricsDiskCache]; the phone uses Room). Like the
+ * phone's cache it keeps the provider's answer and aligns it to the stream on every read, and a
+ * word-synced entry is never replaced by a lower tier.
  */
-class DesktopLyricsRepository(private val client: LyricsClient = LyricsClient()) {
-    private val memoryCache = ConcurrentHashMap<String, LyricsData>()
+class DesktopLyricsRepository(
+    private val disk: LyricsDiskCache? = null,
+    private val client: LyricsClient = LyricsClient()
+) {
+    private val memory = ConcurrentHashMap<String, LyricsData>()
 
-    fun cached(videoId: String): LyricsData? = memoryCache[videoId.lowercase()]
+    /** Cached lyrics for [videoId], aligned to [durationMs]; null when there are none. */
+    fun cached(videoId: String, durationMs: Long): LyricsData? {
+        val key = videoId.lowercase()
+        val raw = memory[key] ?: disk?.read(key)?.also { memory[key] = it } ?: return null
+        return align(raw, durationMs)
+    }
 
     /**
      * Same request the phone makes. [onInterim] gets displayable synced lyrics while the race
-     * still waits for a better source; the return value is the final answer.
+     * still waits for a better source; the return value is the final answer (or the cached copy
+     * when the network has nothing better).
      */
-    suspend fun getLyrics(
+    suspend fun fetch(
         videoId: String,
         title: String,
         artist: String,
@@ -31,7 +41,6 @@ class DesktopLyricsRepository(private val client: LyricsClient = LyricsClient())
         onInterim: (LyricsData) -> Unit
     ): LyricsData? {
         val key = videoId.lowercase()
-        memoryCache[key]?.let { return it }
         val started = System.currentTimeMillis()
         val result = client.getLyrics(
             title = title,
@@ -43,13 +52,20 @@ class DesktopLyricsRepository(private val client: LyricsClient = LyricsClient())
             durationMs = durationMs,
             audioLeadingSilenceMs = null,
             onInterim = { interim -> onInterim(align(interim, durationMs)) }
-        ) ?: run {
-            Log.w(TAG, "No lyrics for '$title' by '$artist' (${System.currentTimeMillis() - started}ms)")
-            return null
+        )
+        val existing = memory[key] ?: disk?.read(key)
+        if (result == null || result.lines.isEmpty()) {
+            Log.w(TAG, "No lyrics from the network for '$title' by '$artist' (${System.currentTimeMillis() - started}ms)")
+            return existing?.let { align(it, durationMs) }
         }
+        if (existing != null && LyricsClient.tierOf(existing) > LyricsClient.tierOf(result)) {
+            Log.i(TAG, "Keeping cached ${existing.provider} ${existing.syncType} for '$title' over ${result.provider} ${result.syncType}")
+            return align(existing, durationMs)
+        }
+        memory[key] = result
+        disk?.write(key, result)
         val aligned = align(result, durationMs)
         Log.i(TAG, "Lyrics for '$title': ${aligned.provider} ${aligned.syncType}, ${aligned.lines.size} lines in ${System.currentTimeMillis() - started}ms")
-        if (aligned.lines.isNotEmpty()) memoryCache[key] = aligned
         return aligned
     }
 

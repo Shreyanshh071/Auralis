@@ -136,11 +136,7 @@ fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Un
             modifier = Modifier.weight(1f)
         ) {
             val volume by controller.volume.collectAsState()
-            var volumeBeforeMute by remember { mutableStateOf(1f) }
-            IconButton(onClick = {
-                if (volume > 0f) { volumeBeforeMute = volume; controller.setVolume(0f) }
-                else controller.setVolume(volumeBeforeMute.takeIf { it > 0f } ?: 1f)
-            }) {
+            IconButton(onClick = controller::toggleMute) {
                 Icon(
                     if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
                     contentDescription = if (volume > 0f) "Mute" else "Unmute",
