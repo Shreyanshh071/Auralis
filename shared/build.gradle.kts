@@ -28,6 +28,8 @@ kotlin {
             implementation(libs.compose.mp.material3)
             implementation(libs.compose.mp.icons.extended)
             implementation(libs.androidx.collection)
+            // Morphing shapes for the lyrics' wavy interval indicators.
+            implementation(libs.androidx.graphics.shapes)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okhttp)

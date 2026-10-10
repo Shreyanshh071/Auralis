@@ -432,10 +432,6 @@ fun getPaletteById(id: String): CuratedPalette {
     return CuratedPalettes.firstOrNull { it.id == id } ?: CuratedPalettes[0] // Default to Auralis Lime
 }
 
-val LocalAppearanceSettings = staticCompositionLocalOf {
-    com.auralis.music.domain.model.AppearanceSettings()
-}
-
 fun isLightColor(color: Color): Boolean {
     val r = color.red
     val g = color.green

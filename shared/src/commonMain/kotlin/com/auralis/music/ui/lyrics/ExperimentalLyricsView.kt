@@ -1,11 +1,6 @@
 package com.auralis.music.ui.lyrics
 
-import com.auralis.music.R
-import com.auralis.music.ui.i18n.str
 
-import android.annotation.SuppressLint
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationState
@@ -112,7 +107,6 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -151,7 +145,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Where the sung line rests, as a fraction of the lyrics viewport. Every lyrics style uses it. */
-internal const val LYRICS_ANCHOR_RATIO = 0.35f
+const val LYRICS_ANCHOR_RATIO = 0.35f
 private val LYRICS_ITEM_FALLBACK_HEIGHT_DP = 68.dp
 private val LYRICS_ITEM_GAP_DP = 16.dp
 private val LYRICS_FADE_TOP_DP = 44.dp
@@ -197,7 +191,7 @@ fun Modifier.fadingEdge(
 /**
  * Timestamp container for genuine word-level karaoke timing.
  */
-internal data class ExperimentalWordTimestamp(
+data class ExperimentalWordTimestamp(
     val text: String,
     val startTime: Double,
     val endTime: Double?,
@@ -209,7 +203,7 @@ internal data class ExperimentalWordTimestamp(
  * A null list means line-level timing; a null [ExperimentalWordTimestamp.endTime]
  * means the provider supplied a start but no measurable interval.
  */
-internal fun resolveExperimentalWordTimestamps(
+fun resolveExperimentalWordTimestamps(
     line: LyricLine,
     syncType: SyncType
 ): List<ExperimentalWordTimestamp>? {
@@ -237,7 +231,7 @@ internal fun resolveExperimentalWordTimestamps(
  * timestamps. Never bring subsequent words forward in time (which caused highlights
  * to rush ahead of the singer at hyper speed on held notes and ballads).
  */
-internal fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>): List<ExperimentalWordTimestamp> {
+fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>): List<ExperimentalWordTimestamp> {
     if (words.size < 2) return words
     val ordinaryDurationsMs = words.mapNotNull { word ->
         word.endTime?.let { (it - word.startTime) * 1000.0 }
@@ -270,7 +264,7 @@ internal fun presentationWordTimestamps(words: List<ExperimentalWordTimestamp>):
 }
 
 /** Exact source-timed sweep, or an instantaneous step when the end is unknown. */
-internal fun experimentalWordProgress(
+fun experimentalWordProgress(
     word: ExperimentalWordTimestamp,
     currentPositionMs: Long
 ): Float {
@@ -292,7 +286,7 @@ private fun experimentalWordIsComplete(
     return currentPositionMs.toDouble() >= boundaryMs
 }
 
-internal data class ShapedTimedRange(
+data class ShapedTimedRange(
     val start: Int,
     val end: Int,
     val visibleStart: Int,
@@ -302,7 +296,7 @@ internal data class ShapedTimedRange(
 )
 
 /** Portion of a shaped word already sung by this timed fragment. */
-internal fun shapedFragmentSweep(range: ShapedTimedRange, progress: Float, complete: Boolean): Pair<Float, Float> {
+fun shapedFragmentSweep(range: ShapedTimedRange, progress: Float, complete: Boolean): Pair<Float, Float> {
     val length = (range.visibleEnd - range.visibleStart).coerceAtLeast(1).toFloat()
     val start = if (complete) range.completedStart else range.start
     val end = if (complete) range.completedEnd.toFloat()
@@ -315,7 +309,7 @@ internal fun shapedFragmentSweep(range: ShapedTimedRange, progress: Float, compl
  * Keep provider fragments separate while giving the last fragment of each visible word
  * responsibility for any conjunct, vowel mark, or punctuation its own substring misses.
  */
-internal fun mapShapedTimedRanges(
+fun mapShapedTimedRanges(
     text: String,
     words: List<ExperimentalWordTimestamp>,
     isBackground: Boolean = false
@@ -373,7 +367,7 @@ private fun experimentalCharacterProgress(
  * A line start contains no information about its individual word onsets.
  * Keep line-only sources out of the word renderer rather than inventing timing.
  */
-internal fun createFallbackPresentationTokens(
+fun createFallbackPresentationTokens(
     mainText: String,
     lineTimeMs: Long
 ): List<ExperimentalWordTimestamp> {
@@ -387,7 +381,7 @@ internal fun createFallbackPresentationTokens(
  * - Horizontal scale contribution: 0.025 * pulse
  * - Vertical scale contribution: 0.015 * pulse
  */
-internal fun experimentalTokenPulse(timeSinceStartMs: Float): Float {
+fun experimentalTokenPulse(timeSinceStartMs: Float): Float {
     return if (timeSinceStartMs in 0f..750f) {
         if (timeSinceStartMs < 125f) timeSinceStartMs / 125f
         else (1f - (timeSinceStartMs - 125f) / 625f).coerceAtLeast(0f)
@@ -401,7 +395,7 @@ internal fun experimentalTokenPulse(timeSinceStartMs: Float): Float {
  * - Vertical contribution: N
  * where c is the normalized character progress within the active token.
  */
-internal fun experimentalCharacterNudge(c: Float): Float {
+fun experimentalCharacterNudge(c: Float): Float {
     return if (c in 0f..1f) {
         0.038f * sin(PI.toFloat() * c) * exp(-3f * c)
     } else 0f
@@ -444,12 +438,12 @@ sealed class ExperimentalLyricsListItem {
  * Delegates to [LyricsEngine.findVisualActiveLineIndices] to guarantee that lines remain
  * highlighted across gaps until the next subsequent lyric begins.
  */
-internal fun findExperimentalActiveLineIndices(
+fun findExperimentalActiveLineIndices(
     lines: List<LyricLine>,
     position: Long
 ): Set<Int> = LyricsEngine.findVisualActiveLineIndices(lines, position, 0L)
 
-internal data class ExperimentalPendingSeekTarget(
+data class ExperimentalPendingSeekTarget(
     val lineIndex: Int,
     val targetTimeMs: Long,
     val requestId: Long,
@@ -468,7 +462,7 @@ internal data class ExperimentalPendingSeekTarget(
  * - Uses kinetic word typography on genuine RichSync tracks.
  * - Preserves strict line illumination on LINE_SYNC without synthetic word pacing.
  */
-@SuppressLint("UnusedBoxWithConstraintsScope")
+@Suppress("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExperimentalLyricsView(
@@ -487,7 +481,7 @@ fun ExperimentalLyricsView(
     track: Track? = null,
     standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur
 ) {
-    val context = LocalContext.current
+    val lyricsUi = LocalLyricsUi.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val appearance = LocalAppearanceSettings.current
@@ -579,7 +573,7 @@ fun ExperimentalLyricsView(
     var shareLyricsText by remember { mutableStateOf("") }
     var showShareSheet by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = isSelectionModeActive) {
+    lyricsUi.backHandler(isSelectionModeActive) {
         isSelectionModeActive = false
         selectedIndices.clear()
     }
@@ -1003,7 +997,7 @@ fun ExperimentalLyricsView(
         if (effectiveLines.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = str(R.string.no_lyrics_available),
+                    text = lyricsUi.strings.noLyricsAvailable(),
                     fontSize = 18.sp,
                     color = Color.White.copy(alpha = 0.5f)
                 )
@@ -1093,7 +1087,7 @@ fun ExperimentalLyricsView(
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = str(R.string.unsynced_lyrics),
+                                                text = lyricsUi.strings.unsyncedLyrics(),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = Color.White.copy(alpha = 0.85f)
@@ -1134,7 +1128,7 @@ fun ExperimentalLyricsView(
                                             } else if (selectedIndices.size < 5) {
                                                 selectedIndices.add(index)
                                             } else {
-                                                Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), Toast.LENGTH_SHORT).show()
+                                                lyricsUi.showMessage(lyricsUi.strings.selectUpTo5Lines())
                                             }
                                         } else if (appearance.changeLyricsOnTap) {
                                             val reqId = ++scrollRequestId
@@ -1198,12 +1192,12 @@ fun ExperimentalLyricsView(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = str(R.string.search),
+                                    contentDescription = lyricsUi.strings.search(),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = str(R.string.search_synced_lyrics),
+                                    text = lyricsUi.strings.searchSyncedLyrics(),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -1234,13 +1228,13 @@ fun ExperimentalLyricsView(
             ) {
                 Icon(
                     imageVector = Icons.Default.Sync,
-                    contentDescription = str(R.string.re_sync),
+                    contentDescription = lyricsUi.strings.reSync(),
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = str(R.string.re_sync),
+                    text = lyricsUi.strings.reSync(),
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1275,7 +1269,7 @@ fun ExperimentalLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.cancel_selection),
+                        contentDescription = lyricsUi.strings.cancelSelection(),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -1303,25 +1297,22 @@ fun ExperimentalLyricsView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
-                        contentDescription = str(R.string.share),
+                        contentDescription = lyricsUi.strings.share(),
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(lyricsUi.strings.share(), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
             }
         }
     }
 
-    if (showShareSheet && track != null) {
-        com.auralis.music.ui.lyrics.share.LyricShareBottomSheet(
-            track = track,
-            initialLyricsText = shareLyricsText,
-            onDismissRequest = {
-                showShareSheet = false
-                selectedIndices.clear()
-            }
-        )
+    val shareSheet = lyricsUi.shareSheet
+    if (showShareSheet && track != null && shareSheet != null) {
+        shareSheet(track, shareLyricsText) {
+            showShareSheet = false
+            selectedIndices.clear()
+        }
     }
 }
 
@@ -1333,7 +1324,7 @@ private val MetroSpeakerFarSidePadding = 48.dp
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun ExperimentalLyricsLine(
+fun ExperimentalLyricsLine(
     index: Int,
     line: LyricLine,
     isSynced: Boolean,
@@ -1585,7 +1576,7 @@ internal fun ExperimentalLyricsLine(
                     letterSpacing = if (!isSynced) (-0.3).sp else (-0.5).sp,
                     textAlign = agentTextAlign,
                     fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
-                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    platformStyle = noFontPaddingStyle(),
                     lineHeightStyle = LineHeightStyle(
                         alignment = LineHeightStyle.Alignment.Center,
                         trim = LineHeightStyle.Trim.Both
@@ -1628,11 +1619,7 @@ internal fun ExperimentalLyricsLine(
                     )
                 }
 
-                RomanizedLine(
-                    text = line.text,
-                    color = (if (isActiveLine) expressiveAccent else lineColor).copy(alpha = 0.65f),
-                    fontSize = 13.sp,
-                    textAlign = agentTextAlign
+                LocalLyricsUi.current.romanizedLine(line.text, (if (isActiveLine) expressiveAccent else lineColor).copy(alpha = 0.65f), 13.sp, agentTextAlign, Modifier
                 )
 
                 line.translatedText?.let { trans ->
@@ -1667,7 +1654,7 @@ internal fun ExperimentalLyricsLine(
  * Word-level kinetic typography canvas with character letter-progress, wobble, crescendo & glow.
  */
 @Composable
-internal fun ExperimentalWordLevelLyrics(
+fun ExperimentalWordLevelLyrics(
     mainText: String,
     words: List<ExperimentalWordTimestamp>,
     isActiveLine: Boolean,
