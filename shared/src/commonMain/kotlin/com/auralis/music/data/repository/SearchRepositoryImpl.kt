@@ -57,6 +57,8 @@ class SearchRepositoryImpl(
         const val CORE_WAIT_MS = 2_500L
         /** Extra wait for albums/artists once songs and general results are in. */
         const val CORE_GRACE_MS = 800L
+        /** Partial results are shown only if the ranked result is not ready this long after the first answer. */
+        const val PREVIEW_AFTER_MS = 600L
         const val FINISHED_SEARCH_TTL_MS = 30 * 60_000L
     }
 
@@ -110,6 +112,12 @@ class SearchRepositoryImpl(
             val received = mutableListOf<SearchResults>()
             var coreDeadlineNs = startedNs + CORE_WAIT_MS * 1_000_000
             var mainAnswered = false
+            // Partial results only appear when ranking is slow: shown at once, they were replaced and
+            // reordered a moment later by the ranked result.
+            var firstUsefulNs = 0L
+            var previewsShown = false
+            fun previewDueMs() = if (previewsShown || firstUsefulNs == 0L) Long.MAX_VALUE
+                else (firstUsefulNs - System.nanoTime()) / 1_000_000 + PREVIEW_AFTER_MS
             while (received.size < coreRequests.size) {
                 // Once songs and general results are in (they decide the top result and the song list),
                 // or any three have answered, the rest get a short grace period, not the full wait.
@@ -122,11 +130,19 @@ class SearchRepositoryImpl(
                 val next = when {
                     received.none { it.isNotEmpty() } -> responses.receive()
                     waitMs <= 0 -> null
-                    else -> withTimeoutOrNull(waitMs) { responses.receive() }
-                } ?: break
+                    else -> withTimeoutOrNull(minOf(waitMs, previewDueMs().coerceAtLeast(1L))) { responses.receive() }
+                }
+                if (next == null) {
+                    if (waitMs > 0 && previewDueMs() <= 0) {
+                        previewsShown = true
+                        searchPreview(trimmed, received).takeIf { it.isNotEmpty() }?.let(emit)
+                        continue
+                    }
+                    break
+                }
                 received += next
-                val preview = searchPreview(trimmed, received)
-                if (preview.isNotEmpty()) emit(preview)
+                if (firstUsefulNs == 0L && next.isNotEmpty()) firstUsefulNs = System.nanoTime()
+                if (previewsShown) searchPreview(trimmed, received).takeIf { it.isNotEmpty() }?.let(emit)
             }
             if (received.size == coreRequests.size && received.all { it.isEmpty() } && received.any { it.requestFailed }) {
                 throw IOException("Search could not reach the music service")
@@ -456,7 +472,7 @@ class SearchRepositoryImpl(
                 }
                 if (artistPlays > topPlays) resolvedTopResult = SearchTopResult.ArtistResult(namedArtist)
             }
-            val runnerUp = if (resolvedTopResult is SearchTopResult.ArtistResult) null else featuredRanking.getOrNull(1)
+            val runnerUp = selectAlsoMatching(trimmed, resolvedTopResult, featuredRanking, albumCounts)
             val runnerUpAlbumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.let { albumCounts[it.album.id] }
                 ?: (resolvedTopResult as? SearchTopResult.AlbumResult)?.let { albumCounts[it.album.id] } ?: 0L
 
@@ -734,10 +750,12 @@ class SearchRepositoryImpl(
             )
             }
 
-            // Missing responses count as empty until they land. A spelling suggestion that is not back
-            // yet is left out rather than reshuffling the songs later.
+            // Missing responses count as empty until they land. The spelling-suggestion songs get the
+            // same deadline as the core requests; if they are still not back they are left out rather
+            // than reshuffling the songs later.
             val core = coreRequests.map { if (it.isCompleted) it.await() else SearchResults() }
-            val suggestionSongs = if (topSuggestionDeferred.isCompleted) topSuggestionDeferred.await() else emptyList()
+            val suggestionWaitMs = ((coreDeadlineNs - System.nanoTime()) / 1_000_000).coerceAtLeast(0L)
+            val suggestionSongs = withTimeoutOrNull(suggestionWaitMs) { topSuggestionDeferred.await() } ?: emptyList()
             val first = rank(core, suggestionSongs, core.any { it.requestFailed }, emitRanked = true)
             if (coreRequests.all { it.isCompleted && !it.await().requestFailed }) return@coroutineScope first
 
