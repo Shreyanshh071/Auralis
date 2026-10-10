@@ -151,6 +151,10 @@ class VlcAudioPlayer private constructor(
         private const val MAX_INTERPOLATION_MS = 1000L
         private const val SEEK_THRESHOLD_MS = 600L
         @Volatile private var nativeLog: uk.co.caprica.vlcj.log.NativeLog? = null
+
+        /** Which libVLC was loaded: "bundled (<dir>)" or "installed VLC"; null before [createOrNull]. */
+        @Volatile var loadedFrom: String? = null
+            private set
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
@@ -159,21 +163,34 @@ class VlcAudioPlayer private constructor(
          * [bundledVlcDir]) first, then an installed VLC. Returns null when there is none.
          */
         fun createOrNull(bundledVlcDir: java.io.File? = null): VlcAudioPlayer? {
+            val started = System.currentTimeMillis()
             return try {
                 if (bundledVlcDir != null && java.io.File(bundledVlcDir, "libvlc.dll").exists()) {
                     System.setProperty("jna.library.path", bundledVlcDir.absolutePath)
-                } else if (!NativeDiscovery().discover()) {
+                    loadedFrom = "bundled (${bundledVlcDir.absolutePath})"
+                } else if (NativeDiscovery().discover()) {
+                    loadedFrom = "installed VLC"
+                } else {
                     Log.w(TAG, "libVLC not found")
                     return null
                 }
+                Log.i(TAG, "Using libVLC: $loadedFrom")
                 val factory = MediaPlayerFactory("--no-video", "--quiet", "--intf=dummy")
                 // libVLC's own errors (e.g. a stream it can't open) go to the app log.
                 // Kept in a field: libVLC calls back into it, so it must not be garbage collected.
                 nativeLog = factory.application().newLog()?.apply {
                     level = uk.co.caprica.vlcj.log.LogLevel.ERROR
-                    addLogListener { _, module, _, _, _, _, _, message -> Log.w("libVLC", "$module: $message") }
+                    addLogListener { _, module, _, _, _, _, _, message ->
+                        // vlcj sets video options (marquee, logo, vmem) whose plugins the bundled
+                        // audio-only copy leaves out; those complaints are expected.
+                        if (!(message.startsWith("option ") && message.endsWith("does not exist"))) {
+                            Log.w("libVLC", "$module: $message")
+                        }
+                    }
                 }
-                VlcAudioPlayer(factory, factory.mediaPlayers().newMediaPlayer())
+                VlcAudioPlayer(factory, factory.mediaPlayers().newMediaPlayer()).also {
+                    Log.i(TAG, "libVLC ready in ${System.currentTimeMillis() - started}ms")
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "libVLC failed to start: ${t.javaClass.simpleName} ${t.message}")
                 null

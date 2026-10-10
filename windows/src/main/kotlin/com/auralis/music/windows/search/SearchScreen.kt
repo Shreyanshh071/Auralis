@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -81,10 +82,13 @@ fun SearchScreen(
     currentTrackId: String?,
     isPlaying: Boolean,
     onPlay: ((com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit)?,
-    onUnavailable: (String) -> Unit
+    onUnavailable: (String) -> Unit,
+    /** Changes each time Ctrl+F asks for the search field. */
+    focusRequests: Int = 0,
+    onTypingChange: (Boolean) -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(focusRequests) { focusRequester.requestFocus() }
 
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         SearchBar(
@@ -93,7 +97,11 @@ fun SearchScreen(
             onSearch = { state.search() },
             onClear = state::clear,
             focusRequester = focusRequester,
-            modifier = Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+            modifier = Modifier
+                .widthIn(max = ContentMaxWidth)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .onFocusChanged { onTypingChange(it.hasFocus) }
         )
 
         Box(modifier = Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth().weight(1f)) {

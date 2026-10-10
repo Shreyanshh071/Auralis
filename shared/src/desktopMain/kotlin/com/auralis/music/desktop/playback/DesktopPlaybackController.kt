@@ -96,6 +96,51 @@ class DesktopPlaybackController(
 
     fun seekTo(ms: Long) = player.seekTo(ms)
 
+    /** Seeks [deltaMs] forward (or back when negative), within the song. */
+    fun seekBy(deltaMs: Long) {
+        if (_queue.value.current == null) return
+        val length = player.lengthMs.value
+        val target = (player.positionMs.value + deltaMs).coerceAtLeast(0L)
+        seekTo(if (length > 0L) target.coerceAtMost(length - 1000L) else target)
+    }
+
+    fun volumeBy(delta: Float) = setVolume(_volume.value + delta)
+
+    private var volumeBeforeMute = 1f
+
+    /** Mutes, or brings back the volume from before muting. */
+    fun toggleMute() {
+        if (_volume.value > 0f) {
+            volumeBeforeMute = _volume.value
+            setVolume(0f)
+        } else {
+            setVolume(volumeBeforeMute.takeIf { it > 0f } ?: 1f)
+        }
+    }
+
+    /** Plays the song at [index] in the queue (the queue itself stays as it is). */
+    fun playAt(index: Int) {
+        val q = _queue.value
+        if (index !in q.tracks.indices) return
+        consecutiveFailures = 0
+        load(q.copy(index = index))
+    }
+
+    /** Removes a song that isn't the one playing. */
+    fun removeAt(index: Int) {
+        val q = _queue.value
+        if (index !in q.tracks.indices || index == q.index) return
+        val tracks = q.tracks.toMutableList().apply { removeAt(index) }
+        _queue.value = Queue(tracks, if (index < q.index) q.index - 1 else q.index)
+    }
+
+    /** Clears History: every song before the one playing. */
+    fun clearHistory() {
+        val q = _queue.value
+        if (q.index <= 0) return
+        _queue.value = Queue(q.tracks.drop(q.index), 0)
+    }
+
     fun setVolume(volume: Float) {
         _volume.value = volume.coerceIn(0f, 1f)
         player.setVolume(_volume.value)

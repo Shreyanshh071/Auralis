@@ -32,7 +32,8 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         if (newQuery.isBlank()) clear()
     }
 
-    fun search(text: String = query) {
+    /** [recordHistory] false keeps the search out of Recent searches (the self-test's own). */
+    fun search(text: String = query, recordHistory: Boolean = true) {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return
         searchJob?.cancel()
@@ -44,7 +45,7 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         results = cached ?: SearchResults()
         isSearching = cached == null
         searchJob = scope.launch {
-            launch { runCatching { repository.recordSearchQuery(trimmed) } }
+            if (recordHistory) launch { runCatching { repository.recordSearchQuery(trimmed) } }
             try {
                 val finished = repository.search(trimmed) { received ->
                     scope.launch {

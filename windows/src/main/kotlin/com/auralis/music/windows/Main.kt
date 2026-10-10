@@ -20,7 +20,7 @@ import javax.imageio.ImageIO
 
 private const val TAG = "AuralisWindows"
 
-fun main() {
+fun main(args: Array<String>) {
     Log.i(TAG, "Starting Auralis for Windows")
     // Same startup as the phone's: the YouTube session and the search lookup caches load from their
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
@@ -47,7 +47,9 @@ fun main() {
     val lyrics = playback?.let {
         com.auralis.music.desktop.lyrics.DesktopLyricsController(
             it,
-            com.auralis.music.desktop.lyrics.DesktopLyricsRepository(),
+            com.auralis.music.desktop.lyrics.DesktopLyricsRepository(
+                com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics"))
+            ),
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
         )
     }
@@ -55,8 +57,11 @@ fun main() {
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
         ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
 
+    val selfTest = SelfTest.fromArgs(args, dataDir)
+    var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
     application {
         Window(
+            onPreviewKeyEvent = { shortcutHandler?.invoke(it) ?: false },
             onCloseRequest = { playback?.release(); exitApplication() },
             title = "Auralis",
             icon = icon,
@@ -69,7 +74,17 @@ fun main() {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, playback, this)
                 }
             }
-            AuralisDesktopApp(searchRepository, playback, lyrics)
+            AuralisDesktopApp(
+                searchRepository,
+                playback,
+                lyrics,
+                onShortcutHandler = { shortcutHandler = it },
+                selfTest = selfTest,
+                onSelfTestDone = { passed ->
+                    playback?.release()
+                    kotlin.system.exitProcess(if (passed) 0 else 1)
+                }
+            )
         }
     }
 }

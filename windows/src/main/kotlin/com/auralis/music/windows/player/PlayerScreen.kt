@@ -3,6 +3,8 @@ package com.auralis.music.windows.player
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,6 +70,8 @@ import com.auralis.music.windows.search.DesktopArtwork
 fun PlayerScreen(
     playback: DesktopPlaybackController,
     lyrics: DesktopLyricsController,
+    panel: PlayerPanel,
+    onPanelChange: (PlayerPanel) -> Unit,
     onClose: () -> Unit
 ) {
     val queue by playback.queue.collectAsState()
@@ -121,8 +125,15 @@ fun PlayerScreen(
                     Transport(playback)
                 }
                 if (wide) {
-                    Box(Modifier.weight(0.58f).fillMaxHeight()) {
-                        LyricsPanel(playback, lyrics)
+                    Column(Modifier.weight(0.58f).fillMaxHeight()) {
+                        PanelTabs(panel, onSelect = onPanelChange)
+                        Spacer(Modifier.height(8.dp))
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            when (panel) {
+                                PlayerPanel.LYRICS -> LyricsPanel(playback, lyrics)
+                                PlayerPanel.QUEUE -> QueueView(playback)
+                            }
+                        }
                     }
                 }
             }
@@ -130,6 +141,35 @@ fun PlayerScreen(
 
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close player", tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+    }
+}
+
+/** What the player shows beside the artwork. */
+enum class PlayerPanel(val label: String) { LYRICS("Lyrics"), QUEUE("Queue") }
+
+/** Lyrics / Queue switch: white text on a translucent pill, like the player's other glass controls. */
+@Composable
+private fun PanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.10f))
+            .padding(4.dp)
+    ) {
+        PlayerPanel.entries.forEach { item ->
+            val isSelected = item == selected
+            Text(
+                text = item.label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (isSelected) Color.White.copy(alpha = 0.18f) else Color.Transparent)
+                    .clickable { onSelect(item) }
+                    .padding(horizontal = 18.dp, vertical = 8.dp)
+            )
         }
     }
 }
