@@ -354,7 +354,7 @@ class BetterLyricsSource(
     }
 
     /** True when TTML's body duration describes the lyric window rather than the full song. */
-    internal fun isVocalWindowDuration(data: LyricsData, playbackDurationMs: Long): Boolean {
+    fun isVocalWindowDuration(data: LyricsData, playbackDurationMs: Long): Boolean {
         val bodyEndMs = data.durationMs ?: return false
         if (playbackDurationMs <= 0L || playbackDurationMs - bodyEndMs <= 3_500L) return false
         val lastVocalEndMs = data.lines.lastOrNull { !it.isInstrumental }

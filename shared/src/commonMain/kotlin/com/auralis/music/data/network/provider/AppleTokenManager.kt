@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -111,7 +111,7 @@ class AppleTokenManager(
     }
 
     // Visible for testing
-    internal fun setCachedToken(token: String?) {
+    fun setCachedToken(token: String?) {
         cachedToken = token
     }
 }

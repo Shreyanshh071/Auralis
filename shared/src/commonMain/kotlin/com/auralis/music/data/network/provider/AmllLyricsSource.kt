@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.LyricsMatcher
@@ -447,7 +447,7 @@ class AmllLyricsSource(
 }
 
 /** One song in the AMLL DB index: its names, artists, platform ids and the raw-lyrics file. */
-internal class AmllIndexEntry(
+class AmllIndexEntry(
     val names: List<String>,
     val artists: List<String>,
     val ids: Set<String>,
@@ -455,7 +455,7 @@ internal class AmllIndexEntry(
     val normNames: List<String>
 )
 
-internal class AmllIndex(private val entries: List<AmllIndexEntry>) {
+class AmllIndex(private val entries: List<AmllIndexEntry>) {
     val size: Int get() = entries.size
 
     /** Matching entries, newest first (the index is appended in submission order). */

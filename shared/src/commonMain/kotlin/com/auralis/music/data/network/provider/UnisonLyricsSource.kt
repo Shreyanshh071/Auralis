@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.LrcParser

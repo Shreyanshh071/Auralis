@@ -1,6 +1,6 @@
 package com.auralis.music.data.network.provider
 
-import android.util.Log
+import com.auralis.music.util.Log
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.parser.LyricsMatcher
 import com.auralis.music.data.parser.TtmlParser
@@ -91,7 +91,7 @@ class PaxsenixLyricsSource(
     /**
      * Searches Apple Music catalog API for candidate songs, with automatic 401 retry.
      */
-    internal suspend fun searchAppleMusicTrack(
+    suspend fun searchAppleMusicTrack(
         cleanTitle: String,
         cleanArtist: String,
         targetDurationMs: Long?,
@@ -156,7 +156,7 @@ class PaxsenixLyricsSource(
         }
     }
 
-    internal fun parseAppleMusicSearchResults(jsonStr: String): List<AppleMusicTrack> {
+    fun parseAppleMusicSearchResults(jsonStr: String): List<AppleMusicTrack> {
         val tracks = mutableListOf<AppleMusicTrack>()
         try {
             val root = JSONObject(jsonStr)
@@ -199,7 +199,7 @@ class PaxsenixLyricsSource(
      * - Version marker matching (rejecting remix/live/acoustic when query is original)
      * - Strict duration window matching (penalizing >3.5s mismatches)
      */
-    internal fun selectBestMatch(
+    fun selectBestMatch(
         tracks: List<AppleMusicTrack>,
         queryTitle: String,
         queryArtist: String,
@@ -288,7 +288,7 @@ class PaxsenixLyricsSource(
     /**
      * Fetches the raw Apple Music TTML lyrics from Paxsenix and parses them into a [LyricsCandidate].
      */
-    internal fun fetchPaxsenixLyrics(
+    fun fetchPaxsenixLyrics(
         track: AppleMusicTrack,
         query: LyricsSearchQuery,
         targetDurationMs: Long?
@@ -373,7 +373,7 @@ class PaxsenixLyricsSource(
         }
     }
 
-    internal fun parsePaxsenixResponse(
+    fun parsePaxsenixResponse(
         jsonStr: String,
         track: AppleMusicTrack,
         query: LyricsSearchQuery,
