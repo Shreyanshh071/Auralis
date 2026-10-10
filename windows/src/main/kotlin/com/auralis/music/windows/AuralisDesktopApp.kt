@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -27,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +50,10 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun AuralisDesktopApp(searchRepository: com.auralis.music.domain.repository.SearchRepository) {
+fun AuralisDesktopApp(
+    searchRepository: com.auralis.music.domain.repository.SearchRepository,
+    playback: com.auralis.music.desktop.playback.DesktopPlaybackController?
+) {
     // Search is the first working page on Windows, so the app opens on it.
     var destination by remember { mutableStateOf(DesktopDestination.SEARCH) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -59,6 +62,9 @@ fun AuralisDesktopApp(searchRepository: com.auralis.music.domain.repository.Sear
     val showUnavailable: (String) -> Unit = { message ->
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
     }
+    androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
+    val queue = playback?.queue?.collectAsState()?.value
+    val playerState = playback?.state?.collectAsState()?.value
 
     AuralisDesktopTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -70,7 +76,13 @@ fun AuralisDesktopApp(searchRepository: com.auralis.music.domain.repository.Sear
                             DesktopDestination.HOME -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
                                 NotBuiltYet("Home", "Recommendations come after search and playback work.")
                             }
-                            DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(searchState, showUnavailable)
+                            DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(
+                                state = searchState,
+                                currentTrackId = queue?.current?.id,
+                                isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
+                                onPlay = playback?.let { it::playFrom },
+                                onUnavailable = showUnavailable
+                            )
                             DesktopDestination.LIBRARY -> Box(Modifier.padding(horizontal = 40.dp, vertical = 32.dp)) {
                                 NotBuiltYet("Library", "Local library comes after playback.")
                             }
@@ -79,7 +91,7 @@ fun AuralisDesktopApp(searchRepository: com.auralis.music.domain.repository.Sear
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                NowPlayingBar()
+                com.auralis.music.windows.player.NowPlayingBar(playback)
             }
         }
     }
@@ -142,27 +154,5 @@ private fun NotBuiltYet(title: String, detail: String) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
         Text("Not built yet. $detail", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun NowPlayingBar() {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
-            .background(colors.surface)
-            .padding(horizontal = 20.dp)
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(colors.surfaceContainerHigh)
-        ) {
-            Icon(Icons.Outlined.MusicNote, contentDescription = null, tint = colors.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(16.dp))
-        Text("Nothing playing", fontSize = 15.sp, color = colors.onSurfaceVariant)
     }
 }

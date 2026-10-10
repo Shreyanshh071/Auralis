@@ -35,18 +35,32 @@ fun main() {
         KeyValueSearchHistoryStore(PropertiesFileKeyValueStore(java.io.File(dataDir, "search-history.properties")))
     )
 
+    // Audio through libVLC: the copy the installer bundles (resources "vlc" folder), else an
+    // installed VLC. Without either, the app still runs and the bar explains what is missing.
+    val bundledVlc = System.getProperty("compose.application.resources.dir")?.let { java.io.File(it, "vlc") }
+    val playback = com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(bundledVlc)?.let {
+        com.auralis.music.desktop.playback.DesktopPlaybackController(it, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default))
+    }
+    com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
+
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
         ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
 
     application {
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = { playback?.release(); exitApplication() },
             title = "Auralis",
             icon = icon,
             state = rememberWindowState(size = DpSize(1280.dp, 820.dp))
         ) {
             window.minimumSize = java.awt.Dimension(900, 600)
-            AuralisDesktopApp(searchRepository)
+            // The song in Windows' media overlay, and the keyboard's media keys.
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                if (playback != null) {
+                    com.auralis.music.windows.media.bindMediaControls(window.windowHandle, playback, this)
+                }
+            }
+            AuralisDesktopApp(searchRepository, playback)
         }
     }
 }
