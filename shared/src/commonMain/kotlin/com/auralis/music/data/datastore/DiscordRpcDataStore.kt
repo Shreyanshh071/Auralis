@@ -1,18 +1,14 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
-import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.DiscordRpcSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-private val Context.discordDataStore: DataStore<Preferences> by preferencesDataStore(name = "discord_rpc_preferences")
-
-class DiscordRpcDataStore(private val context: Context) {
+class DiscordRpcDataStore(private val dataStore: DataStore<Preferences>) {
 
     companion object {
         val IS_LOGGED_IN = booleanPreferencesKey("discord_is_logged_in")
@@ -35,7 +31,7 @@ class DiscordRpcDataStore(private val context: Context) {
         val SMALL_IMAGE = stringPreferencesKey("discord_small_image")
     }
 
-    val settingsFlow: Flow<DiscordRpcSettings> = context.discordDataStore.data
+    val settingsFlow: Flow<DiscordRpcSettings> = dataStore.data
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -67,7 +63,7 @@ class DiscordRpcDataStore(private val context: Context) {
         }
 
     suspend fun migrateLegacyAuthentication() {
-        context.discordDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             if (prefs[SOCIAL_SDK_MIGRATED] != true) {
                 prefs.remove(DISCORD_TOKEN)
                 prefs[IS_LOGGED_IN] = false
@@ -79,7 +75,7 @@ class DiscordRpcDataStore(private val context: Context) {
     }
 
     suspend fun updateSettings(transform: (DiscordRpcSettings) -> DiscordRpcSettings) {
-        context.discordDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             val current = DiscordRpcSettings(
                 isLoggedIn = prefs[IS_LOGGED_IN] ?: false,
                 discordUsername = prefs[DISCORD_USERNAME] ?: "",
@@ -121,7 +117,7 @@ class DiscordRpcDataStore(private val context: Context) {
     }
 
     suspend fun setLoggedIn(isLoggedIn: Boolean, username: String = "", avatarUrl: String = "", token: String = "") {
-        context.discordDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[IS_LOGGED_IN] = isLoggedIn
             prefs[DISCORD_USERNAME] = username
             prefs[DISCORD_AVATAR_URL] = avatarUrl
@@ -130,7 +126,7 @@ class DiscordRpcDataStore(private val context: Context) {
     }
 
     suspend fun setLoginState(isLoggedIn: Boolean, username: String, discriminator: String = "0", avatarUrl: String = "", token: String = "") {
-        context.discordDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[IS_LOGGED_IN] = isLoggedIn
             prefs[DISCORD_USERNAME] = username
             prefs[DISCORD_DISCRIMINATOR] = discriminator
@@ -141,7 +137,7 @@ class DiscordRpcDataStore(private val context: Context) {
 
     suspend fun updateAvatarForConnectedUser(username: String, avatarUrl: String) {
         if (avatarUrl.isBlank()) return
-        context.discordDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             if (prefs[IS_LOGGED_IN] == true && prefs[DISCORD_USERNAME] == username) {
                 prefs[DISCORD_AVATAR_URL] = avatarUrl
             }
@@ -149,50 +145,50 @@ class DiscordRpcDataStore(private val context: Context) {
     }
 
     suspend fun setEnableRichPresence(enabled: Boolean) {
-        context.discordDataStore.edit { it[ENABLE_RICH_PRESENCE] = enabled }
+        dataStore.edit { it[ENABLE_RICH_PRESENCE] = enabled }
     }
 
     suspend fun setActivityStatus(status: String) {
-        context.discordDataStore.edit { it[ACTIVITY_STATUS] = status }
+        dataStore.edit { it[ACTIVITY_STATUS] = status }
     }
 
     suspend fun setUpdateInterval(interval: Int) {
-        context.discordDataStore.edit { it[UPDATE_INTERVAL] = interval }
+        dataStore.edit { it[UPDATE_INTERVAL] = interval }
     }
 
     suspend fun setPlatform(platform: String) {
-        context.discordDataStore.edit { it[PLATFORM] = platform }
+        dataStore.edit { it[PLATFORM] = platform }
     }
 
     suspend fun setActivityName(name: String) {
-        context.discordDataStore.edit { it[ACTIVITY_NAME] = name }
+        dataStore.edit { it[ACTIVITY_NAME] = name }
     }
 
     suspend fun setActivityDetails(details: String) {
-        context.discordDataStore.edit { it[ACTIVITY_DETAILS] = details }
+        dataStore.edit { it[ACTIVITY_DETAILS] = details }
     }
 
     suspend fun setActivityState(state: String) {
-        context.discordDataStore.edit { it[ACTIVITY_STATE] = state }
+        dataStore.edit { it[ACTIVITY_STATE] = state }
     }
 
     suspend fun setShowRpcWhenPaused(show: Boolean) {
-        context.discordDataStore.edit { it[SHOW_RPC_WHEN_PAUSED] = show }
+        dataStore.edit { it[SHOW_RPC_WHEN_PAUSED] = show }
     }
 
     suspend fun setActivityType(type: String) {
-        context.discordDataStore.edit { it[ACTIVITY_TYPE] = type }
+        dataStore.edit { it[ACTIVITY_TYPE] = type }
     }
 
     suspend fun setLargeImage(image: String) {
-        context.discordDataStore.edit { it[LARGE_IMAGE] = image }
+        dataStore.edit { it[LARGE_IMAGE] = image }
     }
 
     suspend fun setLargeText(text: String) {
-        context.discordDataStore.edit { it[LARGE_TEXT] = text }
+        dataStore.edit { it[LARGE_TEXT] = text }
     }
 
     suspend fun setSmallImage(image: String) {
-        context.discordDataStore.edit { it[SMALL_IMAGE] = image }
+        dataStore.edit { it[SMALL_IMAGE] = image }
     }
 }

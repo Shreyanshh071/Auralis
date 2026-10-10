@@ -1,11 +1,9 @@
 package com.auralis.music.data.datastore
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.recognition.RecognitionHistoryItem
 import com.auralis.music.domain.recognition.RecognitionResult
 import kotlinx.coroutines.flow.Flow
@@ -14,12 +12,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-private val Context.recognitionHistoryDataStore: DataStore<Preferences> by preferencesDataStore(name = "recognition_history")
-
-class MusicRecognitionHistoryDataStore(
-    private val context: Context
-) {
-    private val dataStore = context.recognitionHistoryDataStore
+class MusicRecognitionHistoryDataStore(private val dataStore: DataStore<Preferences>) {
 
     private val json = Json {
         isLenient = true

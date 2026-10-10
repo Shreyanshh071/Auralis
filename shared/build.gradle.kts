@@ -40,7 +40,7 @@ val bundleDesktopStrings by tasks.registering(Sync::class) {
     }
     // The logo drawables shared UI draws (DesktopBrandImages).
     from(File(phoneRes, "drawable")) {
-        include("ic_auralis_header_logo.png", "ic_auralis_logo.png")
+        include("ic_auralis_header_logo.png", "ic_auralis_logo.png", "ic_github.xml", "ic_discord.xml")
         into("brand")
     }
     into(layout.buildDirectory.dir("generated/auralisStrings/desktopResources"))
@@ -83,6 +83,8 @@ kotlin {
             implementation("dev.chrisbanes.haze:haze:1.3.1")
             // ViewModel (multiplatform; the app's AndroidX lifecycle on Android).
             api("org.jetbrains.androidx.lifecycle:lifecycle-viewmodel:2.8.4")
+            // Settings files (Jetpack DataStore Preferences; the version the app uses, multiplatform).
+            api("androidx.datastore:datastore-preferences-core:1.1.1")
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okhttp)

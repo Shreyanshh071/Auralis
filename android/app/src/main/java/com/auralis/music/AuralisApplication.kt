@@ -29,6 +29,8 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         com.auralis.music.data.network.ContentSettingsSource.languageChanges = com.auralis.music.ui.i18n.AppLanguage.changes
         // Library artwork repair checks Spotify's record of imported songs (one importer, so its token is reused).
         val spotifyImporter = com.auralis.music.data.network.SpotifyPlaylistImporter()
+        // Shared screens (Theme & colours) preview the playing song's palette from the phone's cache.
+        com.auralis.music.ui.theme.ArtworkPaletteSource.current = com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette
         com.auralis.music.data.network.SpotifyTrackLookup.exactTrack = { spotifyId ->
             spotifyImporter.getAccessToken()?.let { token -> spotifyImporter.fetchTrackFromApi(spotifyId, token)?.tracks?.firstOrNull() }
         }
@@ -43,7 +45,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         }
         com.auralis.music.data.network.ContentLocale.appLanguageTag = { com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank() }
         // First: network code reads hl/gl, result filters and the proxy from here on every request.
-        com.auralis.music.data.datastore.ContentSettingsStore.init(this)
+        com.auralis.music.data.datastore.ContentSettingsStore.init(com.auralis.music.data.datastore.ContentSettingsDataStore(this))
         com.auralis.music.data.network.ContentProxy.install()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
         com.auralis.music.data.network.YouTubeSession.init(
