@@ -74,7 +74,6 @@ fun AuralisDesktopApp(
     }
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
     val platformActions = remember { com.auralis.music.ui.components.DesktopPlatformActions(showUnavailable) }
-    }
     val queue = playback?.queue?.collectAsState()?.value
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
