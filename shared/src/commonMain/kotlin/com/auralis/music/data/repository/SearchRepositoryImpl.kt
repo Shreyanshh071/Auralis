@@ -52,6 +52,19 @@ class SearchRepositoryImpl(
         finishedSearches[query.lowercase()] = FinishedSearch(System.nanoTime() / 1_000_000, results)
     }
 
+    /** The release-card lookups started early for the song most likely to become the top result. */
+    private class EarlyReleaseLookup(
+        val trackId: String,
+        val albumId: String?,
+        /** The album as soon as iTunes named it (no YouTube Music page yet). */
+        val named: java.util.concurrent.atomic.AtomicReference<com.auralis.music.data.network.ResolvedAlbum?>,
+        val resolver: kotlinx.coroutines.Deferred<ResolverAnswer?>,
+        val releaseType: kotlinx.coroutines.Deferred<String?>?
+    )
+
+    private fun <T> kotlinx.coroutines.Deferred<T>.getCompletedOrNull(): T? =
+        if (isCompleted && !isCancelled) @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class) getCompleted() else null
+
     /** A finished album lookup: [album] is null when it found nothing. */
     private class ResolverAnswer(val album: com.auralis.music.data.network.ResolvedAlbum?)
 
@@ -60,6 +73,8 @@ class SearchRepositoryImpl(
         const val CORE_WAIT_MS = 2_500L
         /** Extra wait for albums/artists once songs and general results are in. */
         const val CORE_GRACE_MS = 800L
+        /** How long the ranked result may wait for its release card's lookups (album / Single). */
+        const val RELEASE_CARD_WAIT_MS = 400L
         /** Partial results are shown only if the ranked result is not ready this long after the first answer. */
         const val PREVIEW_AFTER_MS = 600L
         const val FINISHED_SEARCH_TTL_MS = 30 * 60_000L
@@ -112,6 +127,37 @@ class SearchRepositoryImpl(
             // more than CORE_WAIT_MS for the rest: on some networks YouTube Music refuses a request
             // (HTTP 403) only after 6-10 s, and the whole search used to wait for that. A late
             // request is folded in when it lands (below).
+            // The release card's lookups (album lookup, release label) take about a second. They start as
+            // soon as the songs response names the likely top song, alongside the rest of the search,
+            // instead of after ranking; ranking reuses them when it picks the same song.
+            var earlyRelease: EarlyReleaseLookup? = null
+            fun startEarlyReleaseLookup() {
+                if (earlyRelease != null || !coreRequests[0].isCompleted) return
+                val songsResponse = coreRequests[0].let { if (it.isCompleted) it.getCompletedOrNull() else null } ?: return
+                val likelyTop = SearchQueryMatcher.partitionResults(songsResponse.songs, trimmed).first.firstOrNull() ?: return
+                if (!AlbumMetadataResolver.needsResolving(likelyTop.album, likelyTop.title) && !likelyTop.albumId.isNullOrBlank()) return
+                val named = java.util.concurrent.atomic.AtomicReference<com.auralis.music.data.network.ResolvedAlbum?>()
+                earlyRelease = EarlyReleaseLookup(
+                    trackId = likelyTop.id,
+                    albumId = likelyTop.albumId,
+                    named = named,
+                    resolver = async { timed("albumResolverEarly") {
+                        try {
+                            withTimeoutOrNull(4_000L) {
+                                ResolverAnswer(AlbumMetadataResolver.resolveAlbum(likelyTop.title, likelyTop.artist, innerTubeClient,
+                                    onAlbumNamed = { named.set(it) }))
+                            }
+                        } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                    } },
+                    releaseType = likelyTop.albumId?.takeIf { it.startsWith("MPRE") }?.let { id ->
+                        async {
+                            try { withTimeoutOrNull(2_500L) { innerTubeClient.getReleaseType(id) } }
+                            catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                        }
+                    }
+                )
+            }
+
             val received = mutableListOf<SearchResults>()
             var coreDeadlineNs = startedNs + CORE_WAIT_MS * 1_000_000
             var mainAnswered = false
@@ -144,6 +190,7 @@ class SearchRepositoryImpl(
                     break
                 }
                 received += next
+                startEarlyReleaseLookup()
                 if (firstUsefulNs == 0L && next.isNotEmpty()) firstUsefulNs = System.nanoTime()
                 if (previewsShown) searchPreview(trimmed, received).takeIf { it.isNotEmpty() }?.let(emit)
             }
@@ -562,8 +609,10 @@ class SearchRepositoryImpl(
                 .filter { !it.albumId.isNullOrBlank() && AlbumMetadataResolver.isRedundantOrSingle(it.album, it.title) }
                 .mapNotNull { it.albumId }.distinct()
                 .filter { id -> allAlbums.none { it.id == id && it.releaseType != null } }
+            val early = earlyRelease
             val releaseTypeDeferreds = ambiguousReleaseIds.map { id ->
-                async {
+                if (early?.releaseType != null && early.albumId == id) early.releaseType.let { d -> async { id to d.await() } }
+                else async {
                     id to try { withTimeoutOrNull(2_500L) { innerTubeClient.getReleaseType(id) } }
                         catch (e: CancellationException) { throw e } catch (_: Exception) { null }
                 }
@@ -572,7 +621,9 @@ class SearchRepositoryImpl(
                 (AlbumMetadataResolver.needsResolving(topTrackForAlbum.album, topTrackForAlbum.title) ||
                     topTrackForAlbum.albumId.isNullOrBlank() || topTrackForAlbum.album.isNullOrBlank())
             // A finished lookup (its answer, possibly "nothing found"), or null if it timed out or failed.
-            val resolverDeferred: kotlinx.coroutines.Deferred<ResolverAnswer?> = async { timed("albumResolver") {
+            val resolverDeferred: kotlinx.coroutines.Deferred<ResolverAnswer?> =
+                if (topNeedsResolving && early != null && early.trackId == topTrackForAlbum?.id) early.resolver
+                else async { timed("albumResolver") {
                 if (!topNeedsResolving) null else try {
                     withTimeoutOrNull(4_000L) {
                         ResolverAnswer(AlbumMetadataResolver.resolveAlbum(topTrackForAlbum!!.title, primaryArtist?.name ?: topTrackForAlbum.artist, innerTubeClient))
@@ -797,7 +848,24 @@ class SearchRepositoryImpl(
             val cachedQueueTracks = albumLookupIds.mapNotNull { id ->
                 InnerTubeClient.cachedQueueAlbum(id)?.let { (album, albumId) -> id to Track(id, "", "", album = album, albumId = albumId) }
             }.toMap()
-            if (emitRanked) emit(assemble(null, cachedQueueTracks, cachedResolverAnswer, emptyMap()))
+            if (emitRanked) {
+                // The release card shows with the songs when its lookups finish within a short wait;
+                // otherwise the songs go first and the card fills in when they answer.
+                val topReleaseType = topTrackForAlbum?.albumId
+                    ?.let { id -> ambiguousReleaseIds.indexOf(id).takeIf { it >= 0 } }?.let { releaseTypeDeferreds[it] }
+                // The album is shown as soon as iTunes names it; its YouTube Music page follows.
+                val namedEarly = early?.takeIf { it.resolver === resolverDeferred }?.named
+                if (topNeedsResolving && cachedResolverAnswer == null) {
+                    withTimeoutOrNull(RELEASE_CARD_WAIT_MS) {
+                        while (!resolverDeferred.isCompleted && namedEarly?.get() == null) kotlinx.coroutines.delay(20)
+                        topReleaseType?.await()
+                    }
+                }
+                val resolvedSoFar = resolverDeferred.getCompletedOrNull() ?: cachedResolverAnswer
+                    ?: namedEarly?.get()?.let { ResolverAnswer(it) }
+                val typesSoFar = releaseTypeDeferreds.mapNotNull { it.getCompletedOrNull()?.let { (id, type) -> type?.let { id to it } } }.toMap()
+                emit(assemble(null, cachedQueueTracks, resolvedSoFar, typesSoFar))
+            }
             assemble(
                 realArtist = artistPhotoDeferred.await(),
                 queueTracks = cachedQueueTracks + queueDeferred.await(),
