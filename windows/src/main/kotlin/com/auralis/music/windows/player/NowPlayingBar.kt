@@ -1,6 +1,8 @@
 package com.auralis.music.windows.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,7 +45,7 @@ import com.auralis.music.windows.search.DesktopArtwork
 
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
-fun NowPlayingBar(controller: DesktopPlaybackController?) {
+fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -62,8 +64,15 @@ fun NowPlayingBar(controller: DesktopPlaybackController?) {
         val resolving by controller.resolving.collectAsState()
         val track = queue.current
 
-        // Current song (left third)
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+        // Current song (left third); clicking it opens the full player.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                .clickable(enabled = track != null, onClick = onOpenPlayer)
+                .padding(vertical = 6.dp)
+        ) {
             DesktopArtwork(track?.thumbnail, Modifier.size(56.dp), 10.dp, null)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f, fill = false)) {

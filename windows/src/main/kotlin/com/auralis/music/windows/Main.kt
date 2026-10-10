@@ -42,6 +42,15 @@ fun main() {
         com.auralis.music.desktop.playback.DesktopPlaybackController(it, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default))
     }
     com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
+    // Lyrics: the phone's provider race. AMLL keeps its song index in the cache folder, as on the phone.
+    com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
+    val lyrics = playback?.let {
+        com.auralis.music.desktop.lyrics.DesktopLyricsController(
+            it,
+            com.auralis.music.desktop.lyrics.DesktopLyricsRepository(),
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        )
+    }
 
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
         ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
@@ -60,7 +69,7 @@ fun main() {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, playback, this)
                 }
             }
-            AuralisDesktopApp(searchRepository, playback)
+            AuralisDesktopApp(searchRepository, playback, lyrics)
         }
     }
 }
