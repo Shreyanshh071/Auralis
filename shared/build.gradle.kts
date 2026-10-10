@@ -81,6 +81,8 @@ kotlin {
             implementation("com.materialkolor:material-kolor:2.0.2")
             // Backdrop blur (multiplatform), the version the app uses.
             implementation("dev.chrisbanes.haze:haze:1.3.1")
+            // ViewModel (multiplatform; the app's AndroidX lifecycle on Android).
+            api("org.jetbrains.androidx.lifecycle:lifecycle-viewmodel:2.8.4")
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okhttp)

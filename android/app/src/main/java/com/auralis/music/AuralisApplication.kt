@@ -26,6 +26,21 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         // Shared network code (hl/gl, proxy) reads these; the same calls it made when it lived here.
         com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
         com.auralis.music.data.network.ContentSettingsSource.updates = com.auralis.music.data.datastore.ContentSettingsStore.current
+        com.auralis.music.data.network.ContentSettingsSource.languageChanges = com.auralis.music.ui.i18n.AppLanguage.changes
+        // Library artwork repair checks Spotify's record of imported songs (one importer, so its token is reused).
+        val spotifyImporter = com.auralis.music.data.network.SpotifyPlaylistImporter()
+        com.auralis.music.data.network.SpotifyTrackLookup.exactTrack = { spotifyId ->
+            spotifyImporter.getAccessToken()?.let { token -> spotifyImporter.fetchTrackFromApi(spotifyId, token)?.tracks?.firstOrNull() }
+        }
+        // Shared artwork lookups use downloaded artwork first, as they did in the app.
+        com.auralis.music.data.network.ArtworkResolver.masterArtwork = { title, artist, cacheKey, album, duration ->
+            com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(title, artist, null, cacheKey, album, duration)
+        }
+        com.auralis.music.data.network.ArtworkResolver.localArtwork = { trackId ->
+            com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(trackId)
+                ?.takeIf { it.exists() && it.length() > 500 }
+                ?.let { android.net.Uri.fromFile(it).toString() }
+        }
         com.auralis.music.data.network.ContentLocale.appLanguageTag = { com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank() }
         // First: network code reads hl/gl, result filters and the proxy from here on every request.
         com.auralis.music.data.datastore.ContentSettingsStore.init(this)

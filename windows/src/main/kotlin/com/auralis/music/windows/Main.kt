@@ -17,6 +17,9 @@ import com.auralis.music.util.Log
 import com.auralis.music.util.PropertiesFileKeyValueStore
 import com.auralis.music.util.desktopAppDataDir
 import javax.imageio.ImageIO
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 private const val TAG = "AuralisWindows"
 
@@ -58,6 +61,23 @@ fun main(args: Array<String>) {
         )
     }
 
+    // Library and listening history: JSON files with the phone's rules. A song counts as played
+    // when it becomes the current song, as on the phone.
+    val library = com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
+    val history = com.auralis.music.desktop.library.DesktopHistoryRepository(java.io.File(dataDir, "history.json"), library)
+    if (playback != null) {
+        val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        appScope.launch {
+            playback.queue.map { it.current }.distinctUntilChangedBy { it?.id }.collect { track ->
+                if (track != null) {
+                    history.addToHistory(track)
+                    history.recordPlay(track)
+                }
+            }
+        }
+    }
+    val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"))
+
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
         ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
 
@@ -80,6 +100,9 @@ fun main(args: Array<String>) {
             }
             AuralisDesktopApp(
                 searchRepository,
+                library,
+                history,
+                homePlatform,
                 playback,
                 lyrics,
                 onShortcutHandler = { shortcutHandler = it },

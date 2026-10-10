@@ -20,7 +20,7 @@ import java.net.URLEncoder
 enum class ArtworkCondition { TRUSTWORTHY, MISSING, SUSPICIOUS, CLEARLY_MISMATCHED }
 data class ArtworkRepairOutcome(val corrected: Int, val unresolved: Int)
 
-internal data class CatalogReleaseCandidate(
+data class CatalogReleaseCandidate(
     val track: Track,
     val released: String,
     val trackCount: Int,
@@ -133,7 +133,7 @@ object LibraryArtworkClassifier {
     }
 }
 
-internal object ArtworkSourceEvidence {
+object ArtworkSourceEvidence {
     private val fromReleaseSuffix = Regex("(?i)\\s*(?:[-–]\\s*from\\b|[\\(\\[]from\\b).*$")
 
     private fun recordingTitle(title: String): String =
@@ -236,12 +236,17 @@ internal object ArtworkSourceEvidence {
     }
 }
 
+/** Spotify's own record of a track (by Spotify ID), set by the platform; null where unavailable. */
+object SpotifyTrackLookup {
+    @Volatile var exactTrack: suspend (spotifyId: String) -> Track? = { null }
+}
+
 class VerifiedReleaseLookup(
-    private val spotify: SpotifyPlaylistImporter = SpotifyPlaylistImporter(),
+    private val spotifyTrack: suspend (spotifyId: String) -> Track? = SpotifyTrackLookup.exactTrack,
     private val innerTube: InnerTubeClient = InnerTubeClient(),
     private val appleArtworkEvidence: (Track) -> Boolean? = AppleArtworkEvidence::belongsToTrack
 ) {
-    internal fun selectPreferredCatalogRelease(
+    fun selectPreferredCatalogRelease(
         requested: Track, candidates: List<CatalogReleaseCandidate>
     ): Track? {
         val matching = candidates.filter { item ->
@@ -279,7 +284,7 @@ class VerifiedReleaseLookup(
 
     /** The queue video can carry a music-video or compilation image. Its album browse ID must
      * resolve to an album before that album artwork is used to repair a library row. */
-    internal suspend fun verifiedSourceAlbum(track: Track): Track? {
+    suspend fun verifiedSourceAlbum(track: Track): Track? {
         if (track.id.startsWith("sp_") || track.id.length != 11) return null
         val exact = try { innerTube.getQueue(listOf(track.id)).firstOrNull() }
             catch (_: Exception) { null } ?: return null
@@ -406,13 +411,9 @@ class VerifiedReleaseLookup(
     suspend fun lookup(track: Track): Track? = withContext(Dispatchers.IO) {
         if (track.id.startsWith("sp_")) {
             try {
-                val token = spotify.getAccessToken()
-                if (token != null) {
-                    val exact = spotify.fetchTrackFromApi(track.id.removePrefix("sp_"), token)
-                        ?.tracks?.firstOrNull()
-                    if (exact != null && ArtworkIdentity.matches(track, exact) &&
-                        exact.id == track.id && !exact.album.isNullOrBlank()) return@withContext exact
-                }
+                val exact = spotifyTrack(track.id.removePrefix("sp_"))
+                if (exact != null && ArtworkIdentity.matches(track, exact) &&
+                    exact.id == track.id && !exact.album.isNullOrBlank()) return@withContext exact
             } catch (_: Exception) {}
         }
 
@@ -479,7 +480,7 @@ class VerifiedReleaseLookup(
     }
 }
 
-internal object AppleArtworkEvidence {
+object AppleArtworkEvidence {
     private val lookupLock = Any()
     private val lookupResponses = mutableMapOf<String, String>()
     private var lastLookupAt = 0L
