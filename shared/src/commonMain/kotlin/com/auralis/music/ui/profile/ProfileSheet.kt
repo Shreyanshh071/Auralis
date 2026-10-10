@@ -1,12 +1,9 @@
 package com.auralis.music.ui.profile
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,7 +82,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -146,7 +142,7 @@ fun ProfileSheet(
     hasActiveTrack: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val profile = authUiState.profile
     var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
@@ -154,7 +150,7 @@ fun ProfileSheet(
     var isImportPlaylistsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val youTubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
         if (isImportPlaylistsOpen) {
             isImportPlaylistsOpen = false
         } else if (isYouTubeAccountOpen) {
@@ -204,7 +200,7 @@ fun ProfileSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = str(R.string.profile_account),
+                    text = str(Strings.profile_account),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -217,7 +213,7 @@ fun ProfileSheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = str(R.string.settings),
+                            contentDescription = str(Strings.settings),
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(22.dp)
                         )
@@ -229,7 +225,7 @@ fun ProfileSheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = str(R.string.close),
+                            contentDescription = str(Strings.close),
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(22.dp)
                         )
@@ -315,7 +311,7 @@ fun ProfileSheet(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = str(R.string.cloud_backup_active),
+                                    text = str(Strings.cloud_backup_active),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color(0xFF16A34A),
                                     fontWeight = FontWeight.SemiBold,
@@ -357,8 +353,8 @@ fun ProfileSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = com.auralis.music.R.drawable.ic_discord),
-                                contentDescription = str(R.string.discord),
+                                painter = com.auralis.music.ui.components.LocalBrandImages.current.discord(),
+                                contentDescription = str(Strings.discord),
                                 tint = Color(0xFF5865F2),
                                 modifier = Modifier.size(20.dp)
                             )
@@ -368,14 +364,14 @@ fun ProfileSheet(
 
                         Column {
                             Text(
-                                text = str(R.string.discord_integration),
+                                text = str(Strings.discord_integration),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = str(R.string.connect_rich_presence_display_song_activ),
+                                text = str(Strings.connect_rich_presence_display_song_activ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
@@ -385,7 +381,7 @@ fun ProfileSheet(
 
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_discord_integration),
+                        contentDescription = str(Strings.open_discord_integration),
                         tint = Color(0xFF5865F2),
                         modifier = Modifier.size(20.dp)
                     )
@@ -423,7 +419,7 @@ fun ProfileSheet(
                         ) {
                             Icon(
                                 imageVector = if (youTubeSignedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                                contentDescription = str(R.string.youtube),
+                                contentDescription = str(Strings.youtube),
                                 tint = Color(0xFFFF0033),
                                 modifier = Modifier.size(20.dp)
                             )
@@ -433,15 +429,15 @@ fun ProfileSheet(
 
                         Column {
                             Text(
-                                text = str(R.string.youtube_account),
+                                text = str(Strings.youtube_account),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = if (youTubeSignedIn) str(R.string.age_restricted_songs_unlocked)
-                                else str(R.string.sign_in_to_download_age_restricted_songs),
+                                text = if (youTubeSignedIn) str(Strings.age_restricted_songs_unlocked)
+                                else str(Strings.sign_in_to_download_age_restricted_songs),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
@@ -451,7 +447,7 @@ fun ProfileSheet(
 
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_youtube_account),
+                        contentDescription = str(Strings.open_youtube_account),
                         tint = Color(0xFFFF0033),
                         modifier = Modifier.size(20.dp)
                     )
@@ -493,14 +489,14 @@ fun ProfileSheet(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = str(R.string.import_playlists),
+                                text = str(Strings.import_playlists),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = str(R.string.from_youtube_music_or_spotify),
+                                text = str(Strings.from_youtube_music_or_spotify),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
@@ -509,7 +505,7 @@ fun ProfileSheet(
                     }
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_import_playlists),
+                        contentDescription = str(Strings.open_import_playlists),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
@@ -543,7 +539,7 @@ fun ProfileSheet(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = str(R.string.disconnect_account),
+                            text = str(Strings.disconnect_account),
                             color = Color(0xFFEF4444),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -554,7 +550,7 @@ fun ProfileSheet(
                 // ── DELETE ACCOUNT ──
                 var showDeleteDialog by remember { mutableStateOf(false) }
                 Text(
-                    text = str(R.string.delete_account),
+                    text = str(Strings.delete_account),
                     color = Color(0xFFEF4444).copy(alpha = 0.85f),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
@@ -678,26 +674,26 @@ private fun DeleteAccountDialog(
     var password by remember { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(str(R.string.delete_your_account)) },
+        title = { Text(str(Strings.delete_your_account)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    str(R.string.this_permanently_deletes_your_auralis_ac) +
+                    str(Strings.this_permanently_deletes_your_auralis_ac) +
                         "playlists, liked songs, saved artists and listening stats. It can't be undone.\n\n" +
-                        str(R.string.songs_and_playlists_on_this_phone_stay_t)
+                        str(Strings.songs_and_playlists_on_this_phone_stay_t)
                 )
                 if (needsPassword) {
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text(str(R.string.password)) },
+                        label = { Text(str(Strings.password)) },
                         singleLine = true,
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         enabled = !isDeleting
                     )
                 } else {
                     Text(
-                        str(R.string.you_ll_be_asked_to_sign_in_with_google_a),
+                        str(Strings.you_ll_be_asked_to_sign_in_with_google_a),
                         fontSize = 13.sp
                     )
                 }
@@ -711,11 +707,11 @@ private fun DeleteAccountDialog(
                 onClick = { onConfirm(if (needsPassword) password else null) },
                 enabled = !isDeleting && (!needsPassword || password.isNotBlank())
             ) {
-                Text(if (isDeleting) str(R.string.deleting) else str(R.string.delete), color = Color(0xFFEF4444))
+                Text(if (isDeleting) str(Strings.deleting) else str(Strings.delete), color = Color(0xFFEF4444))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isDeleting) { Text(str(R.string.cancel)) }
+            TextButton(onClick = onDismiss, enabled = !isDeleting) { Text(str(Strings.cancel)) }
         }
     )
 }

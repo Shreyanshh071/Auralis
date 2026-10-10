@@ -1,21 +1,9 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
+import com.auralis.music.ui.i18n.Strings
+
 import com.auralis.music.ui.i18n.str
 
-import android.content.ClipboardManager
-import android.content.Context
-import android.annotation.SuppressLint
-import android.net.Uri
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,7 +34,6 @@ import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.profile.SpotifyLogoIcon
 import com.auralis.music.ui.theme.dynamicBackground
-import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,6 +62,7 @@ fun ImportPlaylistsScreen(
     onClearSpotifyImportMessage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
     val accountLabel by YouTubeSession.accountLabel.collectAsState()
     val spotifySignedIn by SpotifySession.signedIn.collectAsState()
@@ -128,14 +115,15 @@ fun ImportPlaylistsScreen(
         }
     }
 
-    if (showSpotifySignIn) {
-        SpotifySignInScreen(
-            onSignedIn = {
+    val spotifySignIn = com.auralis.music.ui.screens.LocalWebSignIn.current.spotifySignIn
+    if (showSpotifySignIn && spotifySignIn != null) {
+        spotifySignIn(
+            {
                 showSpotifySignIn = false
                 importAllAfterSpotifySignIn = true
                 spotifyReloadKey++
             },
-            onDismiss = { showSpotifySignIn = false }
+            { showSpotifySignIn = false }
         )
         return
     }
@@ -183,14 +171,17 @@ fun ImportPlaylistsScreen(
                     importAllAfterSpotifySignIn = true
                     spotifyReloadKey++
                 },
-                onSignIn = { showSpotifySignIn = true },
+                onSignIn = {
+                    if (spotifySignIn != null) showSpotifySignIn = true
+                    else platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noWebSignIn)
+                },
                 onDisconnect = { SpotifySession.signOut() }
             )
 
             Spacer(Modifier.height(18.dp))
 
             Text(
-                text = str(R.string.import_by_link),
+                text = str(Strings.import_by_link),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -244,13 +235,13 @@ private fun ImportHeader(onDismiss: () -> Unit) {
         IconButton(onClick = onDismiss) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = str(R.string.back),
+                contentDescription = str(Strings.back),
                 tint = MaterialTheme.colorScheme.onBackground
             )
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = str(R.string.import_playlists),
+            text = str(Strings.import_playlists),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
@@ -259,7 +250,7 @@ private fun ImportHeader(onDismiss: () -> Unit) {
     }
 
     Text(
-        text = str(R.string.transfer_music_from_youtube_music_via_ac),
+        text = str(Strings.transfer_music_from_youtube_music_via_ac),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 13.sp,
@@ -301,7 +292,7 @@ private fun YouTubeAccountCard(
                 ) {
                     Icon(
                         imageVector = if (signedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                        contentDescription = str(R.string.youtube_music),
+                        contentDescription = str(Strings.youtube_music),
                         tint = YOUTUBE_RED,
                         modifier = Modifier.size(20.dp)
                     )
@@ -309,7 +300,7 @@ private fun YouTubeAccountCard(
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = str(R.string.youtube_music_account),
+                        text = str(Strings.youtube_music_account),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -317,8 +308,8 @@ private fun YouTubeAccountCard(
                     )
                     Text(
                         text = if (signedIn) {
-                            if (accountLabel.isNotBlank()) accountLabel else str(R.string.signed_in)
-                        } else str(R.string.sign_in_to_pick_playlists_directly),
+                            if (accountLabel.isNotBlank()) accountLabel else str(Strings.signed_in)
+                        } else str(Strings.sign_in_to_pick_playlists_directly),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
@@ -332,7 +323,7 @@ private fun YouTubeAccountCard(
 
             if (signedIn) {
                 Text(
-                    text = str(R.string.import_liked_music_and_playlists_directl),
+                    text = str(Strings.import_liked_music_and_playlists_directl),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -361,9 +352,9 @@ private fun YouTubeAccountCard(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = when {
-                                isLoadingPlaylists -> str(R.string.loading_playlists)
-                                playlists != null && playlists.isNotEmpty() -> str(R.string.choose_playlists_x_available, playlists.size)
-                                else -> str(R.string.choose_playlists_to_import)
+                                isLoadingPlaylists -> str(Strings.loading_playlists)
+                                playlists != null && playlists.isNotEmpty() -> str(Strings.choose_playlists_x_available, playlists.size)
+                                else -> str(Strings.choose_playlists_to_import)
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -381,7 +372,7 @@ private fun YouTubeAccountCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = importMessage ?: str(R.string.importing),
+                            text = importMessage ?: str(Strings.importing),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp
                         )
@@ -396,7 +387,7 @@ private fun YouTubeAccountCard(
                 }
             } else {
                 Text(
-                    text = str(R.string.sign_in_to_your_youtube_account_to_pick),
+                    text = str(Strings.sign_in_to_your_youtube_account_to_pick),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -424,7 +415,7 @@ private fun YouTubeAccountCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = str(R.string.sign_in_to_youtube),
+                            text = str(Strings.sign_in_to_youtube),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -442,7 +433,7 @@ private fun YouTubeLinkCard(
     onImport: (String) -> Unit,
     onClearMessage: () -> Unit
 ) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     var youtubeUrlInput by remember { mutableStateOf("") }
 
     Box(
@@ -468,7 +459,7 @@ private fun YouTubeLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.youtube_music_link),
+                        text = str(Strings.youtube_music_link),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -488,7 +479,7 @@ private fun YouTubeLinkCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = str(R.string.paste_a_youtube_music_playlist_link_to_i),
+                text = str(Strings.paste_a_youtube_music_playlist_link_to_i),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -503,8 +494,8 @@ private fun YouTubeLinkCard(
                     youtubeUrlInput = it
                     onClearMessage()
                 },
-                label = { Text(str(R.string.youtube_music_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text(str(R.string.paste_music_youtube_com_playlist_list), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
+                label = { Text(str(Strings.youtube_music_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
+                placeholder = { Text(str(Strings.paste_music_youtube_com_playlist_list), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFFEF4444),
@@ -527,22 +518,21 @@ private fun YouTubeLinkCard(
                                 youtubeUrlInput = ""
                                 onClearMessage()
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Close, contentDescription = str(Strings.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                             }
                         }
                         IconButton(
                             onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    youtubeUrlInput = clip.getItemAt(0).text.toString().trim()
+                                val pasted = platformActions.readClipboardText()
+                                if (pasted != null) {
+                                    youtubeUrlInput = pasted.trim()
                                     onClearMessage()
-                                    Toast.makeText(context, str(R.string.pasted_youtube_music_link), Toast.LENGTH_SHORT).show()
+                                    platformActions.showMessage(str(Strings.pasted_youtube_music_link))
                                 }
                             },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ContentPaste, contentDescription = str(Strings.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -576,7 +566,7 @@ private fun YouTubeLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.importing_songs),
+                        text = str(Strings.importing_songs),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -594,7 +584,7 @@ private fun YouTubeLinkCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = str(R.string.import_yt_music_playlist),
+                            text = str(Strings.import_yt_music_playlist),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -622,7 +612,7 @@ private fun YouTubeLinkCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = str(R.string.tip_make_sure_your_playlist_is_set_to_pu),
+                    text = str(Strings.tip_make_sure_your_playlist_is_set_to_pu),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
@@ -650,7 +640,7 @@ private fun SpotifyLinkCard(
     onImport: (String) -> Unit,
     onClearMessage: () -> Unit
 ) {
-    val context = LocalContext.current
+    val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     var spotifyUrlInput by remember { mutableStateOf("") }
 
     Box(
@@ -671,7 +661,7 @@ private fun SpotifyLinkCard(
                     SpotifyLogoIcon(modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.spotify_link),
+                        text = str(Strings.spotify_link),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -691,7 +681,7 @@ private fun SpotifyLinkCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = str(R.string.paste_any_spotify_playlist_album_or_trac),
+                text = str(Strings.paste_any_spotify_playlist_album_or_trac),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -706,8 +696,8 @@ private fun SpotifyLinkCard(
                     spotifyUrlInput = it
                     onClearMessage()
                 },
-                label = { Text(str(R.string.spotify_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text(str(R.string.paste_open_spotify_com_playlist), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
+                label = { Text(str(Strings.spotify_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
+                placeholder = { Text(str(Strings.paste_open_spotify_com_playlist), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFF1DB954),
@@ -730,22 +720,21 @@ private fun SpotifyLinkCard(
                                 spotifyUrlInput = ""
                                 onClearMessage()
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Close, contentDescription = str(Strings.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                             }
                         }
                         IconButton(
                             onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    spotifyUrlInput = clip.getItemAt(0).text.toString().trim()
+                                val pasted = platformActions.readClipboardText()
+                                if (pasted != null) {
+                                    spotifyUrlInput = pasted.trim()
                                     onClearMessage()
-                                    Toast.makeText(context, str(R.string.pasted_spotify_link), Toast.LENGTH_SHORT).show()
+                                    platformActions.showMessage(str(Strings.pasted_spotify_link))
                                 }
                             },
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ContentPaste, contentDescription = str(Strings.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -779,7 +768,7 @@ private fun SpotifyLinkCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.importing_songs),
+                        text = str(Strings.importing_songs),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -797,7 +786,7 @@ private fun SpotifyLinkCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = str(R.string.import_spotify_playlist),
+                            text = str(Strings.import_spotify_playlist),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -825,7 +814,7 @@ private fun SpotifyLinkCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = str(R.string.tip_if_your_playlist_is_private_briefly),
+                    text = str(Strings.tip_if_your_playlist_is_private_briefly),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
@@ -846,7 +835,7 @@ private fun SpotifyLinkCard(
     }
 }
 
-private val SPOTIFY_GREEN = Color(0xFF1DB954)
+val SPOTIFY_GREEN = Color(0xFF1DB954)
 
 @Composable
 private fun SpotifyAccountCard(
@@ -876,16 +865,16 @@ private fun SpotifyAccountCard(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(str(R.string.spotify_account), fontWeight = FontWeight.Bold,
+                Text(str(Strings.spotify_account), fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
-                Text(if (signedIn) accountLabel.ifBlank { str(R.string.signed_in) }
-                    else str(R.string.sign_in_to_spotify),
+                Text(if (signedIn) accountLabel.ifBlank { str(Strings.signed_in) }
+                    else str(Strings.sign_in_to_spotify),
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text(str(R.string.spotify_account_description),
+        Text(str(Strings.spotify_account_description),
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 16.sp)
         Spacer(Modifier.height(12.dp))
         Button(
@@ -898,10 +887,10 @@ private fun SpotifyAccountCard(
             Icon(if (signedIn) Icons.Default.LibraryMusic else Icons.Default.AccountCircle,
                 contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(if (!signedIn) str(R.string.sign_in_to_spotify)
-                else if (isImporting) str(R.string.importing_songs)
-                else if (isLoadingPlaylists) str(R.string.loading_playlists)
-                else str(R.string.import_all_spotify_playlists),
+            Text(if (!signedIn) str(Strings.sign_in_to_spotify)
+                else if (isImporting) str(Strings.importing_songs)
+                else if (isLoadingPlaylists) str(Strings.loading_playlists)
+                else str(Strings.import_all_spotify_playlists),
                 fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         if (isImporting || importMessage != null) {
@@ -912,189 +901,23 @@ private fun SpotifyAccountCard(
                         modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(importMessage ?: str(R.string.importing),
+                Text(importMessage ?: str(Strings.importing),
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
         }
         if (signedIn && !isImporting) {
             TextButton(onClick = onDisconnect, modifier = Modifier.align(Alignment.End)) {
-                Text(str(R.string.disconnect_spotify), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(str(Strings.disconnect_spotify), color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp)
             }
         }
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun SpotifySignInScreen(onSignedIn: () -> Unit, onDismiss: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var checking by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(true) }
-    var loadSequence by remember { mutableIntStateOf(0) }
-    var pageError by remember { mutableStateOf(false) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
 
-    LaunchedEffect(loadSequence) {
-        if (loadSequence > 0) {
-            delay(15_000)
-            if (loading && !checking) pageError = true
-        }
-    }
-
-    fun checkSession() {
-        if (checking) return
-        val cookies = CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
-        if (!SpotifySession.hasAuth(cookies, "")) return
-        checking = true
-        scope.launch {
-            val token = SpotifySession.fetchWebPlayerToken(cookies)
-            val profile = token?.let { SpotifySession.fetchUserProfile(it) }
-            if (token != null) {
-                CookieManager.getInstance().flush()
-                SpotifySession.save(cookies, token, System.currentTimeMillis() + 3_000_000L,
-                    profile?.displayName.orEmpty().ifBlank { "Spotify" },
-                    profile?.id.orEmpty(), profile?.avatarUrl.orEmpty())
-                onSignedIn()
-            } else {
-                android.util.Log.w("SpotifyLogin", "Could not obtain an authenticated Spotify token")
-                error = true
-                checking = false
-            }
-        }
-    }
-
-    Column(Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground)
-        .statusBarsPadding().navigationBarsPadding()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.back))
-            }
-            Text(str(R.string.sign_in_to_spotify), fontWeight = FontWeight.Bold, fontSize = 20.sp,
-                modifier = Modifier.weight(1f))
-            TextButton(onClick = {
-                pageError = false
-                error = false
-                loading = true
-                webView?.loadUrl(SPOTIFY_LOGIN_URL)
-            }) { Text(str(R.string.try_again), color = SPOTIFY_GREEN) }
-        }
-        if (loading || checking) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = SPOTIFY_GREEN)
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-          AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                CookieManager.getInstance().setAcceptCookie(true)
-                WebView(context).apply {
-                    webView = this
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    settings.setSupportMultipleWindows(false)
-                    settings.userAgentString = SpotifySession.USER_AGENT
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            if (newProgress == 100 && !checking) loading = false
-                        }
-                    }
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-                            loading = true
-                            pageError = false
-                            loadSequence++
-                        }
-
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                            if (request.isForMainFrame && request.url.host == "open.spotify.com") {
-                                val cookies = CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
-                                if (SpotifySession.hasAuth(cookies, "")) {
-                                    checkSession()
-                                    return true
-                                }
-                            }
-                            return request.url.scheme !in listOf("https", "http")
-                        }
-
-                        override fun onPageFinished(view: WebView, url: String) {
-                            loading = false
-                            when (Uri.parse(url).host) {
-                                "accounts.spotify.com" -> repairSpotifyLoginLayout(view)
-                                "open.spotify.com" -> checkSession()
-                            }
-                        }
-
-                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                            if (request.isForMainFrame) {
-                                loading = false
-                                pageError = true
-                                android.util.Log.w("SpotifyLogin", "Page load failed: ${error.errorCode} ${error.description}")
-                            }
-                        }
-
-                        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-                            if (request.isForMainFrame) {
-                                loading = false
-                                pageError = true
-                                android.util.Log.w("SpotifyLogin", "Page returned HTTP ${response.statusCode}")
-                            }
-                        }
-                    }
-                    loadUrl(SPOTIFY_LOGIN_URL)
-                }
-            },
-            onRelease = { view -> if (webView === view) webView = null; view.destroy() }
-          )
-          if (checking || error || pageError) {
-              Column(
-                  modifier = Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground),
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  verticalArrangement = Arrangement.Center
-              ) {
-                  if (checking) CircularProgressIndicator(color = SPOTIFY_GREEN)
-                  Text(
-                      text = if (pageError) str(R.string.spotify_login_page_failed)
-                          else if (error) str(R.string.spotify_sign_in_failed)
-                          else str(R.string.connecting_to_spotify),
-                      color = if (pageError || error) MaterialTheme.colorScheme.error
-                          else MaterialTheme.colorScheme.onBackground,
-                      modifier = Modifier.padding(16.dp)
-                  )
-                  if (pageError || error) TextButton(onClick = {
-                      pageError = false
-                      error = false
-                      loading = true
-                      webView?.loadUrl(SPOTIFY_LOGIN_URL)
-                  }) { Text(str(R.string.try_again), color = SPOTIFY_GREEN) }
-              }
-          }
-        }
-    }
-}
-
-private const val SPOTIFY_LOGIN_URL =
+const val SPOTIFY_LOGIN_URL =
     "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F"
 
-/** Spotify's login shell can clip its form to a zero-height main element in WebView. */
-private fun repairSpotifyLoginLayout(view: WebView) {
-    view.evaluateJavascript(
-        """(function() {
-          if (document.getElementById('auralis-spotify-layout')) return;
-          var style = document.createElement('style');
-          style.id = 'auralis-spotify-layout';
-          style.textContent =
-            'html, body { height: auto !important; min-height: 100% !important; overflow: visible !important; }' +
-            'body > div { height: auto !important; min-height: 100% !important; }' +
-            'main { position: static !important; height: auto !important; min-height: 100dvh !important; max-height: none !important; overflow: visible !important; }';
-          document.head.appendChild(style);
-        })();""".trimIndent(), null
-    )
-}
 
 /** Scrollable bottom sheet containing playlists from the signed-in Spotify account. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1118,7 +941,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(str(R.string.your_spotify_playlists), fontWeight = FontWeight.Bold,
+                Text(str(Strings.your_spotify_playlists), fontWeight = FontWeight.Bold,
                     fontSize = 17.sp, modifier = Modifier.weight(1f))
                 val all = playlists.orEmpty()
                 if (all.isNotEmpty()) {
@@ -1127,15 +950,15 @@ private fun SpotifyPlaylistPickerBottomSheet(
                         selected.clear()
                         if (!allSelected) selected.addAll(all.map { it.id })
                     }) {
-                        Text(if (all.all { it.id in selected }) str(R.string.clear)
-                            else str(R.string.select_all), color = SPOTIFY_GREEN)
+                        Text(if (all.all { it.id in selected }) str(Strings.clear)
+                            else str(Strings.select_all), color = SPOTIFY_GREEN)
                     }
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = str(R.string.close))
+                    Icon(Icons.Default.Close, contentDescription = str(Strings.close))
                 }
             }
-            Text(str(R.string.spotify_picker_description),
+            Text(str(Strings.spotify_picker_description),
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 12.dp))
             when {
@@ -1145,12 +968,12 @@ private fun SpotifyPlaylistPickerBottomSheet(
                 loadFailed || playlists == null -> Column(Modifier.fillMaxWidth().height(180.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center) {
-                    Text(str(R.string.spotify_playlists_load_failed))
-                    TextButton(onClick = onRetry) { Text(str(R.string.try_again), color = SPOTIFY_GREEN) }
-                    TextButton(onClick = onSignInAgain) { Text(str(R.string.sign_in_again), color = SPOTIFY_GREEN) }
+                    Text(str(Strings.spotify_playlists_load_failed))
+                    TextButton(onClick = onRetry) { Text(str(Strings.try_again), color = SPOTIFY_GREEN) }
+                    TextButton(onClick = onSignInAgain) { Text(str(Strings.sign_in_again), color = SPOTIFY_GREEN) }
                 }
                 playlists.isEmpty() -> Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                    Text(str(R.string.spotify_playlists_empty))
+                    Text(str(Strings.spotify_playlists_empty))
                 }
                 else -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                     items(playlists, key = { it.id }) { item ->
@@ -1166,10 +989,10 @@ private fun SpotifyPlaylistPickerBottomSheet(
                             Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                                 if (item.isLikedSongs) Icon(Icons.Default.Favorite, null, tint = SPOTIFY_GREEN)
-                                else if (item.thumbnail != null) coil.compose.AsyncImage(
-                                    model = item.thumbnail, contentDescription = null,
+                                else if (item.thumbnail != null) com.auralis.music.ui.components.LocalArtworkRenderer.current.Image(
+                                    url = item.thumbnail, contentDescription = null,
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize())
+                                    crossfade = false, modifier = Modifier.fillMaxSize())
                                 else SpotifyLogoIcon(modifier = Modifier.size(22.dp))
                             }
                             Spacer(Modifier.width(12.dp))
@@ -1196,7 +1019,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
                 modifier = Modifier.fillMaxWidth().height(46.dp)
             ) {
                 if (isImporting) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text(if (selected.isEmpty()) str(R.string.select_playlists_to_import)
+                else Text(if (selected.isEmpty()) str(Strings.select_playlists_to_import)
                     else "Import ${selected.size} ${if (selected.size == 1) "playlist" else "playlists"}")
             }
             if (importMessage != null) Text(importMessage,
@@ -1264,7 +1087,7 @@ fun YouTubePlaylistPickerBottomSheet(
                     .padding(bottom = 4.dp)
             ) {
                 Text(
-                    text = str(R.string.your_youtube_music_playlists),
+                    text = str(Strings.your_youtube_music_playlists),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -1283,7 +1106,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = if (allSelected) str(R.string.clear) else str(R.string.select_all),
+                            text = if (allSelected) str(Strings.clear) else str(Strings.select_all),
                             color = YOUTUBE_RED,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp
@@ -1297,7 +1120,7 @@ fun YouTubePlaylistPickerBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.close),
+                        contentDescription = str(Strings.close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1305,7 +1128,7 @@ fun YouTubePlaylistPickerBottomSheet(
             }
 
             Text(
-                text = str(R.string.private_playlists_included_liked_music_i),
+                text = str(Strings.private_playlists_included_liked_music_i),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -1334,13 +1157,13 @@ fun YouTubePlaylistPickerBottomSheet(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = str(R.string.couldn_t_load_your_playlists_from_youtub),
+                            text = str(Strings.couldn_t_load_your_playlists_from_youtub),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
                         Spacer(Modifier.height(8.dp))
                         TextButton(onClick = onRetry) {
-                            Text(str(R.string.try_again), color = YOUTUBE_RED, fontWeight = FontWeight.Bold)
+                            Text(str(Strings.try_again), color = YOUTUBE_RED, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1352,7 +1175,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = str(R.string.no_playlists_found_in_your_youtube_music),
+                            text = str(Strings.no_playlists_found_in_your_youtube_music),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp
                         )
@@ -1394,10 +1217,11 @@ fun YouTubePlaylistPickerBottomSheet(
                                             modifier = Modifier.size(22.dp)
                                         )
                                     } else if (item.thumbnail != null) {
-                                        coil.compose.AsyncImage(
-                                            model = item.thumbnail,
+                                        com.auralis.music.ui.components.LocalArtworkRenderer.current.Image(
+                                            url = item.thumbnail,
                                             contentDescription = null,
                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            crossfade = false,
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
@@ -1476,14 +1300,14 @@ fun YouTubePlaylistPickerBottomSheet(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = str(R.string.importing),
+                        text = str(Strings.importing),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
                 } else {
                     Text(
                         text = when {
-                            selected.isEmpty() -> str(R.string.select_playlists_to_import)
+                            selected.isEmpty() -> str(Strings.select_playlists_to_import)
                             else -> "Import ${selected.size} ${if (selected.size == 1) "playlist" else "playlists"}"
                         },
                         fontWeight = FontWeight.Bold,

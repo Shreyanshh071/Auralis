@@ -295,6 +295,7 @@ fun AuralisTheme(
     CompositionLocalProvider(
         com.auralis.music.data.datastore.LocalSettingsStores provides settingsStores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
+        com.auralis.music.ui.screens.LocalWebSignIn provides com.auralis.music.ui.screens.PhoneWebSignIn,
         LocalAppearanceSettingsStore provides appearanceStore,
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,

@@ -1,17 +1,22 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.R
-import com.auralis.music.ui.i18n.str
-
 import android.annotation.SuppressLint
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,46 +30,59 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.*
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.auralis.music.R
+import com.auralis.music.data.network.SpotifyLibrary
+import com.auralis.music.data.network.SpotifySession
 import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
+import com.auralis.music.ui.i18n.str
+import com.auralis.music.ui.profile.SpotifyLogoIcon
 import com.auralis.music.ui.theme.dynamicBackground
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -78,163 +96,183 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-internal val YOUTUBE_RED = Color(0xFFFF0033)
-private const val SIGN_IN_URL = "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
-
 /**
- * Optional YouTube sign-in, only for age-restricted songs. Auralis's own sign-in is a Firebase
- * account YouTube never sees, so these songs need the user to sign in to YouTube itself.
+ * The phone's web sign-in for YouTube and Spotify: Android WebViews whose cookies become the
+ * sessions. Shared screens reach them through [LocalWebSignIn].
  */
-@Composable
-fun YouTubeAccountScreen(onDismiss: () -> Unit) {
-    val signedIn by YouTubeSession.signedIn.collectAsState()
-    val accountLabel by YouTubeSession.accountLabel.collectAsState()
-    var isSigningIn by remember { mutableStateOf(false) }
+val PhoneWebSignIn = WebSignIn(
+    spotifySignIn = { onSignedIn, onDismiss -> SpotifySignInScreen(onSignedIn, onDismiss) },
+    youTubeSignIn = { onSignedIn, onCancel -> YouTubeSignInWebView(onSignedIn, onCancel) },
+    signOutOfYouTube = { signOutOfYouTube() }
+)
 
-    androidx.activity.compose.BackHandler(enabled = true) {
-        if (isSigningIn) isSigningIn = false else onDismiss()
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun SpotifySignInScreen(onSignedIn: () -> Unit, onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var loadSequence by remember { mutableIntStateOf(0) }
+    var pageError by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    LaunchedEffect(loadSequence) {
+        if (loadSequence > 0) {
+            delay(15_000)
+            if (loading && !checking) pageError = true
+        }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
-        if (isSigningIn) {
-            YouTubeSignInWebView(
-                onSignedIn = { isSigningIn = false },
-                onCancel = { isSigningIn = false }
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    Text(
-                        text = str(R.string.youtube_account),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 20.sp
-                    )
-                }
+    fun checkSession() {
+        if (checking) return
+        val cookies = CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
+        if (!SpotifySession.hasAuth(cookies, "")) return
+        checking = true
+        scope.launch {
+            val token = SpotifySession.fetchWebPlayerToken(cookies)
+            val profile = token?.let { SpotifySession.fetchUserProfile(it) }
+            if (token != null) {
+                CookieManager.getInstance().flush()
+                SpotifySession.save(cookies, token, System.currentTimeMillis() + 3_000_000L,
+                    profile?.displayName.orEmpty().ifBlank { "Spotify" },
+                    profile?.id.orEmpty(), profile?.avatarUrl.orEmpty())
+                onSignedIn()
+            } else {
+                android.util.Log.w("SpotifyLogin", "Could not obtain an authenticated Spotify token")
+                error = true
+                checking = false
+            }
+        }
+    }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(1.2.dp, YOUTUBE_RED.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(YOUTUBE_RED.copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (signedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = YOUTUBE_RED,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = if (signedIn) str(R.string.signed_in_to_youtube) else str(R.string.not_signed_in_to_youtube),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 15.sp
-                                )
-                                if (signedIn && accountLabel.isNotBlank()) {
-                                    Text(
-                                        text = accountLabel,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 12.sp
-                                    )
+    Column(Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground)
+        .statusBarsPadding().navigationBarsPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.back))
+            }
+            Text(str(R.string.sign_in_to_spotify), fontWeight = FontWeight.Bold, fontSize = 20.sp,
+                modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                pageError = false
+                error = false
+                loading = true
+                webView?.loadUrl(SPOTIFY_LOGIN_URL)
+            }) { Text(str(R.string.try_again), color = SPOTIFY_GREEN) }
+        }
+        if (loading || checking) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = SPOTIFY_GREEN)
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+          AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                CookieManager.getInstance().setAcceptCookie(true)
+                WebView(context).apply {
+                    webView = this
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.databaseEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    settings.javaScriptCanOpenWindowsAutomatically = true
+                    settings.setSupportMultipleWindows(false)
+                    settings.userAgentString = SpotifySession.USER_AGENT
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                            if (newProgress == 100 && !checking) loading = false
+                        }
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                            loading = true
+                            pageError = false
+                            loadSequence++
+                        }
+
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            if (request.isForMainFrame && request.url.host == "open.spotify.com") {
+                                val cookies = CookieManager.getInstance().getCookie("https://open.spotify.com").orEmpty()
+                                if (SpotifySession.hasAuth(cookies, "")) {
+                                    checkSession()
+                                    return true
                                 }
                             }
+                            return request.url.scheme !in listOf("https", "http")
                         }
 
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = if (signedIn) {
-                                str(R.string.your_youtube_account_is_connected_you_ca)
-                            } else {
-                                "Signing in to a YouTube account is required to download age-restricted music. It also lets you directly import your YouTube Music playlists—including private ones—without having to make them public."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
-                        )
-
-                        Spacer(Modifier.height(16.dp))
-                        if (signedIn) {
-                            OutlinedButton(
-                                onClick = { signOutOfYouTube() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(str(R.string.sign_out_of_youtube), color = MaterialTheme.colorScheme.error)
+                        override fun onPageFinished(view: WebView, url: String) {
+                            loading = false
+                            when (Uri.parse(url).host) {
+                                "accounts.spotify.com" -> repairSpotifyLoginLayout(view)
+                                "open.spotify.com" -> checkSession()
                             }
-                        } else {
-                            Button(
-                                onClick = { isSigningIn = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = YOUTUBE_RED, contentColor = Color.White),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(str(R.string.sign_in_to_youtube), fontWeight = FontWeight.SemiBold)
+                        }
+
+                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                            if (request.isForMainFrame) {
+                                loading = false
+                                pageError = true
+                                android.util.Log.w("SpotifyLogin", "Page load failed: ${error.errorCode} ${error.description}")
+                            }
+                        }
+
+                        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                            if (request.isForMainFrame) {
+                                loading = false
+                                pageError = true
+                                android.util.Log.w("SpotifyLogin", "Page returned HTTP ${response.statusCode}")
                             }
                         }
                     }
+                    loadUrl(SPOTIFY_LOGIN_URL)
                 }
-
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp).padding(top = 2.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.your_youtube_sign_in_stays_on_this_devic),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                }
-            }
+            },
+            onRelease = { view -> if (webView === view) webView = null; view.destroy() }
+          )
+          if (checking || error || pageError) {
+              Column(
+                  modifier = Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.Center
+              ) {
+                  if (checking) CircularProgressIndicator(color = SPOTIFY_GREEN)
+                  Text(
+                      text = if (pageError) str(R.string.spotify_login_page_failed)
+                          else if (error) str(R.string.spotify_sign_in_failed)
+                          else str(R.string.connecting_to_spotify),
+                      color = if (pageError || error) MaterialTheme.colorScheme.error
+                          else MaterialTheme.colorScheme.onBackground,
+                      modifier = Modifier.padding(16.dp)
+                  )
+                  if (pageError || error) TextButton(onClick = {
+                      pageError = false
+                      error = false
+                      loading = true
+                      webView?.loadUrl(SPOTIFY_LOGIN_URL)
+                  }) { Text(str(R.string.try_again), color = SPOTIFY_GREEN) }
+              }
+          }
         }
     }
 }
 
-
+/** Spotify's login shell can clip its form to a zero-height main element in WebView. */
+private fun repairSpotifyLoginLayout(view: WebView) {
+    view.evaluateJavascript(
+        """(function() {
+          if (document.getElementById('auralis-spotify-layout')) return;
+          var style = document.createElement('style');
+          style.id = 'auralis-spotify-layout';
+          style.textContent =
+            'html, body { height: auto !important; min-height: 100% !important; overflow: visible !important; }' +
+            'body > div { height: auto !important; min-height: 100% !important; }' +
+            'main { position: static !important; height: auto !important; min-height: 100dvh !important; max-height: none !important; overflow: visible !important; }';
+          document.head.appendChild(style);
+        })();""".trimIndent(), null
+    )
+}
 
 /** Forgets the session and removes YouTube/Google cookies without touching other WebView cookies. */
 private fun signOutOfYouTube() {
