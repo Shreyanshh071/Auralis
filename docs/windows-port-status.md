@@ -21,6 +21,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 ## Desktop Home redesign
 
 - Search is removed from the sidebar. Home's larger 176 × 54 dp Find music button opens an anchored dropdown using the existing recent-query and live-song suggestion logic. Song clicks play directly; submitting a query opens full search results. Outside click dismisses the dropdown. Existing Ctrl+F and search result navigation remain available. Windows tests and a narrow Home render passed; Android code is unchanged.
+- Installed this change at 12:35 on 11 October, version 1.0.0. Existing shortcut and all 289 checked data files preserved; backup: `Downloads/Auralis-checkpoints/before-find-music-20261011-123525`. Installed code matches release output and the app was reopened.
 
 - Windows has its own desktop layout over the existing Home recommendation engine: greeting, eight compact shortcuts, multi-column Quick picks, horizontally browsable discovery/music shelves and a vertical scrollbar. Removed duplicate Stats, History, Listen Together and Profile buttons from the Home header; their sidebar entries remain.
 - Starter content is curated rather than fully random. Actual recent/top plays replace starter rotation; pinned music stays. Songs are deduplicated across Home shelves. Mood chips show their filtered feed without unrelated local rotation.
