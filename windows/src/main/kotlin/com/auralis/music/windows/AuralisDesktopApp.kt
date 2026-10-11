@@ -346,7 +346,7 @@ fun AuralisDesktopApp(
                       if (resizingRight) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "right sidebar width")
                   // Spotify-style layout: sidebar, page and Now playing are rounded panels with even gaps.
                   val panelShape = RoundedCornerShape(12.dp)
-                  Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 8.dp)) {
+                  Row(Modifier.fillMaxSize().padding(8.dp)) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(panelShape)) {
                         Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
                             collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })

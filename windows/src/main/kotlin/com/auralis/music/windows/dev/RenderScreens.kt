@@ -82,6 +82,13 @@ fun main(args: Array<String>) {
         )
     }
 
+    // The real cover's palette, extracted as the app does, for the player background previews.
+    val coverPalette = runCatching {
+        val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(previewSongs.first().thumbnail)!!
+        com.auralis.music.data.network.NetworkClientProvider.okHttpClient.newCall(okhttp3.Request.Builder().url(url).build()).execute().use {
+            com.auralis.music.windows.settings.extractArtworkPalette(javax.imageio.ImageIO.read(it.body!!.byteStream()))
+        }
+    }.getOrDefault(com.auralis.music.ui.theme.DefaultArtworkPalette)
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
         "youtube-library" to {
             Row(Modifier.fillMaxSize()) {
@@ -200,14 +207,9 @@ fun main(args: Array<String>) {
             com.auralis.music.domain.model.PlaylistResult("VLpreview", "Preview playlist", author = "Preview listener"),
             previewSongs.take(12), isLoading = false, currentTrackId = previewSongs.getOrNull(1)?.id, isPlaying = true,
             onTrackClick = { _, _ -> }, onFavoriteToggle = {}, onBack = {}) },
-        "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail,
-            com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
-        "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null,
-            com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
-        "import-liquidify" to { com.auralis.music.ui.screens.ImportPlaylistsScreen(onDismiss = {}, onNavigateToYouTubeAccount = {},
-            onImportYouTubeLibraryPlaylists = {}, isImportingYouTube = false, youtubeImportMessage = null, onClearYouTubeImportMessage = {},
-            onImportYouTubePlaylist = {}, onImportSpotifyPlaylist = {}, isImportingSpotify = false, spotifyImportMessage = null,
-            onClearSpotifyImportMessage = {}) },
+        "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
+        "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null, coverPalette) },
+        "player-gradient" to { com.auralis.music.windows.player.PlayerBackdrop("Gradient", null, coverPalette) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },

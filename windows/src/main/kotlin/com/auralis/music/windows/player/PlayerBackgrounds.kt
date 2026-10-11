@@ -49,8 +49,15 @@ internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: Artw
             PlayerBackgroundStyle.FOLLOW_THEME, PlayerBackgroundStyle.APPLE_MUSIC ->
                 Box(Modifier.fillMaxSize().background(Color(0xFF111014)))
             PlayerBackgroundStyle.GRADIENT -> {
-                val top by animateColorAsState(palette.primary, tween(700))
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(top.copy(alpha = 0.55f), Color(0xFF050505)))))
+                // The phone's full-player gradient: vibrant top, harmonic middle, dark base, a soft
+                // bloom up top and an 18% contrast wash.
+                val stops = rememberAnimatedStops(palette)
+                Box(Modifier.fillMaxSize().drawBehind {
+                    drawRect(Brush.verticalGradient(0f to stops.top, .48f to stops.mid, 1f to stops.bottom))
+                    drawRect(Brush.radialGradient(listOf(stops.top.copy(alpha = .35f), Color.Transparent),
+                        center = Offset(size.width * .45f, size.height * .22f), radius = size.width * .85f))
+                    drawRect(Color.Black.copy(alpha = .18f))
+                })
             }
             PlayerBackgroundStyle.BLUR -> BlurredArtworkBackground(artworkUrl)
             PlayerBackgroundStyle.GLOW_MOTION -> GlowMotion(palette)
@@ -62,9 +69,10 @@ internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: Artw
 
 @Composable
 private fun GlowMotion(palette: ArtworkPalette) {
+    // As the phone: the palette's first six glow swatches, cycled when there are fewer.
     val colours = remember(palette) {
         val base = palette.glowColors.ifEmpty { listOf(palette.primary, palette.secondary, palette.tertiary) }
-        List(6) { base[it % base.size] }
+        if (base.size >= 6) base.take(6) else List(6) { base[it % base.size] }
     }
     val progress = rememberInfiniteTransition(label = "glow").animateFloat(0f, 1f,
         infiniteRepeatable(tween(20_000, easing = LinearEasing), RepeatMode.Restart), label = "glowProgress")
@@ -93,13 +101,17 @@ private fun GlowMotion(palette: ArtworkPalette) {
 
 @Composable
 private fun LiveMesh(artworkUrl: String?, palette: ArtworkPalette) {
-    val top by animateColorAsState(palette.primary, tween(700))
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(top.copy(alpha = .45f), top.copy(alpha = .25f), Color(0xFF050505)))))
+    // Foundation under the mesh, as the phone: the gradient's top and middle colours over black.
+    val stops = rememberAnimatedStops(palette)
+    Box(Modifier.fillMaxSize().drawBehind {
+        drawRect(Brush.verticalGradient(0f to stops.top.copy(alpha = .45f), .5f to stops.mid.copy(alpha = .25f), 1f to Color(0xFF050505)))
+    })
     val transition = rememberInfiniteTransition(label = "mesh")
     val anchor = transition.animateFloat(0f, -360f, infiniteRepeatable(tween(80_000, easing = LinearEasing), RepeatMode.Restart), label = "anchor")
     val fast = transition.animateFloat(0f, 360f, infiniteRepeatable(tween(40_000, easing = LinearEasing), RepeatMode.Restart), label = "fast")
     val slow = transition.animateFloat(0f, 360f, infiniteRepeatable(tween(60_000, easing = LinearEasing), RepeatMode.Restart), label = "slow")
-    val saturate = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.8f) }) }
+    // The phone boosts the mesh to 1.8x saturation, or greys it fully for black-and-white covers.
+    val saturate = remember(palette.isMonochrome) { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(if (palette.isMonochrome) 0f else 1.8f) }) }
     Crossfade(artworkUrl, animationSpec = tween(900), label = "meshArtwork") { url ->
         if (url == null) return@Crossfade
         Box(Modifier.fillMaxSize().graphicsLayer { scaleX = 1.7f; scaleY = 1.7f }) {
@@ -120,4 +132,45 @@ private fun MeshLayer(url: String, filter: ColorFilter, rotation: State<Float>, 
     AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, colorFilter = filter,
         alignment = alignment,
         modifier = Modifier.fillMaxSize().blur(blurDp.dp).graphicsLayer { rotationZ = rotation.value; this.alpha = alpha })
+}
+
+/** The phone's PlayerGradientPalette stops for the full player, animated between songs. */
+private class AnimatedStops(val top: Color, val mid: Color, val bottom: Color)
+
+@Composable
+private fun rememberAnimatedStops(palette: ArtworkPalette): AnimatedStops {
+    val target = remember(palette) { gradientStops(palette) }
+    val top by animateColorAsState(target.top, tween(700), label = "stopTop")
+    val mid by animateColorAsState(target.mid, tween(700), label = "stopMid")
+    val bottom by animateColorAsState(target.bottom, tween(700), label = "stopBottom")
+    return AnimatedStops(top, mid, bottom)
+}
+
+/** PlayerGradientPalette.create from the phone (top vibrant, mid harmonic, bottom obsidian). */
+private fun gradientStops(palette: ArtworkPalette): AnimatedStops {
+    if (palette.isMonochrome) {
+        return if (palette.primary == Color(0xFF161619) || palette.primary == Color.Unspecified)
+            AnimatedStops(Color(0xFF18181C), Color(0xFF121215), Color(0xFF08080A))
+        else AnimatedStops(Color(0xFF555964), Color(0xFF2E3139), Color(0xFF0C0D0F))
+    }
+    val p = hsv(palette.primary); val sc = hsv(palette.secondary)
+    val pSat = (p[1] * 1.30f).coerceIn(.55f, 1f)
+    val sSat = (sc[1] * 1.25f).coerceIn(.50f, 1f)
+    val hueDiff = kotlin.math.abs(p[0] - sc[0]).let { if (it > 180f) 360f - it else it }
+    val distinct = hueDiff > 28f && sc[1] > .20f
+    val top = Color.hsv(p[0], pSat, .78f)
+    val mid = if (distinct) Color.hsv(sc[0], sSat, .48f) else Color.hsv(p[0], pSat, .44f)
+    val bottom = Color.hsv(p[0], (pSat * .75f).coerceIn(.30f, .75f), .08f)
+    return AnimatedStops(top, mid, bottom)
+}
+
+private fun hsv(color: Color): FloatArray {
+    val max = maxOf(color.red, color.green, color.blue); val min = minOf(color.red, color.green, color.blue); val d = max - min
+    val hue = when {
+        d == 0f -> 0f
+        max == color.red -> ((color.green - color.blue) / d * 60f + 360f) % 360f
+        max == color.green -> ((color.blue - color.red) / d * 60f + 120f) % 360f
+        else -> ((color.red - color.green) / d * 60f + 240f) % 360f
+    }
+    return floatArrayOf(hue, if (max == 0f) 0f else d / max, max)
 }
