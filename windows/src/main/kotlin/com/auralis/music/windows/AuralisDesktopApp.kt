@@ -214,7 +214,10 @@ fun AuralisDesktopApp(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
-        com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance
+        com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance,
+        com.auralis.music.ui.components.LocalTrackContextMenu provides { items, dismiss ->
+            com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss)
+        }
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {

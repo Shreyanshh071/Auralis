@@ -2,6 +2,7 @@ package com.auralis.music.windows.dev
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.Composable
@@ -79,6 +80,14 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "song-context-menu" to {
+            Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
+                com.auralis.music.windows.library.DesktopSongMenuContent(
+                    listOf("Play next", "Add to queue", "Add to playlist", "Add to library", "Pin to Speed dial", "Download", "View artist", "View album", "Share").map {
+                        com.auralis.music.ui.components.GlassMenuItem(it, androidx.compose.material.icons.Icons.Default.Add) {}
+                    }, {})
+            }
+        },
         "search-glass" to {
             Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
                 com.auralis.music.windows.search.SearchDropdownSurface(true, previewSongs.firstOrNull()?.thumbnail,

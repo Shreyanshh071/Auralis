@@ -98,7 +98,8 @@ fun TrackOptionsMenu(
     val background: @Composable () -> Unit = sheetBackground ?: { CoverSheetBackground(track.thumbnail) }
     // Long-pressed in liquid glass mode: the small glass menu pops from the song instead.
     val glassAnchor = rememberContextMenuAnchor()
-    var useGlassMenu by remember { mutableStateOf(glassAnchor != null) }
+    val desktopMenu = LocalTrackContextMenu.current
+    var useGlassMenu by remember { mutableStateOf(glassAnchor != null || desktopMenu != null) }
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showArtistPicker by remember(track.id) { mutableStateOf(false) }
@@ -248,7 +249,7 @@ fun TrackOptionsMenu(
         )
     }
 
-    if (useGlassMenu && glassAnchor != null) {
+    if (useGlassMenu && (glassAnchor != null || desktopMenu != null)) {
         val isDownloaded = platform.isDownloaded(track.id)
         val isDownloading = platform.isDownloading(track.id)
         val glassItems = buildList {
@@ -267,7 +268,7 @@ fun TrackOptionsMenu(
             // Hands over to the regular sheet's playlist picker.
             add(GlassMenuItem(str(Strings.add_to_playlist), Icons.AutoMirrored.Filled.PlaylistAdd, dismisses = false) {
                 showPlaylistPicker = true
-                useGlassMenu = false
+                useGlassMenu = desktopMenu != null
             })
             add(GlassMenuItem(
                 if (localIsFavorite) str(Strings.remove_from_library) else str(Strings.add_to_library),
@@ -305,7 +306,20 @@ fun TrackOptionsMenu(
             }
             add(GlassMenuItem(str(Strings.share), Icons.Default.Share) { shareTrack() })
         }
-        GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
+        if (desktopMenu != null) {
+            val items = if (showPlaylistPicker) buildList {
+                add(GlassMenuItem(str(Strings.back), Icons.AutoMirrored.Filled.ArrowBack, dismisses = false) { showPlaylistPicker = false })
+                add(GlassMenuItem(str(Strings.new_playlist), Icons.Default.Add, dismisses = false) { showCreatePlaylistDialog = true })
+                userPlaylists.forEach { playlist ->
+                    val contains = playlist.tracks.any { it.id == track.id }
+                    add(GlassMenuItem(playlist.title, if (contains) Icons.Default.Check else Icons.AutoMirrored.Filled.PlaylistAdd,
+                        enabled = !contains) { onAddToPlaylist(playlist) })
+                }
+            } else glassItems
+            desktopMenu(items, onDismiss)
+        } else if (glassAnchor != null) {
+            GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
+        }
     } else CoverSheetTheme {
 
     ModalBottomSheet(

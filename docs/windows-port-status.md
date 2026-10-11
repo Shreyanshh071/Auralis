@@ -108,6 +108,12 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 ## Development preview
 
+### Desktop song context menus (Windows 1.0.0)
+
+Windows supplies a compact, scrollable popup for shared song actions. It opens at the initiating click, flips inward at window edges, and dismisses through Escape or clicking outside. Add to playlist stays in the popup with a Back row, existing playlists and New playlist. Queue, favourites, pinning, album/artist navigation, downloads and share retain their existing callbacks. Home, Search, Library and other shared song menus inherit the Windows renderer. The new composition hook defaults to null, retaining Android's existing sheet.
+
+Windows tests: 24 passed, including three click/edge placement cases. Compact-menu visual preview and Windows/Android compilation passed. No phone APK was built.
+
 ### Artwork aura in the now-playing sidebar (Windows 1.0.0)
 
 The right-hand player panel now uses the current cover's extracted palette for gently drifting radial colour glows (24-second cycle), crossfading colours on song changes. Its lyrics card is translucent instead of an opaque neutral fill, and text stays white for contrast. The panel follows artwork colours independently of a curated accent palette; the app-wide Liquidify setting is retained. Android is unchanged.
