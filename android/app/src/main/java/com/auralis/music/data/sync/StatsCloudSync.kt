@@ -103,10 +103,12 @@ object StatsCloudSync {
             while (true) {
                 kotlinx.coroutines.delay(PULL_INTERVAL_MS)
                 restoreIfNeeded()
+                listenForOtherDevices(scope)
             }
         }
         scope.launch(Dispatchers.IO) {
             restoreIfNeeded()
+            listenForOtherDevices(scope)
             upload()
             AuralisDatabase.getInstance(appContext).playbackEventDao()
                 .getTotalPlayTimeInRange(0L, Long.MAX_VALUE)
@@ -114,6 +116,73 @@ object StatsCloudSync {
                 .sample(UPLOAD_INTERVAL_MS)
                 .collect { upload() }
         }
+    }
+
+    /** Adds the listens in these `listening/{day}` documents that aren't on this phone yet. */
+    private suspend fun importDays(days: List<com.google.firebase.firestore.DocumentSnapshot>): Int {
+        val db = AuralisDatabase.getInstance(appContext)
+        val dao = db.playbackEventDao()
+        var added = 0
+        for (doc in days) {
+            val events = doc.get("events") as? Map<*, *> ?: continue
+            for (raw in events.values) {
+                val e = raw as? Map<*, *> ?: continue
+                val trackId = e["t"] as? String ?: continue
+                val ts = (e["ts"] as? Number)?.toLong() ?: continue
+                val ms = (e["ms"] as? Number)?.toLong() ?: continue
+                if (trackId.isBlank() || ms <= 0L) continue
+                if (dao.countEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS) > 0) continue
+                val track = Track(
+                    id = trackId,
+                    title = e["ti"] as? String ?: "Unknown Track",
+                    artist = e["ar"] as? String ?: "Unknown Artist",
+                    album = e["al"] as? String,
+                    thumbnail = e["th"] as? String ?: "",
+                    duration = (e["du"] as? Number)?.toLong() ?: 0L
+                )
+                db.trackDao().upsertTrackPreservingFavorite(track.toEntity())
+                dao.insertEvent(PlaybackEventEntity(trackId = trackId, timestamp = ts, playTimeMs = ms))
+                added++
+            }
+        }
+        return added
+    }
+
+    @Volatile private var listenerUid: String? = null
+    private var listener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    /**
+     * Live updates from the account while the app runs: days written by the Windows app (or
+     * another phone) arrive within seconds instead of at the next check. Its own uploads also
+     * fire here and are skipped as duplicates.
+     */
+    private fun listenForOtherDevices(scope: CoroutineScope) {
+        val uid = signedInUid() ?: return
+        if (!LocalDataOwner.belongsTo(uid) || listenerUid == uid) return
+        listener?.remove()
+        listenerUid = uid
+        listener = collection(uid)
+            .whereGreaterThan("updatedAt", System.currentTimeMillis() - PULL_OVERLAP_MS)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    if (error != null) Log.w(TAG, "Live listening updates stopped: ${error.message}")
+                    listenerUid = null
+                    return@addSnapshotListener
+                }
+                val changed = snapshot.documentChanges.map { it.document }
+                if (changed.isEmpty() || paused) return@addSnapshotListener
+                scope.launch(Dispatchers.IO) {
+                    if (signedInUid() != uid || !LocalDataOwner.belongsTo(uid)) return@launch
+                    mutex.withLock {
+                        try {
+                            val added = importDays(changed)
+                            if (added > 0) Log.i(TAG, "Added $added listens from another device")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Live listening update failed: ${e.message}")
+                        }
+                    }
+                }
+            }
     }
 
     /**
@@ -132,34 +201,12 @@ object StatsCloudSync {
             try {
                 val db = AuralisDatabase.getInstance(appContext)
                 val dao = db.playbackEventDao()
-                var added = 0
                 val pullStarted = System.currentTimeMillis()
                 val days = if (restoredBefore && pulledAt > 0L) {
                     // A margin for clock differences between devices.
                     collection(uid).whereGreaterThan("updatedAt", pulledAt - PULL_OVERLAP_MS).get().await().documents
                 } else collection(uid).get().await().documents
-                for (doc in days) {
-                    val events = doc.get("events") as? Map<*, *> ?: continue
-                    for (raw in events.values) {
-                        val e = raw as? Map<*, *> ?: continue
-                        val trackId = e["t"] as? String ?: continue
-                        val ts = (e["ts"] as? Number)?.toLong() ?: continue
-                        val ms = (e["ms"] as? Number)?.toLong() ?: continue
-                        if (trackId.isBlank() || ms <= 0L) continue
-                        if (dao.countEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS) > 0) continue
-                        val track = Track(
-                            id = trackId,
-                            title = e["ti"] as? String ?: "Unknown Track",
-                            artist = e["ar"] as? String ?: "Unknown Artist",
-                            album = e["al"] as? String,
-                            thumbnail = e["th"] as? String ?: "",
-                            duration = (e["du"] as? Number)?.toLong() ?: 0L
-                        )
-                        db.trackDao().upsertTrackPreservingFavorite(track.toEntity())
-                        dao.insertEvent(PlaybackEventEntity(trackId = trackId, timestamp = ts, playTimeMs = ms))
-                        added++
-                    }
-                }
+                val added = importDays(days)
                 prefs.edit().putBoolean("restored_$uid", true).putLong("pulled_at_$uid", pullStarted).apply()
                 Log.i(TAG, "Restored $added listens from the account (${days.size} days checked)")
             } catch (e: Exception) {
