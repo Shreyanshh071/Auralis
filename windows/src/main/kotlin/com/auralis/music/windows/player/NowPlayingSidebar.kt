@@ -66,18 +66,20 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     val coverSize = minOf(maxWidth - 42.dp, maxHeight * .40f)
     Box(Modifier.fillMaxSize().padding(start = 2.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).clip(RoundedCornerShape(16.dp))) {
     ArtworkAura(palette, Modifier.fillMaxSize(), track.thumbnail)
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
             if (onCollapse != null) IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.ChevronRight, "Collapse now playing", tint = Color.White.copy(alpha = .75f))
             }
         }
-        DesktopArtwork(track.thumbnail, Modifier.size(coverSize).align(Alignment.CenterHorizontally), 12.dp, track.title)
-        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
+        // Title, artist and lyrics card share the cover's edges, even when height shrinks the cover.
+        DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title)
+        Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+        Text(track.artist, Modifier.width(coverSize), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
         Column(Modifier.weight(1f, fill = false).animateContentSize().heightIn(max = if (lyricsCollapsed) 48.dp else 320.dp)
-            .fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .14f))) {
+            .width(coverSize).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .14f))) {
             Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
