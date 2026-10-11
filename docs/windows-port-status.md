@@ -14,7 +14,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 - The compact dark title bar now sits over Windows' native resizable frame. Native caption hit testing handles dragging, double-click maximize/restore and the maximize button's Snap layouts target; minimize/maximize buttons send Windows system commands.
 - `:windows:verifyWindowFrame` opens its own disposable window without loading any account, library or playback data. Verified native caption/resize hit tests, child-canvas forwarding, maximize client bounds against monitor work area, unclipped canvas, Compose placement tracking, original bounds on restore, caption double click and minimize. Existing Windows tests also pass.
 - Native callbacks remain retained until disposal and original AWT procedures are restored. Normal title-bar buttons remain client controls. The existing minimum window size still applies to smaller Snap zones.
-- This change is in the development build; the installed copy has not been updated for the window-frame fix. Windows stays at 1.0.0.
+- Installed together with the desktop Home redesign on 11 October. Windows stays at 1.0.0.
 
 ## Desktop Home redesign
 
@@ -23,6 +23,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 - Fresh installs explain that recommendations use listening history. Related discovery/music shelves refresh through the existing Home loading/refresh pipeline; not every upstream YouTube shelf is locally personalized. Pause-listening-history settings prevent new history from becoming recommendation signals.
 - Inspected LiMusic source at ff7025db316762430897c1502ce14f519833fa54: it combines the YouTube home feed with local recent items/artists and artist-seeded community playlists. Auralis uses its own Compose implementation; no LiMusic code copied.
 - Verified wide/narrow/new-user preview renders and tests for starter-to-personal rotation, persistent pins, cross-shelf duplicates, and mood-filter isolation. Android Home and shared recommendation code are unchanged.
+- Installed on 11 October after 18 Windows tests passed. Same-version MSI repair returned 1603 (SecureRepair), so the known package was normally removed and the new internal MSI installed; both operations succeeded. Existing shortcut retained, all 158 checked app-data files unchanged, backup in `Downloads/Auralis-checkpoints/before-desktop-home-20261011-121302`. No EXE was copied to Downloads.
 
 ## This batch
 
