@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -207,6 +208,7 @@ fun AuralisDesktopApp(
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
+    com.auralis.music.windows.player.ArtworkAppBackground(queue?.current?.thumbnail, artworkPalette) {
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
@@ -240,7 +242,10 @@ fun AuralisDesktopApp(
                     canRefresh = browse.top != null || destination in setOf(DesktopDestination.HOME, DesktopDestination.LIBRARY) ||
                         (destination == DesktopDestination.SEARCH && searchState.query.isNotBlank())
                 ))
-                Row(Modifier.weight(1f).fillMaxWidth()) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                  val showNowPlaying = maxWidth >= 1180.dp && queue?.current != null && playback != null && lyrics != null
+                  val nowPlayingWidth = if (maxWidth >= 1500.dp) 340.dp else 290.dp
+                  Row(Modifier.fillMaxSize()) {
                     Sidebar(selected = destination, onSelect = { destination = it; browse.clear() })
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
@@ -352,6 +357,12 @@ fun AuralisDesktopApp(
                         }
                         androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
                     }
+                    if (showNowPlaying && playback != null && lyrics != null) {
+                        com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
+                            onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
+                            modifier = Modifier.width(nowPlayingWidth).fillMaxHeight())
+                    }
+                  }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 com.auralis.music.windows.player.NowPlayingBar(
@@ -383,6 +394,8 @@ fun AuralisDesktopApp(
         }
     }
     }
+}
+
 }
 
 @Composable
