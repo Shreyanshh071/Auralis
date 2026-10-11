@@ -272,6 +272,10 @@ fun AuralisDesktopApp(
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance,
+        com.auralis.music.ui.components.LocalTrackLinks provides com.auralis.music.ui.components.TrackLinks(
+            openArtist = { name -> showPlayer = false; browse.openArtist(com.auralis.music.domain.model.Artist(id = "", name = name)) },
+            openAlbum = { track -> showPlayer = false; browse.openTrackAlbum(track) { showUnavailable("Couldn't find that album") } }
+        ),
         // Song menus frost the app's own backdrop (like the search dropdown), not the clicked song's cover.
         com.auralis.music.ui.components.LocalTrackContextMenu provides { items, _, dismiss ->
             com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss) {

@@ -123,24 +123,6 @@ fun DiscordIntegrationScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(Strings.back),
-                            tint = TEXT_PRIMARY
-                        )
-                    }
-                },
-                actions = { },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = THEME_BG
-                )
-            )
-        },
         containerColor = THEME_BG
     ) { paddingValues ->
         LazyColumn(
@@ -151,16 +133,8 @@ fun DiscordIntegrationScreen(
             verticalArrangement = Arrangement.spacedBy(22.dp),
             contentPadding = PaddingValues(top = 0.dp, bottom = 40.dp)
         ) {
-            // ── LARGE PAGE TITLE ──
-            item {
-                Text(
-                    text = str(Strings.discord_integration),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TEXT_PRIMARY,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                )
-            }
+            // ── PAGE TITLE ──
+            item { com.auralis.music.ui.components.PageHeader(str(Strings.discord_integration), onDismiss) }
 
             // ── 1. ACCOUNT SECTION ──
             item {

@@ -47,6 +47,22 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
         }
     }
 
+    /** A song's album: by its id when known, otherwise the best album search match for its name. */
+    fun openTrackAlbum(track: com.auralis.music.domain.model.Track, onMissing: () -> Unit = {}) {
+        val title = track.album?.takeIf { it.isNotBlank() } ?: return
+        val id = track.albumId
+        if (!id.isNullOrBlank()) {
+            openAlbum(PlaylistResult(id, title, author = track.artist))
+            return
+        }
+        scope.launch {
+            val key = { s: String -> s.lowercase().replace(Regex("""[^\p{L}\p{Nd}]"""), "") }
+            val results = runCatching { repository.searchAlbums("$title ${track.artist}") }.getOrDefault(emptyList())
+            val match = results.firstOrNull { key(it.title) == key(title) } ?: results.firstOrNull()
+            if (match != null) openAlbum(match) else onMissing()
+        }
+    }
+
     fun openArtist(artist: Artist) {
         val cached = artistPages[artist.name.lowercase()]
         stack += BrowsePage.Artist(cached ?: ArtistPage(artist = artist), isLoading = cached == null)

@@ -43,6 +43,7 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.TrackLinkCells
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
@@ -509,6 +510,11 @@ fun AlbumScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
+                if (wideTable) item {
+                    // Number, then cover (44) + gap (14) before the title; the menu button after the clock.
+                    com.auralis.music.ui.components.TrackTableHeader(leading = 58.dp, trailing = 32.dp, showNumber = true,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                }
 
                 itemsIndexed(
                     items = tracks,
@@ -581,26 +587,9 @@ fun AlbumScreen(
                                 )
                             }
                             if (wideTable) {
-                                Text(
-                                    text = track.artist.ifBlank { album.author ?: "" },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                                )
-                                Text(
-                                    text = track.album?.takeIf { it.isNotBlank() } ?: "—",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                                )
-                            }
-
-                            // Duration
-                            if (track.duration > 0) {
+                                TrackLinkCells(track, album.author)
+                                com.auralis.music.ui.components.TrackTimeCell(track.duration)
+                            } else if (track.duration > 0) {
                                 val mins = track.duration / 60
                                 val secs = track.duration % 60
                                 Text(
