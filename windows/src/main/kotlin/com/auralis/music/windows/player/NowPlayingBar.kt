@@ -2,7 +2,8 @@ package com.auralis.music.windows.player
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.QueueMusic
 
 import androidx.compose.foundation.background
@@ -51,17 +52,17 @@ import com.auralis.music.windows.search.DesktopArtwork
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
 fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {},
-    onOpenLyrics: () -> Unit = onOpenPlayer, onOpenQueue: () -> Unit = onOpenPlayer) {
+    onOpenQueue: () -> Unit = onOpenPlayer) {
     val normal = MaterialTheme.colorScheme
     val black = com.auralis.music.ui.theme.LocalAppearanceSettings.current.pureBlackMiniPlayer
     val colors = if (black) normal.copy(surface = androidx.compose.ui.graphics.Color.Black,
         onSurface = androidx.compose.ui.graphics.Color.White, onSurfaceVariant = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)) else normal
-    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenLyrics, onOpenQueue) }
+    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue) }
 }
 
 @Composable
 private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit,
-    onOpenLyrics: () -> Unit, onOpenQueue: () -> Unit) {
+    onOpenQueue: () -> Unit) {
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val colors = MaterialTheme.colorScheme
     Row(
@@ -79,6 +80,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         val queue by controller.queue.collectAsState()
         val state by controller.state.collectAsState()
         val resolving by controller.resolving.collectAsState()
+        val repeatMode by controller.repeatMode.collectAsState()
         val track = queue.current
 
         val whiteButtons = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
@@ -145,11 +147,17 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                         )
                     }
                 }
-                IconButton(onClick = controller::next, enabled = queue.hasNext, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                IconButton(onClick = controller::next, enabled = queue.hasNext || (enabled && controller.roomControl == null && repeatMode == DesktopPlaybackController.RepeatMode.ALL), colors = whiteButtons, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(22.dp))
                 }
-                IconButton(onClick = onOpenLyrics, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.Subtitles, "Lyrics", Modifier.size(20.dp))
+                IconButton(onClick = controller::cycleRepeatMode, enabled = enabled && controller.roomControl == null,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = if (repeatMode == DesktopPlaybackController.RepeatMode.OFF)
+                        colors.onSurfaceVariant else colors.primary), modifier = Modifier.size(34.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(if (repeatMode == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                            when (repeatMode) { DesktopPlaybackController.RepeatMode.OFF -> "Repeat off"; DesktopPlaybackController.RepeatMode.ALL -> "Repeat all"; DesktopPlaybackController.RepeatMode.ONE -> "Repeat one" }, Modifier.size(20.dp))
+                        if (repeatMode != DesktopPlaybackController.RepeatMode.OFF) Box(Modifier.size(3.dp).background(colors.primary, CircleShape))
+                    }
                 }
             }
             SeekBar(controller, enabled)

@@ -20,9 +20,24 @@ class DesktopPlaybackController(
     private val scope: CoroutineScope,
     private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
 ) {
+    enum class RepeatMode { OFF, ALL, ONE }
     data class Queue(val tracks: List<Track> = emptyList(), val index: Int = -1) {
         val current: Track? get() = tracks.getOrNull(index)
         val hasNext: Boolean get() = index in 0 until tracks.lastIndex
+        fun afterFinished(repeat: RepeatMode): Queue? = when {
+            current == null -> null
+            repeat == RepeatMode.ONE -> this
+            hasNext -> copy(index = index + 1)
+            repeat == RepeatMode.ALL -> copy(index = 0)
+            else -> null
+        }
+    }
+
+    private val _repeatMode = MutableStateFlow(RepeatMode.OFF)
+    val repeatMode = _repeatMode.asStateFlow()
+    fun cycleRepeatMode() {
+        if (roomControl != null) return
+        _repeatMode.value = RepeatMode.entries[(_repeatMode.value.ordinal + 1) % RepeatMode.entries.size]
     }
 
     private val _queue = MutableStateFlow(Queue())
@@ -86,7 +101,10 @@ class DesktopPlaybackController(
         scope.launch {
             player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) consecutiveFailures = 0 }
         }
-        player.onFinished = { scope.launch { if (_queue.value.hasNext) next() } }
+        player.onFinished = { scope.launch {
+            if (roomControl != null) { if (_queue.value.hasNext) next() }
+            else _queue.value.afterFinished(_repeatMode.value)?.let { load(it) }
+        } }
         player.onError = {
             scope.launch {
                 val track = _queue.value.current ?: return@launch
@@ -134,6 +152,7 @@ class DesktopPlaybackController(
         if (intercepted("next")) return
         val q = _queue.value
         if (q.hasNext) load(q.copy(index = q.index + 1))
+        else if (roomControl == null && q.current != null && _repeatMode.value == RepeatMode.ALL) load(q.copy(index = 0))
     }
 
     /** Like the phone: restarts the song when more than 3 seconds in, otherwise goes back one. */
