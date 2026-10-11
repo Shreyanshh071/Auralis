@@ -90,7 +90,7 @@ fun FindMusicDropdown(
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val gap = with(density) { (if (compact) 46.dp else 68.dp).roundToPx() }
+    val gap = with(density) { (if (compact) 46.dp else 72.dp).roundToPx() }
     val position = remember(gap) {
         object : androidx.compose.ui.window.PopupPositionProvider {
             override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect,
@@ -117,11 +117,11 @@ fun FindMusicDropdown(
                     mounted = true
                     expanded = true
                 }
-            }, modifier = Modifier.height(60.dp).widthIn(min = 210.dp),
+            }, modifier = Modifier.height(64.dp).widthIn(min = 176.dp),
             colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
                 containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = .10f),
                 contentColor = MaterialTheme.colorScheme.onSurface),
-            shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(26.dp, 16.dp)
+            shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(18.dp, 16.dp)
         ) {
             Icon(Icons.Default.Search, null, Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
