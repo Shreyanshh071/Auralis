@@ -426,7 +426,11 @@ fun AuralisDesktopApp(
                             }
                             DesktopDestination.STATS, DesktopDestination.WRAPPED -> com.auralis.music.windows.history.ListeningStatsPage(
                                 listeningStats, playback, destination == DesktopDestination.WRAPPED,
-                                onBack = { destination = DesktopDestination.HOME }
+                                onBack = { navigation.back()?.let(::restoreRoute) ?: run { destination = DesktopDestination.HOME } },
+                                onOpenWrapped = { destination = DesktopDestination.WRAPPED },
+                                search = searchRepository,
+                                onOpenArtist = browse::openArtist,
+                                onTrackMenu = { menuTrack = it }
                             )
                             DesktopDestination.PROFILE -> com.auralis.music.windows.profile.DesktopProfile(
                                 account = account,
