@@ -296,7 +296,9 @@ class DesktopPlaybackController(
             next()
         } else if (consecutiveFailures >= 3) {
             com.auralis.music.util.Log.w("DesktopPlayback", "Stopped skipping after $consecutiveFailures songs in a row failed")
-            _errors.tryEmit("Playback isn't working right now. Check your connection and try again.")
+            _errors.tryEmit(if (com.auralis.music.data.network.YouTubeBackoff.active)
+                "YouTube is temporarily blocking requests from this network. Try again in a few minutes or switch networks."
+                else "Playback isn't working right now. Check your connection and try again.")
         }
     }
 }
