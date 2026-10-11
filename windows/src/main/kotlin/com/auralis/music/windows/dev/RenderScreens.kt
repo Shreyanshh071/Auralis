@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.blur
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -82,13 +83,16 @@ fun main(args: Array<String>) {
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
         "browser-signin" to {
-            androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize()) {
-                Column(androidx.compose.ui.Modifier.padding(32.dp).widthIn(max = 560.dp)) {
+            Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Box(androidx.compose.ui.Modifier.fillMaxSize().blur(18.dp)) { homePreview(true) }
+                com.auralis.music.windows.profile.SignInGlassSurface {
+                Column(androidx.compose.ui.Modifier.width(560.dp).padding(24.dp)) {
                     Text("Sign in to YouTube Music", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)
                     Spacer(androidx.compose.ui.Modifier.height(20.dp))
                     com.auralis.music.windows.profile.BrowserYouTubePicker(listOf(
                         com.auralis.music.windows.profile.BrowserYouTubeLogin.Profile("Firefox", "Personal", File(data, "fake.sqlite"), true),
                         com.auralis.music.windows.profile.BrowserYouTubeLogin.Profile("Zen", "Default", File(data, "fake.sqlite"), true)))
+                }
                 }
             }
         },

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.blur
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -237,7 +238,11 @@ fun AuralisDesktopApp(
         }
     ) {
         if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account) { showSignIn = false }
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        // Blur the actual page beneath sign-in, rather than letting crisp rows show through
+        // its translucent surface. No screenshot/readback is needed to open the dialog.
+        Surface(modifier = Modifier.fillMaxSize().then(
+            if (showSignIn) Modifier.blur(18.dp) else Modifier
+        ), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 titleBar(TitleBarActions(
                     canGoBack = showPlayer || navigation.canGoBack,
