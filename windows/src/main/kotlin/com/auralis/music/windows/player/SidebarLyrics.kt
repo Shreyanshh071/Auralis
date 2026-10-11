@@ -21,15 +21,20 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
+import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
+import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
+import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import kotlinx.coroutines.delay
 
-/** A compact line-synced view for the sidebar; the expanded player retains word/syllable sync. */
+/** Compact sidebar layout using the same genuine word timing and renderer as the full player. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit) {
@@ -46,6 +51,9 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
     val synced = lyrics?.syncType != SyncType.PLAIN
     val active by remember(lines, synced) { derivedStateOf {
         if (synced) LyricsEngine.findActiveLyricIndex(lines, position.value) else -1
+    } }
+    val singing by remember(lines, synced) { derivedStateOf {
+        if (synced) LyricsEngine.findActiveLyricIndices(lines, position.value) else emptySet()
     } }
     val list = rememberLazyListState()
     var manualScroll by remember { mutableLongStateOf(0L) }
@@ -68,8 +76,9 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                         .80f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
                 }) {
             itemsIndexed(lines) { index, line ->
-                SidebarLyricLine(line.text, active == index, synced,
-                    onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } })
+                SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
+                    onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
+                    line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN)
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
@@ -80,17 +89,34 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
 
 @Composable
 internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, onClick: () -> Unit,
-    previewHovered: Boolean = false) {
+    previewHovered: Boolean = false, line: LyricLine? = null, position: State<Long>? = null,
+    syncType: SyncType = SyncType.PLAIN) {
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
     val alpha by animateFloatAsState(if (active || hovered || !synced) 1f else .48f, tween(160), label = "sidebarLineText")
     val background by animateFloatAsState(if (hovered) .16f else 0f, tween(140), label = "sidebarLineHover")
-    Text(text, color = Color.White.copy(alpha = alpha), fontSize = 24.sp, lineHeight = 30.sp,
-        fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth()
+    val words = remember(line, syncType) {
+        line?.let { resolveExperimentalWordTimestamps(it, syncType) }?.let(::presentationWordTimestamps)
+    }
+    Box(Modifier.fillMaxWidth()
             .padding(vertical = 2.dp).clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = background))
             .hoverable(interaction)
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp)) {
+        if (active && !words.isNullOrEmpty() && position != null) {
+            ExperimentalWordLevelLyrics(
+                mainText = text.ifBlank { line?.words?.joinToString("") { it.word }.orEmpty() },
+                words = words, isActiveLine = true, currentPositionState = position,
+                lyricStyle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily),
+                lineColor = Color.White, expressiveAccent = Color.White,
+                isBackground = line?.isBackground == true,
+                focusedAlpha = if (hovered) 1f else .30f, alignment = TextAlign.Left)
+        } else {
+            Text(text, color = Color.White.copy(alpha = alpha), fontSize = 24.sp, lineHeight = 30.sp,
+                fontWeight = FontWeight.Bold)
+        }
+    }
 }
