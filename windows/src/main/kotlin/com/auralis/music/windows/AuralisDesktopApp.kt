@@ -58,6 +58,7 @@ import javax.imageio.ImageIO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 
 enum class DesktopDestination(val label: String, val icon: ImageVector) {
@@ -196,8 +197,31 @@ fun AuralisDesktopApp(
         try {
             account.pullCloudBackup(library, listeningStats)?.let { if (refreshTick == 0) showUnavailable(it) }
             libraryViewModel.refresh()
+            // Then send this PC's side: the merged library, and listens measured here.
+            account.pushLibrary(library)
+            account.pushListens(listeningStats)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync from the account: ${e.message}") }
+        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync with the account: ${e.message}") }
+    }
+    // While signed in, keep the account current: library edits a few seconds after they happen,
+    // and new listening every two minutes (as the phone uploads).
+    androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
+        if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
+        launch {
+            kotlinx.coroutines.flow.combine(library.getPlaylists(), library.getFavoriteTracks(),
+                library.getSavedAlbums(), library.getSavedArtists()) { a, b, c, d -> listOf<Any>(a, b, c, d) }
+                .distinctUntilChanged()
+                .collectLatest {
+                    kotlinx.coroutines.delay(5_000)
+                    runCatching { account.pushLibrary(library) }
+                        .onFailure { com.auralis.music.util.Log.w("AccountSync", "Library upload failed: ${it.message}") }
+                }
+        }
+        while (true) {
+            kotlinx.coroutines.delay(120_000)
+            runCatching { account.pushListens(listeningStats) }
+                .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
+        }
     }
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
