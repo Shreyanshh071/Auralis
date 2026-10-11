@@ -15,7 +15,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun DesktopSignInDialog(account: DesktopAccount, onDismiss: () -> Unit) {
+internal fun DesktopSignInDialog(account: DesktopAccount, onConnected: () -> Unit = {},
+    onDisconnected: () -> Unit = {}, onDismiss: () -> Unit) {
     var auralis by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         SignInGlassSurface {
@@ -32,7 +33,7 @@ internal fun DesktopSignInDialog(account: DesktopAccount, onDismiss: () -> Unit)
                     FilterChip(auralis, { auralis = true }, label = { Text("Auralis account") })
                 }
                 if (auralis) AccountPage(account) { auralis = false }
-                else BrowserYouTubePicker()
+                else BrowserYouTubePicker(onConnected = onConnected, onDisconnected = onDisconnected)
             }
         }
     }
@@ -50,7 +51,8 @@ internal fun SignInGlassSurface(content: @Composable () -> Unit) {
 }
 
 @Composable
-internal fun BrowserYouTubePicker(previewProfiles: List<BrowserYouTubeLogin.Profile>? = null) {
+internal fun BrowserYouTubePicker(previewProfiles: List<BrowserYouTubeLogin.Profile>? = null,
+    onConnected: () -> Unit = {}, onDisconnected: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var profiles by remember { mutableStateOf(previewProfiles) }
     var busy by remember { mutableStateOf(false) }
@@ -70,7 +72,8 @@ internal fun BrowserYouTubePicker(previewProfiles: List<BrowserYouTubeLogin.Prof
                     YouTubeSession.save(value, "", "0", accountLabel)
                 }
                 cookie = ""; paste = false
-                message = "YouTube Music connected."
+                onConnected()
+                message = "Session imported. Loading your YouTube account and playlists…"
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) { message = e.message ?: "Couldn't connect this account." }
             finally { busy = false }
@@ -79,7 +82,10 @@ internal fun BrowserYouTubePicker(previewProfiles: List<BrowserYouTubeLogin.Prof
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (signedIn) {
             Text("Connected: ${label.ifBlank { "YouTube Music" }}")
-            TextButton(onClick = { scope.launch(Dispatchers.IO) { YouTubeSession.signOut() } }, enabled = !busy) { Text("Disconnect YouTube Music") }
+            TextButton(onClick = { scope.launch {
+                onDisconnected()
+                withContext(Dispatchers.IO) { YouTubeSession.signOut() }
+            } }, enabled = !busy) { Text("Disconnect YouTube Music") }
         }
         Text("Choose the browser profile where you're already signed in to YouTube. Only its YouTube session is imported, and saved securely on this PC.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         when {

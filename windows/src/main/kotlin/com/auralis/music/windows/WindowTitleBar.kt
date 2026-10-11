@@ -31,7 +31,9 @@ data class TitleBarActions(
     val back: () -> Unit, val forward: () -> Unit, val refresh: () -> Unit,
     val accountLabel: String, val openAccount: () -> Unit,
     val openTogether: () -> Unit, val openSettings: () -> Unit, val home: () -> Unit,
-    val canRefresh: Boolean = true
+    val canRefresh: Boolean = true,
+    val accountAvatar: String? = null,
+    val accountMenu: (@Composable () -> Unit)? = null
 )
 
 /** Compact desktop chrome. Report frame hit regions in physical client pixels to Windows. */
@@ -53,11 +55,14 @@ fun WindowTitleBar(
             ChromeButton(Icons.Outlined.ChevronRight, "Forward", actions.forward, actions.canGoForward, 34)
             ChromeButton(Icons.Outlined.Refresh, "Refresh", actions.refresh, enabled = actions.canRefresh, width = 34)
             Spacer(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { captionBounds(it.boundsInWindow()) })
+            Box {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(Icons.Outlined.AccountCircle, "Account", Modifier.size(17.dp), tint = Color(0xFFA6A0AD))
+                com.auralis.music.windows.profile.YouTubeAccountAvatar(actions.accountAvatar, Modifier.size(24.dp))
                 Text(actions.accountLabel.take(22), fontSize = 12.sp, color = Color(0xFFE8E4EB))
                 Icon(Icons.Outlined.ExpandMore, null, Modifier.size(13.dp), tint = Color(0xFFA6A0AD))
+            }
+            actions.accountMenu?.invoke()
             }
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)

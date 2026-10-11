@@ -122,7 +122,14 @@ fun AuralisDesktopApp(
     }
     val accountState by account.state.collectAsState()
     val youtubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
+    val youtubeLabel by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
+    val youtubeLibrary = remember { com.auralis.music.windows.profile.DesktopYouTubeLibrary(scope) }
+    val youtubeState by youtubeLibrary.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
+    var showYouTubeAccounts by remember { mutableStateOf(false) }
+    var youtubePageAccount by remember { mutableStateOf<String?>(null) }
+    var youtubePageId by remember { mutableStateOf<String?>(null) }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -134,6 +141,33 @@ fun AuralisDesktopApp(
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
     val showUnavailable: (String) -> Unit = { message ->
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
+    }
+    fun openYouTubePlaylist(playlist: com.auralis.music.domain.model.PlaylistResult) {
+        showPlayer = false
+        youtubePageAccount = youtubeState.activeId
+        youtubePageId = playlist.id
+        val expectedAccount = youtubeState.activeId
+        var page = com.auralis.music.desktop.browse.BrowsePage.Album(playlist)
+        browse.stack += page
+        fun update(tracks: List<com.auralis.music.domain.model.Track>) {
+            if (youtubeLibrary.state.value.activeId != expectedAccount) return
+            val index = browse.stack.indexOfFirst { it === page }
+            if (index >= 0) {
+                page = page.copy(tracks = tracks, isLoading = false)
+                browse.stack[index] = page
+            }
+        }
+        scope.launch {
+            try {
+                val tracks = youtubeLibrary.tracks(playlist) { partial -> scope.launch { update(partial) } }
+                update(tracks)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { update(page.tracks); showUnavailable("Couldn't finish loading this YouTube playlist. Try opening it again.") }
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(youtubeState.activeId) {
+        if (youtubePageAccount != null && youtubePageAccount != youtubeState.activeId &&
+            (browse.top as? com.auralis.music.desktop.browse.BrowsePage.Album)?.album?.id == youtubePageId) browse.clear()
     }
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
     androidx.compose.runtime.LaunchedEffect(together) {
@@ -237,11 +271,13 @@ fun AuralisDesktopApp(
             com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss, background)
         }
     ) {
-        if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account) { showSignIn = false }
+        if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account,
+            onConnected = { youtubeLibrary.refresh(force = true) },
+            onDisconnected = { youtubeState.activeId?.let(youtubeLibrary::removeAccount); youtubeLibrary.refresh(force = true) }) { showSignIn = false }
         // Blur the actual page beneath sign-in, rather than letting crisp rows show through
         // its translucent surface. No screenshot/readback is needed to open the dialog.
         Surface(modifier = Modifier.fillMaxSize().then(
-            if (showSignIn) Modifier.blur(18.dp) else Modifier
+            if (showSignIn || showYouTubeAccounts) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 titleBar(TitleBarActions(
@@ -252,7 +288,11 @@ fun AuralisDesktopApp(
                     refresh = {
                         when (val page = browse.top) {
                             is com.auralis.music.desktop.browse.BrowsePage.Artist -> browse.retryArtist()
-                            is com.auralis.music.desktop.browse.BrowsePage.Album -> { browse.pop(); browse.openAlbum(page.album) }
+                            is com.auralis.music.desktop.browse.BrowsePage.Album -> {
+                                browse.pop()
+                                if (youtubeState.playlists.any { it.id == page.album.id }) openYouTubePlaylist(page.album)
+                                else browse.openAlbum(page.album)
+                            }
                             null -> when (destination) {
                                 DesktopDestination.SEARCH -> if (searchState.query.isNotBlank()) searchState.search(searchState.query)
                                 DesktopDestination.LIBRARY -> scope.launch { libraryViewModel.refresh() }
@@ -261,8 +301,17 @@ fun AuralisDesktopApp(
                             }
                         }
                     },
-                    accountLabel = accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: if (youtubeSignedIn) "YouTube Music" else "Sign in",
-                    openAccount = { showSignIn = true },
+                    accountLabel = if (youtubeSignedIn) youtubeState.identity?.name ?: "YouTube Music" else accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: "Sign in",
+                    accountAvatar = if (youtubeSignedIn) youtubeState.identity?.avatar else null,
+                    accountMenu = {
+                        if (showYouTubeAccounts) com.auralis.music.windows.profile.YouTubeAccountMenu(youtubeState,
+                            onSelect = { youtubeLibrary.switchAccount(it); showYouTubeAccounts = false },
+                            onRemove = youtubeLibrary::removeAccount,
+                            onAdd = { showYouTubeAccounts = false; showSignIn = true },
+                            onSettings = { showYouTubeAccounts = false; browse.clear(); destination = DesktopDestination.SETTINGS },
+                            onRefresh = { youtubeLibrary.refresh(force = true) }, onDismiss = { showYouTubeAccounts = false })
+                    },
+                    openAccount = { if (youtubeSignedIn) showYouTubeAccounts = true else showSignIn = true },
                     openTogether = { showPlayer = false; browse.clear(); destination = DesktopDestination.TOGETHER },
                     openSettings = { showPlayer = false; browse.clear(); destination = DesktopDestination.SETTINGS },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
@@ -284,7 +333,9 @@ fun AuralisDesktopApp(
                   Row(Modifier.fillMaxSize()) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
                         Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
-                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
+                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed },
+                            youtube = if (youtubeSignedIn) youtubeState else null,
+                            onYouTubePlaylist = ::openYouTubePlaylist, onYouTubeRetry = { youtubeLibrary.refresh(force = true) })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
@@ -458,7 +509,9 @@ fun AuralisDesktopApp(
 }
 
 @Composable
-internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit) {
+internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit,
+    youtube: com.auralis.music.windows.profile.YouTubeLibraryState? = null,
+    onYouTubePlaylist: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}, onYouTubeRetry: () -> Unit = {}) {
     val logo = remember {
         Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
             ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
@@ -486,9 +539,12 @@ internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination
                     if (collapsed) "Expand navigation" else "Collapse navigation")
             }
         }
-        DesktopDestination.entries.filter { it != DesktopDestination.SEARCH }.forEach { item ->
+        DesktopDestination.entries.filter { it != DesktopDestination.SEARCH && it != DesktopDestination.SETTINGS }.forEach { item ->
             SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) }, collapsed = collapsed)
         }
+        if (youtube != null) com.auralis.music.windows.profile.YouTubeSidebarPlaylists(youtube, collapsed, onYouTubePlaylist, onYouTubeRetry)
+        SidebarItem(DesktopDestination.SETTINGS, isSelected = selected == DesktopDestination.SETTINGS,
+            onClick = { onSelect(DesktopDestination.SETTINGS) }, collapsed = collapsed)
     }
 }
 
