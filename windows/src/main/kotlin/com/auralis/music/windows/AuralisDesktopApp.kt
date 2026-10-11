@@ -273,7 +273,9 @@ fun AuralisDesktopApp(
                                         onPlayNext = { playback?.playNext(it) },
                                         onAddToQueue = { playback?.addToQueue(it) },
                                         onMenuClick = { menuTrack = it },
-                                        onTypingChange = { typing = it }
+                                        onTypingChange = { typing = it },
+                                        liquidify = liquidify,
+                                        artwork = queue?.current?.thumbnail
                                     )
                                 }
                             )

@@ -1,6 +1,8 @@
 package com.auralis.music.windows.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +46,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -74,7 +78,9 @@ fun FindMusicDropdown(
     onPlayNext: (com.auralis.music.domain.model.Track) -> Unit,
     onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit,
     onMenuClick: (com.auralis.music.domain.model.Track) -> Unit,
-    onTypingChange: (Boolean) -> Unit
+    onTypingChange: (Boolean) -> Unit,
+    liquidify: Boolean = false,
+    artwork: String? = null
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -105,8 +111,8 @@ fun FindMusicDropdown(
                 properties = androidx.compose.ui.window.PopupProperties(focusable = true)
             ) {
                 LaunchedEffect(Unit) { focus.requestFocus(); onTypingChange(true) }
-                Surface(shape = RoundedCornerShape(18.dp), tonalElevation = 6.dp, shadowElevation = 12.dp) {
-                    Column(Modifier.width(480.dp).height(460.dp).padding(top = 4.dp)) {
+                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp)) {
+                    Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
                         SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
                             Modifier.fillMaxWidth().padding(12.dp))
                         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -121,6 +127,27 @@ fun FindMusicDropdown(
         }
     }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onTypingChange(false) } }
+}
+
+/** Match Liquidify's blurred cover backdrop while keeping the search rows sharp. */
+@Composable
+internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifier: Modifier = Modifier,
+    content: @Composable () -> Unit) {
+    val colours = MaterialTheme.colorScheme
+    val light = colours.onSurface.luminance() < .5f
+    Surface(modifier, shape = RoundedCornerShape(18.dp),
+        color = if (liquidify) Color.Transparent else colours.surface,
+        tonalElevation = if (liquidify) 0.dp else 6.dp, shadowElevation = 12.dp,
+        border = if (liquidify) BorderStroke(1.dp, colours.onSurface.copy(alpha = .12f)) else null) {
+        Box(Modifier.fillMaxSize()) {
+            if (liquidify) {
+                com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 40.dp)
+                Box(Modifier.fillMaxSize().background(
+                    if (light) Color(0xFFF7F4F9).copy(alpha = .70f) else Color(0xFF171519).copy(alpha = .50f)))
+            }
+            content()
+        }
+    }
 }
 
 /** The Windows pieces of the shared search UI. Text is English until the app's translations are shared. */

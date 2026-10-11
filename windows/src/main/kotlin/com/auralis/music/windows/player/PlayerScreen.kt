@@ -46,6 +46,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.auralis.music.desktop.lyrics.DesktopLyricsController
@@ -287,7 +288,7 @@ private fun Transport(playback: DesktopPlaybackController) {
  * up, as the phone does), scaled 1.10, crossfading between songs, under a 30% black scrim.
  */
 @Composable
-internal fun BlurredArtworkBackground(url: String?) {
+internal fun BlurredArtworkBackground(url: String?, blurRadius: Dp = 120.dp) {
     Crossfade(targetState = url, animationSpec = tween(700), label = "playerBackground") { artwork ->
         Box(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
             if (artwork != null) {
@@ -302,7 +303,7 @@ internal fun BlurredArtworkBackground(url: String?) {
                             scaleX = 1.10f * downscale
                             scaleY = 1.10f * downscale
                         }
-                        .blur(120.dp / downscale)
+                        .blur(blurRadius / downscale)
                 )
             }
         }
