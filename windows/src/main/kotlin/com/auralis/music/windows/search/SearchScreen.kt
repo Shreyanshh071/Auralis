@@ -47,6 +47,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -83,8 +84,26 @@ fun FindMusicDropdown(
     artwork: String? = null
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val backdrop = LocalSearchBackdrop.current
+    var backdropImage by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var backdropOffset by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(expanded, liquidify) {
+        backdropImage = if (expanded && liquidify) runCatching { backdrop?.toImageBitmap() }.getOrNull() else null
+    }
+    val gap = with(density) { 62.dp.roundToPx() }
+    val position = remember(gap) {
+        object : androidx.compose.ui.window.PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect,
+                windowSize: androidx.compose.ui.unit.IntSize, layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+                popupContentSize: androidx.compose.ui.unit.IntSize): androidx.compose.ui.unit.IntOffset {
+                val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+                val y = (anchorBounds.top + gap).coerceIn(0, (windowSize.height - popupContentSize.height).coerceAtLeast(0))
+                return androidx.compose.ui.unit.IntOffset(x, y).also { backdropOffset = it }
+            }
+        }
+    }
     fun dismiss() { expanded = false; onTypingChange(false) }
     fun submit(text: String) {
         if (text.isNotBlank()) { dismiss(); onSearch(text) }
@@ -105,13 +124,12 @@ fun FindMusicDropdown(
         }
         if (expanded) {
             androidx.compose.ui.window.Popup(
-                alignment = Alignment.TopEnd,
-                offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 62.dp.roundToPx() }),
+                popupPositionProvider = position,
                 onDismissRequest = ::dismiss,
                 properties = androidx.compose.ui.window.PopupProperties(focusable = true)
             ) {
                 LaunchedEffect(Unit) { focus.requestFocus(); onTypingChange(true) }
-                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp)) {
+                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp), backdropImage, backdropOffset) {
                     Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
                         SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
                             Modifier.fillMaxWidth().padding(12.dp))
@@ -132,16 +150,22 @@ fun FindMusicDropdown(
 /** Match Liquidify's blurred cover backdrop while keeping the search rows sharp. */
 @Composable
 internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifier: Modifier = Modifier,
+    backdrop: androidx.compose.ui.graphics.ImageBitmap? = null,
+    backdropOffset: androidx.compose.ui.unit.IntOffset = androidx.compose.ui.unit.IntOffset.Zero,
     content: @Composable () -> Unit) {
     val colours = MaterialTheme.colorScheme
     val light = colours.onSurface.luminance() < .5f
     Surface(modifier, shape = RoundedCornerShape(18.dp),
-        color = if (liquidify) Color.Transparent else colours.surface,
+        color = if (liquidify) { if (light) Color(0xFFF7F4F9) else Color(0xFF171519) } else colours.surface.copy(alpha = 1f),
         tonalElevation = if (liquidify) 0.dp else 6.dp, shadowElevation = 12.dp,
         border = if (liquidify) BorderStroke(1.dp, colours.onSurface.copy(alpha = .12f)) else null) {
         Box(Modifier.fillMaxSize()) {
             if (liquidify) {
-                com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 40.dp)
+                if (backdrop != null) {
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize().then(Modifier.blur(24.dp))) {
+                        drawImage(backdrop, topLeft = androidx.compose.ui.geometry.Offset(-backdropOffset.x.toFloat(), -backdropOffset.y.toFloat()))
+                    }
+                } else com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 40.dp)
                 Box(Modifier.fillMaxSize().background(
                     if (light) Color(0xFFF7F4F9).copy(alpha = .70f) else Color(0xFF171519).copy(alpha = .50f)))
             }

@@ -136,6 +136,8 @@ Compilation, isolated sidebar preview and release packaging passed. Updated the 
 
 ### Liquidify search dropdown (Windows 1.0.0)
 
+Frosted-backdrop correction: the dropdown now blurs a snapshot of Auralis's actual page beneath its window-relative bounds (24 dp blur), rather than letting sharp page content show through. The snapshot is taken when opening the dropdown and released when closing; it captures only the app's recorded Compose layer, never other windows. Search rows remain sharp above a readability tint. The fallback is opaque with blurred cover colours, so capture failure cannot expose unblurred content. Compilation and the page-content blur preview passed; Android is unchanged.
+
 Find music uses a blurred current-cover backdrop when Liquidify is enabled, with a readability scrim and a subtle border. Search text and suggestion rows remain sharp. Other modes retain the normal surface. The existing artwork crossfade follows song changes; this does not use native compositor backdrop blur. Windows compilation and the disposable `search-glass` visual preview passed. Android is unchanged.
 
 Installed 11 October at 13:25 after the release package passed. Installed code matches the packaged archive, the shortcut target is unchanged, and all 21 checked non-cache user files were preserved. Full app-data backup: `Downloads/Auralis-checkpoints/before-search-glass-20261011-132507`. Relaunched successfully with bundled VLC and version 1.0.0.
