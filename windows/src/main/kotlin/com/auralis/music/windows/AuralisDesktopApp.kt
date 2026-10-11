@@ -256,11 +256,6 @@ fun AuralisDesktopApp(
                                     destination = DesktopDestination.LIBRARY
                                 },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
-                                onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
-                                onOpenHistory = { destination = DesktopDestination.HISTORY },
-                                onOpenStats = { destination = DesktopDestination.STATS },
-                                onOpenWrapped = { destination = DesktopDestination.WRAPPED },
-                                onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 showMessage = showUnavailable
                             )
                             DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(

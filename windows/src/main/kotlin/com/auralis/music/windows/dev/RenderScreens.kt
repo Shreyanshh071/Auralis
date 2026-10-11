@@ -59,7 +59,26 @@ fun main(args: Array<String>) {
         platform = DesktopLibraryPlatform(PropertiesFileKeyValueStore(File(data, "flags.properties"))) { messages += it })
     val platform = DesktopSettingsPlatform(null, history, search, discord = null)
 
+    // Representative fixtures only; rendering Home never fetches recommendations or reads user data.
+    val starterHome = com.auralis.music.ui.viewmodel.HomeUiState()
+    val previewSongs = starterHome.speedDialPages.flatten().mapNotNull { it.track }.distinctBy { it.id }
+    val personalHome = starterHome.copy(
+        recentTracks = previewSongs.take(8).map { com.auralis.music.domain.model.HistoryEntry(it) },
+        quickPicks = previewSongs.drop(8).take(9),
+        dailyDiscover = previewSongs.drop(17).map { com.auralis.music.domain.model.DailyDiscoverItem(previewSongs.first(), it) }
+    )
+    val homePreview: @Composable (Boolean) -> Unit = { personal ->
+        com.auralis.music.windows.home.DesktopHomeScreen(
+            if (personal) personalHome else starterHome.copy(quickPicks = previewSongs.drop(8).take(9)),
+            onPlay = { _, _ -> }, onShortcut = {}, onAlbum = {}, onMenu = {}, onSearch = {}, onSurprise = {}, onChip = {}
+        )
+    }
+
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "home" to { homePreview(true) },
+        "home-wide" to { homePreview(true) },
+        "home-narrow" to { homePreview(true) },
+        "home-new" to { homePreview(false) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },
@@ -88,8 +107,8 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = if (name == "titlebar") 1280 else 1040,
-                height = if (name == "titlebar") 36 else 760, density = Density(1f)) {
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+                height = when (name) { "titlebar" -> 36; "home-wide" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
