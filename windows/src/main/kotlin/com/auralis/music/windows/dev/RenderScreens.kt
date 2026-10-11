@@ -125,7 +125,7 @@ fun main(args: Array<String>) {
             }
         },
         "now-playing-sidebar" to {
-            com.auralis.music.windows.player.ArtworkAppBackground(null, com.auralis.music.ui.theme.ArtworkPalette(
+            com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail, com.auralis.music.ui.theme.ArtworkPalette(
                 androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
                 androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize()) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { homePreview(true) }

@@ -404,16 +404,19 @@ fun AuralisDesktopApp(
                           onDrag = { rightSidebarWidth = sidebarWidth(rightSidebarWidth - it, 280f, rightLimit) },
                           onDragging = { resizingRight = it })
                       Row(Modifier.width(rightDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
+                        if (rightIsCollapsed) {
                         androidx.compose.material3.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
                             Icon(if (rightIsCollapsed) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
                                 if (rightIsCollapsed) "Expand now playing" else "Collapse now playing")
+                        }
                         }
                         androidx.compose.animation.AnimatedVisibility(visible = !rightIsCollapsed,
                             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
                             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
                         com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
                             onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
-                            modifier = Modifier.width((sidebarWidth(rightSidebarWidth, 280f, rightLimit) - 40f).dp).fillMaxHeight(), palette = artworkPalette)
+                            modifier = Modifier.width(sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp).fillMaxHeight(), palette = artworkPalette,
+                            onCollapse = { rightCollapsed = true })
                         }
                       }
                     }
