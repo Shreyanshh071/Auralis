@@ -355,8 +355,11 @@ fun AuralisDesktopApp(
                                 },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
                                 showMessage = showUnavailable,
+                                youtubePlaylists = youtubeState.playlists,
+                                onYouTubePlaylist = ::openYouTubePlaylist,
                                 findMusic = {
                                     com.auralis.music.windows.search.FindMusicDropdown(
+                                        compact = true,
                                         state = searchState,
                                         currentTrackId = queue?.current?.id,
                                         isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,

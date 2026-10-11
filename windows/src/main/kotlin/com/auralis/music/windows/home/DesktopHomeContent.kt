@@ -5,7 +5,8 @@ import com.auralis.music.ui.viewmodel.HomeUiState
 
 internal data class DesktopHomeShelf(
     val id: String, val title: String, val subtitle: String? = null,
-    val tracks: List<Track> = emptyList(), val albums: List<PlaylistResult> = emptyList()
+    val tracks: List<Track> = emptyList(), val albums: List<PlaylistResult> = emptyList(),
+    val order: List<String> = emptyList()
 )
 
 internal data class DesktopHomeContent(

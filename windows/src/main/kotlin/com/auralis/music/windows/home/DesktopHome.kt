@@ -26,7 +26,9 @@ fun DesktopHome(
     onOpenPlaylist: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     showMessage: (String) -> Unit,
-    findMusic: (@Composable () -> Unit)? = null
+    findMusic: (@Composable () -> Unit)? = null,
+    youtubePlaylists: List<PlaylistResult> = emptyList(),
+    onYouTubePlaylist: (PlaylistResult) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
@@ -36,6 +38,11 @@ fun DesktopHome(
     val playlists by library.getPlaylists().collectAsState(emptyList())
     val savedAlbums by library.getSavedAlbums().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
+    val youtubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
+    val youtubeAccount by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
+    val remote = remember { DesktopRemoteHome(scope) }
+    val remoteState by remote.state.collectAsState()
+    LaunchedEffect(youtubeSignedIn, youtubeAccount) { remote.refresh() }
     val platform = LocalPlatformActions.current
     val preferences = remember { com.auralis.music.util.PropertiesFileKeyValueStore(
         java.io.File(com.auralis.music.util.desktopAppDataDir(), "desktop-home.properties")) }
@@ -54,7 +61,13 @@ fun DesktopHome(
     }
     fun withAlbumTracks(album: PlaylistResult, action: suspend (List<Track>) -> Unit) {
         scope.launch {
-            val tracks = runCatching { LocalizedContent.run { searchRepository.getAlbumTracks(album) } }.getOrDefault(emptyList())
+            val tracks = runCatching {
+                when {
+                    album.id.startsWith("local:") -> playlists.firstOrNull { it.id == album.id.removePrefix("local:") }?.tracks.orEmpty()
+                    youtubeSignedIn && album.id.startsWith("VL") -> remote.playlistTracks(album)
+                    else -> LocalizedContent.run { searchRepository.getAlbumTracks(album) }
+                }
+            }.getOrDefault(emptyList())
             if (tracks.isNotEmpty()) action(tracks) else showMessage("Couldn't load this album. Please try again.")
         }
     }
@@ -78,7 +91,12 @@ fun DesktopHome(
                 else -> Unit
             }
         },
-        onAlbum = browse::openAlbum,
+        onAlbum = { album -> when {
+            album.id.startsWith("local:") -> onOpenPlaylist(album.id.removePrefix("local:"))
+            album.id.startsWith("UC") -> browse.openArtist(Artist(album.id, album.title, album.thumbnail))
+            youtubePlaylists.any { it.id == album.id } -> onYouTubePlaylist(album)
+            else -> browse.openAlbum(album)
+        } },
         onMenu = { menuTrack = it },
         onSearch = onNavigateToSearch,
         onSurprise = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
@@ -86,11 +104,19 @@ fun DesktopHome(
         onAlbumMenu = { menuAlbum = it },
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         findMusic = findMusic,
-        onRefresh = { paging.reset(state.dynamicSections); viewModel.refresh() },
-        loadingMore = pageState.loading,
-        canLoadMore = pageState.canLoadMore,
-        loadMoreFailed = pageState.failed,
-        onLoadMore = { scope.launch { paging.loadMore() } },
+        onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
+        serviceShelves = if (youtubeSignedIn) listOfNotNull(remoteState.releases) + remoteState.shelves else null,
+        serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
+        serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
+        serviceError = if (youtubeSignedIn) remoteState.error else null,
+        libraryShelf = youtubePlaylists.filter { it.id != "VLLM" } +
+            playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
+                it.coverUrl ?: it.tracks.firstOrNull()?.thumbnail, "Playlist · ${it.tracks.size} tracks") } +
+            savedAlbums.map { PlaylistResult(it.id, it.title, it.thumbnail, it.artist) },
+        loadingMore = if (youtubeSignedIn) remoteState.loadingMore else pageState.loading,
+        canLoadMore = if (youtubeSignedIn) remoteState.token != null else pageState.canLoadMore,
+        loadMoreFailed = if (youtubeSignedIn) remoteState.error != null else pageState.failed,
+        onLoadMore = { scope.launch { if (youtubeSignedIn) remote.loadMore() else paging.loadMore() } },
         recentsGrid = recentsGrid,
         onToggleRecents = {
             recentsGrid = !recentsGrid

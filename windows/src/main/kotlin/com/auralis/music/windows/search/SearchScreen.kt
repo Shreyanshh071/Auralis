@@ -82,14 +82,15 @@ fun FindMusicDropdown(
     onMenuClick: (com.auralis.music.domain.model.Track) -> Unit,
     onTypingChange: (Boolean) -> Unit,
     liquidify: Boolean = false,
-    artwork: String? = null
+    artwork: String? = null,
+    compact: Boolean = false
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     var mounted by remember { androidx.compose.runtime.mutableStateOf(false) }
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val gap = with(density) { 62.dp.roundToPx() }
+    val gap = with(density) { (if (compact) 46.dp else 62.dp).roundToPx() }
     val position = remember(gap) {
         object : androidx.compose.ui.window.PopupPositionProvider {
             override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect,
@@ -106,6 +107,10 @@ fun FindMusicDropdown(
         if (text.isNotBlank()) { dismiss(); onSearch(text) }
     }
     Box {
+        if (compact) androidx.compose.material3.IconButton(onClick = {
+            if (expanded) dismiss() else { mounted = true; expanded = true }
+        }) { Icon(Icons.Default.Search, "Find music", Modifier.size(20.dp)) }
+        else
         androidx.compose.material3.FilledTonalButton(
             onClick = {
                 if (expanded) dismiss() else {
