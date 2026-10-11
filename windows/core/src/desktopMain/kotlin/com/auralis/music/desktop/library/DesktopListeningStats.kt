@@ -37,19 +37,27 @@ class DesktopListeningStats(private val file: File) {
 
     /**
      * Adds listens measured elsewhere (the phone's account backup), skipping any already here:
-     * the same song starting within 2 s is the same listen. Saved once. Returns how many were new.
+     * the same song starting within 2 s is the same listen. A listen the other device uploaded
+     * while it was still playing arrives again longer later; then the copy here grows to match
+     * (never shrinks). Saved once. Returns how many listens were added or grew.
      */
     @Synchronized fun importListens(listens: List<Listen>): Int {
-        val existing = mutable.value
-        val byTrack = existing.groupBy { it.track.id }
-        val fresh = listens.filter { incoming ->
-            incoming.timeMs > 0 && incoming.track.id.isNotBlank() &&
-                byTrack[incoming.track.id].orEmpty().none { kotlin.math.abs(it.startedAt - incoming.startedAt) <= 2_000L }
-        }.distinctBy { it.id }
-        if (fresh.isEmpty()) return 0
-        mutable.value = (existing + fresh).sortedBy { it.startedAt }
+        val current = mutable.value.toMutableList()
+        val byTrack = current.withIndex().groupBy({ it.value.track.id }, { it.index })
+        var changed = 0
+        val fresh = mutableListOf<Listen>()
+        for (incoming in listens.distinctBy { it.id }) {
+            if (incoming.timeMs <= 0 || incoming.track.id.isBlank()) continue
+            val match = byTrack[incoming.track.id].orEmpty().firstOrNull { kotlin.math.abs(current[it].startedAt - incoming.startedAt) <= 2_000L }
+            if (match == null) { fresh += incoming; changed++ }
+            else if (incoming.timeMs > current[match].timeMs) {
+                current[match] = current[match].copy(timeMs = incoming.timeMs); changed++
+            }
+        }
+        if (changed == 0) return 0
+        mutable.value = (current + fresh).sortedBy { it.startedAt }
         persist()
-        return fresh.size
+        return changed
     }
 
     @Synchronized fun clear() { mutable.value = emptyList(); clearVersion++; persist() }
