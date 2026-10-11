@@ -25,6 +25,7 @@
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
 -keep class org.json.** { *; }
+-keep class org.sqlite.** { *; }
 -keep class kotlinx.serialization.** { *; }
 -keepclassmembers class ** { *** Companion; }
 -keepclasseswithmembers class ** { kotlinx.serialization.KSerializer serializer(...); }

@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -84,13 +85,14 @@ fun FindMusicDropdown(
     artwork: String? = null
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val backdrop = LocalSearchBackdrop.current
-    var backdropImage by remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     var backdropOffset by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    LaunchedEffect(expanded, liquidify) {
-        backdropImage = if (expanded && liquidify) runCatching { backdrop?.toImageBitmap() }.getOrNull() else null
+    LaunchedEffect(expanded) {
+        reveal.animateTo(if (expanded) 1f else 0f,
+            androidx.compose.animation.core.tween(if (expanded) 220 else 140,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing))
     }
     val gap = with(density) { 62.dp.roundToPx() }
     val position = remember(gap) {
@@ -122,14 +124,28 @@ fun FindMusicDropdown(
             Spacer(Modifier.width(10.dp))
             Text("Find music", style = MaterialTheme.typography.titleMedium)
         }
-        if (expanded) {
+        if (expanded || reveal.value > 0f) {
             androidx.compose.ui.window.Popup(
                 popupPositionProvider = position,
                 onDismissRequest = ::dismiss,
                 properties = androidx.compose.ui.window.PopupProperties(focusable = true)
             ) {
-                LaunchedEffect(Unit) { focus.requestFocus(); onTypingChange(true) }
-                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp), backdropImage, backdropOffset) {
+                LaunchedEffect(expanded) {
+                    if (expanded) {
+                        androidx.compose.runtime.withFrameNanos { }
+                        focus.requestFocus(); onTypingChange(true)
+                    }
+                }
+                // Use the already cached cover for the frosted backdrop. GPU readback of the
+                // whole window here stalled the event thread before the first popup frame.
+                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp)
+                    .then(Modifier.graphicsLayer {
+                        alpha = reveal.value
+                        translationY = -10.dp.toPx() * (1f - reveal.value)
+                        scaleX = .97f + .03f * reveal.value
+                        scaleY = scaleX
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                    })) {
                     Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
                         SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
                             Modifier.fillMaxWidth().padding(12.dp))

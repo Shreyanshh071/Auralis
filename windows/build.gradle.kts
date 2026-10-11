@@ -30,6 +30,7 @@ dependencies {
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
     implementation(libs.org.json)
+    implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
     implementation("net.java.dev.jna:jna-jpms:5.14.0")
     implementation("net.java.dev.jna:jna-platform-jpms:5.14.0")
@@ -96,7 +97,7 @@ compose.desktop {
             // From suggestRuntimeModules, plus jdk.crypto.ec (TLS with elliptic-curve ciphers, which
             // jdeps can't see) and java.naming.
             // jdk.httpserver: the local stream relay (LocalStreamRelay).
-            modules("java.instrument", "java.net.http", "jdk.dynalink", "jdk.unsupported", "jdk.crypto.ec", "java.naming", "jdk.httpserver")
+            modules("java.instrument", "java.net.http", "java.sql", "jdk.dynalink", "jdk.unsupported", "jdk.crypto.ec", "java.naming", "jdk.httpserver")
             packageName = "Auralis"
             // The owner controls version bumps; keep Windows independent of Android's version.
             packageVersion = "1.0.0"
