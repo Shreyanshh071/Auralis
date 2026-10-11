@@ -65,7 +65,20 @@ fun main() = application {
                     true
                 }, null)
                 println("PASS: native caption, maximize/Snap and resize hit testing")
-                native.toggleMaximize()
+                fun buttonClick() {
+                    val origin = POINT().also { it.write() }
+                    api.getFunction("ClientToScreen").invokeInt(arrayOf(hwnd, origin.pointer))
+                    origin.read()
+                    val center = native.maximizeBounds.center
+                    val packed = ((origin.x + center.x.toInt()).toLong() and 0xffff) or
+                        (((origin.y + center.y.toInt()).toLong() and 0xffff) shl 16)
+                    user.SendMessage(hwnd, 0x00A1, WPARAM(9), LPARAM(packed))
+                    // Captured mouse releases arrive in client coordinates.
+                    val clientPacked = (center.x.toInt().toLong() and 0xffff) or
+                        ((center.y.toInt().toLong() and 0xffff) shl 16)
+                    user.SendMessage(hwnd, 0x0202, WPARAM(0), LPARAM(clientPacked))
+                }
+                buttonClick()
                 delay(1200)
                 check(zoomed()) { "Native maximize did not maximize" }
                 val monitor = WinUser.MONITORINFO()
@@ -91,13 +104,18 @@ fun main() = application {
                     true
                 }, null)
                 println("PASS: maximize fills monitor work area; Compose state follows Windows")
-                native.toggleMaximize()
+                buttonClick()
                 delay(800)
                 check(!zoomed())
                 val restored = rect()
                 check(restored.left == original.left && restored.top == original.top &&
                     restored.right == original.right && restored.bottom == original.bottom) { "Restore changed floating bounds" }
                 println("PASS: restore returns to original bounds")
+                user.SendMessage(hwnd, 0x00A1, WPARAM(9), LPARAM(0))
+                user.SendMessage(hwnd, 0x0202, WPARAM(0), LPARAM(0))
+                delay(300)
+                check(!zoomed()) { "Releasing outside maximize button should cancel" }
+                println("PASS: maximize/restore button clicks and drag-off cancellation")
                 user.PostMessage(hwnd, 0x00A3, WPARAM(2), LPARAM(0)) // caption double click
                 delay(800)
                 check(zoomed()) { "Caption double click did not maximize" }

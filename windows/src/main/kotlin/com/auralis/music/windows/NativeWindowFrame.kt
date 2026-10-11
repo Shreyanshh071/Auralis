@@ -4,6 +4,8 @@ import androidx.compose.ui.geometry.Rect
 import com.auralis.music.util.Log
 import com.sun.jna.CallbackReference
 import com.sun.jna.NativeLibrary
+import com.sun.jna.Memory
+import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinDef.*
@@ -15,7 +17,8 @@ import java.awt.Window
  * Moving a borderless AWT window with setLocation bypasses Windows Snap and DWM animations.
  * Native caption hit testing lets Windows own the move/resize/maximize loop instead.
  */
-internal class NativeWindowFrame(private val window: Window, handle: Long) : AutoCloseable {
+internal class NativeWindowFrame(private val window: Window, handle: Long,
+    private val onMaximizeHover: (Boolean) -> Unit = {}) : AutoCloseable {
     private val hwnd = HWND(Pointer(handle))
     private val user = User32.INSTANCE
     private val nativeUser = NativeLibrary.getInstance("user32")
@@ -23,6 +26,22 @@ internal class NativeWindowFrame(private val window: Window, handle: Long) : Aut
     private val originalStyle = user.GetWindowLong(hwnd, WinUser.GWL_STYLE)
     @Volatile var captionBounds: Rect = Rect.Zero
     @Volatile var maximizeBounds: Rect = Rect.Zero
+    private var maximizePressed = false
+    private var maximizeHovered = false
+
+    private fun hoverMaximize(hovered: Boolean) {
+        if (maximizeHovered == hovered) return
+        maximizeHovered = hovered
+        java.awt.EventQueue.invokeLater { onMaximizeHover(hovered) }
+    }
+
+    private fun finishMaximizeClick(overButton: Boolean): LRESULT {
+        val pressed = maximizePressed
+        maximizePressed = false
+        nativeUser.getFunction("ReleaseCapture").invokeInt(emptyArray())
+        if (pressed && overButton) toggleMaximize()
+        return LRESULT(0)
+    }
 
     private fun interface Procedure : StdCallCallback {
         fun callback(hwnd: HWND, message: Int, w: WPARAM, l: LPARAM): LRESULT
@@ -53,6 +72,49 @@ internal class NativeWindowFrame(private val window: Window, handle: Long) : Aut
         val procedure = Procedure { current, message, w, l ->
             try {
                 when {
+                    root && message == 0x00A0 -> { // Non-client hover bypasses Compose's hoverable.
+                        hoverMaximize(w.toInt() == 9)
+                        val tracking = Memory(if (Native.POINTER_SIZE == 8) 24L else 16L)
+                        tracking.clear()
+                        tracking.setInt(0, tracking.size().toInt())
+                        tracking.setInt(4, 0x12) // TME_LEAVE | TME_NONCLIENT
+                        tracking.setPointer(8, hwnd.pointer)
+                        nativeUser.getFunction("TrackMouseEvent").invokeInt(arrayOf(tracking))
+                        user.CallWindowProc(previous, current, message, w, l)
+                    }
+                    root && message == 0x02A2 -> {
+                        hoverMaximize(false)
+                        user.CallWindowProc(previous, current, message, w, l)
+                    }
+                    root && (message == 0x00A1 || message == 0x00A3) && w.toInt() == 9 -> {
+                        // AWT has no native caption button here. Capture until release so dragging
+                        // off the button cancels the click, just like a normal Windows control.
+                        maximizePressed = true
+                        nativeUser.getFunction("SetCapture").invokePointer(arrayOf(hwnd))
+                        LRESULT(0)
+                    }
+                    root && message == 0x00A2 && maximizePressed -> {
+                        val x = (l.toLong() and 0xffff).toShort().toInt()
+                        val y = ((l.toLong() shr 16) and 0xffff).toShort().toInt()
+                        finishMaximizeClick(hitTest(x, y) == 9)
+                    }
+                    root && message == 0x0202 && maximizePressed -> {
+                        val point = POINT((l.toLong() and 0xffff).toShort().toInt(),
+                            ((l.toLong() shr 16) and 0xffff).toShort().toInt())
+                        point.write()
+                        nativeUser.getFunction("ClientToScreen").invokeInt(arrayOf(hwnd, point.pointer))
+                        point.read()
+                        finishMaximizeClick(hitTest(point.x, point.y) == 9)
+                    }
+                    root && (message == 0x0215 || message == 0x001F) -> {
+                        maximizePressed = false
+                        hoverMaximize(false)
+                        user.CallWindowProc(previous, current, message, w, l)
+                    }
+                    root && message == 0x0200 -> {
+                        hoverMaximize(false)
+                        user.CallWindowProc(previous, current, message, w, l)
+                    }
                     root && message == 0x0083 -> { // WM_NCCALCSIZE: draw our bar in the client area.
                         if (isMaximized()) {
                             val info = WinUser.MONITORINFO()

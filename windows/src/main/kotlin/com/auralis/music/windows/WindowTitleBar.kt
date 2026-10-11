@@ -1,5 +1,8 @@
 package com.auralis.music.windows
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,7 +39,8 @@ data class TitleBarActions(
 fun WindowTitleBar(
     actions: TitleBarActions, title: String, icon: Painter?, maximized: Boolean,
     minimize: () -> Unit, maximize: () -> Unit, close: () -> Unit,
-    captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {}
+    captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
+    maximizeHovered: Boolean = false
 ) {
     Box(Modifier.fillMaxWidth().height(36.dp).background(Color(0xFF0D0B0E))) {
         Text(title, color = Color(0xFFD4D0D8), fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
@@ -62,6 +66,7 @@ fun WindowTitleBar(
             ChromeButton(Icons.Outlined.Remove, "Minimize", minimize)
             ChromeButton(if (maximized) Icons.Outlined.FilterNone else Icons.Outlined.CropSquare,
                 if (maximized) "Restore" else "Maximize", maximize,
+                nativeHovered = maximizeHovered,
                 modifier = Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
             ChromeButton(Icons.Outlined.Close, "Close", close, closeButton = true)
         }
@@ -71,10 +76,13 @@ fun WindowTitleBar(
 
 @Composable
 private fun ChromeButton(icon: ImageVector, label: String, click: () -> Unit, enabled: Boolean = true,
-    width: Int = 46, closeButton: Boolean = false, modifier: Modifier = Modifier) {
+    width: Int = 46, closeButton: Boolean = false, modifier: Modifier = Modifier,
+    nativeHovered: Boolean = false) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
-    val fill = if (!hovered || !enabled) Color.Transparent else if (closeButton) Color(0xFFC42B38) else Color(0xFF29252E)
+    val fill by animateColorAsState(
+        if (!(hovered || nativeHovered) || !enabled) Color.Transparent else if (closeButton) Color(0xFFC42B38) else Color(0xFF29252E),
+        animationSpec = tween(150))
     Box(modifier.width(width.dp).fillMaxHeight().background(fill).hoverable(interactions)
         .clickable(interactionSource = interactions, indication = null, enabled = enabled, onClick = click),
         contentAlignment = Alignment.Center) {
