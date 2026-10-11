@@ -52,6 +52,8 @@ Account sign-in does **not** yet sync the PC library with the phone. YouTube Mus
 
 ## Settings audit
 
+- Windows Appearance now uses responsive visual theme preview cards, colour swatches with selected checks, and player-background previews instead of the three dropdowns. Liquidify is a separate optional, persisted desktop setting (`desktop-background.properties`), off by default. On: artwork supplies the whole browsing backdrop; off: selected theme/colour palette controls normal surfaces. Liquidify respects light/dark mode. Sidebar metadata contrast also follows theme; the synced lyrics area keeps a readable dark surface. Windows tests and Appearance render passed. No Android settings or code changed.
+
 | Page / option | Applied on Windows | Remaining limits |
 |---|---|---|
 | Privacy: pause listen history | Stops new history entries/play counts and measured listening stats | Previous records remain until cleared |

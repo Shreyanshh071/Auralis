@@ -36,11 +36,13 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
     val settings by store.settingsFlow.collectAsState(store.getInitialSettings())
     val scope = rememberCoroutineScope()
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) { scope.launch { store.updateSettings(settings.transform()) } }
+    val liquidify by DesktopLiquidify.enabled.collectAsState()
     SettingsPage("Appearance", onDismiss) {
-        item { Choice("Theme", settings.appTheme, listOf("Follow system", "Light Mode", "Dark Mode", "Pure AMOLED Black", "Midnight Velvet Dark")) { update { copy(appTheme = it) } } }
-        item { Choice("Colour palette", settings.colorPalette, listOf("Dynamic") + CuratedPalettes.map { it.id }) { update { copy(colorPalette = it) } } }
+        item { ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } } }
+        item { LiquidifyCard(liquidify) { scope.launch(kotlinx.coroutines.Dispatchers.IO) { DesktopLiquidify.setEnabled(it) } } }
+        item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
         item { Toggle("Colours from playing artwork", settings.dynamicTheme) { update { copy(dynamicTheme = it) } } }
-        item { Choice("Player background", settings.playerBackgroundStyle, listOf("Blur", "Gradient", "Follow theme")) { update { copy(playerBackgroundStyle = it) } } }
+        item { BackgroundCards(settings.playerBackgroundStyle) { update { copy(playerBackgroundStyle = it) } } }
         item { Toggle("Hide player artwork", settings.hidePlayerThumbnail) { update { copy(hidePlayerThumbnail = it) } } }
         item { Toggle("Crop player artwork", settings.cropAlbumArt) { update { copy(cropAlbumArt = it) } } }
         item { Choice("Seek bar", settings.playerSliderStyle, listOf("Wavy", "Slim", "Squiggly", "Default")) { update { copy(playerSliderStyle = it) } } }

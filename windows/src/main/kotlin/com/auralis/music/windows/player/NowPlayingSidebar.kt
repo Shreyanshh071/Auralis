@@ -38,11 +38,11 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     val coverSize = minOf(maxWidth - 48.dp, maxHeight * .40f)
     Column(Modifier.fillMaxSize().padding(8.dp).clip(RoundedCornerShape(16.dp))
         .background(MaterialTheme.colorScheme.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Now playing", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
+        Text("Now playing", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         DesktopArtwork(track.thumbnail, Modifier.size(coverSize).align(Alignment.CenterHorizontally), 12.dp, track.title)
-        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .72f), maxLines = 2)
-        Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = .07f))) {
+        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 2)
+        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+        Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFF211D25).copy(alpha = .88f))) {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
                 IconButton(onClick = onExpand) { Icon(Icons.Rounded.OpenInFull, "Expand lyrics", tint = Color.White, modifier = Modifier.size(18.dp)) }
