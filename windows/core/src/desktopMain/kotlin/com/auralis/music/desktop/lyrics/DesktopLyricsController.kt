@@ -53,9 +53,11 @@ class DesktopLyricsController(
         val cached = repository.cached(videoId, durationSec * 1000L)
         _state.value = State(track.id, cached, isLoading = cached == null)
         job = scope.launch {
-            // Align to the real stream length, as the phone does with the player's duration; the
-            // stream is usually open within a second, so wait briefly for libVLC to report it.
-            val lengthMs = withTimeoutOrNull(2500L) { playback.lengthMs.first { it > 0L } } ?: (durationSec * 1000L)
+            // Align to the real stream length, as the phone does with the player's duration. The
+            // stream is usually open within a second or two; songs with no listed length (common
+            // in imported playlists) wait longer, since matching needs a length to trust.
+            val waitMs = if (durationSec > 0L) 2500L else 8000L
+            val lengthMs = withTimeoutOrNull(waitMs) { playback.lengthMs.first { it > 0L } } ?: (durationSec * 1000L)
             if (cached != null) {
                 repository.cached(videoId, lengthMs)?.let { realigned ->
                     if (_state.value.trackId == track.id) _state.value = _state.value.copy(lyrics = realigned)

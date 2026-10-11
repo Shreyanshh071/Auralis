@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -76,7 +77,16 @@ class DesktopPlaybackController(
 
     val state: StateFlow<VlcAudioPlayer.State> get() = player.state
     val positionMs: StateFlow<Long> get() = player.positionMs
-    val lengthMs: StateFlow<Long> get() = player.lengthMs
+    /** Which song libVLC's length belongs to; null while the next stream is still resolving. */
+    private val lengthTrackId = MutableStateFlow<String?>(null)
+    /**
+     * The playing song's stream length, 0 until libVLC reports it for the current song. libVLC
+     * keeps the previous song's length while the next stream resolves; lyrics matched against
+     * that stale length rejected every synced source as a different recording.
+     */
+    val lengthMs: StateFlow<Long> = kotlinx.coroutines.flow.combine(lengthTrackId, player.lengthMs) { id, length ->
+        if (id != null && id == _queue.value.current?.id) length else 0L
+    }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 0L)
     /** Smooth playback clock for word-synced lyrics. */
     val clock: com.auralis.music.data.service.PlaybackClockSource get() = player.clock
     @Volatile var preloadNext: Boolean = true
@@ -245,6 +255,7 @@ class DesktopPlaybackController(
         val track = q.current ?: return
         if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
+        lengthTrackId.value = null
         _queue.value = q
         loadJob?.cancel()
         preloadJob?.cancel()
@@ -264,6 +275,7 @@ class DesktopPlaybackController(
                 currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
                 player.play(LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
+                lengthTrackId.value = track.id
                 if (preloadNext && q.hasNext) {
                     preloadJob?.cancel()
                     preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { resolveStream(q.tracks[q.index + 1].id) }
