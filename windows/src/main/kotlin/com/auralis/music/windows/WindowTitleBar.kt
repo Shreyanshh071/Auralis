@@ -72,7 +72,6 @@ fun WindowTitleBar(
             }
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)
-            ChromeButton(Icons.Outlined.Settings, "Settings", actions.openSettings, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Remove, "Minimize", minimize)
             ChromeButton(if (maximized) Icons.Outlined.FilterNone else Icons.Outlined.CropSquare,

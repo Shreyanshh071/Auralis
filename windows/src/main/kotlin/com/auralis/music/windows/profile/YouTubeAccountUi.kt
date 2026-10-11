@@ -1,6 +1,10 @@
 package com.auralis.music.windows.profile
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,14 +43,13 @@ internal fun YouTubeAccountMenu(state: YouTubeLibraryState, onSelect: (String) -
     Popup(alignment = Alignment.TopEnd, offset = IntOffset(0, 36), onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)) {
         SignInGlassSurface {
-            Column(Modifier.width(380.dp).heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(380.dp).heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (manage) "Manage accounts" else "Switch account", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                     IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close") }
                 }
                 state.accounts.forEach { item ->
-                    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable { onSelect(item.id) }.padding(8.dp),
+                    Row(Modifier.fillMaxWidth().clickable { onSelect(item.id) }.padding(horizontal = 20.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         YouTubeAccountAvatar(item.identity.avatar, Modifier.size(40.dp))
                         Column(Modifier.weight(1f)) {
@@ -57,15 +62,28 @@ internal fun YouTubeAccountMenu(state: YouTubeLibraryState, onSelect: (String) -
                 }
                 if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = onRefresh) { Text("Try again") }
+                    Text(it, modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = onRefresh, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Try again") }
                 }
-                HorizontalDivider()
-                TextButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(12.dp)); Text("Add account") }
-                TextButton(onClick = { manage = !manage }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.ManageAccounts, null); Spacer(Modifier.width(12.dp)); Text(if (manage) "Back to accounts" else "Manage accounts") }
-                TextButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Settings, null); Spacer(Modifier.width(12.dp)); Text("Settings") }
+                AccountMenuAction("Add account", Icons.Outlined.Add, onAdd)
+                AccountMenuAction(if (manage) "Back to accounts" else "Manage accounts", Icons.Outlined.ManageAccounts) { manage = !manage }
+                AccountMenuAction("Settings", Icons.Outlined.Settings, onSettings)
             }
         }
+    }
+}
+
+@Composable
+private fun AccountMenuAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+    val interactions = remember { MutableInteractionSource() }
+    val hovered by interactions.collectIsHoveredAsState()
+    Row(Modifier.fillMaxWidth().height(52.dp)
+        .background(if (hovered) Color.White.copy(alpha = .10f) else Color.Transparent)
+        .hoverable(interactions).clickable(onClick = onClick).padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

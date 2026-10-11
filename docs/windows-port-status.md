@@ -231,3 +231,7 @@ Windows compilation and standard MSI packaging passed. Installed on 11 October a
 ### Home scrollbar hover visibility — 11 October 2026
 Home's vertical scrollbar now fades in over 160 ms while the pointer is over the Home scroll area and fades out when it leaves. Scroll position, wheel scrolling, and scrollbar dragging are preserved. The Windows MSI packaged successfully in 54 seconds; version remains 1.0.0.
 Installed and launched after a full app-data backup at Downloads/Auralis-checkpoints/before-hover-scrollbar-20261011-175117. All 32 checked non-cache data files were preserved, the installed code matches the release, and the shortcut target is unchanged.
+
+### Account menu rows and title-bar cleanup — 11 October 2026
+Account menu actions now use left-aligned 52 dp rows with a full-width rectangular hover highlight matching the reference. Removed the Settings gear from the window title bar. Find music retains the larger neutral button and no adjacent refresh control. Version remains 1.0.0.
+Windows packaging passed in 1m31s. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-account-hover-20261011-175528. All 32 checked non-cache user files and the shortcut target were preserved; installed code matches the release.
