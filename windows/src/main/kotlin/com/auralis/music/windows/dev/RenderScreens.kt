@@ -1,6 +1,7 @@
 package com.auralis.music.windows.dev
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.Composable
@@ -78,6 +79,19 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "search-glass" to {
+            Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
+                com.auralis.music.windows.search.SearchDropdownSurface(true, previewSongs.firstOrNull()?.thumbnail,
+                    androidx.compose.ui.Modifier.width(480.dp).height(460.dp)) {
+                    Column(androidx.compose.ui.Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Text("Search Auralis", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        Text("Mockingbird", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
+                        Text("Mockingbird Eminem", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
+                        Text("Heat Waves", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
         "now-playing-sidebar" to {
             com.auralis.music.windows.player.ArtworkAppBackground("preview-cover", com.auralis.music.ui.theme.ArtworkPalette(
                 androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
