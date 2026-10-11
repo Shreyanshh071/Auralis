@@ -256,7 +256,20 @@ fun AuralisDesktopApp(
                                     destination = DesktopDestination.LIBRARY
                                 },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
-                                showMessage = showUnavailable
+                                showMessage = showUnavailable,
+                                findMusic = {
+                                    com.auralis.music.windows.search.FindMusicDropdown(
+                                        state = searchState,
+                                        currentTrackId = queue?.current?.id,
+                                        isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
+                                        onPlay = { track, tracks -> playback?.playFrom(track, tracks) ?: showUnavailable("Playback needs VLC (64-bit)") },
+                                        onSearch = { query -> searchState.search(query); destination = DesktopDestination.SEARCH },
+                                        onPlayNext = { playback?.playNext(it) },
+                                        onAddToQueue = { playback?.addToQueue(it) },
+                                        onMenuClick = { menuTrack = it },
+                                        onTypingChange = { typing = it }
+                                    )
+                                }
                             )
                             DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(
                                 state = searchState,
@@ -393,7 +406,7 @@ private fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination)
             Spacer(Modifier.width(12.dp))
             Text("Auralis", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         }
-        DesktopDestination.entries.forEach { item ->
+        DesktopDestination.entries.filter { it != DesktopDestination.SEARCH }.forEach { item ->
             SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) })
         }
     }

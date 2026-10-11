@@ -49,7 +49,8 @@ internal fun DesktopHomeScreen(
     onChip: (HomeChip?) -> Unit,
     onAlbumMenu: (PlaylistResult) -> Unit = {},
     onUnpinShortcut: (SpeedDialItem) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    findMusic: (@Composable () -> Unit)? = null
 ) {
     val content = remember(state) { desktopHomeContent(state) }
     val hour = remember { LocalTime.now().hour }
@@ -71,8 +72,9 @@ internal fun DesktopHomeScreen(
                         Text(if (content.personalized) "Your music, with room for something new." else "Find your first favourite. We'll take it from there.",
                             style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
                     }
-                    FilledTonalButton(onClick = onSearch, shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(18.dp, 12.dp)) {
-                        Icon(Icons.Outlined.Search, null, Modifier.size(19.dp)); Spacer(Modifier.width(9.dp)); Text("Find music")
+                    if (findMusic != null) findMusic() else FilledTonalButton(onClick = onSearch, modifier = Modifier.height(54.dp).widthIn(min = 176.dp),
+                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(22.dp, 14.dp)) {
+                        Icon(Icons.Outlined.Search, null, Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text("Find music", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }

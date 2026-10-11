@@ -25,7 +25,8 @@ fun DesktopHome(
     browse: DesktopBrowseState,
     onOpenPlaylist: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
-    showMessage: (String) -> Unit
+    showMessage: (String) -> Unit,
+    findMusic: (@Composable () -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
@@ -70,7 +71,8 @@ fun DesktopHome(
         onSurprise = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
         onChip = viewModel::toggleChip,
         onAlbumMenu = { menuAlbum = it },
-        onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) }
+        onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
+        findMusic = findMusic
     )
     menuTrack?.let { track ->
         DesktopTrackMenu(track, library, playback, browse, viewModel, showMessage, { menuTrack = null })
