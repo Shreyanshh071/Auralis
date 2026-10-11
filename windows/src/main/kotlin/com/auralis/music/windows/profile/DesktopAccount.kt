@@ -6,6 +6,7 @@ import com.sun.jna.platform.win32.Crypt32Util
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -137,8 +138,85 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             }.toList()
         }
         val newListens = stats.importListens(listens)
+        pulledUid = uid
         if (doc == null && listens.isEmpty()) return@withContext null
         "Synced from your account: $playlists playlists, $liked liked songs, $newListens new listens"
+    }
+
+    /** Which account's backup has been read this session; uploads wait for it (see [pushLibrary]). */
+    @Volatile private var pulledUid: String? = null
+    private val syncMarks by lazy {
+        com.auralis.music.util.PropertiesFileKeyValueStore(File(sessionFile.parentFile, "account-sync.properties"))
+    }
+
+    /**
+     * Uploads this PC's library in the phone's backup shape (`users/{uid}`: playlists with their
+     * songs, favorites, saved albums and artists). Only after this session read the account's
+     * backup into the PC library ([pullCloudBackup]), so the upload is the union of both devices
+     * and never drops a playlist that only the phone has. The phone restores it on its next start.
+     */
+    suspend fun pushLibrary(library: com.auralis.music.domain.repository.LibraryRepository): Boolean = withContext(Dispatchers.IO) {
+        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext false
+        if (pulledUid != uid) return@withContext false
+        fun trackJson(t: com.auralis.music.domain.model.Track) = org.json.JSONObject()
+            .put("id", t.id).put("title", t.title).put("artist", t.artist).put("album", t.album ?: org.json.JSONObject.NULL)
+            .put("thumbnail", t.thumbnail).put("duration", t.duration)
+        val playlists = library.getPlaylists().first()
+        val favorites = library.getFavoriteTracks().first()
+        val albums = library.getSavedAlbums().first()
+        val artists = library.getSavedArtists().first()
+        val now = System.currentTimeMillis()
+        val fields = org.json.JSONObject()
+            .put("playlists", org.json.JSONArray(playlists.map { p ->
+                org.json.JSONObject().put("id", p.id).put("title", p.title)
+                    .put("description", p.description ?: org.json.JSONObject.NULL).put("coverUrl", p.coverUrl ?: org.json.JSONObject.NULL)
+                    .put("createdAt", p.createdAt).put("isCustom", p.isCustom)
+                    .put("tracks", org.json.JSONArray(p.tracks.map(::trackJson)))
+            }))
+            .put("favorites", org.json.JSONArray(favorites.map(::trackJson)))
+            .put("savedAlbums", org.json.JSONArray(albums.map { a ->
+                org.json.JSONObject().put("id", a.id).put("title", a.title).put("artist", a.artist ?: org.json.JSONObject.NULL)
+                    .put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL).put("trackCount", a.trackCount ?: org.json.JSONObject.NULL)
+                    .put("savedAt", a.savedAt)
+            }))
+            .put("savedArtists", org.json.JSONArray(artists.map { a ->
+                org.json.JSONObject().put("id", a.id).put("name", a.name).put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL)
+                    .put("subscribers", a.subscribers ?: org.json.JSONObject.NULL)
+            }))
+            .put("updatedAt", now).put("playlistsUpdatedAt", now).put("favoritesUpdatedAt", now).put("schemaVersion", 1)
+        api.write("users/$uid", fields)
+        true
+    }
+
+    /**
+     * Uploads listens measured on this PC to `users/{uid}/listening/{UTC day}`, in the phone's
+     * StatsCloudSync shape. Each listen is written as its own map entry ("events.`<start>_<id>`"),
+     * so the phone's listens on the same day are left exactly as they are. Listens that came from
+     * the account are not sent back. Returns how many were sent.
+     */
+    suspend fun pushListens(stats: com.auralis.music.desktop.library.DesktopListeningStats): Int = withContext(Dispatchers.IO) {
+        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext 0
+        val markKey = "listens_watermark_$uid"
+        val watermark = syncMarks.getString(markKey, "0")?.toLongOrNull() ?: 0L
+        // Re-send the last half hour: a listen may still have been growing at the last upload.
+        val pending = stats.listens.value.filter { !it.id.startsWith("cloud_") && it.timeMs > 0 && it.startedAt >= watermark - 30 * 60_000L }
+        if (pending.isEmpty()) return@withContext 0
+        val day = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(java.time.ZoneOffset.UTC)
+        for ((date, listens) in pending.groupBy { day.format(java.time.Instant.ofEpochMilli(it.startedAt)) }) {
+            val events = org.json.JSONObject()
+            val mask = mutableListOf<String>()
+            for (l in listens) {
+                val key = "${l.startedAt}_${l.track.id}"
+                events.put(key, org.json.JSONObject().put("t", l.track.id).put("ts", l.startedAt).put("ms", l.timeMs)
+                    .put("ti", l.track.title).put("ar", l.track.artist).put("al", l.track.album ?: org.json.JSONObject.NULL)
+                    .put("th", l.track.thumbnail).put("du", l.track.duration))
+                mask += "events.`" + key.replace("\\", "\\\\").replace("`", "\\`") + "`"
+            }
+            api.write("users/$uid/listening/$date", org.json.JSONObject().put("events", events).put("updatedAt", System.currentTimeMillis()),
+                mask = mask + "updatedAt")
+        }
+        syncMarks.putStrings(mapOf(markKey to pending.maxOf { it.startedAt }.toString()))
+        pending.size
     }
 
     private fun errorMessage(e: Exception): String = when {

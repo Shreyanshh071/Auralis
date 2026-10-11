@@ -106,10 +106,15 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
         return result
     }
 
-    fun write(path: String, fields: JSONObject, serverStamp: String? = null, merge: Boolean = true, create: Boolean = false) {
+    /**
+     * [mask] narrows a merge to exact field paths (e.g. "events.`<key>`"), so nested map entries
+     * are added one by one instead of replacing the whole map; by default the top-level fields.
+     */
+    fun write(path: String, fields: JSONObject, serverStamp: String? = null, merge: Boolean = true, create: Boolean = false,
+        mask: List<String>? = null) {
         authenticate()
         val write = JSONObject().put("update", JSONObject().put("name", "$root/$path").put("fields", encodeFields(fields)))
-        if (merge) write.put("updateMask", JSONObject().put("fieldPaths", JSONArray(fields.keys().asSequence().toList())))
+        if (merge) write.put("updateMask", JSONObject().put("fieldPaths", JSONArray(mask ?: fields.keys().asSequence().toList())))
         if (create) write.put("currentDocument", JSONObject().put("exists", false))
         if (serverStamp != null) write.put("updateTransforms", JSONArray().put(JSONObject().put("fieldPath", serverStamp).put("setToServerValue", "REQUEST_TIME")))
         val sent = System.currentTimeMillis()
