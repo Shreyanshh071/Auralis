@@ -122,7 +122,6 @@ fun AuralisDesktopApp(
     val accountState by account.state.collectAsState()
     val youtubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
     var showSignIn by remember { mutableStateOf(false) }
-    if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account) { showSignIn = false }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -237,6 +236,7 @@ fun AuralisDesktopApp(
             com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss, background)
         }
     ) {
+        if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account) { showSignIn = false }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 titleBar(TitleBarActions(
