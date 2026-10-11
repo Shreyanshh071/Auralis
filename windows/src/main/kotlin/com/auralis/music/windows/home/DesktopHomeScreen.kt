@@ -50,16 +50,32 @@ internal fun DesktopHomeScreen(
     onAlbumMenu: (PlaylistResult) -> Unit = {},
     onUnpinShortcut: (SpeedDialItem) -> Unit = {},
     modifier: Modifier = Modifier,
-    findMusic: (@Composable () -> Unit)? = null
+    findMusic: (@Composable () -> Unit)? = null,
+    onRefresh: () -> Unit = {},
+    recentsGrid: Boolean = false,
+    onToggleRecents: () -> Unit = {},
+    loadingMore: Boolean = false,
+    canLoadMore: Boolean = false,
+    loadMoreFailed: Boolean = false,
+    onLoadMore: () -> Unit = {},
+    moreSections: List<HomeSection> = emptyList()
 ) {
-    val content = remember(state) { desktopHomeContent(state) }
+    val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
     val hour = remember { LocalTime.now().hour }
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
+    val loadMore by rememberUpdatedState(onLoadMore)
+    LaunchedEffect(scroll, loadingMore, canLoadMore, loadMoreFailed) {
+        if (canLoadMore && !loadingMore && !loadMoreFailed) snapshotFlow {
+            val layout = scroll.layoutInfo
+            layout.totalItemsCount > 0 && (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 3
+        }.collect { nearEnd -> if (nearEnd) loadMore() }
+    }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val columns = when { maxWidth >= 1000.dp -> 4; maxWidth >= 780.dp -> 3; else -> 2 }
         val songColumns = if (maxWidth >= 950.dp) 3 else if (maxWidth >= 650.dp) 2 else 1
+        val recentColumnWidth = ((maxWidth - 80.dp) / songColumns).coerceIn(240.dp, 390.dp)
         Box(Modifier.fillMaxWidth().height(290.dp).background(Brush.verticalGradient(
             listOf(colors.primary.copy(alpha = .12f), colors.background.copy(alpha = 0f)))))
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 32.dp, bottom = 40.dp),
@@ -68,9 +84,13 @@ internal fun DesktopHomeScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(greeting, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                        Text(if (content.personalized) "Your music, with room for something new." else "Find your first favourite. We'll take it from there.",
+                        Text("Home", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                        Text(if (content.personalized) "$greeting. Made for your next listen." else "$greeting. Find something you'll love.",
                             style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                    }
+                    IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
+                        if (state.isRefreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Outlined.Refresh, "Refresh home")
                     }
                     if (findMusic != null) findMusic() else FilledTonalButton(onClick = onSearch, modifier = Modifier.height(54.dp).widthIn(min = 176.dp),
                         shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(22.dp, 14.dp)) {
@@ -86,10 +106,52 @@ internal fun DesktopHomeScreen(
                     }
                 }
             }
+            if (state.isLoading && content.recents.isEmpty() && content.shortcuts.isEmpty() && content.shelves.isEmpty()) item("skeleton") {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Loading your music…", color = colors.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        repeat(columns) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh))
+                                Box(Modifier.fillMaxWidth(.75f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(colors.surfaceContainerHigh))
+                            }
+                        }
+                    }
+                }
+            }
+            if (state.selectedChip != null && !state.isLoading && content.shelves.isEmpty()) item("empty-filter") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("No music loaded for this mood yet.", color = colors.onSurfaceVariant)
+                    TextButton(onClick = { onChip(null) }) { Text("Show all music") }
+                }
+            }
+            if (content.recents.isNotEmpty()) item("recently-played") {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    HomeHeading("Recently played", "Pick up where you left off", trailing = {
+                        IconButton(onClick = onToggleRecents) {
+                            Icon(if (recentsGrid) Icons.Outlined.ViewList else Icons.Outlined.GridView,
+                                if (recentsGrid) "Show recently played as a list" else "Show recently played as covers")
+                        }
+                    })
+                    val recentScroll = rememberLazyListState()
+                    LazyRow(state = recentScroll, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        if (recentsGrid) items(content.recents, key = { it.id }) { track ->
+                            ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && isPlaying,
+                                { onPlay(track, content.recents) }, { onMenu(track) })
+                        } else items(content.recents.chunked(4), key = { it.first().id }) { tracks ->
+                            Column(Modifier.width(recentColumnWidth)) {
+                                tracks.forEach { track -> CompactSong(track, currentTrackId == track.id && isPlaying,
+                                    { onPlay(track, content.recents) }, { onMenu(track) }, Modifier.fillMaxWidth()) }
+                            }
+                        }
+                    }
+                    HorizontalScrollbar(rememberScrollbarAdapter(recentScroll), Modifier.fillMaxWidth().height(5.dp))
+                }
+            }
             if (content.shortcuts.isNotEmpty()) item("shortcuts") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HomeHeading(if (content.personalized) "Your rotation" else "Start here",
-                        if (content.personalized) "Recent favourites and your pinned music" else "Curated picks to get you started",
+                    HomeHeading(if (content.personalized) "Pinned for you" else "Start here",
+                        if (content.personalized) "Your pinned songs and collections" else "Curated picks to get you started",
                         action = "Surprise me", onAction = onSurprise)
                     content.shortcuts.chunked(columns).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -104,12 +166,18 @@ internal fun DesktopHomeScreen(
                     }
                 }
             }
+            if (state.error != null) item("error") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.error.orEmpty(), Modifier.weight(1f), color = colors.onSurfaceVariant)
+                    TextButton(onClick = onRefresh) { Text("Try again") }
+                }
+            }
             if (!content.personalized && state.selectedChip == null) item("learning") {
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.surfaceContainer)
                     .padding(16.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Outlined.AutoAwesome, null, tint = colors.primary, modifier = Modifier.size(20.dp))
-                    Text("This is a starting mix. As you listen, your rotation fills with your songs and recommendations draw on your listening history.",
+                    Text("Play your favourites to make Home yours.",
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
             }
@@ -157,6 +225,15 @@ internal fun DesktopHomeScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text("Updating your recommendations…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                }
+            }
+            if (loadingMore || canLoadMore) item("more") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center) {
+                    if (loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else TextButton(onClick = onLoadMore) {
+                        Text(if (loadMoreFailed) "Couldn't load more · Try again" else "More recommendations")
+                    }
                 }
             }
         }
