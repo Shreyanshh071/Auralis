@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.foundation.window.WindowDraggableArea
 import com.auralis.music.data.network.AlbumMetadataResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.SearchSuggestionsClient
@@ -119,17 +120,20 @@ fun main(args: Array<String>) {
     val selfTest = SelfTest.fromArgs(args, dataDir)
     var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
     application {
+        val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        val closeApp: () -> Unit = {
+            recorderScope.launch {
+                try { kotlinx.coroutines.withTimeoutOrNull(15_000) { together.close() } }
+                finally { listenRecorder?.close(); playback?.release(); exitApplication() }
+            }
+        }
         Window(
             onPreviewKeyEvent = { shortcutHandler?.invoke(it) ?: false },
-            onCloseRequest = {
-                recorderScope.launch {
-                    try { kotlinx.coroutines.withTimeoutOrNull(15_000) { together.close() } }
-                    finally { listenRecorder?.close(); playback?.release(); exitApplication() }
-                }
-            },
+            onCloseRequest = closeApp,
+            undecorated = true,
             title = if (dev) "Auralis Dev" else "Auralis",
             icon = icon,
-            state = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+            state = windowState
         ) {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 stores.privacy.settingsFlow.collect { privacy ->
@@ -165,7 +169,18 @@ fun main(args: Array<String>) {
                 discordControl = discord,
                 listeningStats = listeningStats,
                 together = together,
-                account = account
+                account = account,
+                titleBar = { actions ->
+                    WindowDraggableArea {
+                        WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
+                            maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
+                            minimize = { windowState.isMinimized = true },
+                            maximize = {
+                                windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
+                                    androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
+                            }, close = closeApp)
+                    }
+                }
             )
         }
     }

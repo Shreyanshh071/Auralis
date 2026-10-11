@@ -60,6 +60,9 @@ fun main(args: Array<String>) {
     val platform = DesktopSettingsPlatform(null, history, search, discord = null)
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "titlebar" to { com.auralis.music.windows.WindowTitleBar(
+            com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
+            "Auralis", null, false, {}, {}, {}) },
         "history" to { com.auralis.music.windows.history.HistorySheet(
             listOf(com.auralis.music.domain.model.HistoryEntry(sampleTrack, System.currentTimeMillis())), isPlaying = false,
             onTrackClick = { _, _ -> }, onRemoveFromHistory = {}, onClearHistory = {}, onDismiss = {}) },
@@ -85,7 +88,8 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = 1040, height = 760, density = Density(1f)) {
+            val scene = ImageComposeScene(width = if (name == "titlebar") 1280 else 1040,
+                height = if (name == "titlebar") 36 else 760, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,

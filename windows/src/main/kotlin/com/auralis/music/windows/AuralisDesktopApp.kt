@@ -85,6 +85,7 @@ fun AuralisDesktopApp(
     listeningStats: com.auralis.music.desktop.library.DesktopListeningStats,
     together: com.auralis.music.windows.together.DesktopTogether,
     account: com.auralis.music.windows.profile.DesktopAccount,
+    titleBar: @Composable (TitleBarActions) -> Unit = {},
 ) {
     var showPlayer by remember { mutableStateOf(false) }
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
@@ -94,6 +95,28 @@ fun AuralisDesktopApp(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
+    val navigation = remember { DesktopNavigation() }
+    val browsePages = browse.stack.toList()
+    androidx.compose.runtime.LaunchedEffect(destination, browsePages) { navigation.record(DesktopRoute(destination, browsePages)) }
+    fun restoreRoute(route: DesktopRoute?) {
+        if (route == null) return
+        showPlayer = false
+        destination = route.destination
+        browse.stack.clear()
+        val last = route.pages.lastOrNull()
+        when {
+            last is com.auralis.music.desktop.browse.BrowsePage.Album && last.isLoading -> {
+                browse.stack.addAll(route.pages.dropLast(1))
+                browse.openAlbum(last.album)
+            }
+            last is com.auralis.music.desktop.browse.BrowsePage.Artist && last.isLoading -> {
+                browse.stack.addAll(route.pages.dropLast(1))
+                browse.openArtist(last.page.artist)
+            }
+            else -> browse.stack.addAll(route.pages)
+        }
+    }
+    val accountState by account.state.collectAsState()
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -192,6 +215,31 @@ fun AuralisDesktopApp(
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
+                titleBar(TitleBarActions(
+                    canGoBack = showPlayer || navigation.canGoBack,
+                    canGoForward = navigation.canGoForward,
+                    back = { if (showPlayer) showPlayer = false else restoreRoute(navigation.back()) },
+                    forward = { restoreRoute(navigation.forward()) },
+                    refresh = {
+                        when (val page = browse.top) {
+                            is com.auralis.music.desktop.browse.BrowsePage.Artist -> browse.retryArtist()
+                            is com.auralis.music.desktop.browse.BrowsePage.Album -> { browse.pop(); browse.openAlbum(page.album) }
+                            null -> when (destination) {
+                                DesktopDestination.SEARCH -> if (searchState.query.isNotBlank()) searchState.search(searchState.query)
+                                DesktopDestination.LIBRARY -> scope.launch { libraryViewModel.refresh() }
+                                DesktopDestination.HOME -> homeViewModel.refresh()
+                                else -> Unit
+                            }
+                        }
+                    },
+                    accountLabel = accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: "Sign in",
+                    openAccount = { showPlayer = false; browse.clear(); destination = DesktopDestination.PROFILE },
+                    openTogether = { showPlayer = false; browse.clear(); destination = DesktopDestination.TOGETHER },
+                    openSettings = { showPlayer = false; browse.clear(); destination = DesktopDestination.SETTINGS },
+                    home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
+                    canRefresh = browse.top != null || destination in setOf(DesktopDestination.HOME, DesktopDestination.LIBRARY) ||
+                        (destination == DesktopDestination.SEARCH && searchState.query.isNotBlank())
+                ))
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Sidebar(selected = destination, onSelect = { destination = it; browse.clear() })
                     Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -305,6 +353,7 @@ fun AuralisDesktopApp(
             }
             // The full player slides up over everything, like the phone's player sheet.
             androidx.compose.animation.AnimatedVisibility(
+                modifier = Modifier.padding(top = 36.dp),
                 visible = showPlayer && playback != null && lyrics != null,
                 enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } +
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)),
