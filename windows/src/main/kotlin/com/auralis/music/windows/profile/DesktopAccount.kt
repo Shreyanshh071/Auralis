@@ -125,19 +125,10 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             }
         }
         // Listening stats: one document per UTC day, events keyed "<startMs>_<trackId>".
-        val listens = runCatching { api.list("users/$uid/listening") }.getOrDefault(emptyList()).flatMap { (_, fields) ->
-            val events = fields.optJSONObject("events") ?: return@flatMap emptyList()
-            events.keys().asSequence().mapNotNull { key ->
-                val e = events.optJSONObject(key) ?: return@mapNotNull null
-                val id = e.optString("t"); val ts = e.optLong("ts"); val ms = e.optLong("ms")
-                if (id.isBlank() || ts <= 0 || ms <= 0) return@mapNotNull null
-                com.auralis.music.desktop.library.DesktopListeningStats.Listen("cloud_${ts}_$id",
-                    com.auralis.music.domain.model.Track(id = id, title = e.optString("ti").ifBlank { "Unknown Track" },
-                        artist = e.optString("ar").ifBlank { "Unknown Artist" }, album = e.optString("al").takeIf { it.isNotBlank() && it != "null" },
-                        thumbnail = e.optString("th").takeIf { it != "null" }.orEmpty(), duration = e.optLong("du")), ts, ms)
-            }.toList()
-        }
+        val pullStarted = System.currentTimeMillis()
+        val listens = cloudListens(runCatching { api.list("users/$uid/listening") }.getOrDefault(emptyList()))
         val newListens = stats.importListens(listens)
+        syncMarks.putStrings(mapOf("pulled_at_$uid" to pullStarted.toString()))
         pulledUid = uid
         if (doc == null && listens.isEmpty()) return@withContext null
         "Synced from your account: $playlists playlists, $liked liked songs, $newListens new listens"
@@ -217,6 +208,38 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         }
         syncMarks.putStrings(mapOf(markKey to pending.maxOf { it.startedAt }.toString()))
         pending.size
+    }
+
+    /** The phone's StatsCloudSync day documents as listens (ids "cloud_<start>_<track>"). */
+    private fun cloudListens(days: List<Pair<String, org.json.JSONObject>>): List<com.auralis.music.desktop.library.DesktopListeningStats.Listen> =
+        days.flatMap { (_, fields) ->
+            val events = fields.optJSONObject("events") ?: return@flatMap emptyList()
+            events.keys().asSequence().mapNotNull { key ->
+                val e = events.optJSONObject(key) ?: return@mapNotNull null
+                val id = e.optString("t"); val ts = e.optLong("ts"); val ms = e.optLong("ms")
+                if (id.isBlank() || ts <= 0 || ms <= 0) return@mapNotNull null
+                com.auralis.music.desktop.library.DesktopListeningStats.Listen("cloud_${ts}_$id",
+                    com.auralis.music.domain.model.Track(id = id, title = e.optString("ti").ifBlank { "Unknown Track" },
+                        artist = e.optString("ar").ifBlank { "Unknown Artist" }, album = e.optString("al").takeIf { it.isNotBlank() && it != "null" },
+                        thumbnail = e.optString("th").takeIf { it != "null" }.orEmpty(), duration = e.optLong("du")), ts, ms)
+            }.toList()
+        }
+
+    /**
+     * The quick check run every minute: only the listening days updated since the last pull (by
+     * the phone, or by this PC's own uploads, which are skipped as duplicates). One read when
+     * nothing changed. Returns how many new listens arrived.
+     */
+    suspend fun pullNewListens(stats: com.auralis.music.desktop.library.DesktopListeningStats): Int = withContext(Dispatchers.IO) {
+        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext 0
+        if (pulledUid != uid) return@withContext 0
+        val since = syncMarks.getString("pulled_at_$uid", "0")?.toLongOrNull() ?: 0L
+        val started = System.currentTimeMillis()
+        // Ten minutes of margin for clock differences between the phone and this PC.
+        val days = api.queryGreaterThan("users/$uid", "listening", "updatedAt", since - 10 * 60_000L)
+        val added = stats.importListens(cloudListens(days))
+        syncMarks.putStrings(mapOf("pulled_at_$uid" to started.toString()))
+        added
     }
 
     private fun errorMessage(e: Exception): String = when {

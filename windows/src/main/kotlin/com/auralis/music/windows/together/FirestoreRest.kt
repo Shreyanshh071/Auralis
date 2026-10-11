@@ -65,7 +65,8 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
                 // No tokens or authorization headers in errors or logs.
                 throw ServiceException(status, message)
             }
-            return if (text.isBlank()) JSONObject() else JSONObject(text)
+            // runQuery answers with a JSON array; callers read it as "results".
+            return if (text.isBlank()) JSONObject() else if (text.trimStart().startsWith("[")) JSONObject().put("results", JSONArray(text)) else JSONObject(text)
         } finally { connection.disconnect() }
     }
 
@@ -110,6 +111,24 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
      * [mask] narrows a merge to exact field paths (e.g. "events.`<key>`"), so nested map entries
      * are added one by one instead of replacing the whole map; by default the top-level fields.
      */
+    /**
+     * Documents of the [collection] under [parent] whose number field [field] is greater than
+     * [after] (Firestore's single-field index covers this; no composite index needed).
+     */
+    fun queryGreaterThan(parent: String, collection: String, field: String, after: Long): List<Pair<String, JSONObject>> {
+        authenticate()
+        val query = JSONObject().put("structuredQuery", JSONObject()
+            .put("from", JSONArray().put(JSONObject().put("collectionId", collection)))
+            .put("where", JSONObject().put("fieldFilter", JSONObject()
+                .put("field", JSONObject().put("fieldPath", field)).put("op", "GREATER_THAN")
+                .put("value", JSONObject().put("integerValue", after.toString())))))
+        val results = request("$endpoint/$parent:runQuery", "POST", query).optJSONArray("results") ?: JSONArray()
+        return (0 until results.length()).mapNotNull { i ->
+            val doc = results.getJSONObject(i).optJSONObject("document") ?: return@mapNotNull null
+            doc.getString("name").substringAfter("/documents/") to decodeFields(doc.optJSONObject("fields") ?: JSONObject())
+        }
+    }
+
     fun write(path: String, fields: JSONObject, serverStamp: String? = null, merge: Boolean = true, create: Boolean = false,
         mask: List<String>? = null) {
         authenticate()

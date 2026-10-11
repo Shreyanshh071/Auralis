@@ -59,6 +59,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.first
 
 enum class DesktopDestination(val label: String, val icon: ImageVector) {
@@ -204,7 +205,7 @@ fun AuralisDesktopApp(
         catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync with the account: ${e.message}") }
     }
     // While signed in, keep the account current: library edits a few seconds after they happen,
-    // and new listening every two minutes (as the phone uploads).
+    // listening within about 20 seconds, and the phone's new listening each minute.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
         launch {
@@ -217,10 +218,18 @@ fun AuralisDesktopApp(
                         .onFailure { com.auralis.music.util.Log.w("AccountSync", "Library upload failed: ${it.message}") }
                 }
         }
+        launch {
+            // The recorder saves every 5 s while playing, so sample rather than debounce.
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            listeningStats.listens.sample(20_000).collect {
+                runCatching { account.pushListens(listeningStats) }
+                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
+            }
+        }
         while (true) {
-            kotlinx.coroutines.delay(120_000)
-            runCatching { account.pushListens(listeningStats) }
-                .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
+            kotlinx.coroutines.delay(60_000)
+            runCatching { account.pullNewListens(listeningStats) }
+                .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening check failed: ${it.message}") }
         }
     }
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
