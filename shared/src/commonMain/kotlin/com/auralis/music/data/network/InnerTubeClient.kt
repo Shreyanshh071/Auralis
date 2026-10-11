@@ -1334,6 +1334,8 @@ open class InnerTubeClient(
             }
 
             // Parse Sections
+            val pageContinuation = sectionList?.optJSONArray("continuations")?.optJSONObject(0)
+                ?.optJSONObject("nextContinuationData")?.optString("continuation")?.takeIf { it.isNotBlank() }
             val contents = sectionList?.optJSONArray("contents") ?: JSONArray()
             for (i in 0 until contents.length()) {
                 val shelfObj = contents.optJSONObject(i)?.optJSONObject("musicCarouselShelfRenderer") ?: continue
@@ -1412,7 +1414,8 @@ open class InnerTubeClient(
                             subtitle = subtitle,
                             thumbnail = tracks.firstOrNull()?.thumbnail ?: albums.firstOrNull()?.thumbnail,
                             items = tracks,
-                            albums = albums
+                            albums = albums,
+                            continuationToken = pageContinuation
                         )
                     )
                 }

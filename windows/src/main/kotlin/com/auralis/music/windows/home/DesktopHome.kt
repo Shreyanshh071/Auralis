@@ -37,6 +37,18 @@ fun DesktopHome(
     val savedAlbums by library.getSavedAlbums().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
     val platform = LocalPlatformActions.current
+    val preferences = remember { com.auralis.music.util.PropertiesFileKeyValueStore(
+        java.io.File(com.auralis.music.util.desktopAppDataDir(), "desktop-home.properties")) }
+    var recentsGrid by remember { mutableStateOf(preferences.getString("recentsGrid", "false") == "true") }
+    val paging = remember { DesktopHomePaging { token ->
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            LocalizedContent.run { com.auralis.music.data.network.InnerTubeClient().getHome(continuation = token).second }
+        }
+    } }
+    val pageState by paging.state.collectAsState()
+    LaunchedEffect(state.dynamicSections, state.selectedChip, state.isLoading) {
+        paging.reset(if (state.isLoading) emptyList() else state.dynamicSections)
+    }
     val play: (Track, List<Track>) -> Unit = { track, tracks ->
         if (playback != null) playback.playFrom(track, tracks) else showMessage("Playback needs VLC")
     }
@@ -48,6 +60,7 @@ fun DesktopHome(
     }
     DesktopHomeScreen(
         state = state,
+        moreSections = pageState.sections,
         currentTrackId = queue?.current?.id,
         isPlaying = playing,
         onPlay = play,
@@ -72,7 +85,19 @@ fun DesktopHome(
         onChip = viewModel::toggleChip,
         onAlbumMenu = { menuAlbum = it },
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
-        findMusic = findMusic
+        findMusic = findMusic,
+        onRefresh = { paging.reset(state.dynamicSections); viewModel.refresh() },
+        loadingMore = pageState.loading,
+        canLoadMore = pageState.canLoadMore,
+        loadMoreFailed = pageState.failed,
+        onLoadMore = { scope.launch { paging.loadMore() } },
+        recentsGrid = recentsGrid,
+        onToggleRecents = {
+            recentsGrid = !recentsGrid
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                preferences.putStrings(mapOf("recentsGrid" to recentsGrid.toString()))
+            }
+        }
     )
     menuTrack?.let { track ->
         DesktopTrackMenu(track, library, playback, browse, viewModel, showMessage, { menuTrack = null })

@@ -159,6 +159,12 @@ fun main(args: Array<String>) {
         "home-wide" to { homePreview(true) },
         "home-narrow" to { homePreview(true) },
         "home-new" to { homePreview(false) },
+        "home-grid" to { com.auralis.music.windows.home.DesktopHomeScreen(
+            personalHome, recentsGrid = true,
+            onPlay = { _, _ -> }, onShortcut = {}, onAlbum = {}, onMenu = {}, onSearch = {}, onSurprise = {}, onChip = {}) },
+        "home-loading" to { com.auralis.music.windows.home.DesktopHomeScreen(
+            com.auralis.music.ui.viewmodel.HomeUiState(speedDialPages = emptyList(), isLoading = true),
+            onPlay = { _, _ -> }, onShortcut = {}, onAlbum = {}, onMenu = {}, onSearch = {}, onSurprise = {}, onChip = {}) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },
