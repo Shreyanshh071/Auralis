@@ -15,6 +15,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 - `:windows:verifyWindowFrame` opens its own disposable window without loading any account, library or playback data. Verified native caption/resize hit tests, child-canvas forwarding, maximize client bounds against monitor work area, unclipped canvas, Compose placement tracking, original bounds on restore, caption double click and minimize. Existing Windows tests also pass.
 - Native callbacks remain retained until disposal and original AWT procedures are restored. Normal title-bar buttons remain client controls. The existing minimum window size still applies to smaller Snap zones.
 - Installed together with the desktop Home redesign on 11 October. Windows stays at 1.0.0.
+- Follow-up: custom maximize/restore now handles native mouse press/release explicitly, including cancellation when released outside the button. Its native hover is forwarded to Compose; title-bar highlights and Home card highlights/play controls fade over 150 ms. The frame integration check now exercises actual button messages rather than only direct system commands. Windows tests and the frame check pass; Android code is unchanged.
 
 ## Desktop Home redesign
 

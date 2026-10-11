@@ -1,5 +1,12 @@
 package com.auralis.music.windows.home
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -178,13 +185,15 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
     val hovered by interactions.collectIsHoveredAsState()
     val active = item.track?.id == currentTrackId && playing
     val colors = MaterialTheme.colorScheme
+    val background by animateColorAsState(if (hovered) colors.surfaceContainerHigh else colors.surfaceContainer, tween(150))
+    val playAlpha by animateFloatAsState(if (hovered || active) 1f else 0f, tween(150))
     Box(modifier) {
       ContextMenuArea(items = { buildList {
           menu?.let { add(ContextMenuItem(if (item.type == SpeedDialType.ALBUM) "Album options" else "Song options", it)) }
           unpin?.let { add(ContextMenuItem("Unpin from Home", it)) }
       } }) {
         Row(Modifier.fillMaxWidth().height(78.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (hovered) colors.surfaceContainerHigh else colors.surfaceContainer)
+            .background(background)
             .hoverable(interactions).clickable(onClick = click), verticalAlignment = Alignment.CenterVertically) {
             HomeArtwork(item.image ?: item.track?.thumbnail, Modifier.size(78.dp))
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -194,8 +203,8 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
                     SpeedDialType.ALBUM -> "Album"; SpeedDialType.PLAYLIST -> "Playlist"; SpeedDialType.ARTIST -> "Artist"; else -> "Song"
                 }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
-            if (hovered || active) Icon(if (active) Icons.Outlined.GraphicEq else Icons.Outlined.PlayArrow,
-                if (active) "Playing" else "Play", tint = colors.primary, modifier = Modifier.padding(end = 12.dp).size(20.dp))
+            Icon(if (active) Icons.Outlined.GraphicEq else Icons.Outlined.PlayArrow,
+                if (active) "Playing" else null, tint = colors.primary, modifier = Modifier.padding(end = 12.dp).size(20.dp).alpha(playAlpha))
         }
       }
     }
@@ -228,9 +237,12 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
         Column(Modifier.width(156.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
             Box(Modifier.size(156.dp).clip(RoundedCornerShape(12.dp))) {
                 HomeArtwork(image, Modifier.fillMaxSize())
-                if (hovered || active) FilledIconButton(onClick = click, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(36.dp)) {
+                androidx.compose.animation.AnimatedVisibility(visible = hovered || active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
+                    modifier = Modifier.align(Alignment.BottomEnd)) {
+                  FilledIconButton(onClick = click, modifier = Modifier.padding(9.dp).size(36.dp)) {
                     Icon(when { active -> Icons.Outlined.GraphicEq; opensPage -> Icons.Outlined.ArrowOutward; else -> Icons.Outlined.PlayArrow },
                         when { active -> "Playing"; opensPage -> "Open"; else -> "Play" })
+                }
                 }
             }
             Text(title, Modifier.padding(top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,

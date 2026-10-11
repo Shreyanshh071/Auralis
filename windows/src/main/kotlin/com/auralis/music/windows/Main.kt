@@ -137,9 +137,10 @@ fun main(args: Array<String>) {
             state = windowState
         ) {
             var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
+            var maximizeHovered by remember { mutableStateOf(false) }
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(900, 600)
-                val frame = runCatching { NativeWindowFrame(window, window.windowHandle) }
+                val frame = runCatching { NativeWindowFrame(window, window.windowHandle) { maximizeHovered = it } }
                     .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
                 nativeFrame = frame
                 onDispose { frame?.close() }
@@ -191,7 +192,8 @@ fun main(args: Array<String>) {
                                 }
                             }, close = closeApp,
                             captionBounds = { nativeFrame?.captionBounds = it },
-                            maximizeBounds = { nativeFrame?.maximizeBounds = it })
+                            maximizeBounds = { nativeFrame?.maximizeBounds = it },
+                            maximizeHovered = maximizeHovered)
                     }
                     if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
                 }
