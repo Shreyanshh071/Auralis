@@ -1,6 +1,7 @@
 package com.auralis.music.windows.library
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.*
 import com.auralis.music.ui.components.GlassMenuItem
@@ -16,7 +19,7 @@ import java.awt.MouseInfo
 
 /** A focusable, scrollable desktop menu at the initiating click, constrained to the window. */
 @Composable
-internal fun DesktopSongContextMenu(items: List<GlassMenuItem>, onDismiss: () -> Unit) {
+internal fun DesktopSongContextMenu(items: List<GlassMenuItem>, onDismiss: () -> Unit, background: @Composable () -> Unit) {
     val point = remember {
         runCatching {
             val window = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
@@ -37,23 +40,28 @@ internal fun DesktopSongContextMenu(items: List<GlassMenuItem>, onDismiss: () ->
     }
     Popup(popupPositionProvider = provider, onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)) {
-        DesktopSongMenuContent(items, onDismiss)
+        DesktopSongMenuContent(items, onDismiss, background)
     }
 }
 
 @Composable
-internal fun DesktopSongMenuContent(items: List<GlassMenuItem>, onDismiss: () -> Unit) {
-        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 12.dp, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-            Column(Modifier.width(280.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(vertical = 6.dp)) {
+internal fun DesktopSongMenuContent(items: List<GlassMenuItem>, onDismiss: () -> Unit, background: @Composable () -> Unit = {}) {
+    com.auralis.music.ui.components.CoverSheetTheme {
+        Surface(shape = RoundedCornerShape(18.dp), color = com.auralis.music.ui.components.CoverSheetFloor,
+            shadowElevation = 12.dp, border = BorderStroke(1.dp, Color.White.copy(alpha = .12f))) {
+          Box {
+            Box(Modifier.matchParentSize()) { background() }
+            Column(Modifier.width(280.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items.forEach { item ->
                     DropdownMenuItem(text = { Text(item.label, style = MaterialTheme.typography.bodyMedium) },
                         onClick = { item.onClick(); if (item.dismisses) onDismiss() }, enabled = item.enabled,
                         leadingIcon = { item.icon?.let { Icon(it, null, Modifier.size(18.dp), tint = item.tint ?: MaterialTheme.colorScheme.onSurfaceVariant) } },
-                        modifier = Modifier.heightIn(min = 38.dp))
+                        modifier = Modifier.heightIn(min = 38.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .08f)))
                 }
             }
         }
+      }
+    }
 }
 
 internal fun songMenuPosition(point: IntOffset, window: IntSize, menu: IntSize): IntOffset {
