@@ -68,6 +68,9 @@ internal fun DesktopHomeScreen(
     val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
+    val scrollHover = remember { MutableInteractionSource() }
+    val scrollHovered by scrollHover.collectIsHoveredAsState()
+    val scrollbarAlpha by animateFloatAsState(if (scrollHovered) 1f else 0f, tween(160))
     val recents = serviceRecents?.takeIf { it.isNotEmpty() } ?: content.recents
     val shelves = serviceShelves ?: buildList {
         addAll(content.shelves)
@@ -81,7 +84,7 @@ internal fun DesktopHomeScreen(
         }.collect { nearEnd -> if (nearEnd) loadMore() }
     }
     val idle = currentTrackId == null && colors.background.luminance() < .5f
-    BoxWithConstraints(modifier.fillMaxSize().then(if (idle) Modifier.background(Color(0xFF202020)) else Modifier)) {
+    BoxWithConstraints(modifier.fillMaxSize().hoverable(scrollHover).then(if (idle) Modifier.background(Color(0xFF202020)) else Modifier)) {
         // Four tracks per column; a partial next column invites horizontal scrolling.
         val columnWidth = ((maxWidth - 32.dp) / when { maxWidth >= 1300.dp -> 4; maxWidth >= 900.dp -> 3; maxWidth >= 600.dp -> 2; else -> 1 })
             .coerceIn(260.dp, 410.dp)
@@ -143,7 +146,7 @@ internal fun DesktopHomeScreen(
                 }
             }
         }
-        VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp))
+        VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp).alpha(scrollbarAlpha))
     }
 }
 
