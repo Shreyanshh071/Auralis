@@ -44,6 +44,7 @@ class SidebarWordLyricsTest {
             repeat(3) { render() }
             val before = render()
             position.longValue = 2500 // The first word finished; the second has not started.
+            repeat(3) { render() } // Flush the scene's snapshot/draw invalidations after changing the clock.
             val rest = render()
             val images = java.io.File("build/screens/sidebar-words").apply { mkdirs() }
             ImageIO.write(before, "png", java.io.File(images, "before.png"))
@@ -53,9 +54,11 @@ class SidebarWordLyricsTest {
             val paused = render()
             assertEquals(brightness(rest, 10, 180), brightness(paused, 10, 180), "Paused playback must freeze word progress")
             position.longValue = 4500
+            repeat(3) { render() }
             val completed = render()
             assertTrue(brightness(completed, 115, 180) > brightness(rest, 115, 180), "Next word must brighten at its own timestamp")
             position.longValue = 500
+            repeat(3) { render() }
             val seekBack = render()
             assertEquals(brightness(before, 10, 180), brightness(seekBack, 10, 180), "Seeking back must reset the word sweep")
         } finally { scene.close() }

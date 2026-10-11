@@ -209,3 +209,15 @@ Standard MSI build passed. Installed on 11 October at 17:20 after a normal close
 Account names use the bundled desktop label typography at 14sp with an 18sp line height and medium weight. The avatar is 26dp and dropdown arrow 16dp, vertically centred with consistent 8dp spacing. Long names ellipsize within 180dp instead of being cut at 22 characters. The title-bar preview was visually checked; this is a presentation-only change.
 
 Standard MSI build passed. Installed on 11 October at 17:24 after a normal close; all 30 checked data files and shortcut were preserved, and installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-account-label-20261011-172330. Version remains 1.0.0.
+
+### Complete desktop Home shelf layout (Windows 1.0.0)
+
+Re-inspected BitChord HomeScreen, repository Home/history/new-release requests and shelf parsers against the supplied desktop screenshot. Home now starts directly with Recents in four-track horizontal columns (or cover view), followed by 150dp cover shelves with 14dp gaps, 16dp page gutters, compact subtitles and 22sp headings. Removed the greeting, mood chip strip, pinned shortcut blocks, separate quick-pick grid and learning banner from the Home presentation. Search remains available through a compact icon using the existing animated frosted Find music popup; refresh and recents view controls sit beside it.
+
+Connected Home uses the selected authenticated YouTube session for FEmusic_home, FEmusic_history and FEmusic_new_releases. History, releases and the main feed load independently; Recents falls back to local history while remote history loads. Albums & singles precedes the service shelves, including Listen again. Mixed song/collection order and account subtitles are preserved. From your library includes YouTube playlists and saved local collections; playlist and artist cards open their appropriate pages. Private playlist menu actions use authenticated requests. Home page continuation excludes shelf tokens, rejects concurrent/repeated/stale requests and offers retry. Account switches cancel pending Home requests. Guest Home keeps the recommendation engine behind the new shelf presentation. Android is unchanged.
+
+The read-only live check returned 3 Home shelves, 40 YouTube recents and 2 new-release shelves. Its later library continuation received a reconnect response; the Home endpoints themselves succeeded. All 48 Windows tests passed before final packaging, including mixed item order, plain/grid shelves and page-token scope. Wide service, narrow guest and loading previews were inspected.
+
+Final regression verification passed all 48 tests. The existing sidebar word-sync image test now flushes scene invalidations after clock changes before asserting sung/future/paused/seek pixels, removing intermittent stale-frame captures; its assertions are unchanged.
+
+Final standard MSI packaging passed. Installed on 11 October at 17:43 after a normal close; all 31 checked data files and shortcut were preserved, and installed code matches the build. Full backup: Downloads/Auralis-checkpoints/before-home-redesign-20261011-174242. Version remains 1.0.0.

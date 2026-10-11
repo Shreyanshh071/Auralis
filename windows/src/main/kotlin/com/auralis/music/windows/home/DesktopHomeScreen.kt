@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.viewmodel.HomeUiState
@@ -60,13 +61,18 @@ internal fun DesktopHomeScreen(
     canLoadMore: Boolean = false,
     loadMoreFailed: Boolean = false,
     onLoadMore: () -> Unit = {},
-    moreSections: List<HomeSection> = emptyList()
+    moreSections: List<HomeSection> = emptyList(),
+    serviceShelves: List<DesktopHomeShelf>? = null, serviceRecents: List<Track>? = null,
+    serviceLoading: Boolean = false, serviceError: String? = null, libraryShelf: List<PlaylistResult> = emptyList()
 ) {
     val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
-    val hour = remember { LocalTime.now().hour }
-    val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
+    val recents = serviceRecents?.takeIf { it.isNotEmpty() } ?: content.recents
+    val shelves = serviceShelves ?: buildList {
+        addAll(content.shelves)
+        if (content.picks.isNotEmpty()) add(DesktopHomeShelf("quick-picks", "Quick picks", tracks = content.picks))
+    }
     val loadMore by rememberUpdatedState(onLoadMore)
     LaunchedEffect(scroll, loadingMore, canLoadMore, loadMoreFailed) {
         if (canLoadMore && !loadingMore && !loadMoreFailed) snapshotFlow {
@@ -74,184 +80,112 @@ internal fun DesktopHomeScreen(
             layout.totalItemsCount > 0 && (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 3
         }.collect { nearEnd -> if (nearEnd) loadMore() }
     }
-    val idleDarkHome = currentTrackId == null && colors.background.luminance() < .5f
-    BoxWithConstraints(modifier.fillMaxSize().then(if (idleDarkHome) Modifier.background(Color(0xFF202020)) else Modifier)) {
-        val columns = when { maxWidth >= 1000.dp -> 4; maxWidth >= 780.dp -> 3; else -> 2 }
-        val songColumns = if (maxWidth >= 950.dp) 3 else if (maxWidth >= 650.dp) 2 else 1
-        val recentColumnWidth = ((maxWidth - 80.dp) / songColumns).coerceIn(240.dp, 390.dp)
-        if (!idleDarkHome) Box(Modifier.fillMaxWidth().height(290.dp).background(Brush.verticalGradient(
-            listOf(colors.primary.copy(alpha = .12f), colors.background.copy(alpha = 0f)))))
-        LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 32.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(30.dp)) {
-            item("greeting") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Home", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                        Text(if (content.personalized) "$greeting. Made for your next listen." else "$greeting. Find something you'll love.",
-                            style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
-                    }
-                    IconButton(onClick = onRefresh, enabled = !state.isRefreshing) {
-                        if (state.isRefreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Outlined.Refresh, "Refresh home")
-                    }
-                    if (findMusic != null) findMusic() else FilledTonalButton(onClick = onSearch, modifier = Modifier.height(54.dp).widthIn(min = 176.dp),
-                        shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(22.dp, 14.dp)) {
-                        Icon(Icons.Outlined.Search, null, Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)); Text("Find music", style = MaterialTheme.typography.titleMedium)
-                    }
-                }
-            }
-            if (state.homeChips.isNotEmpty()) item("filters") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { FilterChip(state.selectedChip == null, { onChip(null) }, label = { Text("All") }) }
-                    items(state.homeChips, key = { "${it.title}:${it.params}" }) { chip ->
-                        FilterChip(state.selectedChip == chip, { onChip(chip) }, label = { Text(chip.title) })
-                    }
-                }
-            }
-            if (state.isLoading && content.recents.isEmpty() && content.shortcuts.isEmpty() && content.shelves.isEmpty()) item("skeleton") {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Loading your music…", color = colors.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                        repeat(columns) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh))
-                                Box(Modifier.fillMaxWidth(.75f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(colors.surfaceContainerHigh))
-                            }
-                        }
-                    }
-                }
-            }
-            if (state.selectedChip != null && !state.isLoading && content.shelves.isEmpty()) item("empty-filter") {
+    val idle = currentTrackId == null && colors.background.luminance() < .5f
+    BoxWithConstraints(modifier.fillMaxSize().then(if (idle) Modifier.background(Color(0xFF202020)) else Modifier)) {
+        // Four tracks per column; a partial next column invites horizontal scrolling.
+        val columnWidth = ((maxWidth - 32.dp) / when { maxWidth >= 1300.dp -> 4; maxWidth >= 900.dp -> 3; maxWidth >= 600.dp -> 2; else -> 1 })
+            .coerceIn(260.dp, 410.dp)
+        LazyColumn(Modifier.fillMaxSize(), state = scroll,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(34.dp)) {
+            item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("No music loaded for this mood yet.", color = colors.onSurfaceVariant)
-                    TextButton(onClick = { onChip(null) }) { Text("Show all music") }
-                }
-            }
-            if (content.recents.isNotEmpty()) item("recently-played") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HomeHeading("Recently played", "Pick up where you left off", trailing = {
+                    HomeHeading("Recents", null, trailing = {
+                        if (findMusic != null) findMusic() else IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Find music") }
+                        IconButton(onClick = onRefresh, enabled = !serviceLoading && !state.isRefreshing) {
+                            Icon(Icons.Outlined.Refresh, "Refresh home", Modifier.size(18.dp))
+                        }
                         IconButton(onClick = onToggleRecents) {
                             Icon(if (recentsGrid) Icons.Outlined.ViewList else Icons.Outlined.GridView,
-                                if (recentsGrid) "Show recently played as a list" else "Show recently played as covers")
+                                if (recentsGrid) "Show recents as a list" else "Show recents as covers", Modifier.size(18.dp))
                         }
                     })
-                    val recentScroll = rememberLazyListState()
-                    LazyRow(state = recentScroll, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        if (recentsGrid) items(content.recents, key = { it.id }) { track ->
+                    if (recents.isEmpty()) {
+                        Text(if (serviceLoading || state.isLoading) "Loading recents…" else "Your recently played music will appear here.",
+                            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp))
+                    } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (recentsGrid) items(recents, key = { it.id }) { track ->
                             ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && isPlaying,
-                                { onPlay(track, content.recents) }, { onMenu(track) })
-                        } else items(content.recents.chunked(4), key = { it.first().id }) { tracks ->
-                            Column(Modifier.width(recentColumnWidth)) {
+                                { onPlay(track, recents) }, { onMenu(track) })
+                        } else items(recents.chunked(4), key = { it.first().id }) { tracks ->
+                            Column(Modifier.width(columnWidth)) {
                                 tracks.forEach { track -> CompactSong(track, currentTrackId == track.id && isPlaying,
-                                    { onPlay(track, content.recents) }, { onMenu(track) }, Modifier.fillMaxWidth()) }
+                                    { onPlay(track, recents) }, { onMenu(track) }, Modifier.fillMaxWidth()) }
                             }
-                        }
-                    }
-                    HorizontalScrollbar(rememberScrollbarAdapter(recentScroll), Modifier.fillMaxWidth().height(5.dp))
-                }
-            }
-            if (content.shortcuts.isNotEmpty()) item("shortcuts") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HomeHeading(if (content.personalized) "Pinned for you" else "Start here",
-                        if (content.personalized) "Your pinned songs and collections" else "Curated picks to get you started",
-                        action = "Surprise me", onAction = onSurprise)
-                    content.shortcuts.chunked(columns).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            row.forEach { item ->
-                                val pinned = item.isPinned || item.id in state.pinnedSpeedDialIds || item.track?.id in state.pinnedSpeedDialIds
-                                ShortcutCard(item, currentTrackId, isPlaying, { onShortcut(item) },
-                                    item.track?.let { track -> { onMenu(track) } } ?: item.album?.let { album -> { onAlbumMenu(album) } },
-                                    if (pinned) ({ onUnpinShortcut(item) }) else null, Modifier.weight(1f))
-                            }
-                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
             }
-            if (state.error != null) item("error") {
+            if (serviceLoading && shelves.isEmpty()) item("loading") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HomeHeading("Albums & singles", null)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        items(10) { Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh)) }
+                    }
+                }
+            }
+            items(shelves, key = { it.id }) { shelf ->
+                HomeCarousel(shelf, currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu)
+            }
+            if (libraryShelf.isNotEmpty() && shelves.none { it.title.equals("From your library", true) }) item("library") {
+                HomeCarousel(DesktopHomeShelf("library", "From your library", albums = libraryShelf),
+                    currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu)
+            }
+            if (serviceError != null || (serviceShelves == null && state.error != null)) item("error") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(state.error.orEmpty(), Modifier.weight(1f), color = colors.onSurfaceVariant)
+                    Text(serviceError ?: state.error.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant)
                     TextButton(onClick = onRefresh) { Text("Try again") }
                 }
             }
-            if (!content.personalized && state.selectedChip == null) item("learning") {
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.surfaceContainer)
-                    .padding(16.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(Icons.Outlined.AutoAwesome, null, tint = colors.primary, modifier = Modifier.size(20.dp))
-                    Text("Play your favourites to make Home yours.",
-                        style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-                }
-            }
-            if (content.picks.isNotEmpty()) item("quick-picks") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HomeHeading("Quick picks", "Press play and let it run", action = "Play all",
-                        onAction = { onPlay(content.picks.first(), content.picks) })
-                    content.picks.chunked(songColumns).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                            row.forEach { track -> CompactSong(track, currentTrackId == track.id && isPlaying,
-                                { onPlay(track, content.picks) }, { onMenu(track) }, Modifier.weight(1f)) }
-                            repeat(songColumns - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
-                }
-            }
-            items(content.shelves, key = { it.id }) { shelf ->
-                val shelfScroll = rememberLazyListState()
-                val scope = rememberCoroutineScope()
-                val count = shelf.tracks.size + shelf.albums.size
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    HomeHeading(shelf.title, shelf.subtitle,
-                        action = if (shelf.tracks.isNotEmpty()) "Play all" else null,
-                        onAction = { shelf.tracks.firstOrNull()?.let { onPlay(it, shelf.tracks) } },
-                        trailing = {
-                            IconButton(enabled = shelfScroll.canScrollBackward, onClick = {
-                                scope.launch { shelfScroll.animateScrollToItem((shelfScroll.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
-                            }) { Icon(Icons.Outlined.ChevronLeft, "Previous in ${shelf.title}") }
-                            IconButton(enabled = shelfScroll.canScrollForward, onClick = {
-                                scope.launch { shelfScroll.animateScrollToItem((shelfScroll.firstVisibleItemIndex + 3).coerceAtMost(count - 1)) }
-                            }) { Icon(Icons.Outlined.ChevronRight, "Next in ${shelf.title}") }
-                        })
-                    LazyRow(state = shelfScroll, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                        items(shelf.tracks, key = { "track:${it.id}" }) { track ->
-                            ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && isPlaying,
-                                { onPlay(track, shelf.tracks) }, { onMenu(track) })
-                        }
-                        items(shelf.albums, key = { "album:${it.id}" }) { album ->
-                            ArtworkCard(album.title, album.author.orEmpty(), album.thumbnail, false, { onAlbum(album) }, { onAlbumMenu(album) }, opensPage = true)
-                        }
-                    }
-                }
-            }
-            if (state.isLoading || state.isRefreshing) item("loading") {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Updating your recommendations…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                }
-            }
             if (loadingMore || canLoadMore) item("more") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     if (loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else TextButton(onClick = onLoadMore) {
-                        Text(if (loadMoreFailed) "Couldn't load more · Try again" else "More recommendations")
-                    }
+                    else TextButton(onClick = onLoadMore) { Text(if (loadMoreFailed) "Try loading more again" else "More music") }
                 }
             }
         }
-        VerticalScrollbar(rememberScrollbarAdapter(scroll), modifier = Modifier.align(Alignment.CenterEnd)
-            .fillMaxHeight().padding(vertical = 16.dp, horizontal = 6.dp),
-            style = LocalScrollbarStyle.current.copy(thickness = 6.dp, shape = RoundedCornerShape(8.dp),
-                unhoverColor = colors.onSurfaceVariant.copy(alpha = .35f), hoverColor = colors.primary.copy(alpha = .7f)))
+        VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp))
     }
 }
 
 @Composable
+private fun HomeCarousel(shelf: DesktopHomeShelf, currentTrackId: String?, playing: Boolean,
+    onPlay: (Track, List<Track>) -> Unit, onAlbum: (PlaylistResult) -> Unit,
+    onMenu: (Track) -> Unit, onAlbumMenu: (PlaylistResult) -> Unit) {
+    val order = shelf.order.ifEmpty { shelf.tracks.map { "track:${it.id}" } + shelf.albums.map { "album:${it.id}" } }
+    val tracks = shelf.tracks.associateBy { it.id }; val albums = shelf.albums.associateBy { it.id }
+    val row = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HomeHeading(shelf.title, shelf.subtitle, trailing = {
+            if (row.canScrollBackward) IconButton(onClick = { scope.launch { row.animateScrollToItem((row.firstVisibleItemIndex - 4).coerceAtLeast(0)) } }) {
+                Icon(Icons.Outlined.ChevronLeft, "Previous in ${shelf.title}")
+            }
+            if (row.canScrollForward) IconButton(onClick = { scope.launch { row.animateScrollToItem((row.firstVisibleItemIndex + 4).coerceAtMost(order.lastIndex)) } }) {
+                Icon(Icons.Outlined.ChevronRight, "Next in ${shelf.title}")
+            }
+        })
+        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(order, key = { it }) { key ->
+                if (key.startsWith("track:")) tracks[key.removePrefix("track:")]?.let { track ->
+                    ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && playing,
+                        { onPlay(track, shelf.tracks) }, { onMenu(track) })
+                } else albums[key.removePrefix("album:")]?.let { album ->
+                    ArtworkCard(album.title, album.author.orEmpty(), album.thumbnail, false,
+                        { onAlbum(album) }, { onAlbumMenu(album) }, opensPage = true)
+                }
+            }
+        }
+    }
+}
+@Composable
 private fun HomeHeading(title: String, subtitle: String?, action: String? = null, onAction: () -> Unit = {}, trailing: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 28.sp),
+                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -296,13 +230,13 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
 private fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu: () -> Unit, modifier: Modifier) {
     Box(modifier) {
       ContextMenuArea(items = { listOf(ContextMenuItem("Song options", menu)) }) {
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = click).padding(6.dp),
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = click).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HomeArtwork(track.thumbnail, Modifier.size(48.dp).clip(RoundedCornerShape(7.dp)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
+                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
                     color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                Text(track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                Text(track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = menu, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.MoreHoriz, "Song options", Modifier.size(18.dp)) }
@@ -316,8 +250,8 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     ContextMenuArea(items = { menu?.let { listOf(ContextMenuItem(if (opensPage) "Album options" else "Song options", it)) }.orEmpty() }) {
-        Column(Modifier.width(156.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
-            Box(Modifier.size(156.dp).clip(RoundedCornerShape(12.dp))) {
+        Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
+            Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp))) {
                 HomeArtwork(image, Modifier.fillMaxSize())
                 androidx.compose.animation.AnimatedVisibility(visible = hovered || active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
                     modifier = Modifier.align(Alignment.BottomEnd)) {
@@ -328,9 +262,9 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
                 }
             }
             Text(title, Modifier.padding(top = 10.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                style = MaterialTheme.typography.titleMedium, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
             Text(subtitle, Modifier.padding(top = 4.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

@@ -76,6 +76,9 @@ internal class YouTubeMusicClient(
     suspend fun identity(): YouTubeIdentity = parseYouTubeIdentity(post("account/account_menu"))
         ?: error("YouTube did not confirm the account. Please reconnect your browser profile.")
 
+    suspend fun browseHome(browseId: String = "FEmusic_home", continuation: String? = null): JSONObject =
+        post("browse", if (continuation == null) JSONObject().put("browseId", browseId) else JSONObject().put("continuation", continuation))
+
     suspend fun playlists(onPage: (List<PlaylistResult>) -> Unit): List<PlaylistResult> {
         val values = linkedMapOf<String, PlaylistResult>()
         values["VLLM"] = PlaylistResult("VLLM", "Liked Music")

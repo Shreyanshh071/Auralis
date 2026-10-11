@@ -182,6 +182,16 @@ fun main(args: Array<String>) {
             }
         },
         "home" to { homePreview(true) },
+        "home-service" to {
+            val albums = previewSongs.take(12).mapIndexed { i, song -> com.auralis.music.domain.model.PlaylistResult("preview-album-$i", song.title, song.thumbnail, "Album · ${song.artist}") }
+            com.auralis.music.windows.home.DesktopHomeScreen(personalHome,
+                serviceRecents = (previewSongs + previewSongs).mapIndexed { i, track -> track.copy(id = "recent-$i") },
+                serviceShelves = listOf(
+                    com.auralis.music.windows.home.DesktopHomeShelf("releases", "Albums & singles", albums = albums),
+                    com.auralis.music.windows.home.DesktopHomeShelf("listen-again", "Listen again", "PREVIEW LISTENER", tracks = previewSongs.take(6)),
+                    com.auralis.music.windows.home.DesktopHomeShelf("library", "From your library", albums = albums.reversed())),
+                onPlay = { _, _ -> }, onShortcut = {}, onAlbum = {}, onMenu = {}, onSearch = {}, onSurprise = {}, onChip = {})
+        },
         "home-wide" to { homePreview(true) },
         "home-narrow" to { homePreview(true) },
         "home-new" to { homePreview(false) },
@@ -222,8 +232,8 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar" -> 36; "home-wide" -> 1000; else -> 760 }, density = Density(1f)) {
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-service" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+                height = when (name) { "titlebar" -> 36; "home-service", "home-wide" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
