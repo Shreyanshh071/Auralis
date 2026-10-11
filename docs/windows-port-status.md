@@ -122,6 +122,8 @@ Release package passed and installed copy updated at 13:49 on 11 October. Instal
 
 ### Desktop song context menus (Windows 1.0.0)
 
+Artwork-style restoration: the desktop popup now receives the original sheet background composable from the shared song menu. It reuses the song's own cover-colour field, dark floor, white text and translucent rounded action rows while retaining click-adjacent positioning. Windows preview and Windows/Android compilation passed. The Android fallback is unchanged.
+
 Windows supplies a compact, scrollable popup for shared song actions. It opens at the initiating click, flips inward at window edges, and dismisses through Escape or clicking outside. Add to playlist stays in the popup with a Back row, existing playlists and New playlist. Queue, favourites, pinning, album/artist navigation, downloads and share retain their existing callbacks. Home, Search, Library and other shared song menus inherit the Windows renderer. The new composition hook defaults to null, retaining Android's existing sheet.
 
 Windows tests: 24 passed, including three click/edge placement cases. Compact-menu visual preview and Windows/Android compilation passed. No phone APK was built.

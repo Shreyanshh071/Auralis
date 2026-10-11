@@ -93,7 +93,7 @@ fun main(args: Array<String>) {
                 com.auralis.music.windows.library.DesktopSongMenuContent(
                     listOf("Play next", "Add to queue", "Add to playlist", "Add to library", "Pin to Speed dial", "Download", "View artist", "View album", "Share").map {
                         com.auralis.music.ui.components.GlassMenuItem(it, androidx.compose.material.icons.Icons.Default.Add) {}
-                    }, {})
+                    }, {}, background = { com.auralis.music.ui.components.CoverSheetBackground(previewSongs.firstOrNull()?.thumbnail) })
             }
         },
         "search-glass" to {

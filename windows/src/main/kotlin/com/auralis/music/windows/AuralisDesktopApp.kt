@@ -236,8 +236,8 @@ fun AuralisDesktopApp(
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance,
-        com.auralis.music.ui.components.LocalTrackContextMenu provides { items, dismiss ->
-            com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss)
+        com.auralis.music.ui.components.LocalTrackContextMenu provides { items, background, dismiss ->
+            com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss, background)
         }
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

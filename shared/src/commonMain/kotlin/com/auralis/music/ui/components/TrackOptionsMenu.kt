@@ -316,7 +316,7 @@ fun TrackOptionsMenu(
                         enabled = !contains) { onAddToPlaylist(playlist) })
                 }
             } else glassItems
-            desktopMenu(items, onDismiss)
+            desktopMenu(items, background, onDismiss)
         } else if (glassAnchor != null) {
             GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
         }
