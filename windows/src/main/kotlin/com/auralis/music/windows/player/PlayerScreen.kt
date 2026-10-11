@@ -98,7 +98,7 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.weight(0.42f).widthIn(max = 520.dp) else Modifier.weight(1f))
                 ) {
-                    if (!appearance.hidePlayerThumbnail) DesktopArtwork(
+                    if (!appearance.hidePlayerThumbnail) DesktopArtwork(highRes = true,
                         url = artworkUrl,
                         modifier = Modifier
                             .fillMaxWidth()

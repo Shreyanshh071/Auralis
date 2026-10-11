@@ -16,9 +16,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 
-/** Artwork for the shared search UI on Windows: the phone's look (rounded, placeholder note). */
+/**
+ * Artwork for the shared search UI on Windows: the phone's look (rounded, placeholder note).
+ * [highRes] loads the full-size cover for large views; row-sized thumbnails blur when stretched.
+ */
 @Composable
-fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDescription: String?, contentScale: ContentScale = ContentScale.Crop) {
+fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDescription: String?,
+    contentScale: ContentScale = ContentScale.Crop, highRes: Boolean = false) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
@@ -30,7 +34,8 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
         } else {
             AsyncImage(
                 // Sized like the phone's rows: 400x400 album art, 16:9 frames for video thumbnails.
-                model = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url) ?: url,
+                model = (if (highRes) com.auralis.music.ui.components.getHighResArtworkUrl(url)
+                    else com.auralis.music.ui.components.getOptimizedThumbnailUrl(url)) ?: url,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize()

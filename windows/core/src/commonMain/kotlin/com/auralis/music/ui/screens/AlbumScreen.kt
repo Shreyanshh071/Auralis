@@ -147,15 +147,18 @@ fun AlbumScreen(
         )
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(DARK_BG)
     ) {
 
+        // Wide windows: the hero stays a centred column while the track table spans the page.
+        val wideTable = maxWidth >= 720.dp
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = bottomChromePadding()
+            contentPadding = bottomChromePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // ================================================================
             // 1. TOP APP BAR (Back Button + Title + Share Button)
@@ -249,6 +252,7 @@ fun AlbumScreen(
             item {
                 Column(
                     modifier = Modifier
+                        .widthIn(max = 960.dp)
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -502,7 +506,7 @@ fun AlbumScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
 
@@ -548,8 +552,18 @@ fun AlbumScreen(
                                 }
                             }
 
-                            // Track Title & Artist
-                            Column(modifier = Modifier.weight(1f)) {
+                            ArtworkCard(
+                                sizeToConstraints = true,
+                                url = track.thumbnail,
+                                modifier = Modifier.size(44.dp),
+                                cornerRadius = 6.dp,
+                                contentDescription = track.title,
+                                fallbackTrack = track
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            // Title (with artist beneath on narrow windows), then artist and album columns
+                            Column(modifier = Modifier.weight(if (wideTable) 1.5f else 1f)) {
                                 Text(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -558,12 +572,30 @@ fun AlbumScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Text(
+                                if (!wideTable) Text(
                                     text = track.artist.ifBlank { album.author ?: "" },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (wideTable) {
+                                Text(
+                                    text = track.artist.ifBlank { album.author ?: "" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                                )
+                                Text(
+                                    text = track.album?.takeIf { it.isNotBlank() } ?: "—",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
                                 )
                             }
 

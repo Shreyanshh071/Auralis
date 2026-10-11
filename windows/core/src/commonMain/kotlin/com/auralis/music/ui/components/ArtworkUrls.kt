@@ -46,9 +46,10 @@ fun getOptimizedThumbnailUrl(url: String?): String? {
         cleaned.contains("mzstatic.com") -> {
             cleaned.replace(MZSTATIC_REGEX, "400x400bb")
         }
-        // Spotify artwork: 300x300
-        cleaned.contains("i.scdn.co/image/ab67616d0000b273") -> {
+        // Spotify artwork: 300x300 (imports often carry the 64x64 size, which blurs)
+        cleaned.contains("i.scdn.co/image/ab67616d0000b273") || cleaned.contains("i.scdn.co/image/ab67616d00004851") -> {
             cleaned.replace("ab67616d0000b273", "ab67616d00001e02")
+                .replace("ab67616d00004851", "ab67616d00001e02")
         }
         else -> cleaned
     }

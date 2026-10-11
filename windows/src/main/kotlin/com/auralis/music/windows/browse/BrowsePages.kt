@@ -56,8 +56,11 @@ fun BrowsePages(
             transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
             contentKey = { it.first },
             label = "browsePage",
-            modifier = Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().fillMaxHeight()
+            modifier = Modifier.fillMaxSize()
         ) { (_, page) ->
+            // Albums and playlists span the window (their own header stays centred);
+            // the phone's Artist page keeps a centred column.
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             when (page) {
                 is BrowsePage.Album -> AlbumScreen(
                     album = page.album,
@@ -102,8 +105,10 @@ fun BrowsePages(
                     onStartRadio = { onUnavailable("Radio on Windows comes later") },
                     onOpenArtist = browse::openArtist,
                     onAlbumClick = { browse.openAlbum(it, fromArtist = page.page) },
-                    onBack = { browse.pop() }
+                    onBack = { browse.pop() },
+                    modifier = Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().fillMaxHeight()
                 )
+            }
             }
         }
     }
