@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -138,25 +139,19 @@ fun InstrumentalIntroIndicator(
             .padding(top = 4.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Spicy Lyrics' interlude dots in place of the ring; tap to skip the intro.
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(clickableSize)
-                .then(
-                    if (onSkipIntro != null) {
-                        Modifier
-                            .clip(CircleShape)
-                            .clickable(onClick = onSkipIntro)
-                    } else Modifier
-                )
+                .clip(RoundedCornerShape(50))
+                .then(if (onSkipIntro != null) Modifier.clickable(onClick = onSkipIntro) else Modifier)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            WavyProgressIndicator(
-                progress = animatedProgress,
-                modifier = Modifier.size(indicatorSize),
-                color = Color.White.copy(alpha = 0.95f),
-                trackColor = Color.White.copy(alpha = 0.18f),
-                strokeWidth = strokeWidth,
-                gapSize = gapSize,
+            LyricsDots(
+                progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
+                elapsedMs = currentTimeMs,
+                remainingMs = introDurationMs - currentTimeMs,
+                dotSize = if (isMetroLyrics) 12.dp else 10.dp
             )
         }
     }

@@ -20,7 +20,7 @@ data class AppearanceSettings(
     // ── Player ──
     val playerDesign: String = "New player",
     val newPlayerDesign: Boolean = true,
-    val playerBackgroundStyle: String = "Live Mesh",
+    val playerBackgroundStyle: String = "Dynamic",
     val hidePlayerThumbnail: Boolean = false,
     val cropAlbumArt: Boolean = true,
     val playerButtonColors: String = "Default",

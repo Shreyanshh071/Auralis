@@ -184,25 +184,17 @@ fun LyricsIntervalIndicator(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(clickableSize)
-                    .clip(CircleShape)
-                    .then(
-                        if (onSkip != null) {
-                            Modifier.clickable(onClick = onSkip)
-                        } else Modifier
-                    )
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                    .then(if (onSkip != null) Modifier.clickable(onClick = onSkip) else Modifier)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                CircularWavyProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(indicatorSize),
-                    color = color.copy(alpha = 0.95f),
-                    trackColor = color.copy(alpha = 0.18f),
-                    stroke = stroke,
-                    trackStroke = stroke,
-                    gapSize = gapSize,
-                    amplitude = WavyProgressIndicatorDefaults.indicatorAmplitude,
-                    wavelength = WavyProgressIndicatorDefaults.CircularWavelength,
-                    waveSpeed = WavyProgressIndicatorDefaults.CircularWavelength,
+                // Spicy Lyrics' interlude dots in place of the ring.
+                LyricsDots(
+                    progress = animatedProgress,
+                    elapsedMs = currentPositionMs - gapStartMs,
+                    remainingMs = gapEndMs - currentPositionMs,
+                    color = color,
+                    dotSize = if (isMetroLyrics) 12.dp else 10.dp
                 )
             }
         }

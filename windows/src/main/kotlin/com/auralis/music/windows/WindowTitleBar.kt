@@ -75,7 +75,7 @@ fun WindowTitleBar(
             ChromeButton(com.auralis.music.ui.components.LocalBrandImages.current.discord(), "Discord", actions.openDiscord, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)
-            ChromeButton(Icons.Outlined.PlaylistAdd, "Import playlists", actions.openImport, width = 34)
+            ChromeButton(Icons.Outlined.Link, "Import playlists", actions.openImport, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Remove, "Minimize", minimize)
             ChromeButton(if (maximized) Icons.Outlined.FilterNone else Icons.Outlined.CropSquare,

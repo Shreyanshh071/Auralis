@@ -1,5 +1,7 @@
 package com.auralis.music.windows.dev
 
+import androidx.compose.foundation.background
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Add
@@ -209,6 +211,15 @@ fun main(args: Array<String>) {
             onTrackClick = { _, _ -> }, onFavoriteToggle = {}, onBack = {}) },
         "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
         "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null, coverPalette) },
+        "player-dynamic" to { com.auralis.music.windows.player.PlayerBackdrop("Dynamic", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
+        "lyrics-dots" to {
+            androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF2A2230)),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                listOf(0f, .2f, .5f, .8f, 1f).forEach { p ->
+                    com.auralis.music.ui.lyrics.LyricsDots(p, elapsedMs = 1000L, remainingMs = 1000L, dotSize = 14.dp)
+                }
+            }
+        },
         "player-gradient" to { com.auralis.music.windows.player.PlayerBackdrop("Gradient", null, coverPalette) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
@@ -260,7 +271,7 @@ fun main(args: Array<String>) {
             }
             // Let effects, flows and enter animations settle over ~1.5 s of frames.
             var image = scene.render(0)
-            val frameCount = if (name.endsWith("-liquidify") || name in setOf("now-playing-sidebar", "lyrics-hover", "browser-signin")) 12 else 90
+            val frameCount = if (name.endsWith("-liquidify") || name in setOf("now-playing-sidebar", "lyrics-hover", "browser-signin", "player-dynamic")) 12 else 90
             for (frame in 1..frameCount) {
                 if (frame % 3 == 0) Thread.sleep(30)
                 image = scene.render(frame * (1_500_000_000L / frameCount))

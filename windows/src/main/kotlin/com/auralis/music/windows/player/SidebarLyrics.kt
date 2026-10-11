@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -92,9 +93,14 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                 }
             }
             itemsIndexed(lines) { index, line ->
+                // Spicy Lyrics' soft focus: lines blur and fade a little more the further they are
+                // from the one being sung, so they blend into the background.
+                val focus = if (active >= 0) active else 0
+                val distance = if (synced && !hovered) kotlin.math.abs(index - focus) else 0
                 SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
-                    line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN)
+                    line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
+                    blur = (distance * 1.2f).coerceAtMost(3.5f).dp)
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
@@ -106,11 +112,12 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
 @Composable
 internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, onClick: () -> Unit,
     previewHovered: Boolean = false, line: LyricLine? = null, position: State<Long>? = null,
-    syncType: SyncType = SyncType.PLAIN) {
+    syncType: SyncType = SyncType.PLAIN, blur: androidx.compose.ui.unit.Dp = 0.dp) {
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
-    val alpha by animateFloatAsState(if (active || hovered || !synced) 1f else .48f, tween(160), label = "sidebarLineText")
+    val alpha by animateFloatAsState(if (active || hovered || !synced) 1f else .38f, tween(160), label = "sidebarLineText")
+    val blurAmount by androidx.compose.animation.core.animateDpAsState(if (active || hovered) 0.dp else blur, tween(300), label = "sidebarLineBlur")
     val background by animateFloatAsState(if (hovered) .16f else 0f, tween(140), label = "sidebarLineHover")
     val words = remember(line, syncType) {
         line?.let { resolveExperimentalWordTimestamps(it, syncType) }?.let(::presentationWordTimestamps)
@@ -120,7 +127,8 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             .background(Color.White.copy(alpha = background))
             .hoverable(interaction)
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp)) {
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .then(if (blurAmount > 0.2.dp) Modifier.blur(blurAmount, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)) {
         if (active && !words.isNullOrEmpty() && position != null) {
             ExperimentalWordLevelLyrics(
                 mainText = text.ifBlank { line?.words?.joinToString("") { it.word }.orEmpty() },
