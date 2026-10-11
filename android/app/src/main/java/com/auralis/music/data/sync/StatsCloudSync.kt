@@ -131,7 +131,11 @@ object StatsCloudSync {
                 val ts = (e["ts"] as? Number)?.toLong() ?: continue
                 val ms = (e["ms"] as? Number)?.toLong() ?: continue
                 if (trackId.isBlank() || ms <= 0L) continue
-                if (dao.countEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS) > 0) continue
+                if (dao.countEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS) > 0) {
+                    // Another device uploads a listen as it plays (5 s, then longer): keep the longest.
+                    if (dao.growEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS, ms) > 0) added++
+                    continue
+                }
                 val track = Track(
                     id = trackId,
                     title = e["ti"] as? String ?: "Unknown Track",

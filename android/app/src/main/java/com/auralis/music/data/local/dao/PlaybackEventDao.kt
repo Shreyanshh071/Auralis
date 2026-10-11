@@ -48,6 +48,10 @@ interface PlaybackEventDao {
     @Query("SELECT COUNT(*) FROM playback_events WHERE trackId = :trackId AND timestamp BETWEEN :from AND :to")
     suspend fun countEventsNear(trackId: String, from: Long, to: Long): Int
 
+    /** A listen synced while it was still playing, arriving again longer: raise its time, never lower it. */
+    @Query("UPDATE playback_events SET playTimeMs = :playTimeMs WHERE trackId = :trackId AND timestamp BETWEEN :from AND :to AND playTimeMs < :playTimeMs")
+    suspend fun growEventsNear(trackId: String, from: Long, to: Long, playTimeMs: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvents(events: List<PlaybackEventEntity>)
 
