@@ -23,6 +23,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,65 +81,60 @@ fun PlayerScreen(
     lyrics: DesktopLyricsController,
     panel: PlayerPanel,
     onPanelChange: (PlayerPanel) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
     val appearance = LocalAppearanceSettings.current
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        when (appearance.playerBackgroundStyle) {
-            "Follow theme" -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)))
-            }
-            "Gradient" -> Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), Color.Black))))
-            else -> BlurredArtworkBackground(artworkUrl)
-        }
+    // Opaque: the main window must never show through the player.
+    Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
+        PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
 
-        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 36.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
             val wide = maxWidth > 900.dp
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+            val leftWidth = if (wide) maxWidth * 0.42f else maxWidth
+            // Spicy Lyrics' layout: the cover with room around it, the seek bar under it, then
+            // the title block; playback controls and volume appear on the cover while hovered.
+            val coverSize = minOf(leftWidth - 48.dp, maxHeight - 170.dp, 560.dp).coerceAtLeast(160.dp)
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
                 Column(
                     verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .fillMaxHeight()
-                        .then(if (wide) Modifier.weight(0.42f).widthIn(max = 520.dp) else Modifier.weight(1f))
+                        .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
-                    if (!appearance.hidePlayerThumbnail) DesktopArtwork(highRes = true,
-                        url = artworkUrl,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .weight(1f, fill = false)
-                            .shadow(24.dp, RoundedCornerShape(16.dp)),
-                        cornerRadius = 16.dp,
-                        contentDescription = track?.title,
-                        contentScale = if (appearance.cropAlbumArt) ContentScale.Crop else ContentScale.Fit
-                    )
-                    Spacer(Modifier.height(28.dp))
-                    // The phone player's title block: bold title, artist at 75% white.
+                    if (!appearance.hidePlayerThumbnail) CoverWithControls(playback, artworkUrl, track?.title, coverSize,
+                        if (appearance.cropAlbumArt) ContentScale.Crop else ContentScale.Fit)
+                    Spacer(Modifier.height(22.dp))
+                    PlayerSeekBar(playback, Modifier.width(coverSize))
+                    Spacer(Modifier.height(18.dp))
                     Text(
                         text = track?.title.orEmpty(),
                         style = MaterialTheme.typography.titleLarge,
-                        fontSize = 26.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(coverSize)
                     )
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = track?.artist.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 17.sp,
+                        fontSize = 18.sp,
                         color = Color.White.copy(alpha = 0.75f),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(coverSize)
                     )
-                    Spacer(Modifier.height(12.dp))
-                    PlayerSeekBar(playback)
-                    Transport(playback)
+                    if (appearance.hidePlayerThumbnail) Transport(playback)
                 }
                 if (wide) {
                     Column(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -222,10 +225,10 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
 }
 
 @Composable
-private fun PlayerSeekBar(playback: DesktopPlaybackController) {
+private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifier = Modifier) {
     val length by playback.lengthMs.collectAsState()
     val state by playback.state.collectAsState()
-    // The same per-frame clock as the lyrics, so the knob glides instead of jumping ~4 times a second.
+    // The same per-frame clock as the lyrics, so the bar glides instead of jumping ~4 times a second.
     val position by com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = playback.clock,
         enabled = state == VlcAudioPlayer.State.PLAYING,
@@ -235,20 +238,82 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController) {
     val duration = length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    // The phone player's slider and colours (white on the artwork background).
-    AuralisSlider(
-        value = fraction,
-        onValueChange = { if (duration > 0) dragFraction = it },
-        onValueChangeFinished = {
-            dragFraction?.let { playback.seekTo((it * duration).toLong()) }
-            dragFraction = null
-        },
-        isPlaying = state == VlcAudioPlayer.State.PLAYING,
-        currentPosMs = dragFraction?.let { (it * duration).toLong() } ?: position,
-        totalDurationMs = duration,
-        sliderStyle = LocalAppearanceSettings.current.playerSliderStyle,
-        modifier = Modifier.fillMaxWidth()
-    )
+    val shown = dragFraction?.let { (it * duration).toLong() } ?: position
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        PlayerTime(shown)
+        HoverSlider(
+            value = fraction,
+            onValueChange = { if (duration > 0) dragFraction = it },
+            onValueChangeFinished = {
+                dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+                dragFraction = null
+            },
+            enabled = duration > 0,
+            thin = 6.dp, thick = 12.dp,
+            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+        )
+        PlayerTime(duration)
+    }
+}
+
+@Composable
+private fun PlayerTime(ms: Long) {
+    val seconds = (ms / 1000).coerceAtLeast(0)
+    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 14.sp, color = Color.White.copy(alpha = .8f))
+}
+
+/** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
+@Composable
+private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp, scale: ContentScale) {
+    val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    val reveal by androidx.compose.animation.core.animateFloatAsState(if (hovered) 1f else 0f, tween(220), label = "coverControls")
+    val state by playback.state.collectAsState()
+    val queue by playback.queue.collectAsState()
+    val repeat by playback.repeatMode.collectAsState()
+    val volume by playback.volume.collectAsState()
+    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
+        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+            contentDescription = title, contentScale = scale)
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
+            if (reveal > 0f) {
+                Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext) {
+                        Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
+                    IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
+                        ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 40.dp, height = 24.dp))
+                    }
+                    IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(64.dp)) {
+                        if (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING)
+                            ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 28.dp, height = 32.dp))
+                        else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 30.dp, height = 34.dp))
+                    }
+                    IconButton(onClick = playback::next, enabled = queue.hasNext, modifier = Modifier.size(56.dp)) {
+                        ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
+                            modifier = Modifier.size(width = 40.dp, height = 24.dp))
+                    }
+                    IconButton(onClick = playback::cycleRepeatMode) {
+                        Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                            "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
+                            modifier = Modifier.size(24.dp))
+                    }
+                }
+                Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(size * .42f),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    HoverSlider(value = volume, onValueChange = playback::setVolume, vertical = true,
+                        thin = 8.dp, thick = 14.dp, hitSize = 28.dp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = playback::toggleMute, modifier = Modifier.size(30.dp)) {
+                        Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                            if (volume > 0f) "Mute" else "Unmute", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

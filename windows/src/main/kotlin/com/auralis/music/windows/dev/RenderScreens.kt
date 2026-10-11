@@ -200,6 +200,10 @@ fun main(args: Array<String>) {
             com.auralis.music.domain.model.PlaylistResult("VLpreview", "Preview playlist", author = "Preview listener"),
             previewSongs.take(12), isLoading = false, currentTrackId = previewSongs.getOrNull(1)?.id, isPlaying = true,
             onTrackClick = { _, _ -> }, onFavoriteToggle = {}, onBack = {}) },
+        "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail,
+            com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
+        "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null,
+            com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },

@@ -26,6 +26,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -2015,7 +2016,9 @@ private fun PlaylistDetailView(
         // ================================================================
         // 2. MAIN SCROLLABLE BODY
         // ================================================================
-        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            // Wide windows lay songs out as a table: title, artist, album, length.
+            val wideTable = maxWidth >= 720.dp
             LazyColumn(
                 state = playlistListState,
                 modifier = Modifier
@@ -2428,6 +2431,7 @@ private fun PlaylistDetailView(
 
                     PlaylistTrackRow(
                         track = track,
+                        wide = wideTable,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
                         isCustomSort = canReorder,
@@ -2616,6 +2620,7 @@ private fun PlaylistDetailView(
 @Composable
 private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     track: Track,
+    wide: Boolean = false,
     isCurrent: Boolean,
     isPlaying: Boolean,
     isCustomSort: Boolean,
@@ -2703,7 +2708,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(if (wide) 1.5f else 1f)) {
                 Text(
                     text = track.title,
                     style = MaterialTheme.typography.bodyMedium,
@@ -2712,16 +2717,42 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = subtitleText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                if (!wide) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = subtitleText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
+            }
+            if (wide) {
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                )
+                Text(
+                    text = track.album?.takeIf { it.isNotBlank() } ?: "—",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                )
+                if (track.duration > 0 && track.duration != 210L) Text(
+                    text = trackDurationStr,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
             }
 
             if (isCurrent) {

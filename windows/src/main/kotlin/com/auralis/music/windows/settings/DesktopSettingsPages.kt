@@ -68,7 +68,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
         item { Toggle("Automatically scroll lyrics", settings.autoScrollLyrics) { update { copy(autoScrollLyrics = it) } } }
         item { Choice("Open on launch", settings.defaultOpenTab, listOf("Home", "Search", "Library")) { update { copy(defaultOpenTab = it) } } }
         item { Choice("Display density", settings.displayDensity, listOf("Compact (85%)", "Native (100%)", "Large (115%)")) { update { copy(displayDensity = it) } } }
-        item { Text("Phone player/mini-player designs, animated mesh/glow backgrounds, alternative lyric renderers and glass refraction are not ported yet. The desktop player uses MetroLyrics. Wallpaper-based Material You colours are not available on Windows.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Phone player/mini-player designs, alternative lyric renderers and glass refraction are not ported yet. The desktop player uses MetroLyrics. Wallpaper-based Material You colours are not available on Windows.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

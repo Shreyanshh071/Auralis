@@ -180,20 +180,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                     tint = Color.White
                 )
             }
-            com.auralis.music.ui.components.AuralisSlider(
-                value = volume,
-                onValueChange = controller::setVolume,
-                onValueChangeFinished = {},
-                isPlaying = false,
-                currentPosMs = 0L,
-                totalDurationMs = 0L,
-                sliderStyle = "Slim",
-                activeTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
-                thumbColor = MaterialTheme.colorScheme.onSurface,
-                showTimestamps = false,
-                modifier = Modifier.width(120.dp)
-            )
+            HoverSlider(value = volume, onValueChange = controller::setVolume, modifier = Modifier.width(120.dp),
+                activeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f))
         }
     }
 }
@@ -211,22 +200,16 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
 
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         TimeLabel(if (enabled) shownMs else 0L)
-        val playing by controller.state.collectAsState()
-        com.auralis.music.ui.components.AuralisSlider(
+        HoverSlider(
             value = fraction,
             onValueChange = { if (enabled && duration > 0) dragFraction = it },
             onValueChangeFinished = {
                 dragFraction?.let { controller.seekTo((it * duration).toLong()) }
                 dragFraction = null
             },
-            isPlaying = playing == VlcAudioPlayer.State.PLAYING,
-            currentPosMs = shownMs,
-            totalDurationMs = duration,
-            sliderStyle = com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerSliderStyle,
-            activeTrackColor = MaterialTheme.colorScheme.primary,
-            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
-            thumbColor = MaterialTheme.colorScheme.primary,
-            showTimestamps = false,
+            enabled = enabled && duration > 0,
+            activeColor = MaterialTheme.colorScheme.onSurface,
+            inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
             modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
         )
         TimeLabel(if (enabled) duration else 0L)

@@ -106,8 +106,10 @@ internal fun PaletteCards(selected: String, onSelect: (String) -> Unit) {
 internal fun BackgroundCards(selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Player background", style = MaterialTheme.typography.titleLarge)
-        ChoiceGrid(listOf("Blur", "Gradient", "Follow theme"), selected, onSelect) { name ->
+        ChoiceGrid(listOf("Live Mesh", "Glow motion", "Blur", "Gradient", "Follow theme"), selected, onSelect) { name ->
             val colours = when (name) {
+                "Live Mesh" -> listOf(Color(0xFF3B6E9A), Color(0xFFB0563F), Color(0xFF5A2E6E))
+                "Glow motion" -> listOf(Color(0xFF050505), Color(0xFF7E4FB5), Color(0xFF050505))
                 "Blur" -> listOf(Color(0xFF896E9A), Color(0xFF74595D), Color(0xFF463B58))
                 "Gradient" -> listOf(Color(0xFF9979BF), Color(0xFF25222E))
                 else -> listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surfaceContainerHigh)
