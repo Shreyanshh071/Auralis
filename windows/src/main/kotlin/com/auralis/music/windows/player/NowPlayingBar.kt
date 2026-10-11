@@ -1,5 +1,15 @@
 package com.auralis.music.windows.player
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.QueueMusic
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -45,16 +55,18 @@ import com.auralis.music.windows.search.DesktopArtwork
 
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
-fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {}) {
+fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {},
+    onOpenLyrics: () -> Unit = onOpenPlayer, onOpenQueue: () -> Unit = onOpenPlayer) {
     val normal = MaterialTheme.colorScheme
     val black = com.auralis.music.ui.theme.LocalAppearanceSettings.current.pureBlackMiniPlayer
     val colors = if (black) normal.copy(surface = androidx.compose.ui.graphics.Color.Black,
         onSurface = androidx.compose.ui.graphics.Color.White, onSurfaceVariant = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)) else normal
-    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer) }
+    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenLyrics, onOpenQueue) }
 }
 
 @Composable
-private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit) {
+private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit,
+    onOpenLyrics: () -> Unit, onOpenQueue: () -> Unit) {
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val colors = MaterialTheme.colorScheme
     Row(
@@ -74,16 +86,23 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         val resolving by controller.resolving.collectAsState()
         val track = queue.current
 
-        // Current song (left third); clicking it opens the full player.
+        val songInteraction = remember { MutableInteractionSource() }
+        val songHovered by songInteraction.collectIsHoveredAsState()
+        val songHighlight by animateColorAsState(
+            if (songHovered && track != null) colors.onSurface.copy(alpha = .08f) else Color.Transparent, tween(150))
+        val whiteButtons = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
+        // Highlight the whole song-info region; only its cover opens the full player.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                .clickable(enabled = track != null, onClick = onOpenPlayer)
+                .background(songHighlight)
+                .hoverable(songInteraction)
                 .padding(vertical = 6.dp)
         ) {
-            DesktopArtwork(track?.thumbnail, Modifier.size(56.dp), 10.dp, null)
+            DesktopArtwork(track?.thumbnail, Modifier.size(56.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                .clickable(enabled = track != null, onClick = onOpenPlayer), 10.dp, "Open player")
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f, fill = false)) {
                 Text(
@@ -109,22 +128,27 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             modifier = Modifier.weight(1.4f).widthIn(max = 640.dp)
         ) {
             val enabled = track != null
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = controller::previous, enabled = enabled) {
-                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = controller::shuffleUpcoming, enabled = queue.hasNext && controller.roomControl == null,
+                    colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", Modifier.size(20.dp))
+                }
+                IconButton(onClick = controller::previous, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(22.dp))
                 }
                 val busy = resolving || state == VlcAudioPlayer.State.BUFFERING
                 FilledIconButton(
                     onClick = controller::togglePlayPause,
                     enabled = enabled,
                     shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.primary, contentColor = colors.onPrimary),
-                    modifier = Modifier.size(42.dp)
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black,
+                        disabledContainerColor = Color.White.copy(alpha = .35f), disabledContentColor = Color.Black.copy(alpha = .6f)),
+                    modifier = Modifier.size(32.dp)
                 ) {
                     val showPause = state == VlcAudioPlayer.State.PLAYING || (busy && enabled)
                     Box(contentAlignment = Alignment.Center) {
                         if (busy && enabled) {
-                            CircularProgressIndicator(Modifier.size(38.dp), color = colors.onPrimary.copy(alpha = 0.6f), strokeWidth = 2.dp)
+                            CircularProgressIndicator(Modifier.size(28.dp), color = Color.Black.copy(alpha = 0.6f), strokeWidth = 2.dp)
                         }
                         Icon(
                             if (showPause) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -132,8 +156,11 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                         )
                     }
                 }
-                IconButton(onClick = controller::next, enabled = queue.hasNext) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
+                IconButton(onClick = controller::next, enabled = queue.hasNext, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(22.dp))
+                }
+                IconButton(onClick = onOpenLyrics, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.Subtitles, "Lyrics", Modifier.size(20.dp))
                 }
             }
             SeekBar(controller, enabled)
@@ -146,11 +173,14 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             modifier = Modifier.weight(1f)
         ) {
             val volume by controller.volume.collectAsState()
-            IconButton(onClick = controller::toggleMute) {
+            IconButton(onClick = onOpenQueue, enabled = track != null, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Rounded.QueueMusic, "Queue", Modifier.size(20.dp))
+            }
+            IconButton(onClick = controller::toggleMute, colors = whiteButtons) {
                 Icon(
                     if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
                     contentDescription = if (volume > 0f) "Mute" else "Unmute",
-                    tint = colors.onSurfaceVariant
+                    tint = Color.White
                 )
             }
             com.auralis.music.ui.components.AuralisSlider(

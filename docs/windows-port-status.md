@@ -20,6 +20,8 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 
 ## Desktop Home redesign
 
+- Mini-player: the song-info block now has a 150 ms hover highlight, with only its cover clickable to open the player. Transport layout is shuffle-upcoming, previous, white circular play/pause, next and lyrics; queue and volume sit on the right. Enabled transport icons stay white independent of artwork/theme colours. Shuffle preserves current/past songs and is unavailable in active rooms. Windows build/tests passed; Android code is unchanged.
+
 - Search is removed from the sidebar. Home's larger 176 × 54 dp Find music button opens an anchored dropdown using the existing recent-query and live-song suggestion logic. Song clicks play directly; submitting a query opens full search results. Outside click dismisses the dropdown. Existing Ctrl+F and search result navigation remain available. Windows tests and a narrow Home render passed; Android code is unchanged.
 - Installed this change at 12:35 on 11 October, version 1.0.0. Existing shortcut and all 289 checked data files preserved; backup: `Downloads/Auralis-checkpoints/before-find-music-20261011-123525`. Installed code matches release output and the app was reopened.
 
