@@ -21,31 +21,11 @@ class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.auralis.music.ui.i18n.AppLanguage.init(this)
-        // Shared UI text (str(Strings.x)) comes from this app's string resources, in the app language.
-        com.auralis.music.ui.i18n.AppLanguage.installSharedStrings()
         // Shared network code (hl/gl, proxy) reads these; the same calls it made when it lived here.
         com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
-        com.auralis.music.data.network.ContentSettingsSource.updates = com.auralis.music.data.datastore.ContentSettingsStore.current
-        com.auralis.music.data.network.ContentSettingsSource.languageChanges = com.auralis.music.ui.i18n.AppLanguage.changes
-        // Library artwork repair checks Spotify's record of imported songs (one importer, so its token is reused).
-        val spotifyImporter = com.auralis.music.data.network.SpotifyPlaylistImporter()
-        // Shared screens (Theme & colours) preview the playing song's palette from the phone's cache.
-        com.auralis.music.ui.theme.ArtworkPaletteSource.current = com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette
-        com.auralis.music.data.network.SpotifyTrackLookup.exactTrack = { spotifyId ->
-            spotifyImporter.getAccessToken()?.let { token -> spotifyImporter.fetchTrackFromApi(spotifyId, token)?.tracks?.firstOrNull() }
-        }
-        // Shared artwork lookups use downloaded artwork first, as they did in the app.
-        com.auralis.music.data.network.ArtworkResolver.masterArtwork = { title, artist, cacheKey, album, duration ->
-            com.auralis.music.util.MasterArtworkResolver.resolveMasterArtworkUrl(title, artist, null, cacheKey, album, duration)
-        }
-        com.auralis.music.data.network.ArtworkResolver.localArtwork = { trackId ->
-            com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(trackId)
-                ?.takeIf { it.exists() && it.length() > 500 }
-                ?.let { android.net.Uri.fromFile(it).toString() }
-        }
         com.auralis.music.data.network.ContentLocale.appLanguageTag = { com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank() }
         // First: network code reads hl/gl, result filters and the proxy from here on every request.
-        com.auralis.music.data.datastore.ContentSettingsStore.init(com.auralis.music.data.datastore.ContentSettingsDataStore(this))
+        com.auralis.music.data.datastore.ContentSettingsStore.init(this)
         com.auralis.music.data.network.ContentProxy.install()
         // Before any playback or download worker: age-restricted songs need the YouTube sign-in.
         com.auralis.music.data.network.YouTubeSession.init(
@@ -53,7 +33,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
                 applicationContext.getSharedPreferences(com.auralis.music.data.network.YouTubeSession.PREFS_NAME, MODE_PRIVATE)
             )
         )
-        com.auralis.music.data.network.PhoneSpotifySession.init(this)
+        com.auralis.music.data.network.SpotifySession.init(this)
         // Album lookups and release labels from earlier searches, so a song's album or Single card
         // appears with the first results (its own small file; the database is untouched).
         val searchLookups = com.auralis.music.util.SharedPreferencesKeyValueStore(getSharedPreferences("auralis_album_lookups", MODE_PRIVATE))

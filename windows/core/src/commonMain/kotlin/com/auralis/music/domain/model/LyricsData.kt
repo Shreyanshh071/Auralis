@@ -1,0 +1,114 @@
+package com.auralis.music.domain.model
+
+enum class LyricsProvider {
+    AMLL,
+    BETTER_LYRICS,
+    UNISON,
+    PAXSENIX,
+    LRCLIB,
+    KUGOU,
+    JIOSAAVN,
+    NETEASE,
+    GENIUS,
+    MUSIXMATCH,
+    YOUTUBE,
+    YOUTUBE_CAPTIONS,
+    LOCAL,
+    YOULYPLUS,
+    QQMUSIC
+}
+
+/**
+ * A single genuinely-timed word (or syllable) inside a lyric line.
+ *
+ * Timing contract — parsers MUST honour this, the renderer relies on it:
+ *  - [time] is the provider's own word start. Never derived, never shifted.
+ *  - [duration] is the provider's own measured length (`end - start`). It is
+ *    `null` when, and only when, the provider supplied no end timestamp.
+ *    A `null` duration must never be replaced with a guess (line length / N,
+ *    character count, a fixed default, or the next word's start), because doing
+ *    so paints over real vocal rests. The renderer treats `null` as
+ *    "start is known, length is unknown" and does not sweep such a word.
+ *  - The interval between one word's end (`time + duration`) and the next
+ *    word's [time] is a genuine rest and is left empty on purpose.
+ *  - [word] carries its own trailing whitespace when the source says the word
+ *    is followed by a space. The renderer prints the text verbatim, so
+ *    syllables of a single word stay joined.
+ *  - [isBackground] marks an ad-lib / harmony syllable (TTML `ttm:role="x-bg"`).
+ *    It changes presentation only — the timing contract above applies unchanged.
+ */
+data class LyricWord(
+    val word: String,
+    val time: Long,             // Milliseconds offset from song start (provider-supplied)
+    val duration: Long? = null, // Provider-supplied length in ms; null = no end timestamp
+    val isBackground: Boolean = false
+) {
+    /** End of the sung word, or `null` when the provider gave no end timestamp. */
+    val endTime: Long?
+        get() = duration?.let { time + it }
+}
+
+data class LyricLine(
+    val time: Long,             // Milliseconds offset for the line start
+    val text: String,
+    val translatedText: String? = null,
+    val words: List<LyricWord>? = null,
+    val isInstrumental: Boolean = false,
+    /**
+     * True for a background-vocal line (TTML `ttm:role="x-bg"`), kept as its own
+     * line rather than folded into the lead vocal so neither text nor timing is
+     * corrupted. The renderer may de-emphasise it; the timing is genuine.
+     */
+    val isBackground: Boolean = false,
+    /**
+     * Stated end time of this lyric line in milliseconds (from provider metadata such as TTML <p end>).
+     * Null when the provider supplied no explicit line end.
+     */
+    val endTime: Long? = null,
+    /**
+     * Vocal agent/singer identifier (e.g. "v1", "v2", "v1000") from provider metadata (such as TTML ttm:agent).
+     * Null when no vocal agent information is supplied.
+     */
+    val agent: String? = null
+) {
+    /** True when the provider gave real per-word timing for this line. */
+    val hasWordTiming: Boolean
+        get() = !words.isNullOrEmpty()
+
+    /** Last genuine word end in this line, or `null` when unknown. */
+    val wordTimingEndMs: Long?
+        get() = words?.lastOrNull { it.duration != null }?.endTime
+
+    /**
+     * The effective end time of this lyric line in milliseconds.
+     * Prefers explicit provider [endTime], otherwise falls back to last word's end timestamp.
+     */
+    val effectiveEndTime: Long?
+        get() = endTime ?: wordTimingEndMs
+}
+
+data class LyricsData(
+    val syncType: SyncType,
+    val lines: List<LyricLine>,
+    val plainLyrics: String? = null,
+    val translatedPlainLyrics: String? = null,
+    val translatedLanguage: String? = null,
+    val provider: LyricsProvider,
+    val trackName: String? = null,
+    val artistName: String? = null,
+    val durationMs: Long? = null,
+    val leadingSilenceMs: Long? = null,
+    val isExactVideoMatch: Boolean = false,
+    val matchedVideoId: String? = null,
+    val appliedOffsetMs: Long = 0L
+) {
+    /**
+     * Stated or inferred duration of the lyrics track in milliseconds.
+     * Prefers explicit provider metadata [durationMs] (from TTML <body dur> or LRC [length:]),
+     * otherwise falls back to the last line or word end timestamp.
+     */
+    val effectiveDurationMs: Long
+        get() = durationMs
+            ?: lines.lastOrNull { !it.isInstrumental }?.let { it.wordTimingEndMs ?: it.time }
+            ?: 0L
+}

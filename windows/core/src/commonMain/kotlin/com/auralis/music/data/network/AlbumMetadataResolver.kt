@@ -1,0 +1,551 @@
+package com.auralis.music.data.network
+
+import androidx.collection.LruCache
+import com.auralis.music.domain.search.SearchQueryMatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
+
+data class ResolvedAlbum(
+    val albumTitle: String,
+    val albumId: String? = null,
+    val albumArt: String? = null,
+    val artistName: String? = null,
+    val isSingle: Boolean = false
+)
+
+object AlbumMetadataResolver {
+    private const val ITUNES_SEARCH_API = "https://itunes.apple.com/search"
+    val memoryCache = LruCache<String, ResolvedAlbum>(500)
+
+    // Lookups survive app restarts (each app hands over a store at startup), so a song looked up
+    // once shows its album or Single card with the first results the next time.
+    @Volatile private var store: com.auralis.music.util.KeyValueStore? = null
+    private const val STORE_KEY = "album_lookups"
+
+    fun persistTo(kv: com.auralis.music.util.KeyValueStore) {
+        store = kv
+        val saved = kv.getString(STORE_KEY, "").orEmpty()
+        if (saved.isBlank()) return
+        try {
+            val entries = JSONObject(saved)
+            synchronized(memoryCache) {
+                for (key in entries.keys()) {
+                    val e = entries.getJSONObject(key)
+                    memoryCache.put(key, ResolvedAlbum(
+                        albumTitle = e.getString("t"),
+                        albumId = e.optString("id").ifBlank { null },
+                        albumArt = e.optString("art").ifBlank { null },
+                        artistName = e.optString("a").ifBlank { null },
+                        isSingle = e.optBoolean("s")
+                    ))
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    /** Writes the cache to the store; called with the [memoryCache] lock held. */
+    private fun persist() {
+        val kv = store ?: return
+        val entries = JSONObject()
+        // Least to most recently used, so reloading keeps the same eviction order.
+        for ((key, v) in memoryCache.snapshot()) {
+            entries.put(key, JSONObject().put("t", v.albumTitle).put("id", v.albumId ?: "")
+                .put("art", v.albumArt ?: "").put("a", v.artistName ?: "").put("s", v.isSingle))
+        }
+        kv.putStrings(mapOf(STORE_KEY to entries.toString()))
+    }
+
+    fun clearCache() {
+        synchronized(memoryCache) {
+            memoryCache.evictAll()
+            persist()
+        }
+    }
+
+    /**
+     * Cleans an album title by stripping soundtrack tags, deluxe/anniversary/remastered markers,
+     * parentheticals, and punctuation to extract the core album name.
+     */
+    fun cleanAlbumTitle(title: String): String {
+        return title
+            .replace(Regex("""(?i)\s*[\(\[]\s*(original motion picture soundtrack|original soundtrack|motion picture soundtrack|soundtrack|from\s+["']?.*?["']?|deluxe(\s+edition)?|bonus(\s+track\s+version)?|special\s+edition|expanded(\s+edition)?|anniversary(\s+edition)?|remastered)\s*[\)\]]"""), "")
+            .replace(Regex("""(?i)\s*-\s*(original motion picture soundtrack|original soundtrack|soundtrack|deluxe(\s+edition)?|ost)\b.*$"""), "")
+            .replace(Regex("""(?i)\b(original motion picture soundtrack|original soundtrack)\b.*$"""), "")
+            // Edition tags in any mix: "Urban Hymns (Deluxe / Remastered 2016)" -> "Urban Hymns".
+            .replace(Regex("""(?i)\s*[\(\[][^\)\]]*\b(deluxe|remaster(ed)?|edition|expanded|anniversary)\b[^\)\]]*[\)\]]"""), "")
+            .replace(Regex("""["'“”‘’]"""), "")
+            .trim()
+            .ifBlank { title.trim() }
+    }
+
+    /**
+     * Cleans a track title by stripping soundtrack tags, parentheticals, audio/video descriptors,
+     * and punctuation for clean matching.
+     */
+    fun cleanTrackTitle(title: String): String {
+        return title
+            .replace(Regex("""(?i)[\(\[]\s*From\s+["']?.*?["']?\s*[\)\]]"""), "")
+            .replace(Regex("""(?i)\b(official\s+video|official\s+audio|audio|video|lyric\s+video|visualizer|remix|live|feat\..*?|ft\..*?)\b"""), "")
+            .replace(Regex("""[\(\[\{].*?[\)\]\}]"""), "")
+            .replace(Regex("""["'“”‘’]"""), "")
+            .trim()
+            .ifBlank { title.trim() }
+    }
+
+    /**
+     * Extracts soundtrack source if present, e.g. "Apna Bana Le (From "Bhediya")" -> "Bhediya".
+     */
+    fun extractSoundtrackTag(title: String): String? {
+        val match = Regex("""(?i)[\(\[]\s*From\s+["']?([^"'\]\)]+)["']?\s*[\)\]]""").find(title)
+        return match?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private val defaultInnerTubeClient by lazy { InnerTubeClient() }
+
+    /**
+     * Synchronously retrieves a previously resolved authentic album from memory cache.
+     */
+    fun getCached(trackTitle: String, artistName: String, knownAlbum: String? = null): ResolvedAlbum? {
+        val cleanTitle = cleanTrackTitle(trackTitle)
+        val cleanArtist = artistName
+            .split(",", "&", "feat.", "ft.", "/").firstOrNull()?.trim()
+            ?: artistName.trim()
+        val cleanKnownAlbum = knownAlbum?.let { cleanAlbumTitle(it) }
+            ?.takeIf { !needsResolving(it, trackTitle) }
+        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}::${cleanKnownAlbum.orEmpty().lowercase()}"
+        synchronized(memoryCache) {
+            return memoryCache.get(cacheKey)
+        }
+    }
+
+    /**
+     * Checks whether an album string is just redundant with the track title or represents a single.
+     */
+    fun isRedundantOrSingle(album: String?, trackTitle: String): Boolean {
+        if (album.isNullOrBlank()) return true
+        val cleanAlb = cleanTrackTitle(album).lowercase()
+        val cleanTit = cleanTrackTitle(trackTitle).lowercase()
+        if (cleanAlb.isBlank() || cleanAlb == cleanTit) return true
+
+        val rawAlb = album.trim().lowercase()
+        val rawTit = trackTitle.trim().lowercase()
+        if (rawAlb == rawTit) return true
+
+        // Check for compound single / mashup / collaboration titles:
+        // e.g. "Song A / Song B", "Track 1 & Track 2", "Track A x Track B", "Track A vs. Track B"
+        if (album.contains("/") || album.contains("&") || album.contains("+") || album.contains(" - ") ||
+            album.contains(Regex("""(?i)\s+(?:x|vs\.?|feat\.?|ft\.?)\s+"""))) {
+            val separators = Regex("""(?i)\s*[/&+]\s*|\s+-\s+|\s+(?:x|vs\.?|feat\.?|ft\.?)\s+""")
+            val parts = album.split(separators).map { cleanTrackTitle(it).trim().lowercase() }.filter { it.isNotBlank() }
+            if (parts.any { it == cleanTit || it == rawTit || (cleanTit.length > 3 && it.contains(cleanTit)) || (it.length > 3 && cleanTit.contains(it)) }) {
+                return true
+            }
+        }
+
+        // Standard single / EP suffixes and single variants
+        if (rawAlb.endsWith("- single") || rawAlb.endsWith("(single)") ||
+            rawAlb.endsWith("- ep") || rawAlb.endsWith("(ep)") ||
+            rawAlb.endsWith(" - single") || rawAlb.endsWith(" (single)") ||
+            rawAlb.endsWith("- 2 track single") || rawAlb.contains("single version") ||
+            rawAlb.contains("2-track single") || rawAlb.contains("sampler")) return true
+
+        if (rawAlb.startsWith(cleanTit) && (rawAlb.contains("single") || rawAlb.contains("ep"))) return true
+        if (rawAlb.contains("mashup") || rawAlb.contains("bootleg") || (rawAlb.contains("remix") && !rawAlb.contains("remixes"))) return true
+        if (rawAlb.contains("play") || rawAlb.contains("view") || rawAlb.contains("listener") || rawAlb.contains("subscriber")) return true
+
+        return false
+    }
+
+    private val compilationPattern = Regex(
+        """(?i)\b(greatest hits|the hits|best of|the best|highlights|essentials|anthology|collection|the very best|hits|the singles|singles\s+(collection|\d)|b-sides|rarities|definitive|the complete|retrospective)\b""" +
+            """|\b(19|20)?\d{2}\s*[-–]\s*(19|20)?\d{2}\b""" +
+            // Numbered series ("Pure Lovers, Vol. 2", "Piano Covers, Vol. 16") are compilations.
+            """|[,:]\s*vol(\.|ume)?\s*\d+"""
+    )
+
+    /**
+     * A hits / singles compilation ("This Is Music: The Singles 92-98", "The Highlights").
+     * YouTube Music often files a song under one of these; it is never the song's home album.
+     */
+    fun isCompilation(album: String?): Boolean =
+        !album.isNullOrBlank() && compilationPattern.containsMatchIn(album)
+
+    /** Whether a track's own album tag can't be trusted as its parent studio album. */
+    fun needsResolving(album: String?, trackTitle: String): Boolean =
+        isRedundantOrSingle(album, trackTitle) || isCompilation(album)
+
+    /**
+     * Overload for resolveAlbum with optional knownAlbum title.
+     */
+    suspend fun resolveAlbum(
+        trackTitle: String,
+        artistName: String,
+        knownAlbum: String?
+    ): ResolvedAlbum? = resolveAlbum(trackTitle, artistName, null, knownAlbum)
+
+    /**
+     * Attempts to resolve the authentic parent studio album for a given track and artist.
+     * Uses Apple Music / iTunes Search API and YouTube Music album queries to identify the genuine
+     * parent collection, resolving its YouTube Music browse ID (MPRE...).
+     */
+    suspend fun resolveAlbum(
+        trackTitle: String,
+        artistName: String,
+        innerTubeClient: InnerTubeClient? = null,
+        knownAlbum: String? = null,
+        // Called as soon as iTunes names the album, before its YouTube Music page is looked up
+        // (a second ~1 s request), so a caller can show the album right away.
+        onAlbumNamed: ((ResolvedAlbum) -> Unit)? = null
+    ): ResolvedAlbum? = withContext(Dispatchers.IO) {
+        val cleanTitle = cleanTrackTitle(trackTitle)
+        val soundtrackTag = extractSoundtrackTag(trackTitle)
+        // A compilation tag is not a hint: trusting it (and its +200 score) is how songs landed
+        // on "The Singles 92-98" instead of their studio album.
+        val cleanKnownAlbum = knownAlbum?.let { cleanAlbumTitle(it) }?.takeIf { !needsResolving(it, trackTitle) }
+
+        val cleanArtist = artistName
+            .split(",", "&", "feat.", "ft.", "/").firstOrNull()?.trim()
+            ?: artistName.trim()
+
+        // The same song can occur on an album, a single, and a compilation with different art.
+        val cacheKey = "${cleanArtist.lowercase()}::${cleanTitle.lowercase()}::${cleanKnownAlbum.orEmpty().lowercase()}"
+        synchronized(memoryCache) {
+            val cached = memoryCache.get(cacheKey)
+            if (cached != null) return@withContext cached
+        }
+
+        val ytm = innerTubeClient ?: defaultInnerTubeClient
+
+        // 0. If a valid known album is provided (e.g. "Currents"), directly resolve its YouTube Music album ID
+        if (!cleanKnownAlbum.isNullOrBlank()) {
+            try {
+                val directAlbumQueries = listOfNotNull(
+                    "$cleanArtist $cleanKnownAlbum".takeIf { cleanArtist.isNotBlank() },
+                    cleanKnownAlbum
+                ).distinct()
+                for (q in directAlbumQueries) {
+                    val ytmAlbums = ytm.search(q, InnerTubeClient.FILTER_ALBUMS).albums
+                    val match = ytmAlbums.firstOrNull { cand ->
+                        val candClean = cleanAlbumTitle(cand.title)
+                        val candAuthor = cand.author.orEmpty()
+                        val isArtistMatch = cleanArtist.isBlank() ||
+                                SearchQueryMatcher.isAuthorMatch(candAuthor, cleanArtist) ||
+                                candAuthor.contains(cleanArtist, ignoreCase = true) ||
+                                cleanArtist.contains(candAuthor, ignoreCase = true)
+                        val isMashup = cand.title.contains(Regex("""(?i)\s+(x|vs\.?|mashup)\s+""")) ||
+                                cand.title.contains("mashup", ignoreCase = true)
+
+                        !isMashup && isArtistMatch &&
+                        (candClean.equals(cleanKnownAlbum, ignoreCase = true) ||
+                         cand.title.equals(cleanKnownAlbum, ignoreCase = true) ||
+                         (cleanKnownAlbum.length > 3 && candClean.contains(cleanKnownAlbum, ignoreCase = true)))
+                    }
+                    if (match != null) {
+                        val resolved = ResolvedAlbum(
+                            albumTitle = match.title,
+                            albumId = match.id,
+                            albumArt = match.thumbnail,
+                            artistName = match.author ?: cleanArtist,
+                            isSingle = false
+                        )
+                        synchronized(memoryCache) {
+                            memoryCache.put(cacheKey, resolved); persist()
+                        }
+                        return@withContext resolved
+                    }
+                }
+            } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+        }
+
+        // 1. If this is a movie/show soundtrack track, e.g. "Apna Bana Le (From "Bhediya")",
+        // query YouTube Music for the official soundtrack album first
+        if (soundtrackTag != null) {
+            try {
+                val ostQueries = listOf(
+                    soundtrackTag,
+                    "$cleanArtist $soundtrackTag"
+                ).distinct()
+                for (q in ostQueries) {
+                    val ostSearch = ytm.search(q, InnerTubeClient.FILTER_ALBUMS)
+                    val ostMatch = ostSearch.albums.firstOrNull { cand ->
+                        val candClean = cleanAlbumTitle(cand.title)
+                        (candClean.equals(soundtrackTag, ignoreCase = true) ||
+                         cand.title.contains(soundtrackTag, ignoreCase = true) ||
+                         candClean.contains(soundtrackTag, ignoreCase = true)) &&
+                        !isRedundantOrSingle(cand.title, cleanTitle)
+                    }
+                    if (ostMatch != null) {
+                        val resolved = ResolvedAlbum(
+                            albumTitle = ostMatch.title,
+                            albumId = ostMatch.id,
+                            albumArt = ostMatch.thumbnail,
+                            artistName = ostMatch.author ?: cleanArtist,
+                            isSingle = false
+                        )
+                        synchronized(memoryCache) {
+                            memoryCache.put(cacheKey, resolved); persist()
+                        }
+                        return@withContext resolved
+                    }
+                }
+            } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+        }
+
+        // Set when iTunes says the song's home is a single; reported instead of "nothing found".
+        var singleRelease: String? = null
+        var singleArt: String? = null
+
+        // 2. Query Apple Music / iTunes Search API
+        try {
+            val query = "$cleanArtist $cleanTitle".trim()
+            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val url = "$ITUNES_SEARCH_API?term=$encodedQuery&entity=song&limit=15"
+
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+
+            val body = NetworkClientProvider.okHttpClient.searchBody(request, 15_000L)
+            val json = JSONObject(body)
+            val results = json.optJSONArray("results") ?: return@withContext null
+
+            data class Candidate(
+                val score: Int,
+                val collectionName: String,
+                val artworkUrl: String?,
+                val itArtist: String,
+                val isSingle: Boolean,
+                val releaseDate: String,
+                val isExactTitle: Boolean,
+                val isSecondary: Boolean
+            )
+
+            val candidates = mutableListOf<Candidate>()
+
+            for (i in 0 until results.length()) {
+                val item = results.optJSONObject(i) ?: continue
+                val itArtist = item.optString("artistName", "")
+                val itTrack = item.optString("trackName", "")
+                val collectionName = item.optString("collectionName", "").trim()
+                val rawArtwork = item.optString("artworkUrl100")
+                val releaseDate = item.optString("releaseDate", "")
+
+                val isArtistMatch = cleanArtist.isBlank() ||
+                        SearchQueryMatcher.isAuthorMatch(itArtist, cleanArtist) ||
+                        itArtist.contains(cleanArtist, ignoreCase = true) ||
+                        cleanArtist.contains(itArtist, ignoreCase = true)
+
+                val isTitleMatch = cleanTitle.isBlank() ||
+                        itTrack.contains(cleanTitle, ignoreCase = true) ||
+                        cleanTitle.contains(itTrack, ignoreCase = true)
+
+                val isCandidateMashup = collectionName.contains("mashup", ignoreCase = true) ||
+                        collectionName.contains(Regex("""(?i)\s+(x|vs\.?|mashup)\s+"""))
+
+                if (!isCandidateMashup && isArtistMatch && isTitleMatch && collectionName.isNotBlank()) {
+                    // A same-named collection is only a single if it is actually small: title-track
+                    // albums ("Starboy", "Currents") share the song's name but have 10+ tracks, and
+                    // treating them as singles made the resolver skip the real album entirely.
+                    val trackCount = item.optInt("trackCount", 0)
+                    val isLabelledSingle = Regex("""(?i)\s-\s(single|ep)$""").containsMatchIn(collectionName)
+                    val isSingle = isLabelledSingle ||
+                        (isRedundantOrSingle(collectionName, cleanTitle) && (trackCount == 0 || trackCount <= 3))
+                    val isExactTitle = itTrack.equals(cleanTitle, ignoreCase = true)
+                    val lowerCol = collectionName.lowercase()
+                    val lowerTrack = itTrack.lowercase()
+                    val isSecondary = lowerCol.contains("remix") || lowerCol.contains("live") ||
+                            lowerCol.contains("karaoke") || lowerCol.contains("tribute") ||
+                            lowerCol.contains("acoustic") || lowerTrack.contains("remix") ||
+                            lowerTrack.contains("live")
+
+                    var score = 0
+                    if (!isSingle) score += 100
+                    if (isExactTitle) score += 50
+                    // Live / remix / karaoke collections are never the song's home album.
+                    if (!isSecondary) score += 20 else score -= 40
+                    if (soundtrackTag != null && collectionName.contains(soundtrackTag, ignoreCase = true)) {
+                        score += 80
+                    }
+                    if (!cleanKnownAlbum.isNullOrBlank() &&
+                        (collectionName.contains(cleanKnownAlbum, ignoreCase = true) || cleanKnownAlbum.contains(collectionName, ignoreCase = true))) {
+                        score += 200
+                    }
+                    // Hits compilations and "Various Artists" playlists re-release the song later
+                    // ("The Highlights" for Starboy, "Pop Internacional 2022" for MIDDLE OF THE
+                    // NIGHT); they are never its home. A penalty was not enough: any non-single
+                    // gets +100, so a compilation still beat the song's own single.
+                    val isCompilation = isCompilation(collectionName) ||
+                        item.optString("collectionArtistName").equals("Various Artists", ignoreCase = true)
+                    if (isCompilation) continue
+
+                    candidates.add(
+                        Candidate(
+                            score = score,
+                            collectionName = collectionName,
+                            artworkUrl = rawArtwork.ifBlank { null }?.replace("100x100bb", "1200x1200bb"),
+                            itArtist = itArtist,
+                            isSingle = isSingle,
+                            releaseDate = releaseDate,
+                            isExactTitle = isExactTitle,
+                            isSecondary = isSecondary
+                        )
+                    )
+                }
+            }
+
+            // Among equally good matches, the earliest release is the original album; later
+            // releases of the same recording are compilations / reissues. iTunes' own order
+            // (the previous tie-break) often put the compilation first.
+            val bestCandidate = candidates.sortedWith(
+                compareByDescending<Candidate> { it.score }
+                    .thenBy { it.releaseDate.ifBlank { "9999" } }
+            ).firstOrNull()
+            // "Single" only for the song itself: same title, not a remix / live / acoustic cut on
+            // some EP ("Creep (Acoustic)" on the Creep EP is not Creep being a single).
+            if (bestCandidate != null && bestCandidate.isSingle) {
+                candidates.filter { it.isSingle && it.isExactTitle && !it.isSecondary }
+                    .minByOrNull { it.releaseDate.ifBlank { "9999" } }
+                    ?.let { single ->
+                        singleRelease = single.collectionName
+                        singleArt = single.artworkUrl
+                    }
+            }
+            if (bestCandidate != null && !bestCandidate.isSingle) {
+                onAlbumNamed?.invoke(ResolvedAlbum(
+                    albumTitle = bestCandidate.collectionName,
+                    albumArt = bestCandidate.artworkUrl,
+                    artistName = bestCandidate.itArtist.ifBlank { cleanArtist },
+                    isSingle = false
+                ))
+                var ytmAlbumId: String? = null
+                var ytmArt: String? = null
+                var ytmAuthor: String? = null
+                var ytmTitle: String? = null
+                try {
+                    val rawColName = bestCandidate.collectionName
+                    val cleanColName = cleanAlbumTitle(rawColName)
+
+                    val queriesToTry = listOfNotNull(
+                        cleanColName.takeIf { it.isNotBlank() },
+                        "$cleanArtist $cleanColName".takeIf { cleanArtist.isNotBlank() && it != cleanColName },
+                        rawColName.takeIf { it != cleanColName }
+                    ).distinct()
+
+                    for (q in queriesToTry) {
+                        val albumSearch = ytm.search(q, InnerTubeClient.FILTER_ALBUMS)
+                        val ytmMatch = albumSearch.albums.firstOrNull { cand ->
+                            val candClean = cleanAlbumTitle(cand.title)
+                            val candAuthor = cand.author.orEmpty()
+                            val isCandArtistMatch = cleanArtist.isBlank() ||
+                                    candAuthor.contains("Various", ignoreCase = true) ||
+                                    candAuthor.contains("Soundtrack", ignoreCase = true) ||
+                                    candAuthor.contains("OST", ignoreCase = true) ||
+                                    soundtrackTag != null ||
+                                    bestCandidate.collectionName.contains("soundtrack", ignoreCase = true) ||
+                                    SearchQueryMatcher.isAuthorMatch(candAuthor, cleanArtist) ||
+                                    candAuthor.contains(cleanArtist, ignoreCase = true) ||
+                                    cleanArtist.contains(candAuthor, ignoreCase = true) ||
+                                    candAuthor.contains(bestCandidate.itArtist, ignoreCase = true) ||
+                                    bestCandidate.itArtist.contains(candAuthor, ignoreCase = true)
+                            val isCandMashup = cand.title.contains(Regex("""(?i)\s+(x|vs\.?|mashup)\s+""")) ||
+                                    cand.title.contains("mashup", ignoreCase = true)
+
+                            !isCandMashup && isCandArtistMatch &&
+                            (candClean.equals(cleanColName, ignoreCase = true) ||
+                            cand.title.equals(rawColName, ignoreCase = true) ||
+                            (cleanColName.length > 3 && candClean.contains(cleanColName, ignoreCase = true)) ||
+                            (candClean.length > 3 && cleanColName.contains(candClean, ignoreCase = true)))
+                        }
+                        if (ytmMatch != null) {
+                            ytmAlbumId = ytmMatch.id
+                            ytmArt = ytmMatch.thumbnail
+                            ytmAuthor = ytmMatch.author
+                            ytmTitle = ytmMatch.title
+                            break
+                        }
+                    }
+                } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+
+                val resolved = ResolvedAlbum(
+                    // Label with the YouTube Music album's own title when we found it, so the name
+                    // matches the page "View album" opens (iTunes says "Starboy (Deluxe)" for YTM's "Starboy").
+                    albumTitle = ytmTitle?.takeIf { it.isNotBlank() } ?: bestCandidate.collectionName,
+                    albumId = ytmAlbumId,
+                    albumArt = ytmArt ?: bestCandidate.artworkUrl,
+                    artistName = ytmAuthor ?: bestCandidate.itArtist.ifBlank { cleanArtist },
+                    isSingle = false
+                )
+
+                synchronized(memoryCache) {
+                    memoryCache.put(cacheKey, resolved); persist()
+                }
+                return@withContext resolved
+            }
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+
+        // 3. Fallback: Search YouTube Music Albums directly with strict artist & mashup filtering
+        try {
+            val queries = listOfNotNull(
+                soundtrackTag,
+                "$cleanArtist $cleanKnownAlbum".takeIf { !cleanKnownAlbum.isNullOrBlank() && cleanArtist.isNotBlank() },
+                cleanKnownAlbum,
+                "$cleanArtist $cleanTitle".takeIf { cleanArtist.isNotBlank() },
+                cleanTitle
+            ).distinct()
+
+            for (q in queries) {
+                val ytmAlbums = ytm.search(q, InnerTubeClient.FILTER_ALBUMS).albums
+                val match = ytmAlbums.firstOrNull { cand ->
+                    val candClean = cleanAlbumTitle(cand.title)
+                    val candAuthor = cand.author.orEmpty()
+                    val isArtistMatch = cleanArtist.isBlank() ||
+                            candAuthor.contains("Various", ignoreCase = true) ||
+                            candAuthor.contains("Soundtrack", ignoreCase = true) ||
+                            candAuthor.contains("OST", ignoreCase = true) ||
+                            soundtrackTag != null ||
+                            SearchQueryMatcher.isAuthorMatch(candAuthor, cleanArtist) ||
+                            candAuthor.contains(cleanArtist, ignoreCase = true) ||
+                            cleanArtist.contains(candAuthor, ignoreCase = true)
+
+                    val isMashup = cand.title.contains(Regex("""(?i)\s+(x|vs\.?|mashup)\s+""")) ||
+                            cand.title.contains("mashup", ignoreCase = true)
+
+                    !isMashup &&
+                    isArtistMatch &&
+                    !isRedundantOrSingle(cand.title, cleanTitle) &&
+                    !isCompilation(cand.title) &&
+                    (candClean.equals(cleanKnownAlbum, ignoreCase = true) ||
+                     candClean.equals(cleanTitle, ignoreCase = true) ||
+                     (soundtrackTag != null && candClean.contains(soundtrackTag, ignoreCase = true)) ||
+                     (cleanTitle.length > 3 && candClean.contains(cleanTitle, ignoreCase = true)))
+                }
+                if (match != null) {
+                    val resolved = ResolvedAlbum(
+                        albumTitle = match.title,
+                        albumId = match.id,
+                        albumArt = match.thumbnail,
+                        artistName = match.author ?: cleanArtist,
+                        isSingle = false
+                    )
+                    synchronized(memoryCache) {
+                        memoryCache.put(cacheKey, resolved); persist()
+                    }
+                    return@withContext resolved
+                }
+            }
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+
+        // A standalone single: say so, so "View album" can show "Single" instead of guessing.
+        singleRelease?.let { release ->
+            val single = ResolvedAlbum(albumTitle = release, albumArt = singleArt, artistName = cleanArtist, isSingle = true)
+            synchronized(memoryCache) { memoryCache.put(cacheKey, single); persist() }
+            return@withContext single
+        }
+        null
+    }
+}

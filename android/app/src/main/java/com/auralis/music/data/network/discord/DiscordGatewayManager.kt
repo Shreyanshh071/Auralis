@@ -24,6 +24,7 @@ import kotlin.math.abs
 class DiscordGatewayManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "AuralisDiscord"
+        private const val AURALIS_LOGO_URL = "https://auralis-self-nu.vercel.app/logo.png"
         private const val SETTLE_MS = 150L
         private const val RATE_LIMIT_COUNT = 5
         private const val RATE_LIMIT_WINDOW_MS = 20_000L
@@ -209,8 +210,67 @@ class DiscordGatewayManager private constructor(private val context: Context) {
         return recentSendsMs.first() + RATE_LIMIT_WINDOW_MS - nowMs
     }
 
-    private fun buildPresence(t: Track, s: DiscordRpcSettings, playing: Boolean): DiscordPresence =
-        DiscordPresenceBuilder.build(t, s, playing, positionMs, DiscordPresenceBuilder.songLengthMs(t, durationMs), ::artistPhoto)
+    private fun buildPresence(t: Track, s: DiscordRpcSettings, playing: Boolean): DiscordPresence {
+        val album = t.album.orEmpty()
+        fun text(choice: String): String = when (choice) {
+            "Artist name" -> t.artist
+            "Album name" -> album
+            "Song title" -> t.title
+            "Auralis" -> "Auralis"
+            else -> ""
+        }
+        val artwork = t.thumbnail.trim().let { thumbnail ->
+            when {
+                thumbnail.startsWith("https://") -> thumbnail
+                thumbnail.startsWith("http://") -> thumbnail.replaceFirst("http://", "https://")
+                thumbnail.startsWith("//") -> "https:$thumbnail"
+                t.id.isNotBlank() -> "https://i.ytimg.com/vi/${t.id}/hqdefault.jpg"
+                else -> ""
+            }
+        }
+        val largeImage = when (s.largeImage) {
+            "Album artwork" -> artwork
+            "App icon" -> AURALIS_LOGO_URL
+            else -> ""
+        }
+        val largeText = when (s.largeText) {
+            "Album name" -> album.ifBlank { t.title }
+            "Song title" -> t.title
+            "Auralis" -> "Auralis"
+            else -> ""
+        }
+        val (smallImage, smallText) = when (s.smallImage) {
+            "Artist artwork" -> artistPhoto(t.artist).orEmpty() to t.artist
+            "Play state" -> AURALIS_LOGO_URL to if (playing) "Playing" else "Paused"
+            "App logo" -> AURALIS_LOGO_URL to "Auralis"
+            else -> "" to ""
+        }
+        val details = text(s.activityDetails).let { if (!playing && it.isNotBlank()) "$it [Paused]" else it }
+        return DiscordPresence(
+            name = s.activityName.ifBlank { "Auralis" },
+            details = details,
+            state = text(s.activityState),
+            largeImage = largeImage,
+            largeText = if (largeImage.isBlank()) "" else largeText,
+            smallImage = smallImage,
+            smallText = if (smallImage.isBlank()) "" else smallText,
+            activityType = s.activityType,
+            isPlaying = playing,
+            positionMs = positionMs,
+            durationMs = songLengthMs(t),
+            showWhenPaused = s.showRpcWhenPaused
+        )
+    }
+
+    /** The player's length, unless it is clearly still the previous song's; then the song's own. */
+    private fun songLengthMs(t: Track): Long {
+        val metadataMs = t.duration * 1000L
+        return when {
+            durationMs <= 0L -> metadataMs
+            metadataMs > 0L && abs(durationMs - metadataMs) > 10_000L -> metadataMs
+            else -> durationMs
+        }
+    }
 
     /** The artist's photo if already known; otherwise looked up once, then the presence is re-sent. */
     private fun artistPhoto(artist: String): String? {

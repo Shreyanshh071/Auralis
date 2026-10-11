@@ -1,0 +1,287 @@
+package com.auralis.music.domain.recommendations
+
+import com.auralis.music.data.network.TitleCleaner
+import com.auralis.music.domain.model.Track
+
+data class SongFingerprint(
+    val id: String,
+    val normalizedTitle: String,
+    val normalizedCoreTitle: String,
+    val normalizedBaseTitle: String,
+    val normalizedArtist: String,
+    val cleanedTitle: String,
+    val thumbnail: String,
+    val isVideo: Boolean = false,
+    val hasAlbum: Boolean = false
+)
+
+
+/**
+ * Intelligent song deduplication engine preventing identical tracks
+ * (with different YouTube IDs, bracket noise, or artist variations)
+ * from being recommended multiple times on Speed Dial and Home feeds.
+ */
+object TrackDeduplicator {
+
+    private val INVALID_ARTISTS = hashSetOf(
+        "shreyanshh", "shreyansh", "youtube music", "youtube", "artist",
+        "unknown artist", "various artists", "various", "topic", "guest listener", "admin"
+    )
+
+    private val JUNK_ARTIST_SUBSTRINGS = listOf(
+        "rain therapy", "rain sound", "rain sounds", "sleep therapy", "sleep sound",
+        "sleep sounds", "sound therapy", "white noise", "nature sounds", "nature sound",
+        "relaxing rain", "ambient rain", "binaural beat", "binaural beats", "deep sleep",
+        "calming sound", "soothing sound", "noise therapy", "sleep music therapy",
+        "meditation sounds", "relaxing sounds", "ambient sounds"
+    )
+
+    fun isInvalidArtistName(artist: String?): Boolean {
+        if (artist.isNullOrBlank()) return true
+        val lower = artist.trim().lowercase()
+        if (lower in INVALID_ARTISTS || lower.startsWith("user_") || lower.startsWith("yt_")) return true
+        return JUNK_ARTIST_SUBSTRINGS.any { lower.contains(it) }
+    }
+
+    fun isJunkOrNoiseTrack(track: Track): Boolean {
+        if (isInvalidArtistName(track.artist)) return true
+        val lowerTitle = track.title.trim().lowercase()
+        val junkTitlePhrases = listOf(
+            "rain therapy", "rain sounds", "rain sound", "rain for sleeping", "rain to sleep",
+            "rain and thunder", "rain & thunder", "sleep therapy", "sound therapy", "white noise",
+            "binaural beats", "deep sleep", "nature sounds", "nature sound", "relaxing rain",
+            "calming rain", "10 hours of rain", "8 hours of rain", "3 hours of rain",
+            "hours of rain", "sleep sounds", "sleep sound", "noise for sleep"
+        )
+        return junkTitlePhrases.any { lowerTitle.contains(it) }
+    }
+
+    private val MOVIE_ATTRIBUTION_REGEX = Regex("""(?i)\s*(?:[\(\[\{/\-]\s*from\s+[^)\]\}]+[\)\]\}]?|-\s*from\s+.*$)""")
+
+    private val VERSION_AND_REMIX_REGEX = Regex(
+        """(?i)[\(\[\{][^)\]\}]*(?:remix|mix|edit|slowed|reverb|sped\s*up|speed\s*up|phonk|cover|acoustic|live|instrumental|vip|dub|extended|radio\s*edit|version|feat\.?|ft\.?)[^)\]\}]*[\)\]\}]"""
+    )
+    private val ALL_BRACKETS_REGEX = Regex("""[\(\[\{][^)\]\}]*[\)\]\}]""")
+
+    private val TRAILING_VERSION_SUFFIX_REGEX = Regex(
+        """(?i)\s*[-–—/|:]\s*(?:remix.*|mix.*|edit.*|slowed.*|reverb.*|sped\s*up.*|speed\s*up.*|phonk.*|cover.*|acoustic.*|live.*|instrumental.*|vip.*|dub.*|extended.*|radio\s*edit.*|version.*|remaster(?:ed)?(?:\s*\d{4})?.*|\d{4}\s*remaster(?:ed)?.*|bonus.*|deluxe.*|mono.*|stereo.*|anniversary.*|session.*|unplugged.*|orchestral.*|piano.*|original\s*mix.*|club\s*mix.*|clean.*|explicit.*|single\s*version.*|album\s*version.*|audio|video|official.*)$"""
+    )
+    private val NON_ALPHANUMERIC_REGEX = Regex("""[^\p{L}\p{M}0-9]""")
+
+    /**
+     * Extracts a bare base song title stripped of all versions, remix tags, slowed/reverb tags,
+     * bracket noise, and trailing version suffixes (e.g. " - Remastered", " - Live", " - Acoustic")
+     * to eliminate all alternate cuts and duplicate versions of the same song from queues.
+     */
+    fun extractBaseSongTitle(rawTitle: String): String {
+        if (rawTitle.isBlank()) return ""
+        var t = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
+        t = TRAILING_VERSION_SUFFIX_REGEX.replace(t, " ")
+        t = VERSION_AND_REMIX_REGEX.replace(t, " ")
+        t = ALL_BRACKETS_REGEX.replace(t, " ")
+        t = t.replace(MOVIE_ATTRIBUTION_REGEX, " ")
+        return t.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
+    }
+
+    /**
+     * Extracts a normalized fingerprint for a track using TitleCleaner.
+     */
+    fun getSongFingerprint(track: Track): SongFingerprint =
+        // Keyed by the whole Track: every field the fingerprint reads is part of it.
+        fingerprintMemo.getOrPut(track) { computeSongFingerprint(track) }
+
+    private val fingerprintMemo = com.auralis.music.util.BoundedMemo<Track, SongFingerprint>(4096)
+
+    private fun computeSongFingerprint(track: Track): SongFingerprint {
+        val (rawArtist, rawTitle) = TitleCleaner.splitArtistAndTitle(track.title, track.artist)
+        val cleaned = TitleCleaner.cleanTitle(rawTitle).ifBlank { rawTitle.trim() }
+        val normTitle = cleaned.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
+
+        val coreTitle = cleaned.replace(MOVIE_ATTRIBUTION_REGEX, "").trim().ifBlank { cleaned }
+        val normCoreTitle = coreTitle.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
+
+        val baseTitle = extractBaseSongTitle(rawTitle)
+
+        val cleanedArt = TitleCleaner.cleanArtist(rawArtist).ifBlank { rawArtist.trim() }
+        val normArtist = if (isInvalidArtistName(cleanedArt)) "" else {
+            cleanedArt.lowercase().replace(NON_ALPHANUMERIC_REGEX, "")
+        }
+
+        val isVideo = isVideoOrBloatedTrack(track)
+        val hasAlbum = !track.album.isNullOrBlank()
+
+        return SongFingerprint(
+            id = track.id.trim(),
+            normalizedTitle = normTitle,
+            normalizedCoreTitle = normCoreTitle,
+            normalizedBaseTitle = baseTitle,
+            normalizedArtist = normArtist,
+            cleanedTitle = cleaned,
+            thumbnail = track.thumbnail.trim(),
+            isVideo = isVideo,
+            hasAlbum = hasAlbum
+        )
+    }
+
+
+    /**
+     * Determines whether two tracks represent the same song.
+     * When [matchAlternateVersions] is true, different cuts/versions (e.g. live, acoustic, remaster)
+     * of the same base song are treated as duplicates (ideal for radio queues & recommendations).
+     * When false, only exact or near-identical versions are considered duplicates (ideal for search matches).
+     */
+    fun isDuplicateSong(a: SongFingerprint, b: SongFingerprint, matchAlternateVersions: Boolean = false): Boolean {
+        // 1. Direct ID match
+        if (a.id.isNotBlank() && b.id.isNotBlank() && a.id == b.id) {
+            return true
+        }
+
+        // 2. Exact thumbnail match (YouTube audio & video uploads often share exact thumb url)
+        if (a.thumbnail.isNotBlank() && b.thumbnail.isNotBlank() && a.thumbnail == b.thumbnail) {
+            if (a.normalizedTitle == b.normalizedTitle ||
+                a.normalizedCoreTitle == b.normalizedCoreTitle ||
+                (matchAlternateVersions && a.normalizedBaseTitle == b.normalizedBaseTitle) ||
+                a.normalizedTitle.contains(b.normalizedTitle) ||
+                b.normalizedTitle.contains(a.normalizedTitle)
+            ) {
+                return true
+            }
+        }
+
+        // 3. Base song title match (matches different versions of the same song: e.g. "Creep", "Creep - Live", "Creep (Acoustic)", "Creep - 2011 Remaster")
+        val baseTitlesMatch = matchAlternateVersions &&
+                a.normalizedBaseTitle.isNotBlank() &&
+                b.normalizedBaseTitle.isNotBlank() &&
+                a.normalizedBaseTitle == b.normalizedBaseTitle &&
+                a.normalizedBaseTitle.length >= 3
+
+        // Check standard title match: exact normalized title, core title match, or cleaned title match
+        val titlesMatch = baseTitlesMatch ||
+                (a.normalizedTitle.isNotBlank() && a.normalizedTitle == b.normalizedTitle) ||
+                (a.normalizedCoreTitle.isNotBlank() && a.normalizedCoreTitle == b.normalizedCoreTitle) ||
+                a.cleanedTitle.equals(b.cleanedTitle, ignoreCase = true)
+
+        if (!titlesMatch) {
+            return false
+        }
+
+        // 4. If titles match (or base titles match):
+        // If either artist is blank or generic (unknown artist, topic, etc.)
+        if (a.normalizedArtist.isBlank() || b.normalizedArtist.isBlank()) {
+            return true
+        }
+
+        // Exact artist match
+        if (a.normalizedArtist == b.normalizedArtist) {
+            return true
+        }
+
+        // Substring / featuring artist match (e.g. "TV Girl" vs "TV Girl, Maddie Acid")
+        if (a.normalizedArtist.contains(b.normalizedArtist) || b.normalizedArtist.contains(a.normalizedArtist)) {
+            return true
+        }
+
+        return false
+    }
+
+    fun isVideoOrBloatedTrack(track: Track): Boolean {
+        val lower = track.title.lowercase()
+        return lower.contains("official video") ||
+                lower.contains("music video") ||
+                lower.contains("official music video") ||
+                lower.contains("(video)") ||
+                lower.contains("[video]") ||
+                lower.contains("official visualizer") ||
+                lower.contains("lyric video")
+    }
+
+    /**
+     * Determines whether candidate is a higher quality studio release than current (e.g. Studio Audio Track vs Music Video).
+     */
+    fun isBetterQualityTrack(candidateFp: SongFingerprint, currentFp: SongFingerprint): Boolean {
+        if (!candidateFp.isVideo && currentFp.isVideo) return true
+        if (candidateFp.isVideo && !currentFp.isVideo) return false
+
+        if (candidateFp.hasAlbum && !currentFp.hasAlbum) return true
+        if (!candidateFp.hasAlbum && currentFp.hasAlbum) return false
+
+        return false
+    }
+
+    fun isBetterQualityTrack(candidate: Track, current: Track): Boolean {
+        val candIsVideo = isVideoOrBloatedTrack(candidate)
+        val currIsVideo = isVideoOrBloatedTrack(current)
+        if (!candIsVideo && currIsVideo) return true
+        if (candIsVideo && !currIsVideo) return false
+
+        val candHasAlbum = !candidate.album.isNullOrBlank()
+        val currHasAlbum = !current.album.isNullOrBlank()
+        if (candHasAlbum && !currHasAlbum) return true
+        if (!candHasAlbum && currHasAlbum) return false
+
+        return false
+    }
+
+    /**
+     * Convenience method comparing two Track objects directly.
+     */
+    fun isDuplicateTrack(a: Track, b: Track, matchAlternateVersions: Boolean = false): Boolean {
+        return isDuplicateSong(getSongFingerprint(a), getSongFingerprint(b), matchAlternateVersions)
+    }
+
+    /**
+     * Deduplicates a list of tracks so that no two tracks represent the same song.
+     * When a duplicate is encountered, studio album audio tracks are strictly prioritized
+     * over music video versions and extended video takes.
+     */
+    fun deduplicateTracks(tracks: List<Track>, matchAlternateVersions: Boolean = false): List<Track> {
+        val uniqueTracks = mutableListOf<Track>()
+        val fingerprints = mutableListOf<SongFingerprint>()
+
+        for (track in tracks) {
+            if (track.title.isBlank() && track.id.isBlank()) continue
+
+            val fp = getSongFingerprint(track)
+            val existingIndex = fingerprints.indexOfFirst { isDuplicateSong(it, fp, matchAlternateVersions) }
+
+            if (existingIndex == -1) {
+                val cleanTitle = fp.cleanedTitle.ifBlank { track.title }
+                uniqueTracks.add(track.copy(title = cleanTitle))
+                fingerprints.add(fp)
+            } else {
+                val existing = uniqueTracks[existingIndex]
+                val existingFp = fingerprints[existingIndex]
+                if (isBetterQualityTrack(fp, existingFp) || isBetterQualityTrack(track, existing)) {
+                    // Studio track replaces lower-quality music video
+                    val cleanTitle = fp.cleanedTitle.ifBlank { track.title }
+                    val updated = track.copy(
+                        title = cleanTitle,
+                        thumbnail = if (track.thumbnail.isNotBlank()) track.thumbnail else existing.thumbnail,
+                        artist = if (!isInvalidArtistName(track.artist)) track.artist else existing.artist
+                    )
+                    uniqueTracks[existingIndex] = updated
+                    fingerprints[existingIndex] = fp
+                } else {
+                    // Enrich existing track with better metadata if available
+                    var updated = existing
+                    if (updated.thumbnail.isBlank() && track.thumbnail.isNotBlank()) {
+                        updated = updated.copy(thumbnail = track.thumbnail)
+                    }
+                    if (isInvalidArtistName(updated.artist) && !isInvalidArtistName(track.artist)) {
+                        updated = updated.copy(artist = track.artist)
+                    }
+                    if (updated.album.isNullOrBlank() && !track.album.isNullOrBlank()) {
+                        updated = updated.copy(album = track.album)
+                    }
+                    if (updated.duration <= 0 && track.duration > 0) {
+                        updated = updated.copy(duration = track.duration)
+                    }
+                    if (updated !== existing) {
+                        uniqueTracks[existingIndex] = updated
+                    }
+                }
+            }
+        }
+        return uniqueTracks
+    }
+}
