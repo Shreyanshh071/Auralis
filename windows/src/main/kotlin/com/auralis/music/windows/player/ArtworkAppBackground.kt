@@ -12,6 +12,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.ArtworkPalette
+import com.auralis.music.ui.theme.LocalDynamicThemeBackground
+import com.auralis.music.ui.theme.LocalDynamicThemeSurface
+import com.auralis.music.ui.theme.LocalDynamicThemeOnBackground
+import com.auralis.music.ui.theme.LocalDynamicThemeOnSurface
 
 /** Windows browsing surfaces follow the current cover without changing Android's theme. */
 @Composable
@@ -29,6 +33,16 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, mod
         onSurface = foreground, onSurfaceVariant = foreground.copy(alpha = .72f))
     Box(modifier.fillMaxSize().background(tint)) {
         if (artwork != null) BlurredArtworkBackground(artwork, blurRadius = 48.dp)
-        MaterialTheme(colorScheme = surfaces) { content() }
+        // Shared settings/profile pages read the dynamic locals, while desktop browsing
+        // pages read MaterialTheme. Both must see the same translucent artwork surfaces.
+        CompositionLocalProvider(
+            LocalDynamicThemeBackground provides surfaces.background,
+            LocalDynamicThemeSurface provides surfaces.surface,
+            LocalDynamicThemeOnBackground provides surfaces.onBackground,
+            LocalDynamicThemeOnSurface provides surfaces.onSurface,
+            androidx.compose.material3.LocalContentColor provides surfaces.onSurface
+        ) {
+            MaterialTheme(colorScheme = surfaces) { content() }
+        }
     }
 }
