@@ -203,3 +203,9 @@ Standard MSI build succeeded. Installed and relaunched on 11 October at 17:14 af
 The green idle accent came from the shared fixed Lime colour scheme, rather than an imported Windows wallpaper colour. Desktop theme fallback now uses white accents and neutral grey containers in dark modes, with dark neutral accents for readable light mode. Added a White fixed palette to desktop Themes and Colours. Dynamic artwork palettes and explicitly selected curated palettes remain available; Android colour schemes are unchanged. Windows compilation passed and the idle Home/sidebar preview was visually checked.
 
 Standard MSI build passed. Installed on 11 October at 17:20 after a normal close, with all 29 checked data files and shortcut preserved; installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-white-accent-20261011-171924. Version remains 1.0.0.
+
+### Title-bar account alignment (Windows 1.0.0)
+
+Account names use the bundled desktop label typography at 14sp with an 18sp line height and medium weight. The avatar is 26dp and dropdown arrow 16dp, vertically centred with consistent 8dp spacing. Long names ellipsize within 180dp instead of being cut at 22 characters. The title-bar preview was visually checked; this is a presentation-only change.
+
+Standard MSI build passed. Installed on 11 October at 17:24 after a normal close; all 30 checked data files and shortcut were preserved, and installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-account-label-20261011-172330. Version remains 1.0.0.
