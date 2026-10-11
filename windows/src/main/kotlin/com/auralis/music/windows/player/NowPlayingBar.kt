@@ -1,10 +1,5 @@
 package com.auralis.music.windows.player
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Subtitles
@@ -86,19 +81,13 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         val resolving by controller.resolving.collectAsState()
         val track = queue.current
 
-        val songInteraction = remember { MutableInteractionSource() }
-        val songHovered by songInteraction.collectIsHoveredAsState()
-        val songHighlight by animateColorAsState(
-            if (songHovered && track != null) colors.onSurface.copy(alpha = .08f) else Color.Transparent, tween(150))
         val whiteButtons = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
-        // Highlight the whole song-info region; only its cover opens the full player.
+        // Only the cover is interactive; the song-info region has no hover highlight.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                .background(songHighlight)
-                .hoverable(songInteraction)
                 .padding(vertical = 6.dp)
         ) {
             DesktopArtwork(track?.thumbnail, Modifier.size(56.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
