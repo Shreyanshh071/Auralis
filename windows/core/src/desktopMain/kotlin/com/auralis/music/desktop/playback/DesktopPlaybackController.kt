@@ -232,6 +232,11 @@ class DesktopPlaybackController(
         _queue.value = Queue(tracks, if (index < q.index) q.index - 1 else q.index)
     }
 
+    /** Audio outputs for the player bar's device picker (id to name), and the chosen one. */
+    fun outputDevices(): List<Pair<String, String>> = player.outputDevices()
+    val outputDevice: String? get() = player.preferredDevice
+    fun setOutputDevice(id: String?) = player.setOutputDevice(id)
+
     /** Clears History: every song before the one playing. */
     fun clearHistory() {
         if (intercepted("edit_queue")) return

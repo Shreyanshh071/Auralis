@@ -1055,6 +1055,18 @@ class SearchRepositoryImpl(
         return finalTracks
     }
 
+    /**
+     * Album tracks show the album's cover, as YouTube Music does. The playlist importer hands back
+     * each track's video thumbnail, which for music videos and uploads is a video frame, not the art.
+     */
+    private fun withAlbumArt(tracks: List<Track>, albumArt: String?): List<Track> {
+        val art = albumArt?.takeIf { it.isNotBlank() && !it.contains("ytimg.com") } ?: return tracks
+        return tracks.map { track ->
+            val videoFrame = track.thumbnail.isBlank() || track.thumbnail.contains("ytimg.com") || track.thumbnail.contains("img.youtube.com")
+            if (videoFrame) track.copy(thumbnail = art) else track
+        }
+    }
+
     override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
         try {
             // 0. If this is an artist Top Songs collection
@@ -1092,7 +1104,9 @@ class SearchRepositoryImpl(
                             thumbnail = it.thumbnail
                         )
                     }
-                    return@withContext filterOfficialAlbumTracks(album, tracksWithAlbumMeta)
+                    val official = album.id.startsWith("MPRE") || album.id.startsWith("OLAK")
+                    return@withContext filterOfficialAlbumTracks(album,
+                        if (official) withAlbumArt(tracksWithAlbumMeta, album.thumbnail) else tracksWithAlbumMeta)
                 }
             }
 
@@ -1141,7 +1155,9 @@ class SearchRepositoryImpl(
                             thumbnail = it.thumbnail
                         )
                     }
-                    return@withContext filterOfficialAlbumTracks(album, tracksWithAlbumMeta)
+                    val official = matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK")
+                    return@withContext filterOfficialAlbumTracks(album,
+                        if (official) withAlbumArt(tracksWithAlbumMeta, matchedAlbum.thumbnail ?: album.thumbnail) else tracksWithAlbumMeta)
                 }
             }
 

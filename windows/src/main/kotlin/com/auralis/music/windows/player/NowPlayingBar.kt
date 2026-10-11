@@ -22,12 +22,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.outlined.Textsms
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -52,17 +58,17 @@ import com.auralis.music.windows.search.DesktopArtwork
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
 fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {},
-    onOpenQueue: () -> Unit = onOpenPlayer) {
+    onOpenQueue: () -> Unit = onOpenPlayer, onOpenLyrics: () -> Unit = onOpenPlayer) {
     val normal = MaterialTheme.colorScheme
     val black = com.auralis.music.ui.theme.LocalAppearanceSettings.current.pureBlackMiniPlayer
     val colors = if (black) normal.copy(surface = androidx.compose.ui.graphics.Color.Black,
         onSurface = androidx.compose.ui.graphics.Color.White, onSurfaceVariant = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)) else normal
-    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue) }
+    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue, onOpenLyrics) }
 }
 
 @Composable
 private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit,
-    onOpenQueue: () -> Unit) {
+    onOpenQueue: () -> Unit, onOpenLyrics: () -> Unit) {
     val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val colors = MaterialTheme.colorScheme
     Row(
@@ -163,26 +169,48 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             SeekBar(controller, enabled)
         }
 
-        // Volume (right)
+        // Right: volume (mute + slider), sound output, lyrics, queue.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.End,
             modifier = Modifier.weight(1f)
         ) {
             val volume by controller.volume.collectAsState()
-            IconButton(onClick = onOpenQueue, enabled = track != null, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Rounded.QueueMusic, "Queue", Modifier.size(20.dp))
+            val iconTint = MaterialTheme.colorScheme.onSurfaceVariant
+            IconButton(onClick = controller::toggleMute, modifier = Modifier.size(34.dp)) {
+                Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                    contentDescription = if (volume > 0f) "Mute" else "Unmute", tint = iconTint, modifier = Modifier.size(20.dp))
             }
-            IconButton(onClick = controller::toggleMute, colors = whiteButtons) {
-                Icon(
-                    if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                    contentDescription = if (volume > 0f) "Mute" else "Unmute",
-                    tint = Color.White
-                )
-            }
-            HoverSlider(value = volume, onValueChange = controller::setVolume, modifier = Modifier.width(120.dp),
+            HoverSlider(value = volume, onValueChange = controller::setVolume, modifier = Modifier.width(110.dp),
                 activeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                 inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f))
+            Spacer(Modifier.width(10.dp))
+            Box {
+                var devices by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+                IconButton(onClick = { devices = controller.outputDevices() }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.Headphones, "Sound output", tint = iconTint, modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
+                    Text("Sound output", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    val chosen = controller.outputDevice
+                    // libVLC lists Windows' default as an empty id; show it as "Windows default".
+                    devices.orEmpty().forEach { (id, name) ->
+                        val selected = if (chosen == null) id.isEmpty() else id == chosen
+                        DropdownMenuItem(
+                            text = { Text(if (id.isEmpty()) "Windows default" else name, maxLines = 1) },
+                            trailingIcon = { if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) },
+                            onClick = { controller.setOutputDevice(id.ifEmpty { null }); devices = null })
+                    }
+                    if (devices.isNullOrEmpty()) DropdownMenuItem(text = { Text("No outputs found") }, onClick = { devices = null }, enabled = false)
+                }
+            }
+            IconButton(onClick = onOpenLyrics, enabled = track != null, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Outlined.Textsms, "Lyrics", tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onOpenQueue, enabled = track != null, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "Queue", tint = iconTint, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

@@ -773,7 +773,7 @@ fun ThemeAndColorsScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    androidx.compose.material3.Switch(
+                    com.auralis.music.ui.components.Switch(
                         checked = settings.liquidGlass,
                         onCheckedChange = { onUpdateSettings(settings.withLiquidGlass(it)) }
                     )

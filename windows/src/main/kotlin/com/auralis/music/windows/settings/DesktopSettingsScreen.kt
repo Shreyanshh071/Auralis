@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.components.Switch
+
 import com.auralis.music.ui.screens.*
 
 import com.auralis.music.ui.i18n.Strings
