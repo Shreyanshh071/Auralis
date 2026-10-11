@@ -34,7 +34,9 @@ class LyricsUiPlatform(
     val shareSheet: (@Composable (track: Track, text: String, onDismiss: () -> Unit) -> Unit)? = null,
     /** Settings → Content → Romanize lyrics: the Latin line under [text]; draws nothing when off. */
     val romanizedLine: @Composable (text: String, color: Color, fontSize: TextUnit, textAlign: TextAlign, modifier: Modifier) -> Unit =
-        { _, _, _, _, _ -> }
+        { _, _, _, _, _ -> },
+    /** Desktop mouse targets use an inset rounded highlight instead of a touch ripple. */
+    val roundedMouseHover: Boolean = false
 )
 
 /** English text and no platform extras; each app provides its own [LocalLyricsUi]. */
