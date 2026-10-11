@@ -112,6 +112,8 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 Both sidebar edges can be dragged. Left navigation ranges from 180–320 dp and collapses to a 64 dp icon rail. Now playing ranges from 280–460 dp (including its toggle rail) and collapses to a 40 dp reopen rail. Width limits reserve space for the main page; narrow windows temporarily fold the right panel. Chevron buttons collapse/expand with 280 ms width and text/content fade transitions; dragging tracks directly. Preferences are saved in `desktop-sidebars.properties`, separately from phone settings. Windows tests: 26 passed, including width bounds; expanded/collapsed previews and final compilation passed. Android is unchanged.
 
+Release packaging passed. Installed copy updated at 13:58 on 11 October, then reopened successfully. Installed archive matches the packaged code; shortcut and all 23 checked non-cache user files were preserved. Full data backup: `Downloads/Auralis-checkpoints/before-sidebars-20261011-135817`. Version remains 1.0.0.
+
 ### Dedicated themes and colours page (Windows 1.0.0)
 
 Appearance now opens Themes and colours through a single entry. The dedicated desktop page contains a live composition of the resolved theme colours, circular theme-mode previews, three-colour palette swatches, Liquidify and the dynamic artwork-colour switch. Choices use the existing settings stores and apply live; Back returns to Appearance. Player background and lyrics controls remain in Appearance. Compilation and the isolated page preview passed; Android is unchanged.
