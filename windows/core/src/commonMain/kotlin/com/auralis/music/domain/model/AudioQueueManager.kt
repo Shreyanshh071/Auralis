@@ -1,0 +1,349 @@
+package com.auralis.music.domain.model
+
+data class QueueState(
+    val queue: List<Track> = emptyList(),
+    val currentIndex: Int = -1,
+    val isShuffled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val isUserQueue: Boolean = false
+) {
+    val currentTrack: Track?
+        get() = if (currentIndex in queue.indices) queue[currentIndex] else null
+
+    val hasNext: Boolean
+        get() = when (repeatMode) {
+            RepeatMode.ONE, RepeatMode.ALL -> queue.isNotEmpty()
+            RepeatMode.OFF -> currentIndex < queue.size - 1
+        }
+
+    val hasPrevious: Boolean
+        get() = when (repeatMode) {
+            RepeatMode.ONE, RepeatMode.ALL -> queue.isNotEmpty()
+            RepeatMode.OFF -> currentIndex > 0
+        }
+}
+
+class AudioQueueManager(initialState: QueueState = QueueState()) {
+
+    var state: QueueState = initialState
+        private set
+
+    private var originalQueue: List<Track> = emptyList()
+
+    // Separate logical structures for high-priority user queues
+    private val playNextQueue = ArrayDeque<Track>()
+    private val addToQueueList = ArrayDeque<Track>()
+
+    /** Replace metadata without changing playback order, index, shuffle, or user queue priority. */
+    fun applyVerifiedMetadata(track: Track): Boolean {
+        if (state.queue.none { it.id == track.id }) return false
+        fun corrected(item: Track): Track = if (item.id == track.id) {
+            item.copy(album = track.album, thumbnail = track.thumbnail)
+        } else item
+        state = state.copy(queue = state.queue.map(::corrected))
+        originalQueue = originalQueue.map(::corrected)
+        val next = playNextQueue.map(::corrected)
+        playNextQueue.clear()
+        playNextQueue.addAll(next)
+        val later = addToQueueList.map(::corrected)
+        addToQueueList.clear()
+        addToQueueList.addAll(later)
+        return true
+    }
+
+    private fun syncUserQueuesWithUpcoming() {
+        if (state.currentIndex < 0 || state.currentIndex >= state.queue.size - 1) {
+            playNextQueue.clear()
+            addToQueueList.clear()
+            return
+        }
+        val upcomingIds = state.queue.subList(state.currentIndex + 1, state.queue.size).map { it.id }.toSet()
+        playNextQueue.retainAll { it.id in upcomingIds }
+        addToQueueList.retainAll { it.id in upcomingIds }
+    }
+
+    fun setQueue(
+        tracks: List<Track>,
+        startIndex: Int = 0,
+        preserveOrderIfSame: Boolean = false,
+        isUserQueue: Boolean = false
+    ): QueueState {
+        if (!preserveOrderIfSame || originalQueue.isEmpty() || originalQueue.map { it.id } != tracks.map { it.id }) {
+            originalQueue = tracks.toList()
+            playNextQueue.clear()
+            addToQueueList.clear()
+        }
+        val index = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
+
+        // Shuffle is a mode, not a property of one queue: when it is on and a new list starts
+        // (playlist, album, search result...), keep it on — the tapped song plays first and the
+        // rest of the new list is shuffled behind it. originalQueue (set above) still holds the
+        // in-order list, so turning shuffle off restores it. Previously every new list silently
+        // turned shuffle off.
+        if (!preserveOrderIfSame && state.isShuffled && tracks.size > 1) {
+            val start = tracks[index]
+            val rest = tracks.filterIndexed { i, _ -> i != index }.shuffled()
+            state = QueueState(
+                queue = listOf(start) + rest,
+                currentIndex = 0,
+                isShuffled = true,
+                repeatMode = state.repeatMode,
+                isUserQueue = isUserQueue
+            )
+            syncUserQueuesWithUpcoming()
+            return state
+        }
+
+        state = QueueState(
+            queue = tracks.toList(),
+            currentIndex = if (tracks.isNotEmpty()) index else -1,
+            isShuffled = if (preserveOrderIfSame) state.isShuffled else false,
+            repeatMode = state.repeatMode,
+            isUserQueue = isUserQueue
+        )
+        syncUserQueuesWithUpcoming()
+        return state
+    }
+
+    fun playTrack(
+        track: Track,
+        currentQueue: List<Track> = emptyList(),
+        isUserQueue: Boolean = false
+    ): QueueState {
+        val targetQueue = if (currentQueue.isNotEmpty()) currentQueue else state.queue
+        val existingIndex = targetQueue.indexOfFirst { it.id == track.id }
+        if (existingIndex != -1) {
+            return setQueue(targetQueue, existingIndex, isUserQueue = isUserQueue)
+        }
+        val newQueue = listOf(track) + targetQueue.filter { it.id != track.id }
+        return setQueue(newQueue, 0, isUserQueue = isUserQueue)
+    }
+
+    fun appendTracks(newTracks: List<Track>): QueueState {
+        if (newTracks.isEmpty()) return state
+        val existingIds = state.queue.map { it.id }.toMutableSet()
+        val existingBaseTitles = state.queue.mapNotNull {
+            val base = com.auralis.music.domain.recommendations.TrackDeduplicator.extractBaseSongTitle(it.title)
+            if (base.isNotBlank()) base else null
+        }.toMutableSet()
+
+        val uniqueNew = mutableListOf<Track>()
+        for (track in newTracks) {
+            if (track.id in existingIds) continue
+            val base = com.auralis.music.domain.recommendations.TrackDeduplicator.extractBaseSongTitle(track.title)
+            if (base.isNotBlank() && base in existingBaseTitles) continue
+            uniqueNew.add(track)
+            existingIds.add(track.id)
+            if (base.isNotBlank()) existingBaseTitles.add(base)
+        }
+
+        if (uniqueNew.isEmpty()) return state
+
+        val updatedQueue = state.queue + uniqueNew
+        state = state.copy(queue = updatedQueue)
+        return state
+    }
+
+    fun isNearEnd(threshold: Int = 3): Boolean {
+        if (state.queue.isEmpty()) return true
+        return state.currentIndex >= (state.queue.size - threshold)
+    }
+
+    fun nextIndex(isUserSkip: Boolean = false): Int? {
+        val q = state.queue
+        if (q.isEmpty()) return null
+
+        if (isUserSkip) {
+            // Explicit user skip: advance past current track regardless of RepeatMode.ONE
+            return if (q.size > 1) {
+                (state.currentIndex + 1) % q.size
+            } else {
+                null
+            }
+        }
+
+        return when (state.repeatMode) {
+            RepeatMode.ONE -> state.currentIndex
+            RepeatMode.ALL -> (state.currentIndex + 1) % q.size
+            RepeatMode.OFF -> {
+                if (state.currentIndex < q.size - 1) state.currentIndex + 1 else null
+            }
+        }
+    }
+
+    fun previousIndex(isUserSkip: Boolean = false): Int? {
+        val q = state.queue
+        if (q.isEmpty()) return null
+
+        if (isUserSkip) {
+            // Explicit user skip: go to previous track regardless of RepeatMode.ONE
+            return if (q.size > 1) {
+                if (state.currentIndex - 1 < 0) q.size - 1 else state.currentIndex - 1
+            } else {
+                null
+            }
+        }
+
+        return when (state.repeatMode) {
+            RepeatMode.ONE -> state.currentIndex
+            RepeatMode.ALL -> if (state.currentIndex - 1 < 0) q.size - 1 else state.currentIndex - 1
+            RepeatMode.OFF -> {
+                if (state.currentIndex > 0) state.currentIndex - 1 else null
+            }
+        }
+    }
+
+    fun advanceNext(isUserSkip: Boolean = false): Track? {
+        val next = nextIndex(isUserSkip) ?: return null
+        val nextTrack = state.queue.getOrNull(next)
+        if (nextTrack != null) {
+            if (playNextQueue.isNotEmpty() && playNextQueue.first().id == nextTrack.id) {
+                playNextQueue.removeFirst()
+            } else if (addToQueueList.isNotEmpty() && addToQueueList.first().id == nextTrack.id) {
+                addToQueueList.removeFirst()
+            }
+        }
+        state = state.copy(currentIndex = next)
+        syncUserQueuesWithUpcoming()
+        return state.currentTrack
+    }
+
+    fun advancePrevious(isUserSkip: Boolean = false): Track? {
+        val prev = previousIndex(isUserSkip) ?: return null
+        state = state.copy(currentIndex = prev)
+        syncUserQueuesWithUpcoming()
+        return state.currentTrack
+    }
+
+    fun toggleShuffle(): QueueState {
+        val curTrack = state.currentTrack
+        val nextShuffled = !state.isShuffled
+
+        val newQueue = if (nextShuffled) {
+            if (curTrack != null) {
+                val remaining = state.queue.filter { it.id != curTrack.id }.shuffled()
+                listOf(curTrack) + remaining
+            } else {
+                state.queue.shuffled()
+            }
+        } else {
+            if (originalQueue.isNotEmpty()) originalQueue else state.queue
+        }
+
+        val newIndex = if (curTrack != null) {
+            newQueue.indexOfFirst { it.id == curTrack.id }.coerceAtLeast(0)
+        } else {
+            0
+        }
+
+        playNextQueue.clear()
+        addToQueueList.clear()
+
+        state = state.copy(
+            queue = newQueue,
+            currentIndex = newIndex,
+            isShuffled = nextShuffled
+        )
+        return state
+    }
+
+    /**
+     * Restores the shuffle *mode* after an app restart. The persisted queue is already in its
+     * shuffled order, so this only sets the flag (no reshuffle); new lists will then be shuffled.
+     */
+    fun restoreShuffleFlag(isShuffled: Boolean): QueueState {
+        state = state.copy(isShuffled = isShuffled)
+        return state
+    }
+
+    fun setRepeatMode(mode: RepeatMode): QueueState {
+        state = state.copy(repeatMode = mode)
+        return state
+    }
+
+    fun moveItem(fromIndex: Int, toIndex: Int): QueueState {
+        val q = state.queue.toMutableList()
+        if (fromIndex !in q.indices || toIndex !in q.indices || fromIndex == toIndex) return state
+
+        val item = q.removeAt(fromIndex)
+        q.add(toIndex, item)
+
+        val newActiveIndex = QueueOperations.mapIndexAfterMove(
+            fromIndex = fromIndex,
+            toIndex = toIndex,
+            currentIndex = state.currentIndex
+        )
+
+        state = state.copy(queue = q, currentIndex = newActiveIndex)
+        syncUserQueuesWithUpcoming()
+        return state
+    }
+
+    fun removeItem(removeIndex: Int): QueueState {
+        val q = state.queue.toMutableList()
+        if (removeIndex !in q.indices) return state
+
+        val removed = q.removeAt(removeIndex)
+        val pnIdx = playNextQueue.indexOfFirst { it.id == removed.id }
+        if (pnIdx != -1) {
+            playNextQueue.removeAt(pnIdx)
+        } else {
+            val atqIdx = addToQueueList.indexOfFirst { it.id == removed.id }
+            if (atqIdx != -1) {
+                addToQueueList.removeAt(atqIdx)
+            }
+        }
+
+        val newActiveIndex = QueueOperations.mapIndexAfterRemove(
+            removeIndex = removeIndex,
+            currentIndex = state.currentIndex,
+            queueSizeAfterRemove = q.size
+        )
+
+        state = state.copy(queue = q, currentIndex = newActiveIndex)
+        syncUserQueuesWithUpcoming()
+        return state
+    }
+
+    fun addToQueue(track: Track): QueueState {
+        return addToQueue(listOf(track))
+    }
+
+    fun addToQueue(tracks: List<Track>): QueueState {
+        if (tracks.isEmpty()) return state
+        val q = state.queue.toMutableList()
+        for (track in tracks) {
+            val insertIndex = (state.currentIndex + 1 + playNextQueue.size + addToQueueList.size).coerceIn(0, q.size)
+            q.add(insertIndex, track)
+            addToQueueList.addLast(track)
+        }
+        val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
+        state = state.copy(queue = q, currentIndex = nextIndex, isUserQueue = true)
+        return state
+    }
+
+    fun playNext(track: Track): QueueState {
+        return playNext(listOf(track))
+    }
+
+    fun playNext(tracks: List<Track>): QueueState {
+        if (tracks.isEmpty()) return state
+        val q = state.queue.toMutableList()
+        val insertIndex = (state.currentIndex + 1).coerceIn(0, q.size)
+        q.addAll(insertIndex, tracks)
+        for (track in tracks.reversed()) {
+            playNextQueue.addFirst(track)
+        }
+        val nextIndex = if (state.currentIndex == -1) 0 else state.currentIndex
+        state = state.copy(queue = q, currentIndex = nextIndex, isUserQueue = true)
+        return state
+    }
+
+    fun clearQueue(): QueueState {
+        originalQueue = emptyList()
+        playNextQueue.clear()
+        addToQueueList.clear()
+        state = QueueState(repeatMode = state.repeatMode)
+        return state
+    }
+}

@@ -1,8 +1,8 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// The Windows app: a Compose Desktop shell over shared/. Anything a future macOS app would also
-// need belongs in shared/ (desktopMain), not here.
+// The Windows app: a Compose Desktop app over its own core (windows/core). The Android app and
+// :shared are never changed for Windows.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
@@ -20,7 +20,7 @@ java {
 
 dependencies {
     testImplementation(kotlin("test"))
-    implementation(project(":shared"))
+    implementation(project(":windows-core"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)

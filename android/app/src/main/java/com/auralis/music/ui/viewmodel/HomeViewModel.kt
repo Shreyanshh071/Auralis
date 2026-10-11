@@ -1,0 +1,1530 @@
+package com.auralis.music.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.auralis.music.data.network.AudioStreamResolver
+import com.auralis.music.data.network.InnerTubeClient
+import com.auralis.music.data.network.TitleCleaner
+import com.auralis.music.data.network.LibraryArtworkRepair
+import com.auralis.music.domain.model.*
+import com.auralis.music.domain.recommendations.NewUserSeedProvider
+import com.auralis.music.domain.recommendations.TasteProfile
+import com.auralis.music.domain.recommendations.TasteProfiler
+import com.auralis.music.domain.recommendations.TrackDeduplicator
+import com.auralis.music.domain.repository.HistoryRepository
+import com.auralis.music.domain.repository.SearchRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Collections
+
+import android.content.Context
+import com.auralis.music.data.datastore.HomeRecommendationsCache
+import com.auralis.music.data.datastore.PlaylistListeningStore
+import com.auralis.music.domain.recommendations.PlaylistSpeedDialRanking
+import com.auralis.music.domain.repository.LibraryRepository
+import com.auralis.music.domain.recommendations.SpeedDialIdHelper
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
+typealias SpeedDialItem = com.auralis.music.domain.model.SpeedDialItem
+typealias SpeedDialType = com.auralis.music.domain.model.SpeedDialType
+
+data class HomeRecommendationSection(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val iconName: String = "flame",
+    val tracks: List<Track> = emptyList()
+)
+
+private fun buildInitialSeedSpeedDial(): List<List<SpeedDialItem>> {
+    val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+    val allItems = mutableListOf<SpeedDialItem>()
+    for ((idx, t) in seedTracks.take(26).withIndex()) {
+        val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
+        allItems.add(
+            SpeedDialItem(
+                id = "track-${t.id}-$idx",
+                name = displayName,
+                type = SpeedDialType.TRACK,
+                track = t.copy(title = displayName),
+                image = t.thumbnail
+            )
+        )
+    }
+
+    val pages = mutableListOf<List<SpeedDialItem>>()
+    val page0Items = allItems.take(8).toMutableList()
+    if (page0Items.isNotEmpty()) {
+        page0Items.add(
+            SpeedDialItem(
+                id = "surprise-me-0",
+                name = "Surprise Me",
+                type = SpeedDialType.SURPRISE,
+                image = null
+            )
+        )
+        pages.add(page0Items)
+    }
+    val page1Items = allItems.drop(8).take(9)
+    if (page1Items.isNotEmpty()) pages.add(page1Items)
+    val page2Items = allItems.drop(17).take(9)
+    if (page2Items.isNotEmpty()) pages.add(page2Items)
+    return pages
+}
+
+data class HomeUiState(
+    val recentTracks: List<HistoryEntry> = emptyList(),
+    val topPlayedTracks: List<PlayCountEntry> = emptyList(),
+    val speedDialPages: List<List<SpeedDialItem>> = buildInitialSeedSpeedDial(),
+    val pinnedSpeedDialIds: Set<String> = emptySet(),
+    val forgottenFavorites: List<Track> = emptyList(),
+    val keepListening: List<Track> = emptyList(),
+    val quickPicks: List<Track> = emptyList(),
+    val communityPlaylists: List<PlaylistResult> = emptyList(),
+    val communitySections: List<CommunityPlaylistItem> = emptyList(),
+    val homeChips: List<HomeChip> = emptyList(),
+    val selectedChip: HomeChip? = null,
+    val dynamicSections: List<HomeSection> = emptyList(),
+    val legacySections: List<HomeRecommendationSection> = emptyList(),
+    val dailyDiscover: List<DailyDiscoverItem> = emptyList(),
+    val similarRecommendations: List<SimilarRecommendation> = emptyList(),
+    val similarArtists: List<Artist> = emptyList(),
+    val similarArtistTracks: List<Track> = emptyList(),
+    val similarArtistName: String? = null,
+    val similarArtistThumbnail: String? = null,
+    val selectedMoodFilter: String? = null,
+    val tasteProfile: TasteProfile = TasteProfile(),
+    val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val error: String? = null
+)
+
+class HomeViewModel(
+    private val historyRepository: HistoryRepository,
+    private val searchRepository: SearchRepository,
+    private val innerTubeClient: InnerTubeClient = InnerTubeClient(),
+    private val context: Context? = null,
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
+    private val libraryRepository: LibraryRepository? = null,
+    private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
+    @Volatile
+    internal var inMemoryPinnedItems: List<SpeedDialItem> = emptyList()
+    /** Up to three most-listened playlists with their measured listening time, highest first. */
+    @Volatile private var mostListenedPlaylistItems: List<Pair<SpeedDialItem, Long>> = emptyList()
+    /** Measured listening time per track ID, used to place playlists among songs. */
+    @Volatile private var trackListenMs: Map<String, Long> = emptyMap()
+
+    private val pinPersistenceMutex = Mutex()
+    internal val pinSequence = AtomicLong(0)
+
+    private fun computePinnedIds(items: List<SpeedDialItem>): Set<String> {
+        val ids = mutableSetOf<String>()
+        for (item in items) {
+            if (item.type == SpeedDialType.TRACK) {
+                ids.add(item.id)
+                item.track?.id?.let {
+                    ids.add(it)
+                    ids.add("track-$it")
+                }
+                SpeedDialIdHelper.getCanonicalTrackId(item.id)?.let {
+                    ids.add(it)
+                    ids.add("track-$it")
+                }
+            } else if (item.type == SpeedDialType.ALBUM) {
+                val clean = item.id.removePrefix("album-").removePrefix("VL")
+                ids.add("album-$clean")
+                ids.add("VL$clean")
+                ids.add(item.id)
+            } else {
+                ids.add(item.id)
+            }
+        }
+        return ids
+    }
+
+    init {
+        // Settings → Content → Quick picks: rebuild the row as soon as the mode changes.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.data.datastore.ContentSettingsStore.current
+                .map { it.quickPicksMode }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { fetchQuickPicks() }
+        }
+        // App language change: content language "System default" follows it, so reload too.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.ui.i18n.AppLanguage.changes.drop(1).collect { refresh() }
+        }
+        // Settings → Content → content language / country: reload so the feed shows them now.
+        viewModelScope.launch(ioDispatcher) {
+            com.auralis.music.data.datastore.ContentSettingsStore.current
+                .map { it.contentLanguage to it.contentCountry }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { refresh() }
+        }
+        if (context != null && libraryRepository != null) {
+            viewModelScope.launch(ioDispatcher) {
+                PlaylistListeningStore.load(context)
+                val trackListenTimes = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
+                    .playbackEventDao().getListenTimeByTrack()
+                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats, trackListenTimes) { playlists, stats, times ->
+                    val top = PlaylistSpeedDialRanking.mostListened(playlists, stats, PlaylistSpeedDialRanking.MAX_PLAYLISTS)
+                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times.associate { it.trackId to it.totalMs }
+                }.distinctUntilChanged().collect { (ranked, times) ->
+                    trackListenMs = times
+                    mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
+                        SpeedDialItem(
+                            id = "playlist-${playlist.id}",
+                            name = playlist.title,
+                            type = SpeedDialType.PLAYLIST,
+                            image = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+                        ) to listenedMs
+                    }
+                    _uiState.update { current ->
+                        val pinned = inMemoryPinnedItems
+                        current.copy(speedDialPages = buildSpeedDialPages(
+                            current.topPlayedTracks.map { it.track },
+                            current.recentTracks.map { it.track },
+                            current.speedDialPages.flatten().mapNotNull { it.track },
+                            pinned
+                        ))
+                    }
+                    HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                }
+            }
+        }
+        // 1. Immediately restore cached speed dial & recommendation shelves to UI (0ms cold start latency)
+        viewModelScope.launch(ioDispatcher) {
+            context?.let { ctx ->
+                val cachedSpeedDial = HomeRecommendationsCache.getCachedSpeedDial(ctx)
+                val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
+                val cachedDiscover = HomeRecommendationsCache.getCachedDailyDiscover(ctx)
+                val cachedPinned = HomeRecommendationsCache.getPinnedSpeedDialItems(ctx)
+                if (inMemoryPinnedItems.isEmpty()) {
+                    inMemoryPinnedItems = cachedPinned
+                }
+                val pinnedIds = computePinnedIds(inMemoryPinnedItems)
+                if (cachedSpeedDial.isNotEmpty() || cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty() || cachedPinned.isNotEmpty()) {
+                    _uiState.update {
+                        val currentPages = it.speedDialPages
+                        val effectivePages = if (inMemoryPinnedItems.isNotEmpty() && inMemoryPinnedItems != cachedPinned) {
+                            currentPages
+                        } else if (cachedSpeedDial.isNotEmpty()) {
+                            cachedSpeedDial
+                        } else {
+                            currentPages
+                        }
+                        it.copy(
+                            pinnedSpeedDialIds = pinnedIds,
+                            speedDialPages = effectivePages,
+                            similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
+                            dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
+                        )
+                    }
+                }
+            }
+        }
+
+        // Scan saved metadata once. Only missing or suspicious rows receive a verified lookup.
+        if (context != null && libraryRepository != null) {
+            viewModelScope.launch(ioDispatcher) {
+                val prefs = context.getSharedPreferences("auralis_verified_artwork_repair", Context.MODE_PRIVATE)
+                if (prefs.getInt("version", 0) < 11 &&
+                    System.currentTimeMillis() - prefs.getLong("last_attempt_v11", 0L) > 24L * 60 * 60 * 1000) {
+                    try {
+                        val corrected = mutableMapOf<String, Track>()
+                        val outcome = LibraryArtworkRepair(libraryRepository).runDetailed { track ->
+                            corrected[track.id] = track
+                            withContext(Dispatchers.Main) {
+                                audioPlayer?.applyVerifiedTrackMetadata(track)
+                            }
+                            try {
+                                com.auralis.music.data.download.AuralisDownloadManager
+                                    .applyVerifiedTrackMetadata(track, context)
+                            } catch (e: Exception) {
+                                android.util.Log.w("HomeViewModel", "Offline artwork update deferred: ${e.message}")
+                            }
+                        }
+                        if (corrected.isNotEmpty()) {
+                            com.auralis.music.data.network.ArtworkResolver.clearCache()
+                            fun updated(item: SpeedDialItem): SpeedDialItem {
+                                val track = item.track?.id?.let { corrected[it] } ?: return item
+                                return item.copy(image = track.thumbnail,
+                                    track = item.track!!.copy(album = track.album, thumbnail = track.thumbnail))
+                            }
+                            inMemoryPinnedItems = inMemoryPinnedItems.map(::updated)
+                            HomeRecommendationsCache.savePinnedSpeedDialItems(context, inMemoryPinnedItems)
+                            _uiState.update { state ->
+                                state.copy(speedDialPages = state.speedDialPages.map { page -> page.map(::updated) })
+                            }
+                            HomeRecommendationsCache.saveSpeedDial(context, _uiState.value.speedDialPages)
+                        }
+                        prefs.edit().putLong("last_attempt_v11", System.currentTimeMillis())
+                            .apply {
+                                if (outcome.unresolved == 0) putInt("version", 11)
+                            }.apply()
+                        android.util.Log.i("HomeViewModel", "Verified ${corrected.size} library artwork corrections; ${outcome.unresolved} unresolved")
+                    } catch (e: Exception) {
+                        android.util.Log.w("HomeViewModel", "Artwork repair will retry: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        // 2. Load fresh home data from local DB and start background feeds
+        loadHomeData()
+
+        // 3. Continuously collect listening history & top played in real-time
+        viewModelScope.launch(ioDispatcher) {
+            historyRepository.getHistory().collect { historyList ->
+                val topPlayed = historyRepository.getTopPlayedTracks().first()
+                val isNewUser = !hasListeningHistory(historyList, topPlayed)
+
+                val profile = if (isNewUser) {
+                    TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
+                } else {
+                    TasteProfiler.computeTasteProfile(historyList, topPlayed)
+                }
+
+                val topTracks = topPlayed.map { it.track }
+                val historyTracks = historyList.map { it.track }
+
+                if (isNewUser) {
+                    val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+                    _uiState.update { current ->
+                        // Read authoritative pinned state at CAS-apply time to avoid clobbering concurrent pins
+                        val currentPinned = inMemoryPinnedItems
+                        val pinnedIds = computePinnedIds(currentPinned)
+                        val speedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks, currentPinned)
+                        current.copy(
+                            recentTracks = emptyList(),
+                            topPlayedTracks = emptyList(),
+                            tasteProfile = profile,
+                            speedDialPages = speedDial,
+                            pinnedSpeedDialIds = pinnedIds,
+                            isLoading = false
+                        )
+                    }
+                } else {
+                    val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+                    val heavy = historyRepository.getRecentHeavyRotation()
+                    _uiState.update { current ->
+                        // Read authoritative pinned state at CAS-apply time to avoid clobbering concurrent pins
+                        val currentPinned = inMemoryPinnedItems
+                        val pinnedIds = computePinnedIds(currentPinned)
+                        val speedDial = buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, currentPinned)
+                        current.copy(
+                            recentTracks = historyList,
+                            topPlayedTracks = topPlayed,
+                            tasteProfile = profile,
+                            speedDialPages = speedDial,
+                            pinnedSpeedDialIds = pinnedIds,
+                            isLoading = false
+                        )
+                    }
+                    context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
+                }
+            }
+        }
+    }
+
+
+    private fun hasListeningHistory(history: List<HistoryEntry>, topPlayed: List<PlayCountEntry>): Boolean {
+        return history.isNotEmpty() || topPlayed.isNotEmpty()
+    }
+
+    private fun isInvalidArtistName(artist: String?): Boolean {
+        return TrackDeduplicator.isInvalidArtistName(artist)
+    }
+
+    /**
+     * Recommendation Engine:
+     * Phase 1: Local database queries (Speed Dial, Forgotten Favorites, Heavy Rotation)
+     *          plus primary YouTube Music Home feed.
+     * Phase 2: Asynchronous background coroutines for heavy discovery algorithms
+     *          (Daily Discover, Similar recommendations, Community Playlists, Quick Picks).
+     */
+    fun loadHomeData(): kotlinx.coroutines.Job {
+        // Do not display blocking skeleton if Speed Dial or recommendations are already present
+        _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty(), error = null) }
+
+        return viewModelScope.launch(ioDispatcher) {
+            try {
+                // Phase 1: Ultra-fast local SQLite queries (completes in ~5-15ms)
+                val history = historyRepository.getHistory().first()
+                val topPlayed = historyRepository.getTopPlayedTracks().first()
+                val isNewUser = !hasListeningHistory(history, topPlayed)
+
+                val profile = if (isNewUser) {
+                    TasteProfile(recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS, primaryVibe = "Welcome to Auralis")
+                } else {
+                    TasteProfiler.computeTasteProfile(history, topPlayed)
+                }
+
+                val topTracks = topPlayed.map { it.track }
+                val historyTracks = history.map { it.track }
+                val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+                val heavy = historyRepository.getRecentHeavyRotation()
+                val forgotten = historyRepository.getForgottenFavorites().shuffled().take(15)
+
+                _uiState.update { current ->
+                    // Read authoritative pinned state at CAS-apply time to avoid clobbering concurrent pins
+                    val currentPinned = inMemoryPinnedItems
+                    val pinnedIds = computePinnedIds(currentPinned)
+                    val speedDial = if (isNewUser) {
+                        buildSpeedDialPages(emptyList(), emptyList(), NewUserSeedProvider.getInitialSeedTracks(), currentPinned)
+                    } else {
+                        buildSpeedDialPages(topTracks, historyTracks, likedSeeds + heavy, currentPinned)
+                    }
+                    current.copy(
+                        recentTracks = history,
+                        topPlayedTracks = topPlayed,
+                        speedDialPages = speedDial,
+                        pinnedSpeedDialIds = pinnedIds,
+                        forgottenFavorites = forgotten,
+                        keepListening = heavy.distinctBy { trk -> trk.id }.take(15),
+                        tasteProfile = profile,
+                        isLoading = false
+                    )
+                }
+
+                // Persist current speed dial to disk cache
+                context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
+
+                // Phase 2: Decoupled background network calls (never block UI or startup frame)
+                // 1. YouTube Music Home feed
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val (chips, sections) = innerTubeClient.getHome()
+                        val cleanChips = chips.filter { !isUnwantedNoiseChip(it) }
+                        val cleanSections = orderHomeSections(sections.filter { !isUnwantedNoiseSection(it) })
+                        _uiState.update {
+                            it.copy(
+                                homeChips = cleanChips,
+                                dynamicSections = cleanSections
+                            )
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Quick Picks
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchQuickPicks()
+                    } catch (_: Exception) {}
+                }
+
+                // 3. Daily Discover
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchDailyDiscover()
+                    } catch (_: Exception) {}
+                }
+
+                // 4. Similar Recommendations
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchSimilarRecommendations()
+                    } catch (_: Exception) {}
+                }
+
+                // 5. Community Playlists
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        fetchCommunityPlaylists()
+                    } catch (_: Exception) {}
+                }
+
+                // 6. Pre-warm audio streams for top 2 visible Speed Dial tracks
+                val currentPages = _uiState.value.speedDialPages
+                val firstPageTrackIds = currentPages.firstOrNull()
+                    ?.filter { it.type == SpeedDialType.TRACK }
+                    ?.map { it.id }
+                    ?.take(2) ?: emptyList()
+                val candidatePool = if (isNewUser) NewUserSeedProvider.getInitialSeedTracks() else (topTracks + historyTracks + likedSeeds + heavy)
+                val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
+                if (tracksToPrewarm.isNotEmpty()) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        for (trk in tracksToPrewarm) {
+                            try {
+                                val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
+                                if (!isCached) {
+                                    AudioStreamResolver.resolveAudioStream(trk.id, trk.title, trk.artist, duration = trk.duration)
+                                }
+
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+
+                // 7. Background artist avatar photo resolution (limited to 6)
+                if (!isNewUser) {
+                    val artistsToResolve = (topTracks + historyTracks + likedSeeds + heavy)
+                        .map { it.artist }
+                        .filter { !isInvalidArtistName(it) && !artistAvatarCache.containsKey(it) }
+                        .distinct()
+
+                    if (artistsToResolve.isNotEmpty()) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            for (art in artistsToResolve.take(6)) {
+                                try {
+                                    val searchHits = searchRepository.search(art)
+                                    val match = searchHits.artists.firstOrNull { it.name.equals(art, ignoreCase = true) }
+                                        ?: searchHits.artists.firstOrNull()
+                                    if (match != null && !match.thumbnail.isNullOrBlank()) {
+                                        artistAvatarCache[art] = Pair(match.id, match.thumbnail!!)
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+
+    /** Pull-to-refresh: reloads everything and keeps the spinner up until the load finishes. */
+    fun refresh() {
+        if (_uiState.value.isRefreshing) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true) }
+            kotlinx.coroutines.withTimeoutOrNull(20_000L) {
+                coroutineScope {
+                    launch { loadHomeData().join() }
+                    launch { fetchQuickPicks() }
+                }
+            }
+            _uiState.update { it.copy(isRefreshing = false) }
+        }
+    }
+
+    /**
+     * Daily Discover: Seeds liked/played songs -> queries YouTube related -> generates novel discoveries.
+     */
+    private suspend fun fetchDailyDiscover() = withContext(Dispatchers.IO) {
+        try {
+            val likedSeeds = historyRepository.getLikedSeeds(limit = 8).shuffled().take(5)
+            val history = historyRepository.getHistory().first().map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val isNewUser = likedSeeds.isEmpty() && history.isEmpty() && topPlayed.isEmpty()
+
+            if (isNewUser) {
+                val seedDiscoveries = NewUserSeedProvider.fetchSeedDailyDiscover(searchRepository, innerTubeClient)
+                if (seedDiscoveries.isNotEmpty()) {
+                    _uiState.update { it.copy(dailyDiscover = seedDiscoveries) }
+                    context?.let { HomeRecommendationsCache.saveDailyDiscover(it, seedDiscoveries) }
+                }
+                return@withContext
+            }
+
+            val seeds = if (likedSeeds.isNotEmpty()) {
+                likedSeeds
+            } else {
+                history.shuffled().take(5)
+            }
+
+            val discoveries = Collections.synchronizedList(mutableListOf<DailyDiscoverItem>())
+
+            if (seeds.isNotEmpty()) {
+                coroutineScope {
+                    seeds.forEach { seed ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(seed.id)
+                                if (browseId != null || params != null) {
+                                    val related = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRelated(browseId, params) }
+                                    val candidate = related.firstOrNull { it.id != seed.id }
+                                    if (candidate != null) {
+                                        discoveries.add(
+                                            DailyDiscoverItem(
+                                                seed = seed,
+                                                recommendation = candidate,
+                                                browseId = browseId,
+                                                params = params
+                                            )
+                                        )
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+
+            if (discoveries.isEmpty()) {
+                // High-quality trending fallback discovery
+                val trending = searchRepository.search("Global Viral & Discovery Mix").songs.take(6)
+                trending.forEach { t ->
+                    discoveries.add(
+                        DailyDiscoverItem(
+                            seed = t,
+                            recommendation = t
+                        )
+                    )
+                }
+            }
+
+            val finalItems = discoveries.distinctBy { it.recommendation.id }.shuffled()
+            if (finalItems.isNotEmpty()) {
+                _uiState.update { it.copy(dailyDiscover = finalItems) }
+                context?.let { HomeRecommendationsCache.saveDailyDiscover(it, finalItems) }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Similar Recommendations: "Similar to [Artist]" & "Similar to [Song]"
+     * Fetches concurrently and saves to local disk cache so shelves never vanish on restart.
+     */
+    private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
+        try {
+            val history = historyRepository.getHistory().first().map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val isNewUser = history.isEmpty() && topPlayed.isEmpty()
+
+            if (isNewUser) {
+                val seedRecs = NewUserSeedProvider.fetchSeedSimilarRecommendations(searchRepository)
+                if (seedRecs.isNotEmpty()) {
+                    _uiState.update { it.copy(similarRecommendations = seedRecs) }
+                    context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, seedRecs) }
+                }
+                return@withContext
+            }
+
+            // Individual artists (a credit line like "Pritam, Arijit Singh & Antara Mitra" is split),
+            // ranked by how often the user plays them.
+            val topArtists = com.auralis.music.domain.recommendations.SimilarSeedPlanner
+                .rankArtistSeeds(history, topPlayed, limit = 4)
+
+            val topTracks = history.take(3)
+            val similarList = Collections.synchronizedList(mutableListOf<SimilarRecommendation>())
+            val artistShelves = java.util.concurrent.ConcurrentHashMap<String, SimilarRecommendation>()
+            val songShelves = java.util.concurrent.ConcurrentHashMap<String, SimilarRecommendation>()
+
+            coroutineScope {
+                // 1. Artist-based recommendations from user's authentic favorite artists (parallel)
+                topArtists.forEach { artistName ->
+                    launch(Dispatchers.IO) {
+                        try {
+                            val searchResult = searchRepository.search(artistName)
+                            // Only a real artist match makes an artist shelf (a badly split duo name
+                            // such as "Simon" from "Simon & Garfunkel" is skipped, not guessed).
+                            val matchedArtist = searchResult.artists.firstOrNull {
+                                com.auralis.music.domain.recommendations.SimilarSeedPlanner.isSameArtist(it.name, artistName)
+                            }
+                            val artistTracks = searchResult.songs.take(10)
+                            val sampleThumb = matchedArtist?.thumbnail
+                                ?: artistTracks.firstOrNull()?.thumbnail
+
+                            if (matchedArtist != null && artistTracks.isNotEmpty()) {
+                                artistShelves[artistName] = (
+                                    SimilarRecommendation(
+                                        seedTitle = artistName,
+                                        seedThumbnail = sampleThumb,
+                                        seedType = RecommendationSeedType.ARTIST,
+                                        items = artistTracks,
+                                        artistId = matchedArtist?.id,
+                                        artistName = artistName
+                                    )
+                                )
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // 2. Song-based related recommendations (parallel)
+                topTracks.forEach { track ->
+                    launch(Dispatchers.IO) {
+                        try {
+                            val (browseId, params) = innerTubeClient.getNextAndRelatedEndpoint(track.id)
+                            val related = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRelated(browseId, params) }.take(10)
+                            if (related.isNotEmpty()) {
+                                songShelves[track.id] = (
+                                    SimilarRecommendation(
+                                        seedTitle = track.title,
+                                        seedThumbnail = track.thumbnail,
+                                        seedType = RecommendationSeedType.SONG,
+                                        items = related,
+                                        artistName = track.artist
+                                    )
+                                )
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // Stable order: artist and song shelves alternate, each in seed order, instead of
+            // whichever network call happened to finish first.
+            similarList.addAll(
+                com.auralis.music.domain.recommendations.SimilarSeedPlanner.interleave(
+                    topArtists.mapNotNull { artistShelves[it] },
+                    topTracks.mapNotNull { songShelves[it.id] }
+                )
+            )
+
+            // 3. Fallback popular recommendations if history is sparse (dynamic trending discovery)
+            if (similarList.isEmpty()) {
+                coroutineScope {
+                    launch(Dispatchers.IO) {
+                        try {
+                            val exploreSections = innerTubeClient.getExplore()
+                            val topTracks = exploreSections.flatMap { it.items }.distinctBy { it.id }.take(15)
+                            val discoveredArtists = topTracks.map { it.artist }.filter { !isInvalidArtistName(it) }.distinct().take(3)
+
+                            for (artist in discoveredArtists) {
+                                val res = searchRepository.search(artist)
+                                val matchedArt = res.artists.firstOrNull { it.name.equals(artist, ignoreCase = true) }
+                                    ?: res.artists.firstOrNull()
+                                if (res.songs.isNotEmpty()) {
+                                    similarList.add(
+                                        SimilarRecommendation(
+                                            seedTitle = artist,
+                                            seedThumbnail = matchedArt?.thumbnail ?: res.songs.firstOrNull()?.thumbnail,
+                                            seedType = RecommendationSeedType.ARTIST,
+                                            items = res.songs.take(8),
+                                            artistId = matchedArt?.id,
+                                            artistName = artist
+                                        )
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            val finalRecs = similarList.toList()
+            if (finalRecs.isNotEmpty()) {
+                _uiState.update { it.copy(similarRecommendations = finalRecs) }
+                context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, finalRecs) }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Quick Picks:
+     * - Discovers and aggregates songs across ALL artists the user frequently listens to
+     *   (sampling from listening history, heavy rotation, top played, and liked songs).
+     * - Samples top tracks and radio recommendations from up to 8 distinct artists the user loves.
+     * - Interleaves (round-robin) the tracks so Quick Picks is never saturated with just 1 artist,
+     *   giving a rich, diverse personalized feed.
+     * - If first-time user: falls back to YouTube Music home quick picks & trending hits.
+     */
+    private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
+        try {
+            val history = historyRepository.getHistory().first().map { it.track }
+
+            // Settings → Content → Quick picks → "Last song listened": the row is that song's radio.
+            // Falls through to the usual mix when there's no history or the radio comes back empty.
+            if (com.auralis.music.data.datastore.ContentSettingsStore.value.quickPicksMode ==
+                com.auralis.music.domain.model.QuickPicksMode.LAST_LISTEN
+            ) {
+                val last = history.firstOrNull { it.source == com.auralis.music.domain.model.TrackSource.YOUTUBE }
+                if (last != null) {
+                    val radio = try {
+                        com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(last.id, last.artist, last.title) }
+                    } catch (_: Exception) { emptyList() }
+                    val picks = radio.filter { it.id != last.id }
+                        .distinctBy { it.id }
+                        .fold(mutableListOf<Track>()) { acc, t ->
+                            if (acc.none { TrackDeduplicator.isDuplicateTrack(it, t) }) acc.add(t); acc
+                        }
+                        .take(24)
+                    if (picks.isNotEmpty()) {
+                        _uiState.update { it.copy(quickPicks = picks) }
+                        return@withContext
+                    }
+                }
+            }
+            val heavyRotation = historyRepository.getRecentHeavyRotation()
+            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
+
+            val allUserTracks = (history + heavyRotation + topPlayed + likedSeeds).distinctBy { it.id }
+
+            if (allUserTracks.isEmpty()) {
+                val seedPicks = NewUserSeedProvider.fetchSeedQuickPicks(searchRepository)
+                if (seedPicks.isNotEmpty()) {
+                    _uiState.update { it.copy(quickPicks = seedPicks) }
+                }
+                return@withContext
+            }
+
+            // Group user tracks by artist to discover ALL distinct artists the user listens to
+            val artistTracksMap = mutableMapOf<String, MutableList<Track>>()
+            for (track in allUserTracks) {
+                val artist = track.artist.trim()
+                if (artist.isNotBlank() && !isInvalidArtistName(artist)) {
+                    artistTracksMap.getOrPut(artist) { mutableListOf() }.add(track)
+                }
+            }
+
+            val artistPools = Collections.synchronizedList(mutableListOf<MutableList<Track>>())
+
+            if (artistTracksMap.isNotEmpty()) {
+                // Sort artists by how many tracks user has listened to (descending user affinity)
+                val sortedArtists = artistTracksMap.entries
+                    .sortedByDescending { it.value.size }
+                    .map { it.key }
+                    .take(8) // Top 8 distinct artists
+
+                coroutineScope {
+                    sortedArtists.forEach { artistName ->
+                        launch(Dispatchers.IO) {
+                            val pool = mutableListOf<Track>()
+                            val userKnownTracks = artistTracksMap[artistName] ?: emptyList()
+
+                            // 1. Add tracks the user loves by this artist (up to 4)
+                            pool.addAll(userKnownTracks.shuffled().take(4))
+
+                            // 2. Fetch radio tracks or top search hits for this artist
+                            var remoteAdded = false
+                            try {
+                                val seedTrack = userKnownTracks.firstOrNull()
+                                if (seedTrack != null) {
+                                    val radio = com.auralis.music.data.network.LocalizedContent.run { innerTubeClient.getRadioTracks(seedTrack.id, seedTrack.artist, seedTrack.title) }.take(6)
+                                    if (radio.isNotEmpty()) {
+                                        pool.addAll(radio)
+                                        remoteAdded = true
+                                    }
+                                }
+                            } catch (_: Exception) {}
+
+                            // Fallback to search query if radio didn't provide enough songs
+                            if (!remoteAdded || pool.size < 4) {
+                                try {
+                                    val searchHits = searchRepository.search("$artistName songs").songs.take(4)
+                                    pool.addAll(searchHits)
+                                } catch (_: Exception) {}
+                            }
+
+                            if (pool.isNotEmpty()) {
+                                artistPools.add(pool.distinctBy { it.id }.toMutableList())
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback for new users or if not enough artist pools
+            val fallbackList = mutableListOf<Track>()
+            val totalPoolTracks = artistPools.sumOf { it.size }
+            if (totalPoolTracks < 20 || artistPools.size < 4) {
+                try {
+                    val (_, sections) = innerTubeClient.getHome()
+                    for (section in sections) {
+                        if (section.title.contains("Quick pick", ignoreCase = true) ||
+                            section.title.contains("Mixed for you", ignoreCase = true) ||
+                            section.title.contains("Listen again", ignoreCase = true) ||
+                            section.title.contains("Trending", ignoreCase = true) ||
+                            section.title.contains("Hits", ignoreCase = true)) {
+                            fallbackList.addAll(section.items)
+                        }
+                    }
+                    // Those titles are English; with another content language none match, so
+                    // take the leading shelves instead (YouTube puts the personal ones first).
+                    if (fallbackList.isEmpty()) {
+                        sections.take(3).forEach { fallbackList.addAll(it.items) }
+                    }
+                } catch (_: Exception) {}
+
+                if (fallbackList.isEmpty()) {
+                    try {
+                        val trending = searchRepository.search("Top trending music hits").songs
+                        fallbackList.addAll(trending)
+                    } catch (_: Exception) {}
+                }
+
+                // Guarantee local seed tracks in fallback so Quick Picks never starves on poor network
+                fallbackList.addAll(NewUserSeedProvider.getInitialSeedTracks())
+            }
+
+            // Round-Robin Interleave: Pick 1 track per artist per round to ensure diverse artist representation
+            val finalQuickPicks = mutableListOf<Track>()
+            val seenTrackIds = mutableSetOf<String>()
+            val artistAppearanceCount = mutableMapOf<String, Int>()
+
+            var round = 0
+            val maxRounds = 6
+            while (finalQuickPicks.size < 28 && round < maxRounds && artistPools.any { it.isNotEmpty() }) {
+                var anyAdded = false
+                for (pool in artistPools) {
+                    if (pool.isNotEmpty()) {
+                        val track = pool.removeAt(0)
+                        val count = artistAppearanceCount.getOrDefault(track.artist, 0)
+                        if (count < 4 && seenTrackIds.add(track.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, track) }) {
+                            finalQuickPicks.add(track)
+                            artistAppearanceCount[track.artist] = count + 1
+                            anyAdded = true
+                        }
+                    }
+                }
+                if (!anyAdded) break
+                round++
+            }
+
+            // If we still need more tracks, fill from fallback list (targeting 20-24 tracks)
+            if (finalQuickPicks.size < 24 && fallbackList.isNotEmpty()) {
+                for (t in fallbackList) {
+                    val count = artistAppearanceCount.getOrDefault(t.artist, 0)
+                    if (count < 3 && seenTrackIds.add(t.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, t) }) {
+                        finalQuickPicks.add(t)
+                        artistAppearanceCount[t.artist] = count + 1
+                        if (finalQuickPicks.size >= 24) break
+                    }
+                }
+            }
+
+            // Absolute floor: Ensure at least 16 tracks (4 full slides of 4 tracks)
+            if (finalQuickPicks.size < 16) {
+                for (seed in NewUserSeedProvider.getInitialSeedTracks()) {
+                    if (seenTrackIds.add(seed.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, seed) }) {
+                        finalQuickPicks.add(seed)
+                        if (finalQuickPicks.size >= 16) break
+                    }
+                }
+            }
+
+            if (finalQuickPicks.isNotEmpty()) {
+                _uiState.update { it.copy(quickPicks = finalQuickPicks) }
+
+                launch(Dispatchers.IO) {
+                    var updated = false
+                    val resolvedPicks = finalQuickPicks.map { trk ->
+                        if (trk.thumbnail.isBlank()) {
+                            val thumb = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(trk)
+                            if (!thumb.isNullOrBlank()) {
+                                updated = true
+                                trk.copy(thumbnail = thumb)
+                            } else trk
+                        } else trk
+                    }
+                    if (updated) {
+                        _uiState.update { it.copy(quickPicks = resolvedPicks) }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Settings → Content → Randomize home order: a weighted shuffle of the YouTube shelves, so a
+     * shelf YouTube ranks higher still tends to stay higher (Efraimidis–Spirakis keys, weight
+     * falling with the original position). Off → YouTube's order.
+     */
+    private fun orderHomeSections(sections: List<HomeSection>): List<HomeSection> {
+        if (!com.auralis.music.data.datastore.ContentSettingsStore.value.randomizeHomeOrder) return sections
+        return sections.withIndex()
+            .sortedByDescending { (index, _) ->
+                val weight = 1.0 / (1.0 + index * 0.5)
+                Math.pow(kotlin.random.Random.nextDouble(), 1.0 / weight)
+            }
+            .map { it.value }
+    }
+
+    /**
+     * Community Playlists & Curated Mixes
+     */
+    private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
+        try {
+            val history = historyRepository.getHistory().first().map { it.track }
+            val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
+
+            if (history.isEmpty() || topArtist.isNullOrBlank()) {
+                val seedPlaylists = NewUserSeedProvider.fetchSeedCommunityPlaylists(searchRepository)
+                if (seedPlaylists.isNotEmpty()) {
+                    _uiState.update { it.copy(communityPlaylists = seedPlaylists) }
+                    return@withContext
+                }
+            }
+
+            val query = if (!topArtist.isNullOrBlank()) "$topArtist Mix" else "Top Hits Playlist 2026"
+            val playlistsResult = searchRepository.searchPlaylists(query)
+            
+            val community = if (playlistsResult.isNotEmpty()) {
+                playlistsResult.take(8)
+            } else {
+                searchRepository.searchPlaylists("Popular Music Mix").take(8)
+            }
+            if (community.isNotEmpty()) {
+                _uiState.update { it.copy(communityPlaylists = community) }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Toggles/Selects a YouTube Music Chip.
+     */
+    fun toggleChip(chip: HomeChip?) {
+        val nextChip = if (_uiState.value.selectedChip == chip) null else chip
+        _uiState.update { it.copy(selectedChip = nextChip, isLoading = true) }
+
+        viewModelScope.launch {
+            try {
+                val (_, sections) = if (nextChip != null) {
+                    innerTubeClient.getHome(params = nextChip.params)
+                } else {
+                    innerTubeClient.getHome()
+                }
+                val cleanSections = orderHomeSections(sections.filter { !isUnwantedNoiseSection(it) })
+                _uiState.update {
+                    it.copy(dynamicSections = cleanSections, isLoading = false)
+                }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    private fun isUnwantedNoiseSection(section: HomeSection): Boolean {
+        val lowerTitle = section.title.lowercase()
+        val lowerSubtitle = (section.subtitle ?: "").lowercase()
+        return lowerTitle.contains("rain therapy") || lowerTitle.contains("rain sound") ||
+            lowerTitle.contains("sleep therapy") || lowerTitle.contains("white noise") ||
+            lowerTitle.contains("nature sound") || lowerTitle.contains("binaural") ||
+            lowerTitle.contains("sleep sound") || lowerTitle.contains("deep sleep") ||
+            lowerSubtitle.contains("rain therapy") || lowerSubtitle.contains("sleep therapy") ||
+            lowerSubtitle.contains("white noise")
+    }
+
+    private fun isUnwantedNoiseChip(chip: HomeChip): Boolean {
+        val lower = chip.title.lowercase()
+        return lower.contains("sleep") || lower.contains("therapy") || lower.contains("rain") ||
+            lower.contains("white noise") || lower.contains("ambient sound")
+    }
+
+    fun selectMoodFilter(mood: String?) {
+        _uiState.update { it.copy(selectedMoodFilter = mood) }
+        viewModelScope.launch {
+            if (mood == null) {
+                loadHomeData()
+            } else {
+                _uiState.update { it.copy(isLoading = true) }
+                try {
+                    val results = searchRepository.search("$mood music hits")
+                    val moodSection = HomeRecommendationSection(
+                        id = "mood-$mood",
+                        title = "$mood Hits",
+                        subtitle = "Curated for your $mood mood",
+                        iconName = "sparkles",
+                        tracks = results.songs
+                    )
+                    _uiState.update {
+                        it.copy(
+                            legacySections = listOf(moodSection),
+                            isLoading = false
+                        )
+                    }
+                } catch (_: Exception) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+            }
+        }
+    }
+
+    fun getRandomSurpriseTrack(): Track? {
+        val all = _uiState.value.quickPicks +
+                _uiState.value.forgottenFavorites +
+                _uiState.value.keepListening +
+                _uiState.value.similarRecommendations.flatMap { it.items }
+        return all.shuffled().firstOrNull()
+    }
+
+    fun removeFromHistory(trackId: String) {
+        viewModelScope.launch {
+            historyRepository.removeFromHistory(trackId)
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            historyRepository.clearHistory()
+            context?.let { PlaylistListeningStore.clear(it) }
+            val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+            _uiState.update { current ->
+                val currentPinned = inMemoryPinnedItems
+                val pinnedIds = computePinnedIds(currentPinned)
+                val seedSpeedDial = buildSpeedDialPages(emptyList(), emptyList(), seedTracks, currentPinned)
+                current.copy(
+                    recentTracks = emptyList(),
+                    topPlayedTracks = emptyList(),
+                    speedDialPages = seedSpeedDial,
+                    pinnedSpeedDialIds = pinnedIds,
+                    keepListening = emptyList(),
+                    forgottenFavorites = emptyList(),
+                    tasteProfile = TasteProfile(
+                        recommendedSeeds = NewUserSeedProvider.SEED_ARTISTS,
+                        primaryVibe = "Welcome to Auralis"
+                    )
+                )
+            }
+            fetchQuickPicks()
+            fetchSimilarRecommendations()
+            fetchDailyDiscover()
+            fetchCommunityPlaylists()
+        }
+    }
+
+    /**
+     * Builds 3x3 Speed Dial Pages (27 items total = 3 pages of 9).
+     * Pinned items (albums, artists, tracks) appear first on Page 0.
+     * Strictly deduplicates songs so identical tracks are never recommended multiple times.
+     * Only page 0 displays the 5-dot "Surprise Me" tile in the 9th slot; pages 1 and 2 display 9 full items.
+     */
+    fun buildSpeedDialPages(
+        topTracks: List<Track>,
+        historyTracks: List<Track>,
+        fallbackCandidates: List<Track> = emptyList(),
+        pinnedItems: List<SpeedDialItem>? = null
+    ): List<List<SpeedDialItem>> {
+        val effectivePinned = pinnedItems ?: inMemoryPinnedItems
+        val pinnedIds = computePinnedIds(effectivePinned)
+
+        val allItems = mutableListOf<SpeedDialItem>()
+        // 1. Add all pinned items first
+        allItems.addAll(effectivePinned)
+
+        // 2. Add unpinned tracks up to limit (always backed by seed tracks so 26 slots are filled)
+        val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
+        val candidateTracks = topTracks + historyTracks + fallbackCandidates + seedTracks
+        val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
+        val trackItems = mutableListOf<SpeedDialItem>()
+        for ((idx, t) in uniqueTracks.withIndex()) {
+            if (allItems.size + trackItems.size >= 26) break
+            val trackItemId = "track-${t.id}-$idx"
+            // Deduplicate against pinned items using canonical track matching
+            val isAlreadyPinned = pinnedIds.contains(t.id) ||
+                pinnedIds.contains(trackItemId) ||
+                pinnedIds.contains("track-${t.id}") ||
+                effectivePinned.any { pin ->
+                    pin.type == SpeedDialType.TRACK && (
+                        SpeedDialIdHelper.isSameTrack(pin.id, t.id) ||
+                        (pin.track != null && pin.track!!.id == t.id)
+                    )
+                }
+            if (isAlreadyPinned) continue
+
+            val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
+            trackItems.add(
+                SpeedDialItem(
+                    id = trackItemId,
+                    name = displayName,
+                    type = SpeedDialType.TRACK,
+                    track = t.copy(title = displayName),
+                    image = t.thumbnail
+                )
+            )
+        }
+
+        // Up to three playlists with repeat, substantial listening, placed among the songs by
+        // listening time: a playlist can outrank songs, and a more-listened song outranks it.
+        val playlists = mostListenedPlaylistItems.filter { (item, _) -> allItems.none { it.id == item.id } }
+        val playlistMs = playlists.associate { (item, ms) -> item.id to ms }
+        val times = trackListenMs
+        val ranked = PlaylistSpeedDialRanking.interleave(
+            items = trackItems,
+            itemMs = { item -> item.track?.id?.let { times[it] } ?: 0L },
+            playlists = playlists.map { it.first },
+            playlistMs = { item -> playlistMs[item.id] ?: 0L }
+        )
+        allItems.addAll(ranked.take((26 - allItems.size).coerceAtLeast(0)))
+
+        return packageIntoSpeedDialPages(allItems)
+    }
+
+    internal fun packageIntoSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> {
+        if (allItems.isEmpty()) return emptyList()
+
+        val pages = mutableListOf<List<SpeedDialItem>>()
+
+        // Page 0: 8 items + 1 Surprise Me dice tile in the 9th slot
+        val page0Items = allItems.take(8).toMutableList()
+        while (page0Items.size < 8) {
+            page0Items.add(
+                SpeedDialItem(
+                    id = "placeholder-0-${page0Items.size}",
+                    name = "",
+                    type = SpeedDialType.PLACEHOLDER
+                )
+            )
+        }
+        page0Items.add(
+            SpeedDialItem(
+                id = "surprise-0",
+                name = "Surprise Me",
+                type = SpeedDialType.SURPRISE
+            )
+        )
+        pages.add(page0Items)
+
+        // Page 1: 9 items (items 8..16) without surprise button
+        val page1Items = allItems.drop(8).take(9).toMutableList()
+        if (page1Items.isNotEmpty()) {
+            while (page1Items.size < 9) {
+                page1Items.add(
+                    SpeedDialItem(
+                        id = "placeholder-1-${page1Items.size}",
+                        name = "",
+                        type = SpeedDialType.PLACEHOLDER
+                    )
+                )
+            }
+            pages.add(page1Items)
+        }
+
+        // Page 2: 9 items (items 17..25) without surprise button
+        val page2Items = allItems.drop(17).take(9).toMutableList()
+        if (page2Items.isNotEmpty()) {
+            while (page2Items.size < 9) {
+                page2Items.add(
+                    SpeedDialItem(
+                        id = "placeholder-2-${page2Items.size}",
+                        name = "",
+                        type = SpeedDialType.PLACEHOLDER
+                    )
+                )
+            }
+            pages.add(page2Items)
+        }
+
+        return pages
+    }
+
+    internal fun buildOptimisticSpeedDialPages(
+        currentPages: List<List<SpeedDialItem>>,
+        pinnedItems: List<SpeedDialItem>
+    ): List<List<SpeedDialItem>> {
+        val pinnedIds = computePinnedIds(pinnedItems)
+        val existingUnpinned = currentPages.flatten().filter {
+            it.type != SpeedDialType.SURPRISE && it.type != SpeedDialType.PLACEHOLDER && !it.isPinned
+        }.filterNot { item ->
+            pinnedIds.contains(item.id) ||
+            (item.track != null && pinnedIds.contains(item.track!!.id)) ||
+            pinnedItems.any { pin ->
+                (pin.type == item.type && pin.id == item.id) ||
+                (pin.type == SpeedDialType.TRACK && item.type == SpeedDialType.TRACK && SpeedDialIdHelper.isSameTrack(pin.id, item.id)) ||
+                (pin.type == SpeedDialType.ALBUM && item.type == SpeedDialType.ALBUM &&
+                    pin.id.removePrefix("album-").removePrefix("VL") == item.id.removePrefix("album-").removePrefix("VL"))
+            }
+        }
+        val allItems = (pinnedItems + existingUnpinned).take(26)
+        return packageIntoSpeedDialPages(allItems)
+    }
+
+    fun isTrackPinned(trackId: String): Boolean {
+        if (SpeedDialIdHelper.isSystemOrNonTrackId(trackId)) return false
+        val canonical = SpeedDialIdHelper.getCanonicalTrackId(trackId) ?: return false
+        if (inMemoryPinnedItems.any { item ->
+            item.type == SpeedDialType.TRACK && (
+                SpeedDialIdHelper.isSameTrack(item.id, trackId) ||
+                (item.track != null && item.track!!.id == canonical)
+            )
+        }) return true
+
+        return _uiState.value.pinnedSpeedDialIds.any { id ->
+            if (SpeedDialIdHelper.isAlbumId(id)) return@any false
+            val idCanonical = SpeedDialIdHelper.getCanonicalTrackId(id)
+            idCanonical == canonical || id == trackId || id == "track-$canonical"
+        }
+    }
+
+    fun togglePinTrack(track: Track): Boolean {
+        val canonicalId = SpeedDialIdHelper.getCanonicalTrackId(track.id) ?: track.id
+        val isAlreadyPinned = isTrackPinned(canonicalId)
+        val newPinnedState = !isAlreadyPinned
+        val trackItemId = "track-$canonicalId"
+
+        // 1. Immediately update in-memory pinned items & UI state (0ms latency, lightweight optimistic update)
+        val updatedList = if (isAlreadyPinned) {
+            inMemoryPinnedItems.filterNot { item ->
+                item.type == SpeedDialType.TRACK && (
+                    SpeedDialIdHelper.isSameTrack(item.id, canonicalId) ||
+                    (item.track != null && item.track!!.id == canonicalId)
+                )
+            }
+        } else {
+            val displayName = TitleCleaner.cleanTitle(track.title).ifBlank { track.title.trim() }
+            val item = SpeedDialItem(
+                id = trackItemId,
+                name = displayName,
+                type = SpeedDialType.TRACK,
+                image = track.thumbnail,
+                track = track.copy(title = displayName),
+                isPinned = true
+            )
+            listOf(item) + inMemoryPinnedItems.filterNot { item ->
+                item.type == SpeedDialType.TRACK && (
+                    SpeedDialIdHelper.isSameTrack(item.id, canonicalId) ||
+                    (item.track != null && item.track!!.id == canonicalId)
+                )
+            }
+        }
+        inMemoryPinnedItems = updatedList
+
+        val updatedPinnedIds = computePinnedIds(updatedList)
+        val currentPages = _uiState.value.speedDialPages
+        val optimisticPages = buildOptimisticSpeedDialPages(currentPages, updatedList)
+
+        _uiState.update { current ->
+            current.copy(
+                pinnedSpeedDialIds = updatedPinnedIds,
+                speedDialPages = optimisticPages
+            )
+        }
+
+        // 2. Perform full background candidate rebuild off the Main thread and persist
+        val currentSeq = pinSequence.incrementAndGet()
+        val ctx = context
+        viewModelScope.launch(defaultDispatcher) {
+            val topTracks = _uiState.value.topPlayedTracks.map { it.track }
+            val historyTracks = _uiState.value.recentTracks.map { it.track }
+            val currentSpeedDialTracks = _uiState.value.speedDialPages.flatten().mapNotNull { it.track }
+            val candidateTracks = currentSpeedDialTracks + _uiState.value.keepListening
+            val fullRebuiltPages = buildSpeedDialPages(topTracks, historyTracks, candidateTracks, updatedList)
+
+            if (currentSeq == pinSequence.get()) {
+                _uiState.update { current ->
+                    if (currentSeq == pinSequence.get()) {
+                        current.copy(
+                            pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            speedDialPages = fullRebuiltPages
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+
+            if (ctx != null) {
+                withContext(ioDispatcher) {
+                    pinPersistenceMutex.withLock {
+                        if (isAlreadyPinned) {
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, trackItemId)
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, canonicalId)
+                        } else {
+                            val displayName = TitleCleaner.cleanTitle(track.title).ifBlank { track.title.trim() }
+                            val item = SpeedDialItem(
+                                id = trackItemId,
+                                name = displayName,
+                                type = SpeedDialType.TRACK,
+                                image = track.thumbnail,
+                                track = track.copy(title = displayName),
+                                isPinned = true
+                            )
+                            HomeRecommendationsCache.pinSpeedDialItem(ctx, item)
+                        }
+                        if (currentSeq == pinSequence.get()) {
+                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                        }
+                    }
+                }
+            }
+        }
+
+        return newPinnedState
+    }
+
+    fun isAlbumPinned(albumId: String): Boolean {
+        val cleanId = albumId.removePrefix("album-").removePrefix("VL")
+        if (inMemoryPinnedItems.any { item ->
+            item.type == SpeedDialType.ALBUM && item.id.removePrefix("album-").removePrefix("VL") == cleanId
+        }) return true
+
+        return _uiState.value.pinnedSpeedDialIds.any { id ->
+            (id.startsWith("album-") || id.startsWith("VL")) &&
+            id.removePrefix("album-").removePrefix("VL") == cleanId
+        }
+    }
+
+    fun togglePinAlbum(album: PlaylistResult): Boolean {
+        val cleanId = album.id.removePrefix("album-").removePrefix("VL")
+        val albumItemId = "album-$cleanId"
+        val isAlreadyPinned = isAlbumPinned(cleanId)
+        val newPinnedState = !isAlreadyPinned
+
+        // 1. Immediately update in-memory pinned items & UI state (0ms latency, lightweight optimistic update)
+        val updatedList = if (isAlreadyPinned) {
+            inMemoryPinnedItems.filterNot { item ->
+                item.type == SpeedDialType.ALBUM && item.id.removePrefix("album-").removePrefix("VL") == cleanId
+            }
+        } else {
+            val item = SpeedDialItem(
+                id = albumItemId,
+                name = album.title,
+                type = SpeedDialType.ALBUM,
+                image = album.thumbnail,
+                album = album,
+                isPinned = true
+            )
+            listOf(item) + inMemoryPinnedItems.filterNot { item ->
+                item.type == SpeedDialType.ALBUM && item.id.removePrefix("album-").removePrefix("VL") == cleanId
+            }
+        }
+        inMemoryPinnedItems = updatedList
+
+        val updatedPinnedIds = computePinnedIds(updatedList)
+        val currentPages = _uiState.value.speedDialPages
+        val optimisticPages = buildOptimisticSpeedDialPages(currentPages, updatedList)
+
+        _uiState.update { current ->
+            current.copy(
+                pinnedSpeedDialIds = updatedPinnedIds,
+                speedDialPages = optimisticPages
+            )
+        }
+
+        // 2. Perform full background candidate rebuild off the Main thread and persist
+        val currentSeq = pinSequence.incrementAndGet()
+        val ctx = context
+        viewModelScope.launch(defaultDispatcher) {
+            val topTracks = _uiState.value.topPlayedTracks.map { it.track }
+            val historyTracks = _uiState.value.recentTracks.map { it.track }
+            val currentSpeedDialTracks = _uiState.value.speedDialPages.flatten().mapNotNull { it.track }
+            val candidateTracks = currentSpeedDialTracks + _uiState.value.keepListening
+            val fullRebuiltPages = buildSpeedDialPages(topTracks, historyTracks, candidateTracks, updatedList)
+
+            if (currentSeq == pinSequence.get()) {
+                _uiState.update { current ->
+                    if (currentSeq == pinSequence.get()) {
+                        current.copy(
+                            pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            speedDialPages = fullRebuiltPages
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+
+            if (ctx != null) {
+                withContext(ioDispatcher) {
+                    pinPersistenceMutex.withLock {
+                        if (isAlreadyPinned) {
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanId)
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, album.id)
+                        } else {
+                            val item = SpeedDialItem(
+                                id = albumItemId,
+                                name = album.title,
+                                type = SpeedDialType.ALBUM,
+                                image = album.thumbnail,
+                                album = album,
+                                isPinned = true
+                            )
+                            HomeRecommendationsCache.pinSpeedDialItem(ctx, item)
+                        }
+                        if (currentSeq == pinSequence.get()) {
+                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                        }
+                    }
+                }
+            }
+        }
+
+        return newPinnedState
+    }
+
+    fun unpinFromSpeedDial(itemId: String) {
+        val isAlbum = SpeedDialIdHelper.isAlbumId(itemId) || inMemoryPinnedItems.any { it.id == itemId && it.type == SpeedDialType.ALBUM }
+        val cleanAlbumId = itemId.removePrefix("album-").removePrefix("VL")
+        val canonicalTrackId = SpeedDialIdHelper.getCanonicalTrackId(itemId)
+
+        // 1. Immediately update in-memory pinned items & UI state (0ms latency, lightweight optimistic update)
+        val updatedList = inMemoryPinnedItems.filterNot { item ->
+            if (isAlbum) {
+                item.type == SpeedDialType.ALBUM && (
+                    item.id == itemId ||
+                    item.id.removePrefix("album-").removePrefix("VL") == cleanAlbumId
+                )
+            } else {
+                item.type == SpeedDialType.TRACK && (
+                    SpeedDialIdHelper.isSameTrack(item.id, itemId) ||
+                    (canonicalTrackId != null && item.track?.id == canonicalTrackId)
+                )
+            }
+        }
+        inMemoryPinnedItems = updatedList
+
+        val updatedPinnedIds = computePinnedIds(updatedList)
+        val currentPages = _uiState.value.speedDialPages
+        val optimisticPages = buildOptimisticSpeedDialPages(currentPages, updatedList)
+
+        _uiState.update { current ->
+            current.copy(
+                pinnedSpeedDialIds = updatedPinnedIds,
+                speedDialPages = optimisticPages
+            )
+        }
+
+        // 2. Perform full background candidate rebuild off the Main thread and persist
+        val currentSeq = pinSequence.incrementAndGet()
+        val ctx = context
+        viewModelScope.launch(defaultDispatcher) {
+            val topTracks = _uiState.value.topPlayedTracks.map { it.track }
+            val historyTracks = _uiState.value.recentTracks.map { it.track }
+            val currentSpeedDialTracks = _uiState.value.speedDialPages.flatten().mapNotNull { it.track }
+            val candidateTracks = currentSpeedDialTracks + _uiState.value.keepListening
+            val fullRebuiltPages = buildSpeedDialPages(topTracks, historyTracks, candidateTracks, updatedList)
+
+            if (currentSeq == pinSequence.get()) {
+                _uiState.update { current ->
+                    if (currentSeq == pinSequence.get()) {
+                        current.copy(
+                            pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            speedDialPages = fullRebuiltPages
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+
+            if (ctx != null) {
+                withContext(ioDispatcher) {
+                    pinPersistenceMutex.withLock {
+                        if (isAlbum) {
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, cleanAlbumId)
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, itemId)
+                        } else {
+                            HomeRecommendationsCache.unpinSpeedDialItem(ctx, itemId)
+                            if (canonicalTrackId != null) {
+                                HomeRecommendationsCache.unpinSpeedDialItem(ctx, canonicalTrackId)
+                                HomeRecommendationsCache.unpinSpeedDialItem(ctx, "track-$canonicalTrackId")
+                            }
+                        }
+                        if (currentSeq == pinSequence.get()) {
+                            HomeRecommendationsCache.saveSpeedDial(ctx, _uiState.value.speedDialPages)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

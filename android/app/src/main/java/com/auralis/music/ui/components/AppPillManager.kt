@@ -1,7 +1,6 @@
 package com.auralis.music.ui.components
 
 import com.auralis.music.R
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

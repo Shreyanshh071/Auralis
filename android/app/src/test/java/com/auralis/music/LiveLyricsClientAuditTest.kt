@@ -187,7 +187,7 @@ class LiveLyricsClientAuditTest {
             val firstLyric = pCand?.lyricsData?.lines?.firstOrNull { !it.isInstrumental }?.time?.let { "${it}ms" } ?: "N/A"
 
             val masterMatch = if (amTrack != null && amTrack.durationInMillis != null) {
-                val delta = kotlin.math.abs(s.durationSec * 1000L - amTrack.durationInMillis!!)
+                val delta = kotlin.math.abs(s.durationSec * 1000L - amTrack.durationInMillis)
                 when {
                     delta <= 1500L -> "EXACT_MATCH"
                     delta <= 3500L -> "COMPATIBLE"

@@ -174,26 +174,6 @@ fun ExploreScreen(
     onRecommendToRoom: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    // The search results UI is shared with the Windows app; these are the phone's own pieces of it.
-    val phoneSearchUi = remember {
-        com.auralis.music.ui.search.SearchUiPlatform(
-            artwork = { url, modifier, cornerRadius, contentDescription ->
-                ArtworkCard(sizeToConstraints = true, url = url, modifier = modifier, cornerRadius = cornerRadius, contentDescription = contentDescription)
-            },
-            nowPlayingIndicator = { isPlaying, modifier, color -> EqualizerBars(isPlaying = isPlaying, modifier = modifier, color = color) },
-            strings = com.auralis.music.ui.search.SearchUiStrings(
-                albumBy = { str(R.string.album_x, it) },
-                songBy = { str(R.string.song_x, it) },
-                variousArtists = { str(R.string.various_artists) },
-                single = { str(R.string.single) },
-                artist = { str(R.string.artist) },
-                options = { str(R.string.options) }
-            ),
-            trackRowContainer = { onPlayNext, onAddToQueue, content ->
-                com.auralis.music.ui.components.SwipeableTrackContainer(onPlayNext = onPlayNext, onAddToQueue = onAddToQueue, content = content)
-            }
-        )
-    }
     val themePrimary = MaterialTheme.dynamicPrimary
     val themeBackground = MaterialTheme.dynamicBackground
     val focusManager = LocalFocusManager.current
@@ -582,9 +562,7 @@ fun ExploreScreen(
                             }
                         }
                         SearchBodyState.RESULTS -> {
-                            androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.search.LocalSearchUi provides phoneSearchUi) {
-                            com.auralis.music.ui.search.SearchResultsList(
-                                contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
+                            SearchResultsView(
                                 results = uiState.searchResults,
                                 query = uiState.query,
                                 searchFailed = uiState.searchFailed,
@@ -598,30 +576,151 @@ fun ExploreScreen(
                                 onArtistClick = handleOpenArtist,
                                 onPlaylistClick = handleOpenAlbum
                             )
-                            }
                         }
                         SearchBodyState.SUGGESTIONS -> {
-                            androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.search.LocalSearchUi provides phoneSearchUi) {
-                            com.auralis.music.ui.search.SearchSuggestionsList(
-                                query = uiState.query,
-                                suggestions = uiState.suggestions,
-                                liveSongs = uiState.liveSongRecommendations,
-                                recentQueries = uiState.recentQueries,
-                                currentTrackId = currentTrackId,
-                                isPlaying = isPlaying,
+                            val animateItems = !LocalReducedMotion.current
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
                                 contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
-                                onSearch = { text ->
-                                    focusManager.clearFocus(force = true)
-                                    keyboardController?.hide()
-                                    onSearch(text)
-                                },
-                                onInsert = onQueryChange,
-                                onRemoveRecent = onRemoveRecentQuery,
-                                onTrackClick = handleTrackClick,
-                                onPlayNext = onPlayNext,
-                                onAddToQueue = onAddToQueue,
-                                onMenuClick = { track -> selectedTrackForMenu = track }
-                            )
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
+                                if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
+                                    items(
+                                        items = uiState.suggestions.take(3),
+                                        key = { "sug_$it" }
+                                    ) { suggestion ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+                                                    onSearch(suggestion)
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(16.dp))
+
+                                            Text(
+                                                text = suggestion,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                fontSize = 16.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            IconButton(
+                                                onClick = { onQueryChange(suggestion) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                DiagonalInsertArrow()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
+                                if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
+                                    item(key = "header_top_songs") {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = str(R.string.top_songs),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontSize = 17.sp,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                                        )
+                                    }
+
+                                    items(
+                                        items = uiState.liveSongRecommendations,
+                                        key = { trk -> "live_song_${trk.id}" }
+                                    ) { track ->
+                                        val isCurrent = track.id == currentTrackId
+                                        TrackRowItem(
+                                            track = track,
+                                            isCurrent = isCurrent,
+                                            isPlaying = isPlaying,
+                                            playlist = listOf(track),
+                                            onTrackClick = handleTrackClick,
+                                            onPlayNext = onPlayNext,
+                                            onAddToQueue = onAddToQueue,
+                                            onMenuClick = { selectedTrackForMenu = track }
+                                        )
+                                    }
+                                }
+
+                                // 2. Recent Searches History Items (when input is empty)
+                                if (uiState.query.isBlank()) {
+                                    items(
+                                        items = uiState.recentQueries,
+                                        key = { "recent_$it" }
+                                    ) { query ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+                                                    onSearch(query)
+                                                }
+                                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.History,
+                                                contentDescription = str(R.string.history),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(16.dp))
+
+                                            Text(
+                                                text = query,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                fontSize = 16.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            // Remove from history
+                                            IconButton(
+                                                onClick = { onRemoveRecentQuery(query) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = str(R.string.remove),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            // Diagonal insert arrow (↖)
+                                            IconButton(
+                                                onClick = { onQueryChange(query) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -669,5 +768,820 @@ fun ExploreScreen(
             onRecommendToRoom = onRecommendToRoom,
             onDismiss = { selectedTrackForMenu = null }
         )
+    }
+}
+
+/**
+ * Custom 60fps canvas-rendered diagonal insert arrow (↖) matching YouTube Music.
+ */
+@Composable
+private fun DiagonalInsertArrow(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White.copy(alpha = 0.60f)
+) {
+    Canvas(modifier = modifier.size(16.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = 1.8.dp.toPx()
+
+        // Main diagonal arrow shaft
+        drawLine(
+            color = tint,
+            start = Offset(w * 0.82f, h * 0.82f),
+            end = Offset(w * 0.18f, h * 0.18f),
+            strokeWidth = stroke
+        )
+        // Top horizontal arrow bar
+        drawLine(
+            color = tint,
+            start = Offset(w * 0.18f, h * 0.18f),
+            end = Offset(w * 0.68f, h * 0.18f),
+            strokeWidth = stroke
+        )
+        // Left vertical arrow bar
+        drawLine(
+            color = tint,
+            start = Offset(w * 0.18f, h * 0.18f),
+            end = Offset(w * 0.18f, h * 0.68f),
+            strokeWidth = stroke
+        )
+    }
+}
+
+// ============================================================================
+// 🎯 SEARCH RESULTS VIEW
+// ============================================================================
+
+@Composable
+private fun SearchResultsView(
+    results: com.auralis.music.domain.model.SearchResults,
+    query: String = "",
+    searchFailed: Boolean = false,
+    onRetry: () -> Unit = {},
+    currentTrackId: String?,
+    isPlaying: Boolean,
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
+    onMenuClick: (Track) -> Unit,
+    onArtistClick: (Artist) -> Unit,
+    onPlaylistClick: (PlaylistResult) -> Unit
+) {
+    val allArtists = (listOfNotNull(results.primaryArtist) + results.artists).distinctBy { it.id }
+    // A single's release card is not an album: it is never listed (or opened) as one.
+    val allAlbums = (listOfNotNull(results.primaryAlbum?.takeIf { !results.primarySingle }) + results.albums + results.playlists).distinctBy { it.id }
+    val primaryArtist = results.primaryArtist ?: results.artists.firstOrNull()
+    val primaryAlbum = results.primaryAlbum?.takeIf { album ->
+        primaryArtist == null || com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(album.author, primaryArtist.name)
+    }
+    val isSingleRelease = primaryAlbum != null && results.primarySingle
+    val isArtistSearch = results.topResult is SearchTopResult.ArtistResult ||
+        (results.primaryArtist != null && query.isNotBlank() &&
+            com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(results.primaryArtist!!.name, query))
+
+    // Songs already shown as Top result / Also matching are not listed again below.
+    val songsBelowFeatured = results.songsBelowFeatured()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // A real failure stays visible; still-loading details don't get a row of their own.
+        if (searchFailed && results.isNotEmpty()) {
+            item(key = "search_completion_status") {
+                TextButton(onClick = onRetry) { Text("Some results could not load. Retry") }
+            }
+        }
+        // ====================================================================
+        // STEP 1 — TOP RESULT
+        // ====================================================================
+        if (results.topResult != null) {
+            item(key = "header_top_result") {
+                Text(
+                    text = "Top result",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+            }
+
+            val topResultKey = when (val tr = results.topResult) {
+                is SearchTopResult.SongResult -> "card_top_song_${tr.track.id}"
+                is SearchTopResult.ArtistResult -> "card_top_artist_${tr.artist.id}"
+                is SearchTopResult.AlbumResult -> "card_top_album_${tr.album.id}"
+                else -> "card_top_none"
+            }
+            item(key = topResultKey) {
+                SearchHeroCard(
+                    result = results.topResult!!,
+                    albumPlays = (results.topResult as? SearchTopResult.AlbumResult)?.let {
+                        results.albumPlayCounts[it.album.id]
+                    } ?: results.albumPlays,
+                    currentTrackId = currentTrackId,
+                    onTrackClick = onTrackClick,
+                    onArtistClick = onArtistClick,
+                    onPlaylistClick = onPlaylistClick
+                )
+            }
+        }
+
+
+        // ====================================================================
+        // STEP 1b — ALSO MATCHING: the same-named song or album that lost the top
+        // spot on plays ("graduation": Kanye West's album under benny blanco's
+        // song, or the other way round). A searched album never disappears.
+        // ====================================================================
+        results.runnerUp?.let { runnerUp ->
+            item(key = "header_also_matching") {
+                Text(
+                    text = "Also matching",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                )
+            }
+            item(key = "card_also_matching") {
+                SearchHeroCard(
+                    result = runnerUp,
+                    albumPlays = (runnerUp as? SearchTopResult.AlbumResult)?.let {
+                        results.albumPlayCounts[it.album.id]
+                    } ?: results.albumPlays,
+                    currentTrackId = currentTrackId,
+                    onTrackClick = onTrackClick,
+                    onArtistClick = onArtistClick,
+                    onPlaylistClick = onPlaylistClick
+                )
+            }
+        }
+
+        // ====================================================================
+        // STEP 2 — ARTIST & ALBUM (EXACT SIDE-BY-SIDE CARDS)
+        // Only shown when searching for songs/general queries. When searching
+        // specifically for an artist, the artist is already in Top Result,
+        // so we skip this section to directly show their top famous songs.
+        // ====================================================================
+        if (!isArtistSearch && (primaryArtist != null || primaryAlbum != null)) {
+            item(key = "header_artist_album") {
+                val headerTitle = when {
+                    primaryArtist != null && primaryAlbum != null -> if (isSingleRelease) "Artist & Single" else "Artist & Album"
+                    primaryAlbum != null -> if (isSingleRelease) "Single" else "Album"
+                    else -> "Artist"
+                }
+                Text(
+                    text = headerTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                )
+            }
+
+            item(key = "row_artist_album") {
+                if (primaryArtist != null && primaryAlbum != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Artist Card (Left)
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onArtistClick(primaryArtist) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
+                                    ArtworkCard(
+                                        sizeToConstraints = true,
+                                        url = primaryArtist.thumbnail,
+                                        modifier = Modifier.size(46.dp).clip(CircleShape),
+                                        cornerRadius = 23.dp,
+                                        contentDescription = primaryArtist.name
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "ARTIST",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        text = primaryArtist.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Top songs & info",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        // Album Card (Right)
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ArtworkCard(
+                                    sizeToConstraints = true,
+                                    url = primaryAlbum.thumbnail,
+                                    modifier = Modifier.size(46.dp),
+                                    cornerRadius = 8.dp,
+                                    contentDescription = primaryAlbum.title
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (isSingleRelease) "SINGLE" else "ALBUM",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        text = primaryAlbum.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = primaryAlbum.author ?: "Album",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (primaryArtist != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onArtistClick(primaryArtist) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
+                                ArtworkCard(
+                                    sizeToConstraints = true,
+                                    url = primaryArtist.thumbnail,
+                                    modifier = Modifier.size(50.dp).clip(CircleShape),
+                                    cornerRadius = 25.dp,
+                                    contentDescription = primaryArtist.name
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ARTIST",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = primaryArtist.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Top songs & albums",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                } else if (primaryAlbum != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ArtworkCard(
+                                sizeToConstraints = true,
+                                url = primaryAlbum.thumbnail,
+                                modifier = Modifier.size(50.dp),
+                                cornerRadius = 8.dp,
+                                contentDescription = primaryAlbum.title
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isSingleRelease) "SINGLE" else "ALBUM",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = primaryAlbum.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = primaryAlbum.author ?: "Album",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // STEP 3 — ACTUAL SEARCH RESULTS (REAL QUERY-MATCHED SONGS)
+        // ====================================================================
+        item(key = "header_matching_songs") {
+            Text(
+                text = if (isArtistSearch) "Top Songs" else "Songs",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+            )
+        }
+
+        if (songsBelowFeatured.isNotEmpty()) {
+            items(
+                items = songsBelowFeatured,
+                key = { "match_${it.id}" },
+                contentType = { "song" }
+            ) { track ->
+                val isCurrent = track.id == currentTrackId
+                TrackRowItem(
+                    track = track,
+                    releaseTypes = results.releaseTypes,
+                    isCurrent = isCurrent,
+                    isPlaying = isPlaying,
+                    playlist = listOf(track),
+                    onTrackClick = onTrackClick,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onMenuClick = onMenuClick
+                )
+            }
+        } else {
+            item(key = "empty_matching_songs") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp, horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "No matching songs found",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (query.isNotBlank()) "No songs match \"$query\". Check spelling or try searching another artist or title."
+                        else "No songs found for this search.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        // ====================================================================
+        // STEP 4 — RECOMMENDATIONS (EXACTLY 3 MAXIMUM, SUPPLEMENTARY)
+        // ====================================================================
+        val recommendations = results.recommendations.take(3)
+        if (recommendations.isNotEmpty()) {
+            item(key = "header_recommendations") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recommendations",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${recommendations.size} suggested",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            items(
+                items = recommendations,
+                key = { "rec_${it.id}" },
+                contentType = { "song" }
+            ) { track ->
+                val isCurrent = track.id == currentTrackId
+                TrackRowItem(
+                    track = track,
+                    isCurrent = isCurrent,
+                    isPlaying = isPlaying,
+                    playlist = listOf(track),
+                    onTrackClick = onTrackClick,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onMenuClick = onMenuClick
+                )
+            }
+        }
+    }
+    // While the ranked results are still on their way (partial results on screen), a thin line at
+    // the top says so without moving anything.
+    if (!results.isComplete && !searchFailed) {
+        androidx.compose.material3.LinearProgressIndicator(
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp)
+        )
+    }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AlbumRowItem(album: PlaylistResult, plays: Long, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ArtworkCard(
+            sizeToConstraints = true,
+            url = album.thumbnail,
+            modifier = Modifier.size(50.dp),
+            cornerRadius = 8.dp,
+            contentDescription = album.title
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = album.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = buildString {
+                    append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
+                    if (plays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(plays)}")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackRowItem(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    playlist: List<Track>,
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
+    releaseTypes: Map<String, String> = emptyMap(),
+    onMenuClick: (Track) -> Unit
+) {
+    com.auralis.music.ui.components.SwipeableTrackContainer(
+        onPlayNext = { onPlayNext?.invoke(track) },
+        onAddToQueue = { onAddToQueue?.invoke(track) }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onTrackClick(track, playlist) }
+                .padding(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                sizeToConstraints = true,
+                url = track.thumbnail,
+                modifier = Modifier.size(50.dp),
+                cornerRadius = 8.dp,
+                contentDescription = track.title
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val singleLabel = str(R.string.single)
+                val releaseType = track.albumId?.let { releaseTypes[it] }
+                val subtitleText = remember(track.artist, track.album, track.views, track.title, singleLabel, releaseType) {
+                    buildString {
+                        if (track.artist.isNotBlank()) {
+                            append(track.artist)
+                        }
+                        // "Single" where YouTube Music labels the release a single, the album's name where
+                        // it labels it an album or EP. Unlabelled, an album that merely repeats the song
+                        // title is left out: it could be either.
+                        when {
+                            releaseType == "single" -> append(" • $singleLabel")
+                            track.album.isNullOrBlank() -> Unit
+                            releaseType != null ||
+                                !com.auralis.music.data.network.AlbumMetadataResolver.isRedundantOrSingle(track.album, track.title) ->
+                                append(" • ${track.album}")
+                        }
+                        if (!track.views.isNullOrBlank()) {
+                            append(" • ${track.views}")
+                        }
+                    }
+                }
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            IconButton(onClick = { onMenuClick(track) }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = str(R.string.options),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+/** The large card used for the Top result and for the "Also matching" runner-up. */
+@Composable
+private fun SearchHeroCard(
+    result: SearchTopResult,
+    albumPlays: Long,
+    currentTrackId: String?,
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onArtistClick: (Artist) -> Unit,
+    onPlaylistClick: (PlaylistResult) -> Unit
+) {
+    when (val tr = result) {
+        is SearchTopResult.SongResult -> {
+            val track = tr.track
+            val isCurrent = track.id == currentTrackId
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onTrackClick(track, listOf(track)) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(
+                        sizeToConstraints = true,
+                        url = track.thumbnail,
+                        modifier = Modifier.size(72.dp),
+                        cornerRadius = 12.dp,
+                        contentDescription = track.title
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = track.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val subDetail = buildString {
+                            append(str(R.string.song_x, track.artist))
+                            if (!track.views.isNullOrBlank()) {
+                                append(" • ${track.views}")
+                            }
+                        }
+                        Text(
+                            text = subDetail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+        is SearchTopResult.ArtistResult -> {
+            val artist = tr.artist
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onArtistClick(artist) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(
+                        sizeToConstraints = true,
+                        url = artist.thumbnail ?: "",
+                        modifier = Modifier.size(72.dp).clip(CircleShape),
+                        cornerRadius = 36.dp,
+                        contentDescription = artist.name
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = artist.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = str(R.string.artist),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        is SearchTopResult.AlbumResult -> {
+            val album = tr.album
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onPlaylistClick(album) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(
+                        sizeToConstraints = true,
+                        url = album.thumbnail,
+                        modifier = Modifier.size(72.dp),
+                        cornerRadius = 12.dp,
+                        contentDescription = album.title
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = album.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = buildString {
+                            append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
+                            if (albumPlays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(albumPlays)}")
+                        },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        else -> Unit
     }
 }

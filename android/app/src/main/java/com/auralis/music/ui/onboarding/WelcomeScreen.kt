@@ -470,10 +470,10 @@ fun WelcomeScreen(
                             }
 
                             if (!authUiState.syncMessage.isNullOrBlank()) {
-                                val isError = authUiState.syncMessage.orEmpty().contains("error", ignoreCase = true) ||
-                                              authUiState.syncMessage.orEmpty().contains("failed", ignoreCase = true)
+                                val isError = authUiState.syncMessage.contains("error", ignoreCase = true) ||
+                                              authUiState.syncMessage.contains("failed", ignoreCase = true)
                                 Text(
-                                    text = authUiState.syncMessage.orEmpty(),
+                                    text = authUiState.syncMessage,
                                     color = if (isError) Color(0xFFFF6B6B) else Color(0xFFFFB67A),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
@@ -683,7 +683,7 @@ private fun EmailAuthFullScreen(
                 if (authUiState.syncMessage != null) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = authUiState.syncMessage.orEmpty(),
+                        text = authUiState.syncMessage,
                         style = MaterialTheme.typography.bodySmall,
                         color = ONBOARDING_PEACH,
                         fontSize = 13.sp

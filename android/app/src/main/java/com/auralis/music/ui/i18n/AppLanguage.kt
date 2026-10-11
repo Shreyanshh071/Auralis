@@ -104,24 +104,6 @@ object AppLanguage {
         appContext = application
     }
 
-    private val sharedStringIds = java.util.concurrent.ConcurrentHashMap<String, Int>()
-
-    /**
-     * Points shared UI's [com.auralis.music.ui.i18n.StringLookup] at this app's string resources:
-     * the same text, translations and app-language handling as [str]. Ids are looked up by name
-     * once each (res/raw/keep.xml keeps every string in the release build).
-     */
-    @SuppressLint("DiscouragedApi")
-    fun installSharedStrings() {
-        com.auralis.music.ui.i18n.StringLookup.resolve = { key ->
-            revision.intValue
-            val ctx = context()
-            val id = sharedStringIds.getOrPut(key) { ctx.resources.getIdentifier(key, "string", ctx.packageName) }
-            if (id != 0) ctx.getString(id) else null
-        }
-        com.auralis.music.ui.i18n.StringLookup.formatLocale = { context().resources.configuration.locales[0] }
-    }
-
     fun attach(activity: Activity) {
         activityRef = WeakReference(activity)
         lastLocales = activity.resources.configuration.locales
