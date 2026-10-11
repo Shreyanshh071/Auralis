@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.blur
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.ImageComposeScene
@@ -82,6 +83,31 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "youtube-library" to {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.width(232.dp).fillMaxHeight()) {
+                    com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {},
+                        youtube = com.auralis.music.windows.profile.YouTubeLibraryState(
+                            identity = com.auralis.music.windows.profile.YouTubeIdentity("Preview listener", "@listener", null),
+                            playlists = listOf("Liked Music", "gili gili", "SONGS", "game", "June–August", "PHONK", "nostalgia", "wan pisju").mapIndexed { index, title ->
+                                com.auralis.music.domain.model.PlaylistResult(if (index == 0) "VLLM" else "VLpreview$index", title)
+                            }))
+                }
+                Box(Modifier.weight(1f)) { homePreview(true) }
+            }
+        },
+        "youtube-accounts" to {
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopEnd) {
+                homePreview(true)
+                Box(Modifier.width(160.dp).height(36.dp)) {
+                    val identity = com.auralis.music.windows.profile.YouTubeIdentity("Preview listener", "@listener", previewSongs.first().thumbnail)
+                    com.auralis.music.windows.profile.YouTubeAccountMenu(
+                        com.auralis.music.windows.profile.YouTubeLibraryState(identity = identity,
+                            accounts = listOf(com.auralis.music.windows.profile.YouTubeAccountSummary("preview", identity)), activeId = "preview"),
+                        {}, {}, {}, {}, {}, {})
+                }
+            }
+        },
         "browser-signin" to {
             Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Box(androidx.compose.ui.Modifier.fillMaxSize().blur(18.dp)) { homePreview(true) }

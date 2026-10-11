@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,11 +74,12 @@ internal fun DesktopHomeScreen(
             layout.totalItemsCount > 0 && (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 3
         }.collect { nearEnd -> if (nearEnd) loadMore() }
     }
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    val idleDarkHome = currentTrackId == null && colors.background.luminance() < .5f
+    BoxWithConstraints(modifier.fillMaxSize().then(if (idleDarkHome) Modifier.background(Color(0xFF202020)) else Modifier)) {
         val columns = when { maxWidth >= 1000.dp -> 4; maxWidth >= 780.dp -> 3; else -> 2 }
         val songColumns = if (maxWidth >= 950.dp) 3 else if (maxWidth >= 650.dp) 2 else 1
         val recentColumnWidth = ((maxWidth - 80.dp) / songColumns).coerceIn(240.dp, 390.dp)
-        Box(Modifier.fillMaxWidth().height(290.dp).background(Brush.verticalGradient(
+        if (!idleDarkHome) Box(Modifier.fillMaxWidth().height(290.dp).background(Brush.verticalGradient(
             listOf(colors.primary.copy(alpha = .12f), colors.background.copy(alpha = 0f)))))
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 32.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(30.dp)) {

@@ -126,6 +126,12 @@ tasks.register<JavaExec>("renderScreens") {
     args = listOf(outDir.absolutePath) + (findProperty("screens")?.toString()?.split(",") ?: emptyList())
 }
 
+// Explicit authenticated, read-only account/library check; no browser databases are read.
+tasks.register<JavaExec>("verifyYouTubeLibrary") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.VerifyYouTubeLibraryKt")
+}
+
 // Owner-provided desktop OAuth client, outside version control.
 tasks.named<ProcessResources>("processResources") { from("local-resources") }
 
