@@ -81,6 +81,8 @@ class VlcAudioPlayer private constructor(
                 else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) _state.value = State.PLAYING
             }
             override fun playing(mediaPlayer: MediaPlayer) {
+                // libVLC opens a fresh audio output per song; keep the device the user picked.
+                preferredDevice?.let { runCatching { mediaPlayer.audio().setOutputDevice(null, it) } }
                 anchorNanos = System.nanoTime()
                 _state.value = State.PLAYING
             }
@@ -142,6 +144,19 @@ class VlcAudioPlayer private constructor(
         _state.value = State.IDLE
         _lengthMs.value = 0L
         anchor(0L)
+    }
+
+    /** The output chosen in the player bar; null follows Windows' default device. */
+    @Volatile var preferredDevice: String? = null
+        private set
+
+    /** Windows' audio outputs as libVLC sees them: device id to readable name. */
+    fun outputDevices(): List<Pair<String, String>> =
+        runCatching { player.audio().outputDevices().map { it.deviceId to it.longName } }.getOrDefault(emptyList())
+
+    fun setOutputDevice(id: String?) {
+        preferredDevice = id
+        runCatching { player.audio().setOutputDevice(null, id ?: "") }
     }
 
     /** 0..1 */

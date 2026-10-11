@@ -143,7 +143,22 @@ fun main(args: Array<String>) {
                 val frame = runCatching { NativeWindowFrame(window, window.windowHandle) { maximizeHovered = it } }
                     .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
                 nativeFrame = frame
-                onDispose { frame?.close() }
+                // Returning with Alt+Tab activates the window but leaves no component focused, so
+                // the Compose canvas ignored hover until the first click. Hand focus back on activation.
+                val refocus = object : java.awt.event.WindowAdapter() {
+                    override fun windowActivated(e: java.awt.event.WindowEvent) {
+                        javax.swing.SwingUtilities.invokeLater {
+                            if (window.focusOwner == null) {
+                                val canvas = generateSequence<java.awt.Component>(window.contentPane) {
+                                    (it as? java.awt.Container)?.components?.firstOrNull()
+                                }.lastOrNull { it.isFocusable } ?: window.contentPane
+                                canvas.requestFocusInWindow()
+                            }
+                        }
+                    }
+                }
+                window.addWindowListener(refocus)
+                onDispose { window.removeWindowListener(refocus); frame?.close() }
             }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 stores.privacy.settingsFlow.collect { privacy ->

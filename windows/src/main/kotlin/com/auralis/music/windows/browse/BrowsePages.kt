@@ -58,8 +58,8 @@ fun BrowsePages(
             label = "browsePage",
             modifier = Modifier.fillMaxSize()
         ) { (_, page) ->
-            // Albums and playlists span the window (their own header stays centred);
-            // the phone's Artist page keeps a centred column.
+            // Album, playlist and artist pages span the whole panel, as on Spotify; a centred
+            // column left the artist header cut off with the background showing either side.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             when (page) {
                 is BrowsePage.Album -> AlbumScreen(
@@ -106,7 +106,7 @@ fun BrowsePages(
                     onOpenArtist = browse::openArtist,
                     onAlbumClick = { browse.openAlbum(it, fromArtist = page.page) },
                     onBack = { browse.pop() },
-                    modifier = Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().fillMaxHeight()
+                    modifier = Modifier.fillMaxSize()
                 )
             }
             }

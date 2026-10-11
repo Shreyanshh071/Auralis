@@ -1,5 +1,7 @@
 package com.auralis.music.ui.profile
 
+import com.auralis.music.ui.components.Switch
+
 import com.auralis.music.ui.i18n.Strings
 
 import com.auralis.music.ui.i18n.str
