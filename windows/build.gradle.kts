@@ -132,3 +132,9 @@ tasks.register<JavaExec>("verifyRoomPlayback") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.together.RoomPlaybackCheckKt")
 }
+
+// Opens only its own disposable test window; never controls the installed app.
+tasks.register<JavaExec>("verifyWindowFrame") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.WindowFrameCheckKt")
+}
