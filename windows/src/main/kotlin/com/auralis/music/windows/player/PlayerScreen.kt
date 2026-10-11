@@ -183,7 +183,7 @@ private fun PanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit) {
 }
 
 @Composable
-private fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
+internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
@@ -287,7 +287,7 @@ private fun Transport(playback: DesktopPlaybackController) {
  * up, as the phone does), scaled 1.10, crossfading between songs, under a 30% black scrim.
  */
 @Composable
-private fun BlurredArtworkBackground(url: String?) {
+internal fun BlurredArtworkBackground(url: String?) {
     Crossfade(targetState = url, animationSpec = tween(700), label = "playerBackground") { artwork ->
         Box(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
             if (artwork != null) {
