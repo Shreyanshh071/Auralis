@@ -85,15 +85,10 @@ fun FindMusicDropdown(
     artwork: String? = null
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var mounted by remember { androidx.compose.runtime.mutableStateOf(false) }
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
-    var backdropOffset by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    LaunchedEffect(expanded) {
-        reveal.animateTo(if (expanded) 1f else 0f,
-            androidx.compose.animation.core.tween(if (expanded) 220 else 140,
-                easing = androidx.compose.animation.core.FastOutSlowInEasing))
-    }
     val gap = with(density) { 62.dp.roundToPx() }
     val position = remember(gap) {
         object : androidx.compose.ui.window.PopupPositionProvider {
@@ -102,7 +97,7 @@ fun FindMusicDropdown(
                 popupContentSize: androidx.compose.ui.unit.IntSize): androidx.compose.ui.unit.IntOffset {
                 val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
                 val y = (anchorBounds.top + gap).coerceIn(0, (windowSize.height - popupContentSize.height).coerceAtLeast(0))
-                return androidx.compose.ui.unit.IntOffset(x, y).also { backdropOffset = it }
+                return androidx.compose.ui.unit.IntOffset(x, y)
             }
         }
     }
@@ -114,7 +109,7 @@ fun FindMusicDropdown(
         androidx.compose.material3.FilledTonalButton(
             onClick = {
                 if (expanded) dismiss() else {
-                    if (state.hasSubmitted) state.onQueryChange(state.query)
+                    mounted = true
                     expanded = true
                 }
             }, modifier = Modifier.height(54.dp).widthIn(min = 176.dp),
@@ -124,7 +119,7 @@ fun FindMusicDropdown(
             Spacer(Modifier.width(10.dp))
             Text("Find music", style = MaterialTheme.typography.titleMedium)
         }
-        if (expanded || reveal.value > 0f) {
+        if (mounted) {
             androidx.compose.ui.window.Popup(
                 popupPositionProvider = position,
                 onDismissRequest = ::dismiss,
@@ -133,14 +128,30 @@ fun FindMusicDropdown(
                 LaunchedEffect(expanded) {
                     if (expanded) {
                         androidx.compose.runtime.withFrameNanos { }
-                        focus.requestFocus(); onTypingChange(true)
+                        focus.requestFocus()
+                        onTypingChange(true)
+                    }
+                }
+                LaunchedEffect(expanded) {
+                    if (expanded) {
+                        // Start on this popup's clock. The parent
+                        // clock can finish the animation while a new popup is being created.
+                        reveal.animateTo(1f, androidx.compose.animation.core.tween(220,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                        if (state.hasSubmitted) state.onQueryChange(state.query)
+                    } else {
+                        reveal.animateTo(0f, androidx.compose.animation.core.tween(140,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                        mounted = false
                     }
                 }
                 // Use the already cached cover for the frosted backdrop. GPU readback of the
                 // whole window here stalled the event thread before the first popup frame.
                 SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp)
                     .then(Modifier.graphicsLayer {
-                        alpha = reveal.value
+                        // Make the very first painted frame visible, before the frame clock
+                        // begins advancing the rest of the fade.
+                        alpha = if (expanded) maxOf(.08f, reveal.value) else reveal.value
                         translationY = -10.dp.toPx() * (1f - reveal.value)
                         scaleX = .97f + .03f * reveal.value
                         scaleY = scaleX
