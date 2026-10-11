@@ -24,6 +24,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1356,6 +1358,10 @@ fun ExperimentalLyricsLine(
     // a multi-speaker song carry a side; every other line (and every line of a song without
     // multi-speaker metadata) keeps the original positioning below, unchanged.
     val speakerSide = speakerStyle?.side
+    val mouseHover = LocalLyricsUi.current.roundedMouseHover
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val hoverAlpha by animateFloatAsState(if (mouseHover && hovered) .16f else 0f, tween(140), label = "lyricMouseHover")
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
     val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp
@@ -1368,13 +1374,16 @@ fun ExperimentalLyricsLine(
     val itemModifier = modifier
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
-        .clip(RoundedCornerShape(8.dp))
+        .then(if (mouseHover) Modifier.padding(horizontal = 8.dp, vertical = 2.dp) else Modifier)
+        .clip(RoundedCornerShape(if (mouseHover) 16.dp else 8.dp))
         .combinedClickable(
+            interactionSource = interactionSource,
+            indication = if (mouseHover) null else LocalIndication.current,
             onClick = onClick,
             onLongClick = onLongClick
         )
         .background(
-            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent
+            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = hoverAlpha)
         )
         .then(
             if (speakerSide != null) {
@@ -1462,7 +1471,7 @@ fun ExperimentalLyricsLine(
     ) {
         @Composable
         fun LineContent() {
-            val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine) {
+            val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine || (mouseHover && hovered)) {
                 0f
             } else {
                 computeLyricsProgressiveBlur(
@@ -1500,7 +1509,9 @@ fun ExperimentalLyricsLine(
                 val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
                 val activeAlpha = 1.0f
                 val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
-                val targetAlpha = if (!isSynced) {
+                val targetAlpha = if (mouseHover && hovered) {
+                    1f
+                } else if (!isSynced) {
                     0.85f
                 } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled)) {
                     // While following playback a background line only shows beside its lead line.

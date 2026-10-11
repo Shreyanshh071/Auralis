@@ -9,6 +9,7 @@ import com.auralis.music.ui.lyrics.DefaultLyricsUi
 import com.auralis.music.ui.lyrics.LyricsUiPlatform
 
 val DesktopLyricsUi = LyricsUiPlatform(
+    roundedMouseHover = true,
     strings = DefaultLyricsUi.strings,
     backHandler = { enabled, onBack -> com.auralis.music.ui.components.PlatformBackHandler(enabled, onBack) },
     romanizedLine = { text, color, size, align, modifier ->

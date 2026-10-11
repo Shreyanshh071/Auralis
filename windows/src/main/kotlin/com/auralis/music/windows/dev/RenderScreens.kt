@@ -131,9 +131,27 @@ fun main(args: Array<String>) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { homePreview(true) }
                     com.auralis.music.windows.player.NowPlayingSidebarContent(previewSongs.first(), {}, androidx.compose.ui.Modifier.width(300.dp).fillMaxHeight(),
                         com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
-                        androidx.compose.material3.Text("The current lyric line\n\nThe next lyric line", modifier = androidx.compose.ui.Modifier.padding(16.dp),
-                            color = androidx.compose.ui.graphics.Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
+                        com.auralis.music.windows.player.SidebarLyricsView(
+                            com.auralis.music.domain.model.LyricsData(com.auralis.music.domain.model.SyncType.LINE_SYNC,
+                                listOf("Let the music fill the room", "One more moment", "We follow every sound", "Until the morning comes").mapIndexed { index, text ->
+                                    com.auralis.music.domain.model.LyricLine(index * 5000L, text)
+                                }, provider = com.auralis.music.domain.model.LyricsProvider.LOCAL),
+                            androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(6000L) }, {})
                     }
+                }
+            }
+        },
+        "lyrics-hover" to {
+            Box(androidx.compose.ui.Modifier.width(320.dp).height(320.dp)
+                .padding(12.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                com.auralis.music.windows.player.ArtworkAura(
+                    com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF266885), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271)),
+                    androidx.compose.ui.Modifier.fillMaxSize())
+                Column(androidx.compose.ui.Modifier.padding(8.dp)) {
+                    com.auralis.music.windows.player.SidebarLyricLine("Let the music fill the room", false, true, {})
+                    com.auralis.music.windows.player.SidebarLyricLine("One more moment", true, true, {})
+                    com.auralis.music.windows.player.SidebarLyricLine("We follow every sound", false, true, {}, previewHovered = true)
+                    com.auralis.music.windows.player.SidebarLyricLine("Until the morning comes", false, true, {})
                 }
             }
         },
@@ -185,9 +203,10 @@ fun main(args: Array<String>) {
             }
             // Let effects, flows and enter animations settle over ~1.5 s of frames.
             var image = scene.render(0)
-            for (frame in 1..90) {
-                if (frame % 10 == 0) Thread.sleep(30)
-                image = scene.render(frame * 16_666_667L)
+            val frameCount = if (name in setOf("now-playing-sidebar", "lyrics-hover", "browser-signin")) 12 else 90
+            for (frame in 1..frameCount) {
+                if (frame % 3 == 0) Thread.sleep(30)
+                image = scene.render(frame * (1_500_000_000L / frameCount))
             }
             val png = image.encodeToData(EncodedImageFormat.PNG)!!.bytes
             File(out, "$name.png").writeBytes(png)
