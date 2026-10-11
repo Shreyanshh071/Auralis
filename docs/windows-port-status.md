@@ -108,6 +108,10 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 ## Development preview
 
+### Dedicated themes and colours page (Windows 1.0.0)
+
+Appearance now opens Themes and colours through a single entry. The dedicated desktop page contains a live composition of the resolved theme colours, circular theme-mode previews, three-colour palette swatches, Liquidify and the dynamic artwork-colour switch. Choices use the existing settings stores and apply live; Back returns to Appearance. Player background and lyrics controls remain in Appearance. Compilation and the isolated page preview passed; Android is unchanged.
+
 ### Desktop song context menus (Windows 1.0.0)
 
 Windows supplies a compact, scrollable popup for shared song actions. It opens at the initiating click, flips inward at window edges, and dismisses through Escape or clicking outside. Add to playlist stays in the popup with a Back row, existing playlists and New playlist. Queue, favourites, pinning, album/artist navigation, downloads and share retain their existing callbacks. Home, Search, Library and other shared song menus inherit the Windows renderer. The new composition hook defaults to null, retaining Android's existing sheet.

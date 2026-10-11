@@ -1,6 +1,7 @@
 package com.auralis.music.windows.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,14 +50,15 @@ private fun ChoiceGrid(names: List<String>, selected: String, onSelect: (String)
 @Composable
 internal fun ThemeModeCards(selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Theme", style = MaterialTheme.typography.titleLarge)
+        Text("Theme mode", style = MaterialTheme.typography.titleLarge)
         ChoiceGrid(listOf("Follow system", "Light Mode", "Dark Mode", "Pure AMOLED Black", "Midnight Velvet Dark"), selected, onSelect) { name ->
             val background = when (name) { "Light Mode" -> Color(0xFFF4F2EC); "Pure AMOLED Black" -> Color.Black; "Midnight Velvet Dark" -> Color(0xFF191326); else -> Color(0xFF242327) }
-            Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(8.dp)).background(background).padding(7.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Box(Modifier.width(18.dp).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(if (name == "Follow system") Color(0xFFD7D4D0) else Color(0xFF6C6A73)))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.fillMaxWidth(.7f).height(7.dp).background(Color(0xFFBDD66A), RoundedCornerShape(3.dp)))
-                    repeat(3) { Box(Modifier.fillMaxWidth().height(7.dp).background(if (name == "Light Mode") Color(0xFFCECBCD) else Color(0xFF4C4653), RoundedCornerShape(3.dp))) }
+            Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(60.dp)) {
+                    if (name == "Follow system") {
+                        drawArc(Color(0xFFF4F2EC), -90f, 180f, true)
+                        drawArc(Color(0xFF191719), 90f, 180f, true)
+                    } else drawCircle(background)
                 }
             }
         }
@@ -89,8 +91,12 @@ internal fun PaletteCards(selected: String, onSelect: (String) -> Unit) {
             val palette = CuratedPalettes.firstOrNull { it.id == name }
             val colours = palette?.let { listOf(it.previewPrimary, it.previewSecondary, it.previewTertiary) }
                 ?: listOf(Color(0xFFBA8BDC), Color(0xFFB4D96B), Color(0xFF71BCCA))
-            Row(Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(8.dp))) {
-                colours.forEach { Box(Modifier.weight(1f).fillMaxHeight().background(it)) }
+            Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(56.dp)) {
+                    drawArc(colours[0], 180f, 180f, true)
+                    drawArc(colours[1], 0f, 90f, true)
+                    drawArc(colours[2], 90f, 90f, true)
+                }
             }
         }
     }
