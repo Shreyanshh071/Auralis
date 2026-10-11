@@ -172,6 +172,9 @@ fun main(args: Array<String>) {
                 com.auralis.music.windows.together.FirestoreRest.fromResource(), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())) }, {}) },
         "profile" to { DesktopProfile(stores, libraryVm, history, search, hasActiveTrack = false, onDismiss = {}) },
         "settings" to { DesktopSettings(stores, history, search, hasActiveTrack = false, onOpenProfile = {}, onDismiss = {}) },
+        "settings-liquidify" to { DesktopSettings(stores, history, search, hasActiveTrack = false, onOpenProfile = {}, onDismiss = {}) },
+        "content-liquidify" to { ContentSettingsScreen(onDismiss = {}) },
+        "profile-liquidify" to { DesktopProfile(stores, libraryVm, history, search, hasActiveTrack = false, onDismiss = {}) },
         "appearance" to { com.auralis.music.windows.settings.DesktopAppearanceSettings(onDismiss = {}) },
         "audio" to { com.auralis.music.windows.settings.DesktopAudioSettings(onDismiss = {}) },
         "account" to { com.auralis.music.windows.profile.AccountPage(androidx.compose.runtime.remember { com.auralis.music.windows.profile.DesktopAccount(File(data, "account.bin"), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())) }, {}) },
@@ -196,14 +199,17 @@ fun main(args: Array<String>) {
                         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance
                     ) {
                         androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
-                            content()
+                            if (name.endsWith("-liquidify")) {
+                                com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail,
+                                    com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) { content() }
+                            } else content()
                         }
                     }
                 }
             }
             // Let effects, flows and enter animations settle over ~1.5 s of frames.
             var image = scene.render(0)
-            val frameCount = if (name in setOf("now-playing-sidebar", "lyrics-hover", "browser-signin")) 12 else 90
+            val frameCount = if (name.endsWith("-liquidify") || name in setOf("now-playing-sidebar", "lyrics-hover", "browser-signin")) 12 else 90
             for (frame in 1..frameCount) {
                 if (frame % 3 == 0) Thread.sleep(30)
                 image = scene.render(frame * (1_500_000_000L / frameCount))
