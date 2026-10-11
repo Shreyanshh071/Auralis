@@ -43,6 +43,9 @@ object StatsCloudSync {
     /** Two listens of one song starting this close together are the same listen. */
     private const val SAME_LISTEN_WINDOW_MS = 2_000L
     private const val BATCH_LIMIT = 400
+    /** How often a running app checks the account for listens from other devices. */
+    private const val PULL_INTERVAL_MS = 15L * 60_000L
+    private const val PULL_OVERLAP_MS = 10L * 60_000L
 
     private val dayFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
     private val mutex = Mutex()
@@ -76,7 +79,7 @@ object StatsCloudSync {
     fun forgetRestores(context: Context) {
         val p = context.applicationContext.getSharedPreferences("auralis_stats_cloud", Context.MODE_PRIVATE)
         val editor = p.edit()
-        p.all.keys.filter { it.startsWith("restored_") }.forEach { editor.remove(it) }
+        p.all.keys.filter { it.startsWith("restored_") || it.startsWith("pulled_at_") }.forEach { editor.remove(it) }
         editor.apply()
     }
 
@@ -88,10 +91,20 @@ object StatsCloudSync {
     private fun collection(uid: String) =
         FirebaseFirestore.getInstance().collection("users").document(uid).collection(COLLECTION)
 
-    /** Restores once for this account on this install, then uploads whenever stats change. */
+    /**
+     * Pulls the account's listens (in full the first time, then what changed), uploads whenever
+     * stats change, and checks the account again every [PULL_INTERVAL_MS] while the app runs, so
+     * listening on the Windows app shows up here too.
+     */
     @OptIn(FlowPreview::class)
     fun start(scope: CoroutineScope) {
         if (!::appContext.isInitialized) return
+        scope.launch(Dispatchers.IO) {
+            while (true) {
+                kotlinx.coroutines.delay(PULL_INTERVAL_MS)
+                restoreIfNeeded()
+            }
+        }
         scope.launch(Dispatchers.IO) {
             restoreIfNeeded()
             upload()
@@ -103,19 +116,29 @@ object StatsCloudSync {
         }
     }
 
-    /** Pulls the account's listens into this phone, once per account per install. */
+    /**
+     * Pulls the account's listens into this phone: every day the first time for this account on
+     * this install, afterwards only days updated since the last pull (by this phone or by the
+     * Windows app). Listens already here are skipped.
+     */
     suspend fun restoreIfNeeded() = withContext(Dispatchers.IO) {
         if (!::appContext.isInitialized) return@withContext
         val uid = signedInUid() ?: return@withContext
         // Another account's listens are on this phone until the switch clears them.
         if (!LocalDataOwner.belongsTo(uid)) return@withContext
-        if (prefs.getBoolean("restored_$uid", false)) return@withContext
+        val restoredBefore = prefs.getBoolean("restored_$uid", false)
+        val pulledAt = prefs.getLong("pulled_at_$uid", 0L)
         mutex.withLock {
             try {
                 val db = AuralisDatabase.getInstance(appContext)
                 val dao = db.playbackEventDao()
                 var added = 0
-                for (doc in collection(uid).get().await().documents) {
+                val pullStarted = System.currentTimeMillis()
+                val days = if (restoredBefore && pulledAt > 0L) {
+                    // A margin for clock differences between devices.
+                    collection(uid).whereGreaterThan("updatedAt", pulledAt - PULL_OVERLAP_MS).get().await().documents
+                } else collection(uid).get().await().documents
+                for (doc in days) {
                     val events = doc.get("events") as? Map<*, *> ?: continue
                     for (raw in events.values) {
                         val e = raw as? Map<*, *> ?: continue
@@ -137,8 +160,8 @@ object StatsCloudSync {
                         added++
                     }
                 }
-                prefs.edit().putBoolean("restored_$uid", true).apply()
-                Log.i(TAG, "Restored $added listens from the account")
+                prefs.edit().putBoolean("restored_$uid", true).putLong("pulled_at_$uid", pullStarted).apply()
+                Log.i(TAG, "Restored $added listens from the account (${days.size} days checked)")
             } catch (e: Exception) {
                 Log.w(TAG, "Restore failed, will retry next start: ${e.message}")
             }
