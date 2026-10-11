@@ -197,3 +197,9 @@ Inspected BitChord's authenticated account, session scope, library pagination an
 A read-only check with the existing saved connection verified the account, loaded 25 library entries across two pages and 99 tracks from one playlist. All 45 Windows tests passed, covering authenticated account scope, pagination, private playlists, list/grid parsing, encrypted account storage and cache separation. Sidebar and account-menu previews were inspected. Idle dark Home now uses flat #202020 charcoal whenever no track is loaded, matching the supplied BitChord background reference; active artwork and light themes remain supported.
 
 Standard MSI build succeeded. Installed and relaunched on 11 October at 17:14 after a normal app close. All 28 checked data files and the existing shortcut were preserved; installed app code matches the build. Full backup: Downloads/Auralis-checkpoints/before-youtube-library-20261011-171346. Version remains 1.0.0. No executable was added to Downloads.
+
+### Neutral desktop accent (Windows 1.0.0)
+
+The green idle accent came from the shared fixed Lime colour scheme, rather than an imported Windows wallpaper colour. Desktop theme fallback now uses white accents and neutral grey containers in dark modes, with dark neutral accents for readable light mode. Added a White fixed palette to desktop Themes and Colours. Dynamic artwork palettes and explicitly selected curated palettes remain available; Android colour schemes are unchanged. Windows compilation passed and the idle Home/sidebar preview was visually checked.
+
+Standard MSI build passed. Installed on 11 October at 17:20 after a normal close, with all 29 checked data files and shortcut preserved; installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-white-accent-20261011-171924. Version remains 1.0.0.
