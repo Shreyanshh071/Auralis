@@ -221,3 +221,9 @@ The read-only live check returned 3 Home shelves, 40 YouTube recents and 2 new-r
 Final regression verification passed all 48 tests. The existing sidebar word-sync image test now flushes scene invalidations after clock changes before asserting sung/future/paused/seek pixels, removing intermittent stale-frame captures; its assertions are unchanged.
 
 Final standard MSI packaging passed. Installed on 11 October at 17:43 after a normal close; all 31 checked data files and shortcut were preserved, and installed code matches the build. Full backup: Downloads/Auralis-checkpoints/before-home-redesign-20261011-174242. Version remains 1.0.0.
+
+### Find music button (Windows 1.0.0)
+
+Home now shows the labelled Find music button at 210dp minimum width and 60dp height with 18sp text. Removed the adjacent Home refresh icon. The button uses neutral translucent white instead of the theme's tinted secondary container; its popup spacing accounts for the larger button. Existing popup animation and search actions are preserved.
+
+Windows compilation and standard MSI packaging passed. Installed on 11 October at 17:48 after a normal close; all 32 checked data files and shortcut were preserved, and installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-find-music-button-20261011-174716. Version remains 1.0.0.
