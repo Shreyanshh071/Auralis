@@ -15,6 +15,8 @@ import okhttp3.Response
 /** Bounds the entire request, closes every response, and cancels HTTP when the query changes. */
 suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
     withTimeout(budgetMs) {
+        val youtube = request.url.host.contains("youtube")
+        if (youtube && YouTubeBackoff.active) throw IOException("YouTube is temporarily limiting this network")
         suspendCancellableCoroutine { continuation ->
             val call = newCall(request)
             call.timeout().timeout(budgetMs, TimeUnit.MILLISECONDS)
@@ -28,8 +30,11 @@ suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
                     try {
                         val body = response.use {
                             // The start of the error body says why (YouTube's 403s carry a reason).
-                            if (!it.isSuccessful) throw IOException("Search HTTP ${it.code} " +
-                                (it.body?.string().orEmpty().replace(Regex("\\s+"), " ").take(200)))
+                            if (!it.isSuccessful) {
+                                val error = it.body?.string().orEmpty()
+                                if (youtube && it.code == 403 && YouTubeBackoff.isBlockPage(error)) YouTubeBackoff.trip()
+                                throw IOException("Search HTTP ${it.code} " + error.replace(Regex("\\s+"), " ").take(200))
+                            }
                             it.body?.string() ?: throw IOException("Empty search response")
                         }
                         continuation.resume(body)
