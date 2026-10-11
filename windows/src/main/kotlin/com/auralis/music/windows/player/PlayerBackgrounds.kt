@@ -43,6 +43,12 @@ import kotlin.math.sin
  */
 @Composable
 internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette) {
+    // "Dynamic" is Spicy Lyrics' full-screen background: the Kawarp warp the sidebar card uses.
+    if (styleKey.equals("Dynamic", ignoreCase = true)) {
+        // Brighter than the sidebar card: Spicy's full-screen view keeps the cover's colours vivid.
+        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, brightness = .78f)
+        return
+    }
     val style = PlayerBackgroundStyle.fromKey(styleKey)
     Box(Modifier.fillMaxSize().background(Color(0xFF050505)).clipToBounds()) {
         when (style) {

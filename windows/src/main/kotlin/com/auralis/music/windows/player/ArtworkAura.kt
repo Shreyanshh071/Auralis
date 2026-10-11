@@ -21,7 +21,7 @@ import javax.imageio.ImageIO
  * No audio analysis is fabricated: the flow runs at a steady speed.
  */
 @Composable
-internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null) {
+internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null, brightness: Float = .57f) {
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(artwork) {
         if (artwork == null) { cover = null; return@LaunchedEffect }
@@ -53,7 +53,7 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
                     .map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
             }
         } else {
-            val resources = remember(image) { AuraRenderer(image) }
+            val resources = remember(image, brightness) { AuraRenderer(image, brightness) }
             DisposableEffect(resources) { onDispose { resources.close() } }
             Canvas(Modifier.fillMaxSize()) {
                 drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
@@ -99,13 +99,14 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
 
 // Domain-warp noise and octave mixing adapted from Better Lyrics/Kawarp (MIT).
 // License is bundled at third-party/kawarp-LICENSE.txt.
-internal class AuraRenderer(image: ImageBitmap) : AutoCloseable {
+internal class AuraRenderer(image: ImageBitmap, private val brightness: Float = .57f) : AutoCloseable {
     private val texture = Image.makeFromBitmap(image.asSkiaBitmap())
     private val child = texture.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR)
     private val effect = RuntimeEffect.makeForShader("""
         uniform shader cover;
         uniform float2 resolution;
         uniform float time;
+        uniform float brightness;
   float3 mod289(float3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   float2 mod289(float2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   float3 permute(float3 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -148,14 +149,14 @@ internal class AuraRenderer(image: ImageBitmap) : AutoCloseable {
             half luminance = dot(colour, half3(0.2126, 0.7152, 0.0722));
             colour = max(half3(0.0), mix(half3(luminance), colour, 1.5));
             // Readable foreground while retaining the cover's bright coloured regions.
-            colour *= 0.57 - 0.12 * uv.y;
+            colour *= brightness - 0.12 * uv.y;
             return half4(colour, 1.0);
         }
     """.trimIndent())
     private val builder = RuntimeShaderBuilder(effect).apply { child("cover", child) }
     private val paint = org.jetbrains.skia.Paint()
     fun draw(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, seconds: Float) {
-        builder.uniform("resolution", width, height); builder.uniform("time", seconds)
+        builder.uniform("resolution", width, height); builder.uniform("time", seconds); builder.uniform("brightness", brightness)
         builder.makeShader().use { shader ->
             paint.shader = shader
             canvas.drawRect(Rect.makeWH(width, height), paint)
