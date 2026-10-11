@@ -17,6 +17,8 @@ import java.util.concurrent.ConcurrentHashMap
  * (Auto) quality: the original-language track at the highest bitrate.
  */
 object DesktopStreamResolver {
+    @Volatile var quality = com.auralis.music.domain.model.AudioQuality.HIGH
+        set(value) { if (field != value) { field = value; clearCache() } }
     private const val TAG = "DesktopStreamResolver"
     private const val EXTRACTION_BUDGET_MS = 8000L
     private const val MAX_ATTEMPTS = 3
@@ -144,7 +146,9 @@ object DesktopStreamResolver {
         val playable = usable.filter { !hostBlocked(it.content) }.ifEmpty { usable }
         // Auto-dubbed and audio-description tracks reuse the original's itags; keep the original.
         val original = playable.filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
-        return original.ifEmpty { playable }.maxByOrNull { kbps(it) }
+        val candidates = original.ifEmpty { playable }
+        return if (quality == com.auralis.music.domain.model.AudioQuality.AUTO) candidates.maxByOrNull { kbps(it) }
+        else candidates.minByOrNull { kotlin.math.abs(kbps(it) - quality.targetBitrate / 1000) }
     }
 
     private fun kbps(stream: AudioStream): Int = stream.averageBitrate.takeIf { it > 0 } ?: (stream.bitrate / 1000)

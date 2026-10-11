@@ -65,3 +65,6 @@ test_queue.py
 android/app/libs/
 android/app/src/main/jniLibs/
 android/app/src/main/cpp/discord/
+
+# Owner-provided desktop OAuth configuration; bundled locally, never committed.
+/windows/local-resources/

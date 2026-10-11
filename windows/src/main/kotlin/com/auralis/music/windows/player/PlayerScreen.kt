@@ -76,10 +76,17 @@ fun PlayerScreen(
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
+    val appearance = LocalAppearanceSettings.current
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        BlurredArtworkBackground(artworkUrl)
+        when (appearance.playerBackgroundStyle) {
+            "Follow theme" -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)))
+            }
+            "Gradient" -> Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), Color.Black))))
+            else -> BlurredArtworkBackground(artworkUrl)
+        }
 
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 36.dp)) {
             val wide = maxWidth > 900.dp
@@ -90,7 +97,7 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.weight(0.42f).widthIn(max = 520.dp) else Modifier.weight(1f))
                 ) {
-                    DesktopArtwork(
+                    if (!appearance.hidePlayerThumbnail) DesktopArtwork(
                         url = artworkUrl,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -98,7 +105,8 @@ fun PlayerScreen(
                             .weight(1f, fill = false)
                             .shadow(24.dp, RoundedCornerShape(16.dp)),
                         cornerRadius = 16.dp,
-                        contentDescription = track?.title
+                        contentDescription = track?.title,
+                        contentScale = if (appearance.cropAlbumArt) ContentScale.Crop else ContentScale.Fit
                     )
                     Spacer(Modifier.height(28.dp))
                     // The phone player's title block: bold title, artist at 75% white.
@@ -196,7 +204,7 @@ private fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyri
         else -> CompositionLocalProvider(
             LocalLyricsUi provides DesktopLyricsUi,
             // The phone's defaults: MetroLyrics, centred, standard blur.
-            LocalAppearanceSettings provides remember { AppearanceSettings() }
+            LocalAppearanceSettings provides LocalAppearanceSettings.current
         ) {
             ExperimentalLyricsView(
                 lyrics = data,
@@ -237,7 +245,7 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController) {
         isPlaying = state == VlcAudioPlayer.State.PLAYING,
         currentPosMs = dragFraction?.let { (it * duration).toLong() } ?: position,
         totalDurationMs = duration,
-        sliderStyle = "Wavy",
+        sliderStyle = LocalAppearanceSettings.current.playerSliderStyle,
         modifier = Modifier.fillMaxWidth()
     )
 }

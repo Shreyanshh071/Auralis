@@ -11,6 +11,7 @@ import com.auralis.music.ui.viewmodel.HomePlatform
 import com.auralis.music.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -20,10 +21,9 @@ import java.io.File
 
 /**
  * [HomePlatform] on desktop: the phone's Home cache files (same names and JSON) in [dir].
- * Windows doesn't measure listening time yet, so the "listened" shelves stay empty rather
- * than guessed; there are no offline copies to update, and streams are looked up ahead.
+ * Measured song listening times feed Home; playlist-specific sessions are not inferred; there are no offline copies to update, and streams are looked up ahead.
  */
-class DesktopHomePlatform(private val dir: File) : HomePlatform {
+class DesktopHomePlatform(private val dir: File, private val stats: com.auralis.music.desktop.library.DesktopListeningStats? = null) : HomePlatform {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     private val speedDialSerializer = ListSerializer(ListSerializer(SpeedDialItem.serializer()))
@@ -104,7 +104,7 @@ class DesktopHomePlatform(private val dir: File) : HomePlatform {
 
     override fun playlistListeningStats(): Flow<Map<String, PlaylistListeningStats>> = flowOf(emptyMap())
     override fun clearPlaylistListening() {}
-    override fun trackListenTimes(): Flow<Map<String, Long>> = flowOf(emptyMap())
+    override fun trackListenTimes(): Flow<Map<String, Long>> = stats?.listens?.map { listens -> listens.groupBy { it.track.id }.mapValues { (_, sessions) -> sessions.sumOf { it.timeMs } } } ?: flowOf(emptyMap())
 
     // The phone's library artwork check rewrites Room rows and offline copies; Windows has neither yet.
     override fun artworkRepairDue() = false

@@ -19,6 +19,7 @@ java {
 }
 
 dependencies {
+    testImplementation(kotlin("test"))
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -31,6 +32,13 @@ dependencies {
     implementation(libs.org.json)
     // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
     implementation("net.java.dev.jna:jna-jpms:5.14.0")
+    implementation("net.java.dev.jna:jna-platform-jpms:5.14.0")
+}
+
+// Creates two temporary anonymous participants, checks the room protocol, then removes both.
+tasks.register<JavaExec>("verifyRoomService") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.together.RoomServiceCheckKt")
 }
 
 // libVLC ships inside the installer, so users don't need VLC installed. It is copied at build
@@ -90,7 +98,7 @@ compose.desktop {
             // jdk.httpserver: the local stream relay (LocalStreamRelay).
             modules("java.instrument", "java.net.http", "jdk.dynalink", "jdk.unsupported", "jdk.crypto.ec", "java.naming", "jdk.httpserver")
             packageName = "Auralis"
-            packageVersion = "1.1.2"
+            packageVersion = "1.1.3"
             description = "Auralis music player"
             vendor = "Auralis"
             windows {
@@ -114,4 +122,12 @@ tasks.register<JavaExec>("renderScreens") {
     mainClass.set("com.auralis.music.windows.dev.RenderScreensKt")
     val outDir = layout.buildDirectory.dir("screens").get().asFile
     args = listOf(outDir.absolutePath) + (findProperty("screens")?.toString()?.split(",") ?: emptyList())
+}
+
+// Owner-provided desktop OAuth client, outside version control.
+tasks.named<ProcessResources>("processResources") { from("local-resources") }
+
+tasks.register<JavaExec>("verifyRoomPlayback") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.together.RoomPlaybackCheckKt")
 }

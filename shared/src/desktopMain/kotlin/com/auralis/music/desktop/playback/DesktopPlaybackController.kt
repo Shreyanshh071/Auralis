@@ -17,7 +17,8 @@ import kotlinx.coroutines.launch
  */
 class DesktopPlaybackController(
     private val player: VlcAudioPlayer,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
 ) {
     data class Queue(val tracks: List<Track> = emptyList(), val index: Int = -1) {
         val current: Track? get() = tracks.getOrNull(index)
@@ -26,6 +27,22 @@ class DesktopPlaybackController(
 
     private val _queue = MutableStateFlow(Queue())
     val queue: StateFlow<Queue> = _queue.asStateFlow()
+    private val _session = MutableStateFlow(0L)
+    val session: StateFlow<Long> = _session.asStateFlow()
+    /** Active rooms route guest controls to the host instead of changing local playback. */
+    @Volatile var roomControl: ((String, Track?, Long) -> Boolean)? = null
+    private val applyingRoom = ThreadLocal.withInitial { false }
+    fun <T> fromRoom(block: () -> T): T {
+        val before = applyingRoom.get()
+        applyingRoom.set(true)
+        return try { block() } finally { applyingRoom.set(before) }
+    }
+    private fun intercepted(action: String, track: Track? = null, position: Long = 0): Boolean =
+        !applyingRoom.get() && roomControl?.invoke(action, track, position) == true
+
+    fun syncRoomQueue(tracks: List<Track>, index: Int) {
+        if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = Queue(tracks, index)
+    }
 
     /** True while the stream URL for the current song is being looked up. */
     private val _resolving = MutableStateFlow(false)
@@ -39,6 +56,9 @@ class DesktopPlaybackController(
     val lengthMs: StateFlow<Long> get() = player.lengthMs
     /** Smooth playback clock for word-synced lyrics. */
     val clock: com.auralis.music.data.service.PlaybackClockSource get() = player.clock
+    @Volatile var preloadNext: Boolean = true
+    fun setRate(rate: Float) = player.setRate(rate)
+    private var preloadJob: Job? = null
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val errors: SharedFlow<String> = _errors
@@ -77,6 +97,7 @@ class DesktopPlaybackController(
     }
 
     fun playFrom(track: Track, list: List<Track>) {
+        if (intercepted("play_track", track)) return
         val tracks = list.ifEmpty { listOf(track) }
         val index = tracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
         consecutiveFailures = 0
@@ -84,6 +105,7 @@ class DesktopPlaybackController(
     }
 
     fun togglePlayPause() {
+        if (intercepted(if (player.state.value == VlcAudioPlayer.State.PLAYING) "pause" else "play")) return
         when (player.state.value) {
             VlcAudioPlayer.State.PLAYING, VlcAudioPlayer.State.BUFFERING -> player.pause()
             VlcAudioPlayer.State.PAUSED -> player.resume()
@@ -92,19 +114,29 @@ class DesktopPlaybackController(
         }
     }
 
+    /** Set a requested state without flipping it when a room repeats the same update. */
+    fun setPaused(paused: Boolean) {
+        when {
+            paused && player.state.value == VlcAudioPlayer.State.PLAYING -> player.pause()
+            !paused && player.state.value == VlcAudioPlayer.State.PAUSED -> player.resume()
+        }
+    }
+
     fun next() {
+        if (intercepted("next")) return
         val q = _queue.value
         if (q.hasNext) load(q.copy(index = q.index + 1))
     }
 
     /** Like the phone: restarts the song when more than 3 seconds in, otherwise goes back one. */
     fun previous() {
+        if (intercepted("previous")) return
         val q = _queue.value
         if (player.positionMs.value > 3000L || q.index <= 0) seekTo(0L)
         else load(q.copy(index = q.index - 1))
     }
 
-    fun seekTo(ms: Long) = player.seekTo(ms)
+    fun seekTo(ms: Long) { if (!intercepted("seek", position = ms)) player.seekTo(ms) }
 
     /** Seeks [deltaMs] forward (or back when negative), within the song. */
     fun seekBy(deltaMs: Long) {
@@ -130,6 +162,7 @@ class DesktopPlaybackController(
 
     /** Puts [track] right after the playing song (or plays it when nothing is queued). */
     fun playNext(track: Track) {
+        if (intercepted("recommend", track)) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
         val tracks = q.tracks.toMutableList().apply { add(q.index + 1, track) }
@@ -138,6 +171,7 @@ class DesktopPlaybackController(
 
     /** Adds [track] to the end of the queue (or plays it when nothing is queued). */
     fun addToQueue(track: Track) {
+        if (intercepted("recommend", track)) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
         _queue.value = q.copy(tracks = q.tracks + track)
@@ -147,12 +181,14 @@ class DesktopPlaybackController(
     fun playAt(index: Int) {
         val q = _queue.value
         if (index !in q.tracks.indices) return
+        if (intercepted("play_track", q.tracks[index])) return
         consecutiveFailures = 0
         load(q.copy(index = index))
     }
 
     /** Removes a song that isn't the one playing. */
     fun removeAt(index: Int) {
+        if (intercepted("edit_queue")) return
         val q = _queue.value
         if (index !in q.tracks.indices || index == q.index) return
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
@@ -161,6 +197,7 @@ class DesktopPlaybackController(
 
     /** Clears History: every song before the one playing. */
     fun clearHistory() {
+        if (intercepted("edit_queue")) return
         val q = _queue.value
         if (q.index <= 0) return
         _queue.value = Queue(q.tracks.drop(q.index), 0)
@@ -172,20 +209,23 @@ class DesktopPlaybackController(
     }
 
     fun release() {
+        preloadJob?.cancel()
         loadJob?.cancel()
         player.release()
     }
 
     private fun load(q: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
         val track = q.current ?: return
+        if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
         _queue.value = q
         loadJob?.cancel()
+        preloadJob?.cancel()
         player.stop()
         loadJob = scope.launch {
             _resolving.value = true
             val url = try {
-                DesktopStreamResolver.resolve(track.id)
+                resolveStream(track.id)
             } finally {
                 _resolving.value = false
             }
@@ -197,6 +237,10 @@ class DesktopPlaybackController(
                 currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
                 player.play(LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
+                if (preloadNext && q.hasNext) {
+                    preloadJob?.cancel()
+                    preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { resolveStream(q.tracks[q.index + 1].id) }
+                }
             }
         }
     }
