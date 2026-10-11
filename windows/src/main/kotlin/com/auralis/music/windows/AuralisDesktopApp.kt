@@ -359,7 +359,7 @@ fun AuralisDesktopApp(
                                 onYouTubePlaylist = ::openYouTubePlaylist,
                                 findMusic = {
                                     com.auralis.music.windows.search.FindMusicDropdown(
-                                        compact = true,
+                                        compact = false,
                                         state = searchState,
                                         currentTrackId = queue?.current?.id,
                                         isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,

@@ -92,9 +92,6 @@ internal fun DesktopHomeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeHeading("Recents", null, trailing = {
                         if (findMusic != null) findMusic() else IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Find music") }
-                        IconButton(onClick = onRefresh, enabled = !serviceLoading && !state.isRefreshing) {
-                            Icon(Icons.Outlined.Refresh, "Refresh home", Modifier.size(18.dp))
-                        }
                         IconButton(onClick = onToggleRecents) {
                             Icon(if (recentsGrid) Icons.Outlined.ViewList else Icons.Outlined.GridView,
                                 if (recentsGrid) "Show recents as a list" else "Show recents as covers", Modifier.size(18.dp))
