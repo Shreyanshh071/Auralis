@@ -120,6 +120,7 @@ fun InstrumentalIntroIndicator(
     strokeWidth: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroStrokeWidth else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardStrokeWidth,
     gapSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardTrackGapSize,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    dotSize: Dp = if (isMetroLyrics) 12.dp else 10.dp,
     onSkipIntro: (() -> Unit)? = null
 ) {
     val currentTimeMs = currentTimeMsState.value
@@ -152,7 +153,7 @@ fun InstrumentalIntroIndicator(
                 progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
                 elapsedMs = currentTimeMs,
                 remainingMs = introDurationMs - currentTimeMs,
-                dotSize = if (isMetroLyrics) 12.dp else 10.dp
+                dotSize = dotSize
             )
         }
     }

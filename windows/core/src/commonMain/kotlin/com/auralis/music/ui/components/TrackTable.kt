@@ -22,6 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.sync.withPermit
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -38,6 +42,9 @@ import com.auralis.music.domain.model.Track
 class TrackLinks(val openArtist: (String) -> Unit, val openAlbum: (Track) -> Unit)
 
 val LocalTrackLinks = staticCompositionLocalOf<TrackLinks?> { null }
+
+/** At most two album lookups at once: iTunes rate-limits bursts from a long playlist. */
+private val albumLookups = kotlinx.coroutines.sync.Semaphore(2)
 
 /** Width of the length column in song tables, so the header's clock sits over the times. */
 val TrackTableTimeWidth = 56.dp
@@ -99,10 +106,25 @@ fun RowScope.TrackLinkCells(track: Track, fallbackArtist: String? = null) {
             if (index < names.lastIndex) Text(", ", style = style, color = colour, maxLines = 1)
         }
     }
-    val album = trackAlbumLabel(track)
+    // A single or compilation tag isn't the song's album ("Love Me Not / Love Is Blind" for a
+    // Bird's Eye song): look up the parent album, as search does, and show and link that.
+    val needsLookup = remember(track.id, track.album) {
+        com.auralis.music.data.network.AlbumMetadataResolver.needsResolving(track.album, track.title)
+    }
+    var resolved by remember(track.id) {
+        mutableStateOf(if (needsLookup) com.auralis.music.data.network.AlbumMetadataResolver.getCached(track.title, track.artist, track.album) else null)
+    }
+    LaunchedEffect(track.id) {
+        if (needsLookup && resolved == null) resolved = albumLookups.withPermit {
+            runCatching { com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(track.title, track.artist, track.album) }.getOrNull()
+        }
+    }
+    val parent = resolved?.takeIf { !it.isSingle && it.albumTitle.isNotBlank() }
+    val albumTrack = if (parent != null) track.copy(album = parent.albumTitle, albumId = parent.albumId ?: track.albumId) else track
+    val album = parent?.albumTitle ?: trackAlbumLabel(track)
     Box(Modifier.weight(1f).padding(horizontal = 12.dp)) {
         if (album == null) Text("—", style = style, color = colour)
-        else LinkText(album, style, colour, links?.let { { it.openAlbum(track) } })
+        else LinkText(album, style, colour, links?.let { { it.openAlbum(albumTrack) } })
     }
 }
 

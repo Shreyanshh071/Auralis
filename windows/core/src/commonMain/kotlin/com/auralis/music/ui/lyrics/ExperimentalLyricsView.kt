@@ -522,6 +522,14 @@ fun ExperimentalLyricsView(
         }
     }
 
+    // Spicy Lyrics' dots sit where the words start and are about a lowercase letter tall.
+    val dotsAlignment = when (appearance.lyricsTextPosition.lowercase()) {
+        "left" -> Alignment.Start
+        "right" -> Alignment.End
+        else -> Alignment.CenterHorizontally
+    }
+    val dotsSize = (34f * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.42f).dp
+
     val mergedLyricsList = remember(effectiveLines) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
         effectiveLines.forEachIndexed { index, line ->
@@ -1067,6 +1075,9 @@ fun ExperimentalLyricsView(
                                         currentTimeMsState = introTimeState,
                                         introDurationMs = introDurationMs,
                                         isMetroLyrics = true,
+                                        horizontalAlignment = dotsAlignment,
+                                        dotSize = dotsSize,
+                                        modifier = Modifier.padding(horizontal = 10.dp),
                                         onSkipIntro = { onSeekTo(introDurationMs) }
                                     )
                                 }
@@ -1170,6 +1181,9 @@ fun ExperimentalLyricsView(
                                 visible = indicatorVisible,
                                 color = Color.White,
                                 isMetroLyrics = true,
+                                dotsAlignment = dotsAlignment,
+                                dotSize = dotsSize,
+                                modifier = Modifier.padding(horizontal = 10.dp),
                                 onSkip = { onSeekTo(listItem.gapEndMs) }
                             )
                         }

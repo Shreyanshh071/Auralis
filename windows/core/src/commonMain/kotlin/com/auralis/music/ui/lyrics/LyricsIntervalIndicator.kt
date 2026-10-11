@@ -137,6 +137,8 @@ fun LyricsIntervalIndicator(
     indicatorSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroIndicatorSize else WavyProgressIndicatorDefaults.StandardIndicatorSize,
     strokeWidth: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroStrokeWidth else WavyProgressIndicatorDefaults.StandardStrokeWidth,
     gapSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroTrackGapSize else WavyProgressIndicatorDefaults.StandardTrackGapSize,
+    dotsAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    dotSize: Dp = if (isMetroLyrics) 12.dp else 10.dp,
     onSkip: (() -> Unit)? = null
 ) {
     val alphaAnim = remember { Animatable(if (visible) 1f else 0f) }
@@ -162,7 +164,7 @@ fun LyricsIntervalIndicator(
         label = "intervalProgress"
     )
 
-    val targetHeight = (if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp) * heightAnim.value
+    val targetHeight = maxOf(if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp, dotSize * 3) * heightAnim.value
     val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
 
     if (heightAnim.value > 0.01f) {
@@ -179,7 +181,11 @@ fun LyricsIntervalIndicator(
                     alpha = alphaAnim.value
                     clip = true
                 },
-            contentAlignment = Alignment.Center
+            contentAlignment = when (dotsAlignment) {
+                Alignment.Start -> Alignment.CenterStart
+                Alignment.End -> Alignment.CenterEnd
+                else -> Alignment.Center
+            }
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -194,7 +200,7 @@ fun LyricsIntervalIndicator(
                     elapsedMs = currentPositionMs - gapStartMs,
                     remainingMs = gapEndMs - currentPositionMs,
                     color = color,
-                    dotSize = if (isMetroLyrics) 12.dp else 10.dp
+                    dotSize = dotSize
                 )
             }
         }
