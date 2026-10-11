@@ -356,7 +356,9 @@ fun AuralisDesktopApp(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
-                    onOpenPlayer = { if (canShowPlayer) showPlayer = true }
+                    onOpenPlayer = { if (canShowPlayer) showPlayer = true },
+                    onOpenLyrics = { if (canShowPlayer) { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true } },
+                    onOpenQueue = { if (canShowPlayer) { playerPanel = com.auralis.music.windows.player.PlayerPanel.QUEUE; showPlayer = true } }
                 )
             }
             // The full player slides up over everything, like the phone's player sheet.

@@ -44,6 +44,14 @@ class DesktopPlaybackController(
         if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = Queue(tracks, index)
     }
 
+    /** Rearrange only upcoming songs; keep the playing track, history and stream untouched. */
+    fun shuffleUpcoming() {
+        if (roomControl != null) return // The room host owns the shared queue order.
+        val queue = _queue.value
+        if (!queue.hasNext) return
+        _queue.value = queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled())
+    }
+
     /** True while the stream URL for the current song is being looked up. */
     private val _resolving = MutableStateFlow(false)
     val resolving: StateFlow<Boolean> = _resolving.asStateFlow()
