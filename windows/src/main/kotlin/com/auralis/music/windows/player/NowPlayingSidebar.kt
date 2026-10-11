@@ -19,10 +19,11 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.windows.search.DesktopArtwork
 
 @Composable
-internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, onExpand: () -> Unit, modifier: Modifier) {
+internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, onExpand: () -> Unit, modifier: Modifier,
+    palette: com.auralis.music.ui.theme.ArtworkPalette) {
     val queue by playback.queue.collectAsState()
     val track = queue.current ?: return
-    NowPlayingSidebarContent(track, onExpand, modifier) {
+    NowPlayingSidebarContent(track, onExpand, modifier, palette) {
         val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
         CompositionLocalProvider(com.auralis.music.ui.theme.LocalAppearanceSettings provides
             appearance.copy(lyricsTextSize = 20f, lyricsTextPosition = "Left")) {
@@ -33,22 +34,25 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
 
 @Composable
 internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifier: Modifier,
+    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
     lyricContent: @Composable () -> Unit) {
     BoxWithConstraints(modifier) {
     val coverSize = minOf(maxWidth - 48.dp, maxHeight * .40f)
-    Column(Modifier.fillMaxSize().padding(8.dp).clip(RoundedCornerShape(16.dp))
-        .background(MaterialTheme.colorScheme.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Now playing", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box(Modifier.fillMaxSize().padding(8.dp).clip(RoundedCornerShape(16.dp))) {
+    ArtworkAura(palette, Modifier.fillMaxSize())
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Now playing", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
         DesktopArtwork(track.thumbnail, Modifier.size(coverSize).align(Alignment.CenterHorizontally), 12.dp, track.title)
-        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 2)
-        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-        Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFF211D25).copy(alpha = .88f))) {
+        Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+        Text(track.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
+        Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = .10f))) {
             Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
                 IconButton(onClick = onExpand) { Icon(Icons.Rounded.OpenInFull, "Expand lyrics", tint = Color.White, modifier = Modifier.size(18.dp)) }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) { lyricContent() }
         }
+    }
     }
     }
 }
