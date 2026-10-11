@@ -35,6 +35,23 @@ class DesktopListeningStats(private val file: File) {
         persist()
     }
 
+    /**
+     * Adds listens measured elsewhere (the phone's account backup), skipping any already here:
+     * the same song starting within 2 s is the same listen. Saved once. Returns how many were new.
+     */
+    @Synchronized fun importListens(listens: List<Listen>): Int {
+        val existing = mutable.value
+        val byTrack = existing.groupBy { it.track.id }
+        val fresh = listens.filter { incoming ->
+            incoming.timeMs > 0 && incoming.track.id.isNotBlank() &&
+                byTrack[incoming.track.id].orEmpty().none { kotlin.math.abs(it.startedAt - incoming.startedAt) <= 2_000L }
+        }.distinctBy { it.id }
+        if (fresh.isEmpty()) return 0
+        mutable.value = (existing + fresh).sortedBy { it.startedAt }
+        persist()
+        return fresh.size
+    }
+
     @Synchronized fun clear() { mutable.value = emptyList(); clearVersion++; persist() }
 
     private fun persist() {

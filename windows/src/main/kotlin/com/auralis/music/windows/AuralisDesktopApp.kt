@@ -133,6 +133,8 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
+    // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
+    var refreshTick by remember { mutableStateOf(0) }
     var youtubePageAccount by remember { mutableStateOf<String?>(null) }
     var youtubePageId by remember { mutableStateOf<String?>(null) }
     val homeViewModel = remember {
@@ -187,6 +189,16 @@ fun AuralisDesktopApp(
             platform = com.auralis.music.desktop.library.DesktopLibraryPlatform(libraryFlags, showUnavailable)
         )
     }
+    // Signing in with the phone's Auralis account brings its playlists, likes and stats here;
+    // the title bar's refresh pulls again.
+    androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid, refreshTick) {
+        if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
+        try {
+            account.pullCloudBackup(library, listeningStats)?.let { if (refreshTick == 0) showUnavailable(it) }
+            libraryViewModel.refresh()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync from the account: ${e.message}") }
+    }
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
@@ -238,6 +250,15 @@ fun AuralisDesktopApp(
     }
 
     val appearance by stores.appearance.settingsFlow.collectAsState(stores.appearance.getInitialSettings())
+    // One-time move to Spicy Lyrics' player (asked for on 2026-10-11): the Dynamic background and
+    // left-aligned lyrics. Later choices in Appearance are kept.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (libraryFlags.getString("spicy_player_defaults", "0") != "1") {
+            val current = stores.appearance.settingsFlow.first()
+            stores.appearance.updateSettings(current.copy(playerBackgroundStyle = "Dynamic", lyricsTextPosition = "Left"))
+            libraryFlags.putStrings(mapOf("spicy_player_defaults" to "1"))
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         destination = when (stores.appearance.settingsFlow.first().defaultOpenTab) {
             "Search" -> DesktopDestination.SEARCH
@@ -298,6 +319,7 @@ fun AuralisDesktopApp(
                     back = { if (showPlayer) showPlayer = false else restoreRoute(navigation.back()) },
                     forward = { restoreRoute(navigation.forward()) },
                     refresh = {
+                        refreshTick++
                         when (val page = browse.top) {
                             is com.auralis.music.desktop.browse.BrowsePage.Artist -> browse.retryArtist()
                             is com.auralis.music.desktop.browse.BrowsePage.Album -> {
@@ -329,8 +351,7 @@ fun AuralisDesktopApp(
                     openImport = { showPlayer = false; browse.clear(); destination = DesktopDestination.IMPORT },
                     openDiscord = { showPlayer = false; browse.clear(); destination = DesktopDestination.DISCORD },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
-                    canRefresh = browse.top != null || destination in setOf(DesktopDestination.HOME, DesktopDestination.LIBRARY) ||
-                        (destination == DesktopDestination.SEARCH && searchState.query.isNotBlank())
+                    canRefresh = true
                 ))
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                   val showNowPlaying = queue?.current != null && playback != null && lyrics != null
@@ -356,6 +377,7 @@ fun AuralisDesktopApp(
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
                     Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface)) {
+                        androidx.compose.runtime.key(refreshTick) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
@@ -478,6 +500,7 @@ fun AuralisDesktopApp(
                                 onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
                                 showMessage = showUnavailable
                             )
+                        }
                         }
                         menuTrack?.let { track ->
                             com.auralis.music.windows.library.DesktopTrackMenu(

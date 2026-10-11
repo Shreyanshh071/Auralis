@@ -148,8 +148,14 @@ internal class AuraRenderer(image: ImageBitmap, private val brightness: Float = 
             half3 colour = cover.eval(samplePoint).rgb;
             half luminance = dot(colour, half3(0.2126, 0.7152, 0.0722));
             colour = max(half3(0.0), mix(half3(luminance), colour, 1.5));
-            // Readable foreground while retaining the cover's bright coloured regions.
-            colour *= brightness - 0.12 * uv.y;
+            if (brightness >= 0.99) {
+                // Kawarp's own output pass (Spicy Lyrics' full screen): a light vignette only.
+                float2 c = uv - 0.5;
+                colour *= half(1.0 - dot(c, c) * 0.3);
+            } else {
+                // The sidebar card: dimmed for a readable foreground.
+                colour *= brightness - 0.12 * uv.y;
+            }
             return half4(colour, 1.0);
         }
     """.trimIndent())

@@ -9,6 +9,11 @@ import kotlinx.coroutines.runBlocking
  * usage: probeLyrics <title> <artist> <durationSec> [videoId]
  */
 fun main(args: Array<String>) = runBlocking {
+    // probeLyrics -Pargs="album::Title::Artist::KnownAlbum": the album a song table would show.
+    if (args.first() == "album") {
+        println("ALBUM: " + com.auralis.music.data.network.AlbumMetadataResolver.resolveAlbum(args[1], args[2], args.getOrNull(3)))
+        return@runBlocking
+    }
     val (title, artist, duration) = args
     val result = LyricsClient().getLyrics(
         title = title, artist = artist, durationSec = duration.toLong(), videoId = args.getOrNull(3) ?: "",
