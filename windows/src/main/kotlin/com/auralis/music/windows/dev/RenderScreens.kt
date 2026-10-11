@@ -196,6 +196,10 @@ fun main(args: Array<String>) {
         "home-loading" to { com.auralis.music.windows.home.DesktopHomeScreen(
             com.auralis.music.ui.viewmodel.HomeUiState(speedDialPages = emptyList(), isLoading = true),
             onPlay = { _, _ -> }, onShortcut = {}, onAlbum = {}, onMenu = {}, onSearch = {}, onSurprise = {}, onChip = {}) },
+        "album" to { com.auralis.music.ui.screens.AlbumScreen(
+            com.auralis.music.domain.model.PlaylistResult("VLpreview", "Preview playlist", author = "Preview listener"),
+            previewSongs.take(12), isLoading = false, currentTrackId = previewSongs.getOrNull(1)?.id, isPlaying = true,
+            onTrackClick = { _, _ -> }, onFavoriteToggle = {}, onBack = {}) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },
@@ -227,8 +231,8 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-service" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar" -> 36; "home-service", "home-wide" -> 1000; else -> 760 }, density = Density(1f)) {
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+                height = when (name) { "titlebar" -> 36; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
