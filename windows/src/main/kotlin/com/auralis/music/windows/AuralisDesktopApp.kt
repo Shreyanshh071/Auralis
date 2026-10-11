@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.BarChart
@@ -206,6 +208,19 @@ fun AuralisDesktopApp(
     }
     val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(queue?.current?.thumbnail)
     val liquidify by com.auralis.music.windows.settings.DesktopLiquidify.enabled.collectAsState()
+    val initialSidebars = remember { SidebarLayoutPreferences.load() }
+    var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
+    var rightSidebarWidth by remember { mutableStateOf(initialSidebars.right) }
+    var leftCollapsed by remember { mutableStateOf(initialSidebars.leftCollapsed) }
+    var rightCollapsed by remember { mutableStateOf(initialSidebars.rightCollapsed) }
+    var resizingLeft by remember { mutableStateOf(false) }
+    var resizingRight by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(leftSidebarWidth, rightSidebarWidth, leftCollapsed, rightCollapsed) {
+        kotlinx.coroutines.delay(400)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            SidebarLayoutPreferences.save(SidebarLayout(leftSidebarWidth, rightSidebarWidth, leftCollapsed, rightCollapsed))
+        }
+    }
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
@@ -247,10 +262,25 @@ fun AuralisDesktopApp(
                         (destination == DesktopDestination.SEARCH && searchState.query.isNotBlank())
                 ))
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                  val showNowPlaying = maxWidth >= 1180.dp && queue?.current != null && playback != null && lyrics != null
-                  val nowPlayingWidth = if (maxWidth >= 1500.dp) 340.dp else 290.dp
+                  val showNowPlaying = queue?.current != null && playback != null && lyrics != null
+                  val leftTarget = if (leftCollapsed) 64f else sidebarWidth(leftSidebarWidth, 180f, 320f)
+                  val rightLimit = (maxWidth.value - leftTarget - 360f - 6f).coerceAtMost(460f)
+                  val rightIsCollapsed = rightCollapsed || rightLimit < 280f
+                  val rightTarget = if (!showNowPlaying) 0f else if (rightIsCollapsed) 40f else sidebarWidth(rightSidebarWidth, 280f, rightLimit)
+                  val leftLimit = (maxWidth.value - rightTarget - 360f - 12f).coerceIn(180f, 320f)
+                  val leftDisplay by androidx.compose.animation.core.animateDpAsState(
+                      (if (leftCollapsed) 64f else sidebarWidth(leftSidebarWidth, 180f, leftLimit)).dp,
+                      if (resizingLeft) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "left sidebar width")
+                  val rightDisplay by androidx.compose.animation.core.animateDpAsState(rightTarget.dp,
+                      if (resizingRight) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "right sidebar width")
                   Row(Modifier.fillMaxSize()) {
-                    Sidebar(selected = destination, onSelect = { destination = it; browse.clear() })
+                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
+                        Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
+                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
+                    }
+                    if (!leftCollapsed) SidebarResizeHandle(
+                        onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
+                        onDragging = { resizingLeft = it })
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {
@@ -364,9 +394,22 @@ fun AuralisDesktopApp(
                         androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
                     }
                     if (showNowPlaying && playback != null && lyrics != null) {
+                      if (!rightIsCollapsed) SidebarResizeHandle(
+                          onDrag = { rightSidebarWidth = sidebarWidth(rightSidebarWidth - it, 280f, rightLimit) },
+                          onDragging = { resizingRight = it })
+                      Row(Modifier.width(rightDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
+                        androidx.compose.material3.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
+                            Icon(if (rightIsCollapsed) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
+                                if (rightIsCollapsed) "Expand now playing" else "Collapse now playing")
+                        }
+                        androidx.compose.animation.AnimatedVisibility(visible = !rightIsCollapsed,
+                            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+                            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
                         com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
                             onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
-                            modifier = Modifier.width(nowPlayingWidth).fillMaxHeight(), palette = artworkPalette)
+                            modifier = Modifier.width((sidebarWidth(rightSidebarWidth, 280f, rightLimit) - 40f).dp).fillMaxHeight(), palette = artworkPalette)
+                        }
+                      }
                     }
                   }
                 }
@@ -404,14 +447,14 @@ fun AuralisDesktopApp(
 }
 
 @Composable
-private fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit) {
+internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit) {
     val logo = remember {
         Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
             ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
     }
     Column(
         modifier = Modifier
-            .width(232.dp)
+            .fillMaxWidth()
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface)
             .verticalScroll(rememberScrollState())
@@ -422,18 +465,24 @@ private fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination)
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 8.dp, bottom = 20.dp)
         ) {
-            if (logo != null) Image(logo, contentDescription = null, modifier = Modifier.size(32.dp))
+            if (!collapsed) {
+            if (logo != null) Image(logo, contentDescription = null, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))
-            Text("Auralis", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text("Auralis", modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+            }
+            androidx.compose.material3.IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
+                Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ChevronLeft,
+                    if (collapsed) "Expand navigation" else "Collapse navigation")
+            }
         }
         DesktopDestination.entries.filter { it != DesktopDestination.SEARCH }.forEach { item ->
-            SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) })
+            SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) }, collapsed = collapsed)
         }
     }
 }
 
 @Composable
-private fun SidebarItem(item: DesktopDestination, isSelected: Boolean, onClick: () -> Unit) {
+private fun SidebarItem(item: DesktopDestination, isSelected: Boolean, onClick: () -> Unit, collapsed: Boolean) {
     val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -443,16 +492,22 @@ private fun SidebarItem(item: DesktopDestination, isSelected: Boolean, onClick: 
             .clip(RoundedCornerShape(12.dp))
             .background(if (isSelected) colors.surfaceContainerHigh else colors.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = if (collapsed) 8.dp else 12.dp)
     ) {
-        Icon(item.icon, contentDescription = null, tint = if (isSelected) colors.primary else colors.onSurfaceVariant)
+        Icon(item.icon, contentDescription = item.label, tint = if (isSelected) colors.primary else colors.onSurfaceVariant)
+        androidx.compose.animation.AnimatedVisibility(!collapsed,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.width(14.dp))
         Text(
             item.label,
             fontSize = 15.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isSelected) colors.onSurface else colors.onSurfaceVariant
+            color = if (isSelected) colors.onSurface else colors.onSurfaceVariant, maxLines = 1
         )
+        }
+        }
     }
 }
 

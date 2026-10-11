@@ -80,6 +80,12 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "sidebar-expanded" to { Box(androidx.compose.ui.Modifier.width(232.dp).fillMaxHeight()) {
+            com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {})
+        } },
+        "sidebar-collapsed" to { Box(androidx.compose.ui.Modifier.width(64.dp).fillMaxHeight()) {
+            com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, true, {})
+        } },
         "themes-colours" to { com.auralis.music.windows.settings.DesktopThemesAndColours {} },
         "song-context-menu" to {
             Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
