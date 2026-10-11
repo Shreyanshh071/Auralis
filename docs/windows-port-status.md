@@ -5,6 +5,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 ## Owner's development and update preferences
 
 - The mini-player button after Next is now Repeat rather than Lyrics: cycles Off → All → One. Active repeat uses the selected theme accent and a status dot; inactive repeat uses the theme's neutral icon colour. Repeat is disabled during Listen Together rooms to preserve host queue control. Automatic playback repeats a recording or wraps the queue as selected; three transition tests cover Off/All/One, singleton and empty queues. Android code is unchanged.
+- Installed and reopened the Repeat update at 13:16 on 11 October, version 1.0.0. All 21 Windows tests passed; installed code verified, existing shortcut and 21 checked non-cache data files preserved. Backup: `Downloads/Auralis-checkpoints/before-repeat-20261011-131617`.
 
 - Mini-player correction: the song-info block must have no hover highlight (owner clarified after the first hover styling). Only the cover opens the player; title/artist and the rest of the block are not interactive.
 - Installed that correction at 13:10 on 11 October, version 1.0.0; build passed, installed code verified, app reopened, 21 checked non-cache data files and shortcut preserved. Backup: `Downloads/Auralis-checkpoints/before-no-song-highlight-20261011-131021`.
