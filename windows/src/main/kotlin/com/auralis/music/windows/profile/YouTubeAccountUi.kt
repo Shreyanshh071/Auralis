@@ -85,30 +85,3 @@ internal fun AccountMenuAction(label: String, icon: ImageVector, onClick: () -> 
             color = MaterialTheme.colorScheme.onSurface)
     }
 }
-
-@Composable
-internal fun YouTubeSidebarPlaylists(state: YouTubeLibraryState, collapsed: Boolean,
-    onOpen: (PlaylistResult) -> Unit, onRetry: () -> Unit) {
-    HorizontalDivider(Modifier.padding(vertical = 10.dp))
-    if (!collapsed) Text("YouTube Music", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 8.dp))
-    state.playlists.forEach { playlist ->
-        Row(Modifier.fillMaxWidth().height(36.dp).clip(MaterialTheme.shapes.small).clickable { onOpen(playlist) }
-            .padding(horizontal = if (collapsed) 8.dp else 12.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(if (playlist.id == "VLLM") Icons.Outlined.FavoriteBorder else Icons.Outlined.QueueMusic,
-                playlist.title, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (!collapsed) Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-    if (!collapsed && state.error != null) {
-        Text(state.error, Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = onRetry) { Text("Try again") }
-    }
-    if (!collapsed && !state.loading && state.error == null && state.playlists.isEmpty()) {
-        Text("No YouTube playlists yet", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
-    }
-}

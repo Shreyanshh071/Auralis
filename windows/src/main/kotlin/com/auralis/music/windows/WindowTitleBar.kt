@@ -36,7 +36,9 @@ data class TitleBarActions(
     val openTogether: () -> Unit, val openSettings: () -> Unit, val home: () -> Unit,
     val canRefresh: Boolean = true,
     val accountAvatar: String? = null,
-    val accountMenu: (@Composable () -> Unit)? = null
+    val accountMenu: (@Composable () -> Unit)? = null,
+    val openImport: () -> Unit = {},
+    val openDiscord: () -> Unit = {},
 )
 
 /** Compact desktop chrome. Report frame hit regions in physical client pixels to Windows. */
@@ -70,8 +72,10 @@ fun WindowTitleBar(
             }
             actions.accountMenu?.invoke()
             }
+            ChromeButton(com.auralis.music.ui.components.LocalBrandImages.current.discord(), "Discord", actions.openDiscord, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)
+            ChromeButton(Icons.Outlined.PlaylistAdd, "Import playlists", actions.openImport, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Remove, "Minimize", minimize)
             ChromeButton(if (maximized) Icons.Outlined.FilterNone else Icons.Outlined.CropSquare,
@@ -86,6 +90,12 @@ fun WindowTitleBar(
 
 @Composable
 private fun ChromeButton(icon: ImageVector, label: String, click: () -> Unit, enabled: Boolean = true,
+    width: Int = 46, closeButton: Boolean = false, modifier: Modifier = Modifier,
+    nativeHovered: Boolean = false) =
+    ChromeButton(androidx.compose.ui.graphics.vector.rememberVectorPainter(icon), label, click, enabled, width, closeButton, modifier, nativeHovered)
+
+@Composable
+private fun ChromeButton(icon: Painter, label: String, click: () -> Unit, enabled: Boolean = true,
     width: Int = 46, closeButton: Boolean = false, modifier: Modifier = Modifier,
     nativeHovered: Boolean = false) {
     val interactions = remember { MutableInteractionSource() }
