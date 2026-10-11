@@ -1,6 +1,7 @@
 package com.auralis.music.windows.profile
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -17,10 +18,12 @@ import kotlinx.coroutines.withContext
 internal fun DesktopSignInDialog(account: DesktopAccount, onDismiss: () -> Unit) {
     var auralis by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 8.dp) {
-            Column(Modifier.width(560.dp).heightIn(max = 700.dp).padding(20.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(if (auralis) "Auralis account" else "Sign in to YouTube Music", style = MaterialTheme.typography.titleLarge)
+        SignInGlassSurface {
+            Column(Modifier.width(560.dp).heightIn(max = 700.dp).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(if (auralis) "Auralis account" else "Sign in to YouTube Music", style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
                 Row {
@@ -33,6 +36,17 @@ internal fun DesktopSignInDialog(account: DesktopAccount, onDismiss: () -> Unit)
             }
         }
     }
+}
+
+/** The app content beneath the modal is blurred in AuralisDesktopApp, leaving this content sharp. */
+@Composable
+internal fun SignInGlassSurface(content: @Composable () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = .82f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp, shadowElevation = 24.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .14f)),
+        content = content)
 }
 
 @Composable
