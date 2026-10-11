@@ -40,6 +40,8 @@ fun DesktopLibrary(
     playback: DesktopPlaybackController?,
     browse: DesktopBrowseState,
     onOpenProfile: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenListenTogether: () -> Unit,
     showMessage: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -48,18 +50,27 @@ fun DesktopLibrary(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // The phone opens "New playlist" from its bottom dock; on Windows it is a button on the Library page.
     var showCreate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val phoneOnly = { showMessage("This part of Auralis is on the phone for now") }
+    val savedAlbumEntries = uiState.savedAlbums.associateBy(::savedAlbumEntryId)
+    val displayedState = uiState.copy(playlists = desktopLibraryItems(uiState.playlists, uiState.savedAlbums))
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LibraryScreen(
-            uiState = uiState,
+            uiState = displayedState,
+            playlistSource = ::desktopPlaylistSource,
             onRefresh = { viewModel.refresh() },
             currentTrackId = queue?.current?.id,
             isPlaying = state == VlcAudioPlayer.State.PLAYING,
             onFilterSelect = viewModel::setFilter,
             onCreatePlaylist = viewModel::createPlaylist,
-            onDeletePlaylist = viewModel::deletePlaylist,
-            onPlaylistSelect = { viewModel.selectPlaylist(it?.id, it) },
+            onDeletePlaylist = { id ->
+                val album = savedAlbumEntries[id]
+                if (album != null) viewModel.toggleSaveAlbum(album) else viewModel.deletePlaylist(id)
+            },
+            onPlaylistSelect = { playlist ->
+                val album = savedAlbumEntries[playlist?.id]
+                if (album != null) browse.openAlbum(album.asBrowseAlbum())
+                else viewModel.selectPlaylist(playlist?.id, playlist)
+            },
             onTrackClick = { track, list ->
                 if (playback != null) playback.playFrom(track, list) else showMessage("Playback needs VLC")
             },
@@ -75,10 +86,16 @@ fun DesktopLibrary(
             onSortChange = viewModel::setSortOrder,
             onToggleGridView = viewModel::toggleGridView,
             onOpenProfile = onOpenProfile,
-            onOpenHistory = phoneOnly,
-            onOpenListenTogether = phoneOnly,
-            onSyncPlaylist = { viewModel.syncPlaylist(it) },
-            onEditPlaylist = { id, title, desc, cover -> viewModel.editPlaylist(id, title, desc, cover) },
+            onOpenHistory = onOpenHistory,
+            onOpenListenTogether = onOpenListenTogether,
+            onSyncPlaylist = {
+                val album = savedAlbumEntries[it.id]
+                if (album != null) browse.openAlbum(album.asBrowseAlbum()) else viewModel.syncPlaylist(it)
+            },
+            onEditPlaylist = { id, title, desc, cover ->
+                if (id in savedAlbumEntries) showMessage("Album details come from the music provider")
+                else viewModel.editPlaylist(id, title, desc, cover)
+            },
             onAddToQueue = { tracks -> tracks.forEach { playback?.addToQueue(it) } },
             onPlayNext = { track ->
                 playback?.playNext(track)
@@ -96,6 +113,24 @@ fun DesktopLibrary(
             onCloseExternalCreateDialog = { showCreate = false },
             isTrackPinned = homeViewModel::isTrackPinned,
             onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
+            emptyLibraryContent = { filter, query ->
+                androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                    androidx.compose.material3.Text(
+                        when {
+                            query.isNotBlank() -> "No saved items match your search."
+                            filter == com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS -> "No saved albums yet. Save an album from its menu to find it here."
+                            filter == com.auralis.music.ui.library.LibrarySourceFilter.SPOTIFY -> "No Spotify playlists imported yet."
+                            filter == com.auralis.music.ui.library.LibrarySourceFilter.YOUTUBE -> "No YouTube Music playlists imported yet."
+                            else -> "No playlists here yet. Create or import a playlist."
+                        }, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (query.isBlank() && filter != com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS) {
+                        androidx.compose.material3.TextButton(onClick = onOpenProfile) {
+                            androidx.compose.material3.Text("Import playlists")
+                        }
+                    }
+                }
+            },
             modifier = Modifier.widthIn(max = LibraryMaxWidth).fillMaxWidth().fillMaxHeight()
         )
         if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {

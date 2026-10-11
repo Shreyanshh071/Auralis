@@ -195,7 +195,7 @@ fun AuralisDesktopApp(
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Sidebar(selected = destination, onSelect = { destination = it; browse.clear() })
                     Box(Modifier.weight(1f).fillMaxHeight()) {
-                        if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable)
+                        if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
                                 viewModel = homeViewModel,
@@ -278,6 +278,8 @@ fun AuralisDesktopApp(
                                 playback = playback,
                                 browse = browse,
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
+                                onOpenHistory = { destination = DesktopDestination.HISTORY },
+                                onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
                                 showMessage = showUnavailable
                             )
                         }
