@@ -114,6 +114,8 @@ Windows supplies a compact, scrollable popup for shared song actions. It opens a
 
 Windows tests: 24 passed, including three click/edge placement cases. Compact-menu visual preview and Windows/Android compilation passed. No phone APK was built.
 
+Release package passed; installed copy updated at 13:43 on 11 October and reopened. Installed archive matches the packaged code, shortcut is unchanged, and all 23 checked non-cache user files were preserved. Full data backup: `Downloads/Auralis-checkpoints/before-context-menu-20261011-134256`. Version remains 1.0.0.
+
 ### Artwork aura in the now-playing sidebar (Windows 1.0.0)
 
 The right-hand player panel now uses the current cover's extracted palette for gently drifting radial colour glows (24-second cycle), crossfading colours on song changes. Its lyrics card is translucent instead of an opaque neutral fill, and text stays white for contrast. The panel follows artwork colours independently of a curated accent palette; the app-wide Liquidify setting is retained. Android is unchanged.
