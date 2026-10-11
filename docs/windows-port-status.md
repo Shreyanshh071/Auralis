@@ -112,6 +112,8 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 The right-hand player panel now uses the current cover's extracted palette for gently drifting radial colour glows (24-second cycle), crossfading colours on song changes. Its lyrics card is translucent instead of an opaque neutral fill, and text stays white for contrast. The panel follows artwork colours independently of a curated accent palette; the app-wide Liquidify setting is retained. Android is unchanged.
 
+Compilation, isolated sidebar preview and release packaging passed. Updated the installed copy at 13:36 on 11 October, preserving all 21 checked non-cache data files and the shortcut target. Installed code matches the packaged archive. Full data backup: `Downloads/Auralis-checkpoints/before-sidebar-aura-20261011-133536`.
+
 ### Liquidify search dropdown (Windows 1.0.0)
 
 Find music uses a blurred current-cover backdrop when Liquidify is enabled, with a readability scrim and a subtle border. Search text and suggestion rows remain sharp. Other modes retain the normal surface. The existing artwork crossfade follows song changes; this does not use native compositor backdrop blur. Windows compilation and the disposable `search-glass` visual preview passed. Android is unchanged.
