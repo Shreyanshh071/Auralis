@@ -1,5 +1,10 @@
 package com.auralis.music.windows.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -30,6 +35,7 @@ import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.SyncType
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
+import com.auralis.music.ui.lyrics.InstrumentalIntroIndicator
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import kotlinx.coroutines.delay
@@ -55,15 +61,19 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
     val singing by remember(lines, synced) { derivedStateOf {
         if (synced) LyricsEngine.findActiveLyricIndices(lines, position.value) else emptySet()
     } }
+    // Same intro countdown the full player shows before the first synced line.
+    val introDurationMs = if (synced) lines.first().time.takeIf { it >= 1500L } ?: 0L else 0L
+    val introActive by remember(introDurationMs) { derivedStateOf { introDurationMs > 0L && position.value < introDurationMs } }
+    val introTime = remember { derivedStateOf { (position.value.coerceAtLeast(0L) / 50L) * 50L } }
     val list = rememberLazyListState()
     var manualScroll by remember { mutableLongStateOf(0L) }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(active, manualScroll, lines) {
+    LaunchedEffect(active, manualScroll, lines, introDurationMs) {
         if (active < 0) return@LaunchedEffect
         val remaining = 3000L - (System.currentTimeMillis() - manualScroll)
         if (remaining > 0) delay(remaining)
-        list.animateScrollToItem(active, -(list.layoutInfo.viewportSize.height * .30f).toInt())
+        list.animateScrollToItem(active + if (introDurationMs > 0L) 1 else 0, -(list.layoutInfo.viewportSize.height * .30f).toInt())
     }
     Box(Modifier.fillMaxSize().hoverable(hover)) {
         LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp),
@@ -75,6 +85,13 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                     drawRect(Brush.verticalGradient(0f to Color.Transparent, .08f to Color.Black,
                         .80f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
                 }) {
+            if (introDurationMs > 0L) item(key = "intro") {
+                AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    InstrumentalIntroIndicator(introTime, introDurationMs, Modifier.padding(start = 8.dp),
+                        isMetroLyrics = true, horizontalAlignment = Alignment.Start,
+                        onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
+                }
+            }
             itemsIndexed(lines) { index, line ->
                 SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
