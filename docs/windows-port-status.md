@@ -53,6 +53,7 @@ Account sign-in does **not** yet sync the PC library with the phone. YouTube Mus
 ## Settings audit
 
 - Windows Appearance now uses responsive visual theme preview cards, colour swatches with selected checks, and player-background previews instead of the three dropdowns. Liquidify is a separate optional, persisted desktop setting (`desktop-background.properties`), off by default. On: artwork supplies the whole browsing backdrop; off: selected theme/colour palette controls normal surfaces. Liquidify respects light/dark mode. Sidebar metadata contrast also follows theme; the synced lyrics area keeps a readable dark surface. Windows tests and Appearance render passed. No Android settings or code changed.
+- Installed this update at 13:03 on 11 October and reopened Auralis. Still version 1.0.0, installed code matches release output, existing shortcut and 20 checked non-cache data files unchanged. Backup: `Downloads/Auralis-checkpoints/before-theme-picker-20261011-130306`.
 
 | Page / option | Applied on Windows | Remaining limits |
 |---|---|---|
