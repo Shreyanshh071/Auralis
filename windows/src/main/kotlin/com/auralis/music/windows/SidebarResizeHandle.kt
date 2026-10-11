@@ -17,8 +17,8 @@ import java.awt.Cursor
 @Composable
 internal fun SidebarResizeHandle(onDrag: (Float) -> Unit, onDragging: (Boolean) -> Unit) {
     val density = LocalDensity.current.density
-    Box(Modifier.width(6.dp).fillMaxHeight()
-        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
+    // The gap between panels is the handle.
+    Box(Modifier.width(8.dp).fillMaxHeight()
         .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)))
         .draggable(rememberDraggableState { onDrag(it / density) }, Orientation.Horizontal,
             onDragStarted = { onDragging(true) }, onDragStopped = { onDragging(false) }))

@@ -340,15 +340,18 @@ fun AuralisDesktopApp(
                       if (resizingLeft) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "left sidebar width")
                   val rightDisplay by androidx.compose.animation.core.animateDpAsState(rightTarget.dp,
                       if (resizingRight) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "right sidebar width")
-                  Row(Modifier.fillMaxSize()) {
-                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
+                  // Spotify-style layout: sidebar, page and Now playing are rounded panels with even gaps.
+                  val panelShape = RoundedCornerShape(12.dp)
+                  Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 8.dp)) {
+                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(panelShape)) {
                         Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
                             collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                    else Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface)) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
@@ -485,7 +488,9 @@ fun AuralisDesktopApp(
                       if (!rightIsCollapsed) SidebarResizeHandle(
                           onDrag = { rightSidebarWidth = sidebarWidth(rightSidebarWidth - it, 280f, rightLimit) },
                           onDragging = { resizingRight = it })
-                      Row(Modifier.width(rightDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
+                      else Spacer(Modifier.width(8.dp))
+                      Row(Modifier.width(rightDisplay).fillMaxHeight().clip(panelShape)
+                          .then(if (rightIsCollapsed) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)) {
                         if (rightIsCollapsed) {
                         androidx.compose.material3.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
                             Icon(if (rightIsCollapsed) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
@@ -504,7 +509,6 @@ fun AuralisDesktopApp(
                     }
                   }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
                     onOpenPlayer = { if (canShowPlayer) showPlayer = true },
@@ -526,7 +530,8 @@ fun AuralisDesktopApp(
                         lyrics,
                         panel = playerPanel,
                         onPanelChange = { playerPanel = it },
-                        onClose = { showPlayer = false }
+                        onClose = { showPlayer = false },
+                        palette = artworkPalette
                     )
                 }
             }

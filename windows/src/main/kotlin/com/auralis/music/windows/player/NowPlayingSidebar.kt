@@ -64,7 +64,7 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         }
     }
     val coverSize = minOf(maxWidth - 42.dp, maxHeight * .40f)
-    Box(Modifier.fillMaxSize().padding(start = 2.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).clip(RoundedCornerShape(16.dp))) {
+    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))) {
     ArtworkAura(palette, Modifier.fillMaxSize(), track.thumbnail)
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {

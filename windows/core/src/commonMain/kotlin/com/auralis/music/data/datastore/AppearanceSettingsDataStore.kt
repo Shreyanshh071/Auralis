@@ -130,7 +130,7 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 newPlayerDesign = (preferences[PLAYER_DESIGN] ?: run {
                     if (preferences[NEW_PLAYER_DESIGN] == false) "Old player" else "New player"
                 }) != "Old player",
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Live Mesh",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",
