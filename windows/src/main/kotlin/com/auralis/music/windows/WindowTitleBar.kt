@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -56,11 +59,14 @@ fun WindowTitleBar(
             ChromeButton(Icons.Outlined.Refresh, "Refresh", actions.refresh, enabled = actions.canRefresh, width = 34)
             Spacer(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { captionBounds(it.boundsInWindow()) })
             Box {
-            Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                com.auralis.music.windows.profile.YouTubeAccountAvatar(actions.accountAvatar, Modifier.size(24.dp))
-                Text(actions.accountLabel.take(22), fontSize = 12.sp, color = Color(0xFFE8E4EB))
-                Icon(Icons.Outlined.ExpandMore, null, Modifier.size(13.dp), tint = Color(0xFFA6A0AD))
+            Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.auralis.music.windows.profile.YouTubeAccountAvatar(actions.accountAvatar, Modifier.size(26.dp))
+                Text(actions.accountLabel, modifier = Modifier.widthIn(max = 180.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp,
+                        fontWeight = FontWeight.Medium, letterSpacing = 0.sp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(0xFFE8E4EB))
+                Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp), tint = Color(0xFFA6A0AD))
             }
             actions.accountMenu?.invoke()
             }
