@@ -36,12 +36,24 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
     val settings by store.settingsFlow.collectAsState(store.getInitialSettings())
     val scope = rememberCoroutineScope()
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) { scope.launch { store.updateSettings(settings.transform()) } }
-    val liquidify by DesktopLiquidify.enabled.collectAsState()
+    var showThemes by remember { mutableStateOf(false) }
+    if (showThemes) {
+        DesktopThemesAndColours { showThemes = false }
+        return
+    }
     SettingsPage("Appearance", onDismiss) {
-        item { ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } } }
-        item { LiquidifyCard(liquidify) { scope.launch(kotlinx.coroutines.Dispatchers.IO) { DesktopLiquidify.setEnabled(it) } } }
-        item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
-        item { Toggle("Colours from playing artwork", settings.dynamicTheme) { update { copy(dynamicTheme = it) } } }
+        item {
+            Surface(onClick = { showThemes = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer) {
+                Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Themes and colours", style = MaterialTheme.typography.titleLarge)
+                        Text("${settings.appTheme} · ${settings.colorPalette}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("›", style = MaterialTheme.typography.headlineMedium)
+                }
+            }
+        }
         item { BackgroundCards(settings.playerBackgroundStyle) { update { copy(playerBackgroundStyle = it) } } }
         item { Toggle("Hide player artwork", settings.hidePlayerThumbnail) { update { copy(hidePlayerThumbnail = it) } } }
         item { Toggle("Crop player artwork", settings.cropAlbumArt) { update { copy(cropAlbumArt = it) } } }
@@ -93,7 +105,7 @@ fun DesktopStorageSettings(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun SettingsPage(title: String, back: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+internal fun SettingsPage(title: String, back: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         TextButton(onClick = back) { Text("Back") }
         Text(title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(bottom = 20.dp))

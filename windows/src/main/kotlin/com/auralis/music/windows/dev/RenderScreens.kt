@@ -80,6 +80,7 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "themes-colours" to { com.auralis.music.windows.settings.DesktopThemesAndColours {} },
         "song-context-menu" to {
             Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
                 com.auralis.music.windows.library.DesktopSongMenuContent(
