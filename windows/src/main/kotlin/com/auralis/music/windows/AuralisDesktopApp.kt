@@ -128,6 +128,8 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
+    var showImport by remember { mutableStateOf(false) }
+    var showDiscord by remember { mutableStateOf(false) }
     var youtubePageAccount by remember { mutableStateOf<String?>(null) }
     var youtubePageId by remember { mutableStateOf<String?>(null) }
     val homeViewModel = remember {
@@ -274,10 +276,29 @@ fun AuralisDesktopApp(
         if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account,
             onConnected = { youtubeLibrary.refresh(force = true) },
             onDisconnected = { youtubeState.activeId?.let(youtubeLibrary::removeAccount); youtubeLibrary.refresh(force = true) }) { showSignIn = false }
+        if (showImport) TitleBarWindow({ showImport = false }) {
+            val libraryState by libraryViewModel.uiState.collectAsState()
+            com.auralis.music.ui.screens.ImportPlaylistsScreen(
+                onDismiss = { showImport = false },
+                onNavigateToYouTubeAccount = { showSignIn = true },
+                onImportYouTubeLibraryPlaylists = libraryViewModel::importYouTubeLibraryPlaylists,
+                isImportingYouTube = libraryState.isImporting,
+                youtubeImportMessage = libraryState.importMessage,
+                onClearYouTubeImportMessage = libraryViewModel::clearYouTubeImportMessage,
+                onImportYouTubePlaylist = libraryViewModel::importYouTubePlaylist,
+                onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
+                onImportSpotifyLibraryPlaylists = libraryViewModel::importSpotifyLibraryPlaylists,
+                isImportingSpotify = libraryState.isImportingSpotify,
+                spotifyImportMessage = libraryState.spotifyImportMessage,
+                onClearSpotifyImportMessage = libraryViewModel::clearSpotifyImportMessage)
+        }
+        if (showDiscord) TitleBarWindow({ showDiscord = false }) {
+            com.auralis.music.ui.screens.DiscordIntegrationScreen(onDismiss = { showDiscord = false })
+        }
         // Blur the actual page beneath sign-in, rather than letting crisp rows show through
         // its translucent surface. No screenshot/readback is needed to open the dialog.
         Surface(modifier = Modifier.fillMaxSize().then(
-            if (showSignIn || showYouTubeAccounts) Modifier.blur(18.dp) else Modifier
+            if (showSignIn || showYouTubeAccounts || showImport || showDiscord) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 titleBar(TitleBarActions(
@@ -314,6 +335,8 @@ fun AuralisDesktopApp(
                     openAccount = { if (youtubeSignedIn) showYouTubeAccounts = true else showSignIn = true },
                     openTogether = { showPlayer = false; browse.clear(); destination = DesktopDestination.TOGETHER },
                     openSettings = { showPlayer = false; browse.clear(); destination = DesktopDestination.SETTINGS },
+                    openImport = { showImport = true },
+                    openDiscord = { showDiscord = true },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
                     canRefresh = browse.top != null || destination in setOf(DesktopDestination.HOME, DesktopDestination.LIBRARY) ||
                         (destination == DesktopDestination.SEARCH && searchState.query.isNotBlank())
@@ -333,9 +356,7 @@ fun AuralisDesktopApp(
                   Row(Modifier.fillMaxSize()) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(androidx.compose.ui.graphics.RectangleShape)) {
                         Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
-                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed },
-                            youtube = if (youtubeSignedIn) youtubeState else null,
-                            onYouTubePlaylist = ::openYouTubePlaylist, onYouTubeRetry = { youtubeLibrary.refresh(force = true) })
+                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
@@ -512,9 +533,7 @@ fun AuralisDesktopApp(
 }
 
 @Composable
-internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit,
-    youtube: com.auralis.music.windows.profile.YouTubeLibraryState? = null,
-    onYouTubePlaylist: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}, onYouTubeRetry: () -> Unit = {}) {
+internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit) {
     val logo = remember {
         Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
             ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
@@ -545,9 +564,23 @@ internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination
         DesktopDestination.entries.filter { it != DesktopDestination.SEARCH && it != DesktopDestination.SETTINGS }.forEach { item ->
             SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) }, collapsed = collapsed)
         }
-        if (youtube != null) com.auralis.music.windows.profile.YouTubeSidebarPlaylists(youtube, collapsed, onYouTubePlaylist, onYouTubeRetry)
         SidebarItem(DesktopDestination.SETTINGS, isSelected = selected == DesktopDestination.SETTINGS,
             onClick = { onSelect(DesktopDestination.SETTINGS) }, collapsed = collapsed)
+    }
+}
+
+/** A floating window over the blurred app for pages opened from the title bar. */
+@Composable
+private fun TitleBarWindow(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val outside = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        BoxWithConstraints(Modifier.fillMaxSize().clickable(outside, indication = null, onClick = onDismiss),
+            contentAlignment = Alignment.Center) {
+            Surface(Modifier.width(minOf(maxWidth - 48.dp, 820.dp)).height(maxHeight - 72.dp)
+                .clickable(remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {},
+                shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.background) { content() }
+        }
     }
 }
 

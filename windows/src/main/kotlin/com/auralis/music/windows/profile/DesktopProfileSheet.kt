@@ -148,30 +148,18 @@ fun DesktopProfileSheet(
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val profile = authUiState.profile
     var isSettingsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isDiscordIntegrationOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isYouTubeAccountOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var isImportPlaylistsOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    val youTubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
 
     com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
-        if (isImportPlaylistsOpen) {
-            isImportPlaylistsOpen = false
-        } else if (isYouTubeAccountOpen) {
-            isYouTubeAccountOpen = false
-        } else if (isDiscordIntegrationOpen) {
-            isDiscordIntegrationOpen = false
-        } else if (isSettingsOpen) {
+        if (isSettingsOpen) {
             isSettingsOpen = false
         } else {
             onDismiss()
         }
     }
 
-    // Settings, Discord, YouTube, and Import Playlists push over the profile instead of replacing it on one frame.
+    // Settings pushes over the profile instead of replacing it on one frame.
+    // Imports, YouTube sign-in and Discord live in the title bar on Windows.
     val subPage = when {
-        isImportPlaylistsOpen -> ProfileSubPage.IMPORT_PLAYLISTS
-        isYouTubeAccountOpen -> ProfileSubPage.YOUTUBE
-        isDiscordIntegrationOpen -> ProfileSubPage.DISCORD
         isSettingsOpen -> ProfileSubPage.SETTINGS
         else -> null
     }
@@ -329,196 +317,6 @@ fun DesktopProfileSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // ── DISCORD INTEGRATION CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.2.dp, Color(0xFF5865F2).copy(alpha = 0.65f), RoundedCornerShape(18.dp))
-                    .clickable { isDiscordIntegrationOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF5865F2).copy(alpha = 0.18f))
-                                .border(1.dp, Color(0xFF5865F2).copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = com.auralis.music.ui.components.LocalBrandImages.current.discord(),
-                                contentDescription = str(Strings.discord),
-                                tint = Color(0xFF5865F2),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Text(
-                                text = str(Strings.discord_integration),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = str(Strings.connect_rich_presence_display_song_activ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(Strings.open_discord_integration),
-                        tint = Color(0xFF5865F2),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── YOUTUBE ACCOUNT CARD (age-restricted songs) ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                    .clickable { isYouTubeAccountOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF0033).copy(alpha = 0.16f))
-                                .border(1.dp, Color(0xFFFF0033).copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (youTubeSignedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                                contentDescription = str(Strings.youtube),
-                                tint = Color(0xFFFF0033),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Text(
-                                text = str(Strings.youtube_account),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = if (youTubeSignedIn) str(Strings.age_restricted_songs_unlocked)
-                                else str(Strings.sign_in_to_download_age_restricted_songs),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(Strings.open_youtube_account),
-                        tint = Color(0xFFFF0033),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── IMPORT PLAYLISTS CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                    .clickable { isImportPlaylistsOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Link,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = str(Strings.import_playlists),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = str(Strings.from_youtube_music_or_spotify),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(Strings.open_import_playlists),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-
-            Spacer(modifier = Modifier.height(10.dp))
-
             // ── DISCONNECT BUTTON ──
             if (profile.isGoogleConnected || profile.accessToken != null) {
                 Box(
@@ -582,32 +380,6 @@ fun DesktopProfileSheet(
 
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
-            ProfileSubPage.IMPORT_PLAYLISTS -> com.auralis.music.ui.screens.ImportPlaylistsScreen(
-                onDismiss = { isImportPlaylistsOpen = false },
-                onNavigateToYouTubeAccount = {
-                    isImportPlaylistsOpen = false
-                    isYouTubeAccountOpen = true
-                },
-                onImportYouTubeLibraryPlaylists = onImportYouTubeLibraryPlaylists,
-                isImportingYouTube = isImportingYouTube,
-                youtubeImportMessage = youtubeImportMessage,
-                onClearYouTubeImportMessage = onClearYouTubeImportMessage,
-                onImportYouTubePlaylist = onImportYouTubePlaylist,
-                onImportSpotifyPlaylist = onImportSpotifyPlaylist,
-                onImportSpotifyLibraryPlaylists = onImportSpotifyLibraryPlaylists,
-                isImportingSpotify = isImportingSpotify,
-                spotifyImportMessage = spotifyImportMessage,
-                onClearSpotifyImportMessage = onClearSpotifyImportMessage
-            )
-            ProfileSubPage.YOUTUBE -> Column(Modifier.fillMaxSize().padding(24.dp)) {
-                TextButton(onClick = { isYouTubeAccountOpen = false }) { Text("Back") }
-                Text("YouTube Music account", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(16.dp))
-                BrowserYouTubePicker()
-            }
-            ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
-                onDismiss = { isDiscordIntegrationOpen = false }
-            )
             ProfileSubPage.SETTINGS -> {
                 com.auralis.music.windows.settings.DesktopSettingsScreen(
                     settings = playerSettings,
@@ -628,7 +400,7 @@ fun DesktopProfileSheet(
     }
 }
 
-private enum class ProfileSubPage { SETTINGS, DISCORD, YOUTUBE, IMPORT_PLAYLISTS }
+private enum class ProfileSubPage { SETTINGS }
 
 @Composable
 private fun GoogleLogoIcon(modifier: Modifier = Modifier) {

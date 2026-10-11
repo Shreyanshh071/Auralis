@@ -86,12 +86,7 @@ fun main(args: Array<String>) {
         "youtube-library" to {
             Row(Modifier.fillMaxSize()) {
                 Box(Modifier.width(232.dp).fillMaxHeight()) {
-                    com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {},
-                        youtube = com.auralis.music.windows.profile.YouTubeLibraryState(
-                            identity = com.auralis.music.windows.profile.YouTubeIdentity("Preview listener", "@listener", null),
-                            playlists = listOf("Liked Music", "gili gili", "SONGS", "game", "June–August", "PHONK", "nostalgia", "wan pisju").mapIndexed { index, title ->
-                                com.auralis.music.domain.model.PlaylistResult(if (index == 0) "VLLM" else "VLpreview$index", title)
-                            }))
+                    com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {})
                 }
                 Box(Modifier.weight(1f)) { homePreview(true) }
             }
