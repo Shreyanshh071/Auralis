@@ -60,8 +60,11 @@ class DesktopLyricsController(
                 repository.cached(videoId, lengthMs)?.let { realigned ->
                     if (_state.value.trackId == track.id) _state.value = _state.value.copy(lyrics = realigned)
                 }
-                // Word sync is final. Line sync or plain gets one look for better per session.
-                if (LyricsClient.tierOf(cached) >= LyricsClient.TIER_WORD || !upgradeAttempted.add(videoId.lowercase())) return@launch
+                // Word sync is final. Line sync gets one look for better per session; plain is
+                // looked up on every play, since a slow or failed race can leave synced songs plain.
+                val tier = LyricsClient.tierOf(cached)
+                if (tier >= LyricsClient.TIER_WORD) return@launch
+                if (tier == LyricsClient.TIER_LINE && !upgradeAttempted.add(videoId.lowercase())) return@launch
             }
             val final = repository.fetch(
                 videoId = videoId,

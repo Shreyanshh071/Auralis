@@ -145,3 +145,10 @@ tasks.register<JavaExec>("verifyWindowFrame") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.WindowFrameCheckKt")
 }
+
+// Development check: ./gradlew :windows:probeLyrics -Pargs="Title::Artist::durationSec[::videoId]"
+tasks.register<JavaExec>("probeLyrics") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeLyricsKt")
+    args = (findProperty("args")?.toString() ?: "").split("::")
+}
