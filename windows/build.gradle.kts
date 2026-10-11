@@ -98,7 +98,8 @@ compose.desktop {
             // jdk.httpserver: the local stream relay (LocalStreamRelay).
             modules("java.instrument", "java.net.http", "jdk.dynalink", "jdk.unsupported", "jdk.crypto.ec", "java.naming", "jdk.httpserver")
             packageName = "Auralis"
-            packageVersion = "1.1.5"
+            // The owner controls version bumps; keep Windows independent of Android's version.
+            packageVersion = "1.0.0"
             description = "Auralis music player"
             vendor = "Auralis"
             windows {

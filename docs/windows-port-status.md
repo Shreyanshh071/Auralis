@@ -1,6 +1,13 @@
 # Auralis Windows feature audit
 
-Updated 11 October 2026 for Windows 1.1.3. Android remains at its existing version.
+Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its existing version.
+
+## Owner's development and update preferences
+
+- Keep the Windows version at **1.0.0** until the owner explicitly requests a version increase.
+- Review normal changes through the development preview; do not build a fresh EXE/MSI or install an update after every change.
+- Build an installer or update the existing installed app only when requested. Preserve its settings and library.
+- The previously installed package reports 1.1.5. Setting the project version to 1.0.0 does not alter that installed copy; do not reinstall it just to change the displayed version.
 
 ## This batch
 
