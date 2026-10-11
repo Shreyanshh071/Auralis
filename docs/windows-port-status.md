@@ -54,7 +54,14 @@ Home, Search with typing suggestions, Album/Artist pages, Library/playlist manag
 
 ## Android boundary
 
-This batch changes Windows sources and shared desktop sources only. Android sources and shared common/Android sources are unchanged. No phone APK is required for these desktop-only changes. The prior Android checkpoint and installed phone app are preserved.
+The account/settings batch changed Windows and shared desktop sources only. The subsequent Library fix adds two optional shared-screen hooks (source classification and empty-state content), supplied only by Windows; their null defaults retain Android's existing rendering and filtering. Android compilation passes. Android sources and the installed phone app are unchanged; no phone APK was built for the Library fix.
+
+## Library filters (Windows 1.1.4)
+
+- Spotify and YouTube Music pills filter imported playlists. New imports retain stable provider IDs, so reimport updates the same playlist. Older random-ID imports are recognised when their description explicitly records the source; a source isn't guessed from a playlist title or artwork.
+- Albums includes saved albums, opens the provider's album page, and removes saved albums through the album store. Album/artist pages now connect saving, subscribing, favourites and adding tracks to existing playlists.
+- Empty filters/searches show an explanation; source filters offer a route to playlist import. Tapping the selected pill again clears the filter.
+- Library header History and Listen Together open their implemented Windows destinations.
 
 ## Development preview
 

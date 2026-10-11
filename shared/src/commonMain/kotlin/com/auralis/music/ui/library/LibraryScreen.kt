@@ -315,6 +315,10 @@ fun LibraryScreen(
     floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     /** The phone's Downloads hub (offline folders), shown when Downloaded is opened; null where there are no downloads. */
     downloadsHub: (@Composable (DownloadsHubArgs) -> Unit)? = null,
+    /** Optional platform message when the chosen filter or search has no saved items. */
+    emptyLibraryContent: (@Composable (LibrarySourceFilter?, String) -> Unit)? = null,
+    /** Desktop also recognises older imports that predate source IDs. */
+    playlistSource: ((Playlist) -> LibrarySourceFilter?)? = null,
     modifier: Modifier = Modifier
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
@@ -841,8 +845,8 @@ fun LibraryScreen(
                     when (filter) {
                         LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
                         LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
-                        LibrarySourceFilter.SPOTIFY -> isSpotifyImport(playlist)
-                        LibrarySourceFilter.YOUTUBE -> isYouTubeMusicImport(playlist)
+                        LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == filter else isSpotifyImport(playlist)
+                        LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == filter else isYouTubeMusicImport(playlist)
                     }
                 },
                 order = uiState.sortOrder,
@@ -894,6 +898,11 @@ fun LibraryScreen(
                                     }) { browseHeader() }
                                 }
                             }
+                            if (displayedPlaylists.isEmpty() && emptyLibraryContent != null) {
+                                item(key = "empty_library", span = { GridItemSpan(maxLineSpan) }) {
+                                    emptyLibraryContent(sourceFilter, searchQuery)
+                                }
+                            }
                             items(displayedPlaylists, key = { it.id }) { playlist ->
                                 Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
                                     val smartType = smartCollectionTypeFor(playlist.id)
@@ -929,6 +938,9 @@ fun LibraryScreen(
                         ) {
                             if (headerGlass != null) {
                                 item(key = "library_glass_header") { browseHeader() }
+                            }
+                            if (displayedPlaylists.isEmpty() && emptyLibraryContent != null) {
+                                item(key = "empty_library") { emptyLibraryContent(sourceFilter, searchQuery) }
                             }
                             items(
                                 items = displayedPlaylists,

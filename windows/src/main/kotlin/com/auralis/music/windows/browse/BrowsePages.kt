@@ -22,6 +22,7 @@ import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
 import com.auralis.music.ui.screens.AlbumScreen
 import com.auralis.music.ui.screens.ArtistScreen
+import kotlinx.coroutines.launch
 
 /** Phone pages are built for a column; on a wide window they sit in a centred column this wide. */
 val PageMaxWidth = 960.dp
@@ -35,9 +36,13 @@ fun BrowsePages(
     browse: DesktopBrowseState,
     playback: DesktopPlaybackController?,
     onUnavailable: (String) -> Unit,
+    libraryViewModel: com.auralis.music.ui.viewmodel.LibraryViewModel,
+    library: com.auralis.music.domain.repository.LibraryRepository,
     modifier: Modifier = Modifier
 ) {
     val top = browse.top ?: return
+    val libraryState by libraryViewModel.uiState.collectAsState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val queue = playback?.queue?.collectAsState()?.value
     val state = playback?.state?.collectAsState()?.value
     val currentTrackId = queue?.current?.id
@@ -60,11 +65,16 @@ fun BrowsePages(
                     isLoading = page.isLoading,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
+                    userPlaylists = libraryState.playlists,
+                    favoriteTracks = libraryState.favorites,
+                    savedAlbums = libraryState.savedAlbums,
+                    onToggleSaveAlbum = libraryViewModel::toggleSaveAlbum,
+                    onAddToPlaylist = libraryViewModel::addTrackToPlaylist,
                     onPlayNextAlbum = { page.tracks.asReversed().forEach { playback?.playNext(it) } },
                     onAddToQueueAlbum = { page.tracks.forEach { playback?.addToQueue(it) } },
                     onShuffleAlbum = { page.tracks.shuffled().let { if (it.isNotEmpty()) play(it.first(), it) } },
                     onTrackClick = play,
-                    onFavoriteToggle = { onUnavailable("Library on Windows comes next") },
+                    onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
                     onPlayNext = { playback?.playNext(it) },
                     onAddToQueue = { playback?.addToQueue(it) },
                     onStartRadio = { onUnavailable("Radio on Windows comes later") },
@@ -78,8 +88,15 @@ fun BrowsePages(
                     onRetry = browse::retryArtist,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
+                    userPlaylists = libraryState.playlists,
+                    favoriteTracks = libraryState.favorites,
+                    savedAlbums = libraryState.savedAlbums,
+                    savedArtists = libraryState.savedArtists,
+                    onToggleSaveAlbum = libraryViewModel::toggleSaveAlbum,
+                    onToggleSubscribe = libraryViewModel::toggleSaveArtist,
+                    onAddToPlaylist = libraryViewModel::addTrackToPlaylist,
                     onTrackClick = play,
-                    onFavoriteToggle = { onUnavailable("Library on Windows comes next") },
+                    onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
                     onPlayNext = { playback?.playNext(it) },
                     onAddToQueue = { playback?.addToQueue(it) },
                     onStartRadio = { onUnavailable("Radio on Windows comes later") },
