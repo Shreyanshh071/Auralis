@@ -45,6 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -208,6 +211,7 @@ fun AuralisDesktopApp(
     }
     val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(queue?.current?.thumbnail)
     val liquidify by com.auralis.music.windows.settings.DesktopLiquidify.enabled.collectAsState()
+    val searchBackdrop = rememberGraphicsLayer()
     val initialSidebars = remember { SidebarLayoutPreferences.load() }
     var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
     var rightSidebarWidth by remember { mutableStateOf(initialSidebars.right) }
@@ -224,8 +228,10 @@ fun AuralisDesktopApp(
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
-    com.auralis.music.windows.player.ArtworkAppBackground(if (liquidify) queue?.current?.thumbnail else null, artworkPalette) {
+    com.auralis.music.windows.player.ArtworkAppBackground(if (liquidify) queue?.current?.thumbnail else null, artworkPalette,
+        Modifier.drawWithContent { searchBackdrop.record { this@drawWithContent.drawContent() }; drawLayer(searchBackdrop) }) {
     androidx.compose.runtime.CompositionLocalProvider(
+        com.auralis.music.windows.search.LocalSearchBackdrop provides searchBackdrop,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,

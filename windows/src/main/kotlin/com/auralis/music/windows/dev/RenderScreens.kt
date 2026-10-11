@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import com.auralis.music.data.network.InnerTubeClient
@@ -96,9 +97,24 @@ fun main(args: Array<String>) {
             }
         },
         "search-glass" to {
+            val backdrop = androidx.compose.runtime.remember {
+                val fixture = File(out, "now-playing-sidebar.png")
+                val image = if (fixture.exists()) javax.imageio.ImageIO.read(fixture) else
+                    java.awt.image.BufferedImage(1040, 760, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
+                        val graphics = createGraphics()
+                        graphics.color = java.awt.Color(35, 30, 42); graphics.fillRect(0, 0, width, height)
+                        repeat(8) { index ->
+                            graphics.color = java.awt.Color(80 + index * 12, 60, 120)
+                            graphics.fillRect((index % 4) * 260, (index / 4) * 170 + 120, 240, 140)
+                        }
+                        graphics.dispose()
+                    }
+                image.toComposeImageBitmap()
+            }
             Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
                 com.auralis.music.windows.search.SearchDropdownSurface(true, previewSongs.firstOrNull()?.thumbnail,
-                    androidx.compose.ui.Modifier.width(480.dp).height(460.dp)) {
+                    androidx.compose.ui.Modifier.width(480.dp).height(460.dp), backdrop = backdrop,
+                    backdropOffset = androidx.compose.ui.unit.IntOffset(160, 120)) {
                     Column(androidx.compose.ui.Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                         Text("Search Auralis", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
                         Text("Mockingbird", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)

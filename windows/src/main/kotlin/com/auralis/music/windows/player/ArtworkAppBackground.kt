@@ -14,7 +14,7 @@ import com.auralis.music.ui.theme.ArtworkPalette
 
 /** Windows browsing surfaces follow the current cover without changing Android's theme. */
 @Composable
-internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, content: @Composable () -> Unit) {
+internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val base = MaterialTheme.colorScheme
     val light = base.background.luminance() > .5f
     val foreground = if (light) Color(0xFF211D25) else Color.White
@@ -26,7 +26,7 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, con
         surfaceContainerHigh = lerp(tint, contrast, .08f), surfaceContainerHighest = lerp(tint, contrast, .12f),
         surfaceVariant = lerp(tint, contrast, .08f), onBackground = foreground,
         onSurface = foreground, onSurfaceVariant = foreground.copy(alpha = .72f))
-    Box(Modifier.fillMaxSize().background(tint)) {
+    Box(modifier.fillMaxSize().background(tint)) {
         if (artwork != null) BlurredArtworkBackground(artwork)
         MaterialTheme(colorScheme = surfaces) { content() }
     }
