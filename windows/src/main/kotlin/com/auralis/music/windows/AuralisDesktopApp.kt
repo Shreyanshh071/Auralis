@@ -363,7 +363,7 @@ fun AuralisDesktopApp(
                     if (showNowPlaying && playback != null && lyrics != null) {
                         com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
                             onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
-                            modifier = Modifier.width(nowPlayingWidth).fillMaxHeight())
+                            modifier = Modifier.width(nowPlayingWidth).fillMaxHeight(), palette = artworkPalette)
                     }
                   }
                 }

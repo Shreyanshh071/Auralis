@@ -93,11 +93,12 @@ fun main(args: Array<String>) {
             }
         },
         "now-playing-sidebar" to {
-            com.auralis.music.windows.player.ArtworkAppBackground("preview-cover", com.auralis.music.ui.theme.ArtworkPalette(
+            com.auralis.music.windows.player.ArtworkAppBackground(null, com.auralis.music.ui.theme.ArtworkPalette(
                 androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
                 androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize()) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { homePreview(true) }
-                    com.auralis.music.windows.player.NowPlayingSidebarContent(sampleTrack, {}, androidx.compose.ui.Modifier.width(300.dp).fillMaxHeight()) {
+                    com.auralis.music.windows.player.NowPlayingSidebarContent(sampleTrack, {}, androidx.compose.ui.Modifier.width(300.dp).fillMaxHeight(),
+                        com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
                         androidx.compose.material3.Text("The current lyric line\n\nThe next lyric line", modifier = androidx.compose.ui.Modifier.padding(16.dp),
                             color = androidx.compose.ui.graphics.Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
                     }

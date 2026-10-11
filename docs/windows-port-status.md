@@ -108,6 +108,10 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 ## Development preview
 
+### Artwork aura in the now-playing sidebar (Windows 1.0.0)
+
+The right-hand player panel now uses the current cover's extracted palette for gently drifting radial colour glows (24-second cycle), crossfading colours on song changes. Its lyrics card is translucent instead of an opaque neutral fill, and text stays white for contrast. The panel follows artwork colours independently of a curated accent palette; the app-wide Liquidify setting is retained. Android is unchanged.
+
 ### Liquidify search dropdown (Windows 1.0.0)
 
 Find music uses a blurred current-cover backdrop when Liquidify is enabled, with a readability scrim and a subtle border. Search text and suggestion rows remain sharp. Other modes retain the normal surface. The existing artwork crossfade follows song changes; this does not use native compositor backdrop blur. Windows compilation and the disposable `search-glass` visual preview passed. Android is unchanged.
