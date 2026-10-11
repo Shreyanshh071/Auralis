@@ -112,6 +112,8 @@ The account/settings batch changed Windows and shared desktop sources only. The 
 
 Find music uses a blurred current-cover backdrop when Liquidify is enabled, with a readability scrim and a subtle border. Search text and suggestion rows remain sharp. Other modes retain the normal surface. The existing artwork crossfade follows song changes; this does not use native compositor backdrop blur. Windows compilation and the disposable `search-glass` visual preview passed. Android is unchanged.
 
+Installed 11 October at 13:25 after the release package passed. Installed code matches the packaged archive, the shortcut target is unchanged, and all 21 checked non-cache user files were preserved. Full app-data backup: `Downloads/Auralis-checkpoints/before-search-glass-20261011-132507`. Relaunched successfully with bundled VLC and version 1.0.0.
+
 Windows 1.1.5 replaces the standard light title bar with a compact dark bar: centred Auralis title, logo/Home, Back/Forward navigation, page refresh where supported, account/Profile, Listen Together, Settings and minimize/maximize/restore/close. The bar is draggable and remains above the full player. Navigation keeps album/artist pages and updates metadata without adding a history step. This change is Windows-only.
 
 Run the existing `:windows:run` task from the repository root. Its window is titled **Auralis Dev**, and uses `%APPDATA%/Auralis Dev` rather than the installed app's settings/library. Installed self-tests similarly use `Auralis Self Test`. Installed Auralis continues to use `%APPDATA%/Auralis`.
