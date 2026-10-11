@@ -44,6 +44,10 @@ fun DesktopHome(
     onOpenPlaylist: (String) -> Unit,
     onNavigateToSearch: () -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenListenTogether: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenStats: () -> Unit,
+    onOpenWrapped: () -> Unit,
     showMessage: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -63,7 +67,6 @@ fun DesktopHome(
             if (tracks.isNotEmpty()) use(tracks)
         }
     }
-    val phoneOnly = { showMessage("This part of Auralis is on the phone for now") }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         HomeScreen(
@@ -88,15 +91,15 @@ fun DesktopHome(
                 showMessage(str(Strings.added_to_queue_x, track.title))
             },
             onStartRadio = { track -> play(track, listOf(track)) },
-            onOpenListenTogether = phoneOnly,
+            onOpenListenTogether = onOpenListenTogether,
             onNavigateToExplore = onNavigateToSearch,
             onMoodSelect = viewModel::selectMoodFilter,
             onChipToggle = viewModel::toggleChip,
             onSurpriseMe = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
             onOpenProfile = onOpenProfile,
-            onOpenHistory = phoneOnly,
-            onOpenStats = phoneOnly,
-            onOpenWrapped = phoneOnly,
+            onOpenHistory = onOpenHistory,
+            onOpenStats = onOpenStats,
+            onOpenWrapped = onOpenWrapped,
             onRefresh = viewModel::refresh,
             onArtistClick = browse::openArtist,
             onAlbumClick = { browse.openAlbum(it) },

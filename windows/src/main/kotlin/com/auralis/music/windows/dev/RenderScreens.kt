@@ -45,6 +45,10 @@ fun main(args: Array<String>) {
     val stores = DesktopDataStores(File(data, "settings"))
     val library = DesktopLibraryRepository(File(data, "library.json"))
     val history = DesktopHistoryRepository(File(data, "history.json"), library)
+    val stats = com.auralis.music.desktop.library.DesktopListeningStats(File(data, "stats.json"))
+    val sampleTrack = com.auralis.music.domain.model.Track(id = "preview", title = "Auralis preview song", artist = "Preview artist", duration = 180)
+    kotlinx.coroutines.runBlocking { history.addToHistory(sampleTrack) }
+    stats.record("preview", sampleTrack, System.currentTimeMillis(), 75_000)
     val search = SearchRepositoryImpl(
         InnerTubeClient(), SearchSuggestionsClient(),
         KeyValueSearchHistoryStore(PropertiesFileKeyValueStore(File(data, "search-history.properties")))
@@ -56,12 +60,22 @@ fun main(args: Array<String>) {
     val platform = DesktopSettingsPlatform(null, history, search, discord = null)
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "history" to { com.auralis.music.windows.history.HistorySheet(
+            listOf(com.auralis.music.domain.model.HistoryEntry(sampleTrack, System.currentTimeMillis())), isPlaying = false,
+            onTrackClick = { _, _ -> }, onRemoveFromHistory = {}, onClearHistory = {}, onDismiss = {}) },
+        "stats" to { com.auralis.music.windows.history.ListeningStatsPage(stats, null, false, {}) },
+        "wrapped" to { com.auralis.music.windows.history.ListeningStatsPage(stats, null, true, {}) },
+        "together" to { com.auralis.music.windows.together.ListenTogetherPage(
+            androidx.compose.runtime.remember { com.auralis.music.windows.together.DesktopTogether(null,
+                com.auralis.music.windows.together.FirestoreRest.fromResource(), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())) }, {}) },
         "profile" to { DesktopProfile(stores, libraryVm, history, search, hasActiveTrack = false, onDismiss = {}) },
         "settings" to { DesktopSettings(stores, history, search, hasActiveTrack = false, onOpenProfile = {}, onDismiss = {}) },
-        "appearance" to { AppearanceScreen(onDismiss = {}) },
+        "appearance" to { com.auralis.music.windows.settings.DesktopAppearanceSettings(onDismiss = {}) },
+        "audio" to { com.auralis.music.windows.settings.DesktopAudioSettings(onDismiss = {}) },
+        "account" to { com.auralis.music.windows.profile.AccountPage(androidx.compose.runtime.remember { com.auralis.music.windows.profile.DesktopAccount(File(data, "account.bin"), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())) }, {}) },
         "content" to { ContentSettingsScreen(onDismiss = {}) },
         "privacy" to { PrivacySettingsScreen(onDismiss = {}) },
-        "storage" to { StorageSettingsScreen(onDismiss = {}) },
+        "storage" to { com.auralis.music.windows.settings.DesktopStorageSettings(onDismiss = {}) },
         "ai-translation" to { AiLyricsTranslationScreen(onDismiss = {}) },
         "updater" to { UpdaterScreen(onDismiss = {}) },
         "about" to { AboutScreen(onDismiss = {}) },

@@ -24,7 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 
 /**
  * [SettingsPlatform] on Windows. No system app-settings page, wallpaper colours or per-app
- * language (Windows' display language is used); no song or image cache on disk yet; updates
+ * wallpaper colours; app language and artwork cache are managed here. Updates
  * come as a new installer. Discord status goes through [discord] when the desktop client is there.
  */
 class DesktopSettingsPlatform(
@@ -33,18 +33,18 @@ class DesktopSettingsPlatform(
     private val search: SearchRepository,
     override val discord: DiscordControl?
 ) : SettingsPlatform {
-    override val appVersion: String = System.getProperty("jpackage.app-version") ?: "1.1.2 (dev)"
+    override val appVersion: String = System.getProperty("jpackage.app-version") ?: "1.1.3 (dev)"
     override val openSystemAppSettings: (() -> Unit)? = null
     override fun systemColorScheme(isDark: Boolean): ColorScheme? = null
-    override val appLanguage = null
+    override val appLanguage = DesktopAppLanguage
     override val updater: UpdaterControl? = null
 
     override val storage = object : StorageControl {
         override fun downloadedSongsBytes(): Long? = null
         override fun songCacheBytes() = 0L
-        override fun imageCacheBytes() = 0L
+        override fun imageCacheBytes() = DesktopCaches.imageBytes()
         override fun clearSongCache() = 0L
-        override fun clearImageCache() = 0L
+        override fun clearImageCache(): Long { val bytes = DesktopCaches.imageBytes(); DesktopCaches.clearImages(); return bytes }
     }
 
     override val history = object : HistoryControl {

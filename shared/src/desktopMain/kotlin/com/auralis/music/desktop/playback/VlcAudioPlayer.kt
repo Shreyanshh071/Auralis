@@ -18,7 +18,8 @@ import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
  */
 class VlcAudioPlayer private constructor(
     private val factory: MediaPlayerFactory,
-    private val player: MediaPlayer
+    private val player: MediaPlayer,
+    private val nativeLog: uk.co.caprica.vlcj.log.NativeLog?
 ) {
     enum class State { IDLE, BUFFERING, PLAYING, PAUSED, ENDED, ERROR }
 
@@ -40,6 +41,13 @@ class VlcAudioPlayer private constructor(
         lastClockMs = ms
         _positionMs.value = ms
     }
+    @Volatile private var playbackRate = 1f
+    fun setRate(rate: Float) {
+        if (rate == playbackRate) return
+        anchor(clock.rawPositionMs())
+        playbackRate = rate.coerceIn(0.5f, 2f)
+        player.controls().setRate(playbackRate)
+    }
 
     /**
      * The playback clock for word-synced lyrics. libVLC reports the position only every few
@@ -51,12 +59,12 @@ class VlcAudioPlayer private constructor(
         override fun rawPositionMs(): Long {
             if (_state.value != State.PLAYING) return lastClockMs
             val elapsed = ((System.nanoTime() - anchorNanos) / 1_000_000L).coerceIn(0L, MAX_INTERPOLATION_MS)
-            val ms = maxOf(anchorMs + elapsed, lastClockMs)
+            val ms = maxOf(anchorMs + (elapsed * playbackRate).toLong(), lastClockMs)
             lastClockMs = ms
             return ms
         }
         override fun isPlaying(): Boolean = _state.value == State.PLAYING
-        override fun speed(): Float = 1f
+        override fun speed(): Float = playbackRate
         override fun isBuffering(): Boolean = _state.value == State.BUFFERING
     }
 
@@ -118,7 +126,7 @@ class VlcAudioPlayer private constructor(
         if (!player.media().play(url, *options.toTypedArray())) {
             Log.w(TAG, "libVLC refused the stream")
             _state.value = State.ERROR
-        }
+        } else player.controls().setRate(playbackRate)
     }
 
     fun pause() = player.controls().setPause(true)
@@ -143,6 +151,7 @@ class VlcAudioPlayer private constructor(
 
     fun release() {
         runCatching { player.release() }
+        runCatching { nativeLog?.release() }
         runCatching { factory.release() }
     }
 
@@ -150,7 +159,6 @@ class VlcAudioPlayer private constructor(
         private const val TAG = "VlcAudioPlayer"
         private const val MAX_INTERPOLATION_MS = 1000L
         private const val SEEK_THRESHOLD_MS = 600L
-        @Volatile private var nativeLog: uk.co.caprica.vlcj.log.NativeLog? = null
 
         /** Which libVLC was loaded: "bundled (<dir>)" or "installed VLC"; null before [createOrNull]. */
         @Volatile var loadedFrom: String? = null
@@ -178,7 +186,7 @@ class VlcAudioPlayer private constructor(
                 val factory = MediaPlayerFactory("--no-video", "--quiet", "--intf=dummy")
                 // libVLC's own errors (e.g. a stream it can't open) go to the app log.
                 // Kept in a field: libVLC calls back into it, so it must not be garbage collected.
-                nativeLog = factory.application().newLog()?.apply {
+                val nativeLog = factory.application().newLog()?.apply {
                     level = uk.co.caprica.vlcj.log.LogLevel.ERROR
                     addLogListener { _, module, _, _, _, _, _, message ->
                         // vlcj sets video options (marquee, logo, vmem) whose plugins the bundled
@@ -188,7 +196,7 @@ class VlcAudioPlayer private constructor(
                         }
                     }
                 }
-                VlcAudioPlayer(factory, factory.mediaPlayers().newMediaPlayer()).also {
+                VlcAudioPlayer(factory, factory.mediaPlayers().newMediaPlayer(), nativeLog).also {
                     Log.i(TAG, "libVLC ready in ${System.currentTimeMillis() - started}ms")
                 }
             } catch (t: Throwable) {

@@ -12,7 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The Windows search screen's state; the same flow as the phone's SearchViewModel.performSearch. */
-class DesktopSearchState(private val repository: SearchRepository, private val scope: CoroutineScope) {
+class DesktopSearchState(private val repository: SearchRepository, private val scope: CoroutineScope, private val mayRecordHistory: suspend () -> Boolean = { true }) {
     var query by mutableStateOf("")
         private set
     var results by mutableStateOf(SearchResults())
@@ -104,7 +104,7 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         results = cached ?: SearchResults()
         isSearching = cached == null
         searchJob = scope.launch {
-            if (recordHistory) launch { runCatching { repository.recordSearchQuery(trimmed) } }
+            if (recordHistory) launch { runCatching { if (mayRecordHistory()) repository.recordSearchQuery(trimmed) } }
             try {
                 val finished = repository.search(trimmed) { received ->
                     scope.launch {

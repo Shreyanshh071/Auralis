@@ -18,6 +18,8 @@ import com.auralis.music.util.PropertiesFileKeyValueStore
 import com.auralis.music.util.desktopAppDataDir
 import javax.imageio.ImageIO
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -25,10 +27,14 @@ import kotlinx.coroutines.launch
 private const val TAG = "AuralisWindows"
 
 fun main(args: Array<String>) {
-    // The installed app has no console: its log goes to %APPDATA%\Auralisuralis.log.
+    val dev = System.getProperty("jpackage.app-version") == null
+    if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
+        System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
+    }
+    // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
     Log.logToFile(java.io.File(desktopAppDataDir(), "auralis.log"))
     // UI text: the phone's strings.xml files, in the system language.
-    com.auralis.music.ui.i18n.DesktopStrings.install()
+    com.auralis.music.windows.settings.DesktopAppLanguage.install()
     Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
     // Same startup as the phone's: the YouTube session and the search lookup caches load from their
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
@@ -37,9 +43,11 @@ fun main(args: Array<String>) {
     // The phone's settings files (DataStore), and content settings (language, region, proxy,
     // lyrics providers) applied to every request as on the phone.
     val stores = com.auralis.music.desktop.settings.DesktopDataStores(java.io.File(dataDir, "settings"))
+    com.auralis.music.windows.settings.DesktopCaches.install(kotlinx.coroutines.runBlocking { stores.storage.settingsFlow.first().maxImageCacheSizeMb })
     com.auralis.music.data.datastore.ContentSettingsStore.init(stores.content)
     com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
     com.auralis.music.data.network.ContentSettingsSource.updates = com.auralis.music.data.datastore.ContentSettingsStore.current
+    com.auralis.music.data.network.ContentProxy.install()
     val searchLookups = PropertiesFileKeyValueStore(java.io.File(dataDir, "search-lookups.properties"))
     AlbumMetadataResolver.persistTo(searchLookups)
     InnerTubeClient.persistReleaseTypesTo(searchLookups)
@@ -69,13 +77,28 @@ fun main(args: Array<String>) {
     }
 
     // Library and listening history: JSON files with the phone's rules. A song counts as played
-    // when it becomes the current song, as on the phone.
+    // once audio starts, excluding failed stream lookups.
     val library = com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
     val history = com.auralis.music.desktop.library.DesktopHistoryRepository(java.io.File(dataDir, "history.json"), library)
+    val listeningStats = com.auralis.music.desktop.library.DesktopListeningStats(java.io.File(dataDir, "listening-stats.json"))
+    val recorderScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    val privacyState = stores.privacy.settingsFlow.stateIn(recorderScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, kotlinx.coroutines.runBlocking { stores.privacy.settingsFlow.first() })
+    val account = com.auralis.music.windows.profile.DesktopAccount(java.io.File(dataDir, "account-session.bin"), recorderScope)
+    if (playback != null) recorderScope.launch {
+        stores.settings.settingsFlow.collect { settings ->
+            com.auralis.music.desktop.playback.DesktopStreamResolver.quality = settings.audioQuality
+            playback.setRate(settings.playbackRate)
+            playback.preloadNext = settings.gaplessPlayback
+        }
+    }
+    val together = com.auralis.music.windows.together.DesktopTogether(playback, com.auralis.music.windows.together.FirestoreRest.fromResource(), recorderScope)
+    val listenRecorder = playback?.let { com.auralis.music.windows.history.DesktopListenRecorder(it, listeningStats, privacyState, recorderScope) }
     if (playback != null) {
         val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         appScope.launch {
-            playback.queue.map { it.current }.distinctUntilChangedBy { it?.id }.collect { track ->
+            kotlinx.coroutines.flow.combine(playback.queue, playback.state, playback.session) { q, state, session ->
+                if (state == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING) session to q.current else null
+            }.filterNotNull().distinctUntilChangedBy { it.first }.collect { (_, track) ->
                 // Settings > Privacy > Pause listen history, as on the phone.
                 if (track != null && !stores.privacy.settingsFlow.first().pauseListenHistory) {
                     history.addToHistory(track)
@@ -87,7 +110,7 @@ fun main(args: Array<String>) {
     // Discord status through the Discord desktop app, with the phone's Discord settings. Nothing is
     // sent until the user connects on the Discord page and Rich Presence is on.
     val discord = com.auralis.music.desktop.discord.DesktopDiscordPresence(stores.discord, playback)
-    val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"))
+    val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"), listeningStats)
     val libraryFlags = PropertiesFileKeyValueStore(java.io.File(dataDir, "library-flags.properties"))
 
     val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
@@ -98,11 +121,24 @@ fun main(args: Array<String>) {
     application {
         Window(
             onPreviewKeyEvent = { shortcutHandler?.invoke(it) ?: false },
-            onCloseRequest = { playback?.release(); exitApplication() },
-            title = "Auralis",
+            onCloseRequest = {
+                recorderScope.launch {
+                    try { kotlinx.coroutines.withTimeoutOrNull(15_000) { together.close() } }
+                    finally { listenRecorder?.close(); playback?.release(); exitApplication() }
+                }
+            },
+            title = if (dev) "Auralis Dev" else "Auralis",
             icon = icon,
             state = rememberWindowState(size = DpSize(1280.dp, 820.dp))
         ) {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                stores.privacy.settingsFlow.collect { privacy ->
+                    runCatching {
+                        val affinity = com.sun.jna.NativeLibrary.getInstance("user32").getFunction("SetWindowDisplayAffinity")
+                        check(affinity.invokeInt(arrayOf(com.sun.jna.Pointer(window.windowHandle), if (privacy.disableScreenshot) 0x11 else 0)) != 0)
+                    }.onFailure { Log.w(TAG, "Windows couldn't apply screenshot privacy: ${it.javaClass.simpleName}") }
+                }
+            }
             window.minimumSize = java.awt.Dimension(900, 600)
             // The song in Windows' media overlay, and the keyboard's media keys.
             androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -122,10 +158,14 @@ fun main(args: Array<String>) {
                 onShortcutHandler = { shortcutHandler = it },
                 selfTest = selfTest,
                 onSelfTestDone = { passed ->
+                    listenRecorder?.close()
                     playback?.release()
                     kotlin.system.exitProcess(if (passed) 0 else 1)
                 },
-                discordControl = discord
+                discordControl = discord,
+                listeningStats = listeningStats,
+                together = together,
+                account = account
             )
         }
     }

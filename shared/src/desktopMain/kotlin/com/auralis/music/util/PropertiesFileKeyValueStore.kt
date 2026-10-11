@@ -43,6 +43,7 @@ class PropertiesFileKeyValueStore(private val file: File) : KeyValueStore {
 
 /** Where the desktop app keeps its files: %APPDATA%\Auralis on Windows, the usual places elsewhere. */
 fun desktopAppDataDir(): File {
+    System.getProperty("auralis.dataDir")?.takeIf { it.isNotBlank() }?.let { return File(it) }
     val os = System.getProperty("os.name").orEmpty().lowercase()
     val home = System.getProperty("user.home")
     return when {

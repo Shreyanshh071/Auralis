@@ -46,13 +46,23 @@ import com.auralis.music.windows.search.DesktopArtwork
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
 fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {}) {
+    val normal = MaterialTheme.colorScheme
+    val black = com.auralis.music.ui.theme.LocalAppearanceSettings.current.pureBlackMiniPlayer
+    val colors = if (black) normal.copy(surface = androidx.compose.ui.graphics.Color.Black,
+        onSurface = androidx.compose.ui.graphics.Color.White, onSurfaceVariant = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)) else normal
+    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer) }
+}
+
+@Composable
+private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit) {
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(88.dp)
-            .background(colors.surface)
+            .background(if (appearance.pureBlackMiniPlayer) androidx.compose.ui.graphics.Color.Black else colors.surface)
             .padding(horizontal = 20.dp)
     ) {
         if (controller == null) {
@@ -185,7 +195,7 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
             isPlaying = playing == VlcAudioPlayer.State.PLAYING,
             currentPosMs = shownMs,
             totalDurationMs = duration,
-            sliderStyle = "Wavy",
+            sliderStyle = com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerSliderStyle,
             activeTrackColor = MaterialTheme.colorScheme.primary,
             inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
             thumbColor = MaterialTheme.colorScheme.primary,

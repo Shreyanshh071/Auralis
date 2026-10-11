@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
@@ -44,11 +50,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import javax.imageio.ImageIO
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 
 enum class DesktopDestination(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Explore),
     SEARCH("Search", Icons.Outlined.Search),
     LIBRARY("Library", Icons.Outlined.GridView),
+    TOGETHER("Listen Together", Icons.Outlined.Groups),
+    HISTORY("History", Icons.Outlined.History),
+    STATS("Stats", Icons.Outlined.BarChart),
+    WRAPPED("Wrapped", Icons.Outlined.AutoAwesome),
     PROFILE("Profile", Icons.Outlined.AccountCircle),
     SETTINGS("Settings", Icons.Outlined.Settings),
 }
@@ -69,6 +82,9 @@ fun AuralisDesktopApp(
     onSelfTestDone: (Boolean) -> Unit = {},
     /** Discord status through the desktop Discord app; null when unavailable. */
     discordControl: com.auralis.music.ui.settings.DiscordControl? = null,
+    listeningStats: com.auralis.music.desktop.library.DesktopListeningStats,
+    together: com.auralis.music.windows.together.DesktopTogether,
+    account: com.auralis.music.windows.profile.DesktopAccount,
 ) {
     var showPlayer by remember { mutableStateOf(false) }
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
@@ -76,7 +92,7 @@ fun AuralisDesktopApp(
     var typing by remember { mutableStateOf(false) }
     var destination by remember { mutableStateOf(DesktopDestination.HOME) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) }
+    val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
@@ -91,11 +107,15 @@ fun AuralisDesktopApp(
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
     }
     androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
+    androidx.compose.runtime.LaunchedEffect(together) {
+        together.state.map { it.message }.distinctUntilChanged().collect { message -> message?.let { showUnavailable(it) } }
+    }
     val platformActions = remember { com.auralis.music.ui.components.DesktopPlatformActions(showUnavailable) }
     val libraryViewModel = remember {
         com.auralis.music.ui.viewmodel.LibraryViewModel(
             libraryRepository = library,
             historyRepository = history,
+            statsRepository = com.auralis.music.desktop.library.DesktopStatsRepository(listeningStats),
             platform = com.auralis.music.desktop.library.DesktopLibraryPlatform(libraryFlags, showUnavailable)
         )
     }
@@ -150,11 +170,22 @@ fun AuralisDesktopApp(
     }
 
     val appearance by stores.appearance.settingsFlow.collectAsState(stores.appearance.getInitialSettings())
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        destination = when (stores.appearance.settingsFlow.first().defaultOpenTab) {
+            "Search" -> DesktopDestination.SEARCH
+            "Library" -> DesktopDestination.LIBRARY
+            else -> DesktopDestination.HOME
+        }
+    }
     val settingsPlatform = remember(playback) {
         com.auralis.music.windows.settings.DesktopSettingsPlatform(playback, history, searchRepository, discord = discordControl)
     }
-    com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, platformActions = platformActions) {
+    val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(queue?.current?.thumbnail)
+    val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
+    val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
+    com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
     androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance
@@ -177,6 +208,10 @@ fun AuralisDesktopApp(
                                     destination = DesktopDestination.LIBRARY
                                 },
                                 onNavigateToSearch = { destination = DesktopDestination.SEARCH },
+                                onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
+                                onOpenHistory = { destination = DesktopDestination.HISTORY },
+                                onOpenStats = { destination = DesktopDestination.STATS },
+                                onOpenWrapped = { destination = DesktopDestination.WRAPPED },
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 showMessage = showUnavailable
                             )
@@ -200,7 +235,27 @@ fun AuralisDesktopApp(
                                 focusRequests = searchFocusRequests,
                                 onTypingChange = { typing = it }
                             )
+                            DesktopDestination.TOGETHER -> com.auralis.music.windows.together.ListenTogetherPage(together) {
+                                destination = DesktopDestination.HOME
+                            }
+                            DesktopDestination.HISTORY -> {
+                                val entries by history.getHistory().collectAsState(emptyList())
+                                com.auralis.music.windows.history.HistorySheet(
+                                    history = entries, currentTrack = queue?.current,
+                                    isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
+                                    onTrackClick = { track, list -> playback?.playFrom(track, list) },
+                                    onRemoveFromHistory = { id -> scope.launch { history.removeFromHistory(id) } },
+                                    onClearHistory = { scope.launch { history.clearHistory() } },
+                                    onDismiss = { destination = DesktopDestination.HOME },
+                                    onPlayNext = { playback?.playNext(it) }, onAddToQueue = { playback?.addToQueue(it) }
+                                )
+                            }
+                            DesktopDestination.STATS, DesktopDestination.WRAPPED -> com.auralis.music.windows.history.ListeningStatsPage(
+                                listeningStats, playback, destination == DesktopDestination.WRAPPED,
+                                onBack = { destination = DesktopDestination.HOME }
+                            )
                             DesktopDestination.PROFILE -> com.auralis.music.windows.profile.DesktopProfile(
+                                account = account,
                                 stores = stores,
                                 libraryViewModel = libraryViewModel,
                                 history = history,
@@ -280,6 +335,7 @@ private fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination)
             .width(232.dp)
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {

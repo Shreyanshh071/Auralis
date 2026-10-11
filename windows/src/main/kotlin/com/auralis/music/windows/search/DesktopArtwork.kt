@@ -18,7 +18,7 @@ import coil3.compose.AsyncImage
 
 /** Artwork for the shared search UI on Windows: the phone's look (rounded, placeholder note). */
 @Composable
-fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDescription: String?) {
+fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDescription: String?, contentScale: ContentScale = ContentScale.Crop) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
@@ -32,7 +32,7 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
                 // Sized like the phone's rows: 400x400 album art, 16:9 frames for video thumbnails.
                 model = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url) ?: url,
                 contentDescription = contentDescription,
-                contentScale = ContentScale.Crop,
+                contentScale = contentScale,
                 modifier = Modifier.fillMaxSize()
             )
         }

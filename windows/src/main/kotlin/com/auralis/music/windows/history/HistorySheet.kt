@@ -1,0 +1,379 @@
+package com.auralis.music.windows.history
+
+import com.auralis.music.ui.i18n.Strings
+import com.auralis.music.ui.i18n.str
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.PauseCircle
+import com.auralis.music.data.datastore.LocalSettingsStores
+import com.auralis.music.domain.model.PrivacySettings
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import com.auralis.music.ui.components.SwipeableTrackContainer
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.auralis.music.domain.model.HistoryEntry
+import com.auralis.music.domain.model.Track
+import com.auralis.music.ui.components.ArtworkCard
+import com.auralis.music.ui.components.EqualizerBars
+import com.auralis.music.ui.components.tactileBounce
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.auralis.music.ui.theme.dynamicSurface
+import com.auralis.music.domain.recommendations.TrackDeduplicator
+import com.auralis.music.ui.components.bottomChromePadding
+
+val HISTORY_LIME: Color
+    @Composable get() = MaterialTheme.dynamicPrimary
+val HISTORY_CARD_BG: Color
+    @Composable get() = MaterialTheme.dynamicSurface
+
+/**
+ * Fullscreen Listening History Sheet opened from the top header history button.
+ * Lists all played songs without timestamps, clear history, and instant play.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HistorySheet(
+    history: List<HistoryEntry>,
+    currentTrack: Track? = null,
+    currentTrackId: String? = currentTrack?.id,
+    isPlaying: Boolean,
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onRemoveFromHistory: (String) -> Unit,
+    onClearHistory: () -> Unit,
+    onDismiss: () -> Unit,
+    onPlayNext: ((Track) -> Unit)? = null,
+    onAddToQueue: ((Track) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.dynamicBackground)
+            .statusBarsPadding()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── TOP BAR (WITH SAFE INSETS & PROPER SPACING) ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = str(Strings.close),
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Text(
+                        text = str(Strings.listening_history),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 22.sp
+                    )
+                }
+
+                if (history.isNotEmpty()) {
+                    IconButton(
+                        onClick = { showClearDialog = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = str(Strings.clear_history),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+
+            val coroutineScope = rememberCoroutineScope()
+            val privacyDataStore = LocalSettingsStores.current.privacy
+            val privacySettings by privacyDataStore.settingsFlow.collectAsState(initial = PrivacySettings())
+
+            if (privacySettings.pauseListenHistory) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clickable {
+                            coroutineScope.launch {
+                                privacyDataStore.setPauseListenHistory(false)
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PauseCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = str(Strings.history_is_paused_in_privacy_settings_ta),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            if (history.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = HISTORY_LIME,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = str(Strings.no_listening_history_yet),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = str(Strings.tracks_you_listen_to_will_appear_here),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                val trackList = history.map { it.track }
+                val currentTrackFp = remember(currentTrack) { currentTrack?.let { TrackDeduplicator.getSongFingerprint(it) } }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Text(
+                            text = str(Strings.x_recently_played_songs, history.size),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(history, key = { "${it.track.id}_${it.playedAt}" }) { entry ->
+                        val track = entry.track
+                        val isCurrent = track.id == currentTrackId ||
+                                (currentTrackFp != null && TrackDeduplicator.isDuplicateSong(TrackDeduplicator.getSongFingerprint(track), currentTrackFp, matchAlternateVersions = true))
+
+                        SwipeableTrackContainer(
+                            onPlayNext = onPlayNext?.let { { it(track) } },
+                            onAddToQueue = onAddToQueue?.let { { it(track) } }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
+                                    .border(
+                                        1.dp,
+                                        if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .clickable { onTrackClick(track, listOf(track)) }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ArtworkCard(
+                                    sizeToConstraints = true,
+                                    url = track.thumbnail,
+                                    modifier = Modifier.size(52.dp),
+                                    cornerRadius = 10.dp,
+                                    contentDescription = track.title
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                                        color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = track.artist,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (isCurrent) {
+                                    EqualizerBars(
+                                        isPlaying = isPlaying,
+                                        modifier = Modifier.size(18.dp),
+                                        color = HISTORY_LIME
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+
+                                IconButton(
+                                    onClick = { onRemoveFromHistory(track.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = str(Strings.remove),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── CLEAR HISTORY CONFIRMATION DIALOG ──
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    text = str(Strings.clear_listening_history),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 20.sp
+                )
+            },
+            text = {
+                Text(
+                    text = str(Strings.this_will_remove_all_played_tracks_from),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearHistory()
+                        showClearDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF4444),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(str(Strings.clear_history), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(str(Strings.cancel), color = HISTORY_LIME, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
+    }
+}

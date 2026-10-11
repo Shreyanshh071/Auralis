@@ -1,75 +1,61 @@
-# Auralis for Windows — feature status
+# Auralis Windows feature audit
 
-Status of every phone screen and action on Windows. **Working** = the phone's UI and logic run on
-Windows. **Partly** = reachable, some parts missing. **Missing** = not reachable yet. Blockers are
-the platform reasons a part cannot simply be reused; everything else is porting work.
+Updated 11 October 2026 for Windows 1.1.3. Android remains at its existing version.
 
-Last updated: 2026-10-10 (after 0bde9dc).
+## This batch
 
-## Main pages
-
-| Feature | Windows | Notes / blockers |
+| Feature | Windows behaviour | Verification |
 |---|---|---|
-| Home (Speed Dial, Quick picks, shelves, chips, pins) | Working | Listening-time shelves stay empty: Windows doesn't measure listen time yet (never estimated). Library artwork repair doesn't run (phone database + offline copies). |
-| Search: results, typing suggestions, recent searches | Working | |
-| Search: voice search / song recognition | Missing | Needs a desktop microphone adapter (javax.sound) for the recognizer. |
-| Explore / Moods & genres pages | Missing | Pure UI + network; porting work. |
-| Album, Artist pages | Working | |
-| Library: playlists, Liked, Most played, albums, artists, playlist pages, sort, grid/list, New Playlist | Working | Most-played playlists need measured listens (see Stats). |
-| Library: Downloads hub, offline folders | Missing | Phone uses its download manager + WorkManager; needs a desktop downloader. |
-| Song options sheet | Working | Download entry says "not on Windows yet". |
-| Playlist options sheet (edit, cover photo, export, delete) | Working | Playlist download not on Windows yet. |
+| History | Opens from Home and sidebar; replay, remove and clear; pause-history respected | UI render and existing JSON history |
+| Stats | Measures actual playing time; week/month/year/all-time; songs/artists/albums; clear confirmation | Persistence and pause/buffering/sleep tests |
+| Wrapped | Basic current-year listening summary | UI render; not the phone's animated story cards |
+| Library Top/weekly/monthly | Uses the new measured sessions; Top length and Most playlists preferences applied | Shared Library logic with desktop stats adapter |
+| Listen Together | Create/join, roster, host playback, exact recording, pause/seek/speed, guest recommendations and approval, end/leave | Live temporary-room protocol and two muted-player integration check |
+| Email account | Sign in/create, reset password, sign out, restore protected session | REST contract tests and Windows DPAPI round trip; real credentials require user sign-in |
+| Google account | System-browser sign-in with PKCE and state-checked loopback callback | Local callback success/error checks; real Google consent requires user sign-in |
 
-## Player
+Account sign-in does **not** yet sync the PC library with the phone. YouTube Music and Spotify account-library sign-in are separate features and still unavailable. Playlist links and JSON library backup/import remain available. No password is saved; the Firebase refresh token is protected for the current Windows user. Owner-supplied Google desktop configuration is in ignored `windows/local-resources/google-desktop.json` and is bundled locally when building. A fresh checkout must supply this file to enable Google sign-in.
 
-| Feature | Windows | Notes / blockers |
+## Settings audit
+
+| Page / option | Applied on Windows | Remaining limits |
 |---|---|---|
-| Playback, seek, volume, queue, media keys, Windows media overlay | Working | VLC (bundled) + loopback relay. |
-| Word-synced lyrics (shared lyrics race, ExperimentalLyricsView) | Working | |
-| Phone player designs (Classic, Immersive, Ambient), mini-player variants | Missing | Windows has its own player and bar; the phone views are large, porting work. |
-| Lyrics provider sheet, manual lyrics search | Missing | Pure UI; porting work. |
-| Lyric share card | Missing | Card renderer draws with android.graphics (Bitmap, StaticLayout) and saves to MediaStore; needs a Skia/Compose renderer and a file save. |
-| Audio output sheet | Missing | Android audio routing/Bluetooth; a desktop version would list VLC output devices. |
-| Liquid glass lens/blur | Partly | Shapes and fallbacks draw; the refraction shader is Android RenderEffect (desktop stubs). A Skia port is possible. |
+| Privacy: pause listen history | Stops new history entries/play counts and measured listening stats | Previous records remain until cleared |
+| Privacy: pause search history | Search still works, but submitted searches aren't saved | Previous recent searches remain until cleared |
+| Privacy: clear history/search | Clears the corresponding local repository | Stats have their own separate Clear stats confirmation |
+| Privacy: disable screenshot | Calls Windows SetWindowDisplayAffinity for Auralis's own window | OS capture protection, not protection against cameras or every third-party capture method |
+| Storage: artwork cache | Real disk/memory cache size and clear | Changing maximum size applies after restart |
+| Storage: saved lyrics | Real file size and targeted clear of generated lyric JSON | Currently displayed/in-memory lyrics remain until reloaded/restarted |
+| Storage: stream lookups | Clears resolved URLs | Audio streams use memory; offline downloads/audio-file cache aren't implemented |
+| Content: metadata language/country | Used by shared InnerTube request context | Some internal parsing requests intentionally stay English |
+| Content: app language | Loads bundled phone translations and persists selection | Newly added Windows-specific text is English |
+| Content: proxy | Installs the shared proxy selector and credentials handler | Existing pooled connections can finish on their previous route; an external proxy must be reachable |
+| Content: playlist insertion position | Desktop library inserts at beginning/end | |
+| Content: artist details | Shared artist page honours description/subscriber/monthly-audience switches | Provider metadata can be absent |
+| Content: lyric providers | Shared provider race honours disabled providers | Cached lyrics may still be displayed |
+| Content: romanization | Desktop lyrics draws the shared romanizer's extra line and selected scripts | Same script/dictionary limitations as phone |
+| Content: Home ordering/Quick picks/Wrapped | Shared Home logic honours preferences | Wrapped opens the basic summary |
+| Content: Top length/Most playlists | Shared Library uses desktop measured statistics | Older play counts cannot reconstruct listening time |
+| Player: stream quality | Next extraction selects bitrate nearest the preference; Auto chooses highest available | Auto doesn't infer Wi-Fi/mobile on Windows; cached native media is unaffected |
+| Player: speed | Applies to VLC and smooth lyrics clock | Guest speed follows the room host |
+| Player: next-stream preloading | Resolves the next stream ahead | Does not promise sample-accurate gapless transitions |
+| Appearance: theme/curated palette | Applied live through desktop theme | Wallpaper Material You unavailable |
+| Appearance: artwork colours | Extracts colours from current cover and feeds desktop theme | Requires artwork to load; curated palettes take precedence |
+| Appearance: background/artwork crop/hide | Applied in Windows player | Blur/Gradient/Follow theme only |
+| Appearance: seek style/black mini-player | Applied to player and bar | |
+| Appearance: Metro lyrics | Alignment, size, spacing, blur, tapping and automatic scrolling applied | Alternative phone lyric renderers not ported |
+| Appearance: default tab/density | Default tab at startup; density applied live | Large density may require scrolling |
 
-## Account, Profile, social
+Windows audio/appearance pages now expose their supported controls and explicitly name the remaining gaps. Not implemented: silence skipping, spatial audio, queue restoration, automatic radio extension, Bluetooth reconnect, system-mute pause, keep-screen-awake, alternative phone player/mini-player designs, animated backgrounds and refraction shaders. Updater still requires a new installer. Sharing selected lyrics supports copying text; image share-card rendering is not ported.
 
-| Feature | Windows | Notes / blockers |
-|---|---|---|
-| Profile sheet / Auralis hub | Missing | UI is portable. Sign-in uses the Firebase Android SDK + Credential Manager (Google), which don't exist on desktop. |
-| Google sign-in, account sync | Missing | **Blocker:** Firebase Auth Android SDK. Desktop needs Firebase Auth over REST plus a Google OAuth "Desktop" client in the Firebase project's Google Cloud console (owner action). |
-| Email sign-in | Missing | Possible via Firebase Auth REST (the web API key is in google-services.json). |
-| Listen Together | Missing | **Blocker:** Firestore realtime listeners (Android SDK). Desktop needs Firestore REST + polling or a JVM Firestore client, and the account above. |
-| Discord status | Missing | Phone uses Discord's Social SDK native library (Android). Windows can use Discord's local IPC (the desktop Discord app) with the same application ID; setting online/idle status needs the Social SDK and stays phone-only. |
-| History sheet | Missing | Desktop history exists; UI is portable (privacy pause setting needed). |
-| Stats, Wrapped | Missing | Needs measured listening events on desktop (playback controller can record them); UI is portable. |
+## Existing Windows features retained
 
-## Imports
+Home, Search with typing suggestions, Album/Artist pages, Library/playlist management, link imports, JSON backup/import, playback/queue/media keys, Windows media overlay, word-synced lyrics, Discord local status and bundled VLC. Downloads, voice/song recognition, Explore/moods browsing, account library sync and the animated Wrapped presentation remain further work.
 
-| Feature | Windows | Notes / blockers |
-|---|---|---|
-| YouTube Music / Spotify playlist link import | Working | From Library (shared view model). |
-| Library backup export / import (JSON) | Working | |
-| Import screen (account libraries) | Missing | **Blocker:** YouTube and Spotify sign-in run in an Android WebView and read its cookies. Compose Desktop has no WebView; needs an embedded browser (JCEF, ~100 MB) or a paste-cookie flow. |
-| YouTube account sign-in (age-restricted songs) | Missing | Same WebView blocker. |
+## Android boundary
 
-## Settings
+This batch changes Windows sources and shared desktop sources only. Android sources and shared common/Android sources are unchanged. No phone APK is required for these desktop-only changes. The prior Android checkpoint and installed phone app are preserved.
 
-| Page | Windows | Notes / blockers |
-|---|---|---|
-| Settings hub | Missing | Phone settings live in Jetpack DataStore files; DataStore Preferences runs on desktop JVM, so the stores can be shared. |
-| Appearance, Theme & colours | Missing | Material You wallpaper colours are Android-only. |
-| Player & audio | Missing | Gapless/skip silence/spatial are ExoPlayer features; VLC equivalents differ. |
-| Content (language, region, proxy) | Missing | Per-app language uses Android LocaleManager. |
-| AI lyrics translation | Missing | Portable (API keys + HTTP). |
-| Privacy | Missing | Portable except clearing the phone database. |
-| Storage | Missing | Cache sizes/clearing are platform paths. |
-| Updater | Missing | Phone installs APKs; Windows would download the MSI. |
-| About | Missing | Portable. |
-| Open system app settings | n/a | Android only. |
+## Development preview
 
-## Onboarding
-
-| Feature | Windows | Notes / blockers |
-|---|---|---|
-| Welcome / sign-in flow | Missing | Depends on Firebase sign-in (above). |
+Run the existing `:windows:run` task from the repository root. Its window is titled **Auralis Dev**, and uses `%APPDATA%/Auralis Dev` rather than the installed app's settings/library. Installed self-tests similarly use `Auralis Self Test`. Installed Auralis continues to use `%APPDATA%/Auralis`.
