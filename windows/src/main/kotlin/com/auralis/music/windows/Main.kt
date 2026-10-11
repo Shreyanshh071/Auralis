@@ -8,6 +8,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.foundation.window.WindowDraggableArea
+import androidx.compose.runtime.*
 import com.auralis.music.data.network.AlbumMetadataResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.SearchSuggestionsClient
@@ -135,6 +136,14 @@ fun main(args: Array<String>) {
             icon = icon,
             state = windowState
         ) {
+            var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
+            DisposableEffect(window) {
+                window.minimumSize = java.awt.Dimension(900, 600)
+                val frame = runCatching { NativeWindowFrame(window, window.windowHandle) }
+                    .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
+                nativeFrame = frame
+                onDispose { frame?.close() }
+            }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 stores.privacy.settingsFlow.collect { privacy ->
                     runCatching {
@@ -171,15 +180,20 @@ fun main(args: Array<String>) {
                 together = together,
                 account = account,
                 titleBar = { actions ->
-                    WindowDraggableArea {
+                    val chrome: @Composable () -> Unit = {
                         WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
                             maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
-                            minimize = { windowState.isMinimized = true },
+                            minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
                             maximize = {
-                                windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
-                                    androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
-                            }, close = closeApp)
+                                nativeFrame?.toggleMaximize() ?: run {
+                                    windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
+                                        androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
+                                }
+                            }, close = closeApp,
+                            captionBounds = { nativeFrame?.captionBounds = it },
+                            maximizeBounds = { nativeFrame?.maximizeBounds = it })
                     }
+                    if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
                 }
             )
         }

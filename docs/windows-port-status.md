@@ -7,7 +7,14 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 - Keep the Windows version at **1.0.0** until the owner explicitly requests a version increase.
 - Review normal changes through the development preview; do not build a fresh EXE/MSI or install an update after every change.
 - Build an installer or update the existing installed app only when requested. Preserve its settings and library.
-- The previously installed package reports 1.1.5. Setting the project version to 1.0.0 does not alter that installed copy; do not reinstall it just to change the displayed version.
+- The installed copy was updated to 1.0.0 at the owner's request on 11 October. Its existing shortcut and all 23 checked data files were preserved.
+
+## Window frame behaviour
+
+- The compact dark title bar now sits over Windows' native resizable frame. Native caption hit testing handles dragging, double-click maximize/restore and the maximize button's Snap layouts target; minimize/maximize buttons send Windows system commands.
+- `:windows:verifyWindowFrame` opens its own disposable window without loading any account, library or playback data. Verified native caption/resize hit tests, child-canvas forwarding, maximize client bounds against monitor work area, unclipped canvas, Compose placement tracking, original bounds on restore, caption double click and minimize. Existing Windows tests also pass.
+- Native callbacks remain retained until disposal and original AWT procedures are restored. Normal title-bar buttons remain client controls. The existing minimum window size still applies to smaller Snap zones.
+- This change is in the development build; the installed copy has not been updated for the window-frame fix. Windows stays at 1.0.0.
 
 ## This batch
 
