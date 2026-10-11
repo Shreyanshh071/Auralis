@@ -227,3 +227,7 @@ Final standard MSI packaging passed. Installed on 11 October at 17:43 after a no
 Home now shows the labelled Find music button at 210dp minimum width and 60dp height with 18sp text. Removed the adjacent Home refresh icon. The button uses neutral translucent white instead of the theme's tinted secondary container; its popup spacing accounts for the larger button. Existing popup animation and search actions are preserved.
 
 Windows compilation and standard MSI packaging passed. Installed on 11 October at 17:48 after a normal close; all 32 checked data files and shortcut were preserved, and installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-find-music-button-20261011-174716. Version remains 1.0.0.
+
+### Home scrollbar hover visibility — 11 October 2026
+Home's vertical scrollbar now fades in over 160 ms while the pointer is over the Home scroll area and fades out when it leaves. Scroll position, wheel scrolling, and scrollbar dragging are preserved. The Windows MSI packaged successfully in 54 seconds; version remains 1.0.0.
+Installed and launched after a full app-data backup at Downloads/Auralis-checkpoints/before-hover-scrollbar-20261011-175117. All 32 checked non-cache data files were preserved, the installed code matches the release, and the shortcut target is unchanged.
