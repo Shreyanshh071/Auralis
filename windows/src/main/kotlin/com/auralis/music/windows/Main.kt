@@ -41,7 +41,7 @@ fun main(args: Array<String>) {
     // Same startup as the phone's: the YouTube session and the search lookup caches load from their
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
     val dataDir = desktopAppDataDir()
-    YouTubeSession.init(PropertiesFileKeyValueStore(java.io.File(dataDir, "youtube-session.properties")))
+    YouTubeSession.init(com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "youtube-session.properties")))
     // The phone's settings files (DataStore), and content settings (language, region, proxy,
     // lyrics providers) applied to every request as on the phone.
     val stores = com.auralis.music.desktop.settings.DesktopDataStores(java.io.File(dataDir, "settings"))

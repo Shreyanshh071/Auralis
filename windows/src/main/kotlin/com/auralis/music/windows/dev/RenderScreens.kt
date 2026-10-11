@@ -81,6 +81,17 @@ fun main(args: Array<String>) {
     }
 
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "browser-signin" to {
+            androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize()) {
+                Column(androidx.compose.ui.Modifier.padding(32.dp).widthIn(max = 560.dp)) {
+                    Text("Sign in to YouTube Music", style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)
+                    Spacer(androidx.compose.ui.Modifier.height(20.dp))
+                    com.auralis.music.windows.profile.BrowserYouTubePicker(listOf(
+                        com.auralis.music.windows.profile.BrowserYouTubeLogin.Profile("Firefox", "Personal", File(data, "fake.sqlite"), true),
+                        com.auralis.music.windows.profile.BrowserYouTubeLogin.Profile("Zen", "Default", File(data, "fake.sqlite"), true)))
+                }
+            }
+        },
         "sidebar-expanded" to { Box(androidx.compose.ui.Modifier.width(232.dp).fillMaxHeight()) {
             com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {})
         } },
@@ -97,24 +108,9 @@ fun main(args: Array<String>) {
             }
         },
         "search-glass" to {
-            val backdrop = androidx.compose.runtime.remember {
-                val fixture = File(out, "now-playing-sidebar.png")
-                val image = if (fixture.exists()) javax.imageio.ImageIO.read(fixture) else
-                    java.awt.image.BufferedImage(1040, 760, java.awt.image.BufferedImage.TYPE_INT_RGB).apply {
-                        val graphics = createGraphics()
-                        graphics.color = java.awt.Color(35, 30, 42); graphics.fillRect(0, 0, width, height)
-                        repeat(8) { index ->
-                            graphics.color = java.awt.Color(80 + index * 12, 60, 120)
-                            graphics.fillRect((index % 4) * 260, (index / 4) * 170 + 120, 240, 140)
-                        }
-                        graphics.dispose()
-                    }
-                image.toComposeImageBitmap()
-            }
             Box(androidx.compose.ui.Modifier.fillMaxSize().padding(24.dp)) {
                 com.auralis.music.windows.search.SearchDropdownSurface(true, previewSongs.firstOrNull()?.thumbnail,
-                    androidx.compose.ui.Modifier.width(480.dp).height(460.dp), backdrop = backdrop,
-                    backdropOffset = androidx.compose.ui.unit.IntOffset(160, 120)) {
+                    androidx.compose.ui.Modifier.width(480.dp).height(460.dp)) {
                     Column(androidx.compose.ui.Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                         Text("Search Auralis", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
                         Text("Mockingbird", style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
@@ -129,7 +125,7 @@ fun main(args: Array<String>) {
                 androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
                 androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize()) {
                     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { homePreview(true) }
-                    com.auralis.music.windows.player.NowPlayingSidebarContent(sampleTrack, {}, androidx.compose.ui.Modifier.width(300.dp).fillMaxHeight(),
+                    com.auralis.music.windows.player.NowPlayingSidebarContent(previewSongs.first(), {}, androidx.compose.ui.Modifier.width(300.dp).fillMaxHeight(),
                         com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) {
                         androidx.compose.material3.Text("The current lyric line\n\nThe next lyric line", modifier = androidx.compose.ui.Modifier.padding(16.dp),
                             color = androidx.compose.ui.graphics.Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)

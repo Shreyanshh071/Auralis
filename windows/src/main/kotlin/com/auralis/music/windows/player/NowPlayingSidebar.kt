@@ -41,7 +41,7 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     BoxWithConstraints(modifier) {
     val coverSize = minOf(maxWidth - 42.dp, maxHeight * .40f)
     Box(Modifier.fillMaxSize().padding(start = 2.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).clip(RoundedCornerShape(16.dp))) {
-    ArtworkAura(palette, Modifier.fillMaxSize())
+    ArtworkAura(palette, Modifier.fillMaxSize(), track.thumbnail)
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))

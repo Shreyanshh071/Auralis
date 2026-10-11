@@ -599,9 +599,12 @@ fun DesktopProfileSheet(
                 spotifyImportMessage = spotifyImportMessage,
                 onClearSpotifyImportMessage = onClearSpotifyImportMessage
             )
-            ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
-                onDismiss = { isYouTubeAccountOpen = false }
-            )
+            ProfileSubPage.YOUTUBE -> Column(Modifier.fillMaxSize().padding(24.dp)) {
+                TextButton(onClick = { isYouTubeAccountOpen = false }) { Text("Back") }
+                Text("YouTube Music account", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+                BrowserYouTubePicker()
+            }
             ProfileSubPage.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                 onDismiss = { isDiscordIntegrationOpen = false }
             )
