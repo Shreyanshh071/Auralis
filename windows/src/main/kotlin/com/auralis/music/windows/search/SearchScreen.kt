@@ -36,6 +36,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,66 @@ import com.auralis.music.ui.search.SearchUiStrings
 
 /** Width of the results column: a phone-like list stays readable in a wide window. */
 private val ContentMaxWidth = 860.dp
+
+/** Home's anchored search: the same live songs and recent queries as the full search page. */
+@Composable
+fun FindMusicDropdown(
+    state: DesktopSearchState,
+    currentTrackId: String?,
+    isPlaying: Boolean,
+    onPlay: (com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit,
+    onSearch: (String) -> Unit,
+    onPlayNext: (com.auralis.music.domain.model.Track) -> Unit,
+    onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit,
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit,
+    onTypingChange: (Boolean) -> Unit
+) {
+    var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    fun dismiss() { expanded = false; onTypingChange(false) }
+    fun submit(text: String) {
+        if (text.isNotBlank()) { dismiss(); onSearch(text) }
+    }
+    Box {
+        androidx.compose.material3.FilledTonalButton(
+            onClick = {
+                if (expanded) dismiss() else {
+                    if (state.hasSubmitted) state.onQueryChange(state.query)
+                    expanded = true
+                }
+            }, modifier = Modifier.height(54.dp).widthIn(min = 176.dp),
+            shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(22.dp, 14.dp)
+        ) {
+            Icon(Icons.Default.Search, null, Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Find music", style = MaterialTheme.typography.titleMedium)
+        }
+        if (expanded) {
+            androidx.compose.ui.window.Popup(
+                alignment = Alignment.TopEnd,
+                offset = androidx.compose.ui.unit.IntOffset(0, with(density) { 62.dp.roundToPx() }),
+                onDismissRequest = ::dismiss,
+                properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+            ) {
+                LaunchedEffect(Unit) { focus.requestFocus(); onTypingChange(true) }
+                Surface(shape = RoundedCornerShape(18.dp), tonalElevation = 6.dp, shadowElevation = 12.dp) {
+                    Column(Modifier.width(480.dp).height(460.dp).padding(top = 4.dp)) {
+                        SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
+                            Modifier.fillMaxWidth().padding(12.dp))
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            SuggestionsOrRecent(state, currentTrackId, isPlaying,
+                                onPlay = { track, tracks -> dismiss(); onPlay(track, tracks) },
+                                onPlayNext = onPlayNext, onAddToQueue = onAddToQueue,
+                                onMenuClick = { dismiss(); onMenuClick(it) }, onSearch = ::submit)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onTypingChange(false) } }
+}
 
 /** The Windows pieces of the shared search UI. Text is English until the app's translations are shared. */
 private val DesktopSearchUi = SearchUiPlatform(
@@ -218,7 +279,8 @@ private fun SuggestionsOrRecent(
     onPlay: (com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit,
     onPlayNext: (com.auralis.music.domain.model.Track) -> Unit,
     onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit,
-    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit,
+    onSearch: (String) -> Unit = { state.search(it) }
 ) {
     val recent by state.recentQueries.collectAsState(initial = emptyList())
     if (state.query.isBlank() && recent.isEmpty()) {
@@ -234,7 +296,7 @@ private fun SuggestionsOrRecent(
             currentTrackId = currentTrackId,
             isPlaying = isPlaying,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-            onSearch = { state.search(it) },
+            onSearch = onSearch,
             onInsert = state::onQueryChange,
             onRemoveRecent = state::removeRecent,
             onTrackClick = onPlay,
