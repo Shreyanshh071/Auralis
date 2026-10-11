@@ -2,7 +2,6 @@ package com.auralis.music.windows.profile
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -74,12 +73,12 @@ internal fun YouTubeAccountMenu(state: YouTubeLibraryState, onSelect: (String) -
 }
 
 @Composable
-private fun AccountMenuAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+internal fun AccountMenuAction(label: String, icon: ImageVector, onClick: () -> Unit) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     Row(Modifier.fillMaxWidth().height(52.dp)
         .background(if (hovered) Color.White.copy(alpha = .10f) else Color.Transparent)
-        .hoverable(interactions).clickable(onClick = onClick).padding(horizontal = 20.dp),
+        .clickable(interactionSource = interactions, indication = null, onClick = onClick).padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
         Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,

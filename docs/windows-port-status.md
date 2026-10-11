@@ -239,3 +239,7 @@ Windows packaging passed in 1m31s. Installed and launched with full backup at Do
 ### Find music proportions correction — 11 October 2026
 Changed the Find music button from 60 dp tall with a 210 dp minimum width to 64 dp tall with a 176 dp minimum width and narrower horizontal padding. Adjusted popup offset to keep its 8 dp gap. Neutral colours and larger text are retained. Version remains 1.0.0.
 Windows packaging passed in 58 seconds. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-find-music-proportions-20261011-175743. All 32 checked non-cache data files and the shortcut target were preserved; installed code matches the release.
+
+### Account hover interaction correction — 11 October 2026
+The action rows now observe the clickable row's own interaction source, with no separate hover handler or rounded indication. A focused mouse-input render check verifies all four rectangle edges highlight, exit clears the highlight, and clicks dispatch once. AccountMenuHoverTest passed. Version remains 1.0.0.
+Packaging passed in 54 seconds. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-account-hover-fix-20261011-180138. All 32 checked non-cache user files and shortcut target were preserved; installed code matches the release.
