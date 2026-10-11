@@ -64,6 +64,15 @@ internal fun DesktopSongMenuContent(items: List<GlassMenuItem>, onDismiss: () ->
     }
 }
 
+/** Frosted glass over the app's current backdrop: the playing cover when Liquidify is on. */
+@Composable
+internal fun SongMenuFrost(artwork: String?) {
+    Box(Modifier.fillMaxSize()) {
+        if (artwork != null) com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 40.dp)
+        Box(Modifier.fillMaxSize().background(Color(0xFF171519).copy(alpha = if (artwork != null) .55f else 1f)))
+    }
+}
+
 internal fun songMenuPosition(point: IntOffset, window: IntSize, menu: IntSize): IntOffset {
     val x = if (point.x + menu.width <= window.width) point.x else point.x - menu.width
     val y = if (point.y + menu.height <= window.height) point.y else point.y - menu.height
