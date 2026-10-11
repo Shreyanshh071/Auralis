@@ -5,8 +5,8 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 ## Owner's development and update preferences
 
 - Keep the Windows version at **1.0.0** until the owner explicitly requests a version increase.
-- Review normal changes through the development preview; do not build a fresh EXE/MSI or install an update after every change.
-- Build an installer or update the existing installed app only when requested. Preserve its settings and library.
+- After each completed, verified change, automatically update the existing installed app so the owner can check it (requested 11 October). Preserve settings and library, keep the existing shortcut, and do not put a fresh EXE in Downloads for each change.
+- Use an internal MSI if packaging is required. Keep Windows at 1.0.0 and close/reopen the existing app normally when applying the update.
 - The installed copy was updated to 1.0.0 at the owner's request on 11 October. Its existing shortcut and all 23 checked data files were preserved.
 
 ## Window frame behaviour
@@ -15,6 +15,14 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 - `:windows:verifyWindowFrame` opens its own disposable window without loading any account, library or playback data. Verified native caption/resize hit tests, child-canvas forwarding, maximize client bounds against monitor work area, unclipped canvas, Compose placement tracking, original bounds on restore, caption double click and minimize. Existing Windows tests also pass.
 - Native callbacks remain retained until disposal and original AWT procedures are restored. Normal title-bar buttons remain client controls. The existing minimum window size still applies to smaller Snap zones.
 - This change is in the development build; the installed copy has not been updated for the window-frame fix. Windows stays at 1.0.0.
+
+## Desktop Home redesign
+
+- Windows has its own desktop layout over the existing Home recommendation engine: greeting, eight compact shortcuts, multi-column Quick picks, horizontally browsable discovery/music shelves and a vertical scrollbar. Removed duplicate Stats, History, Listen Together and Profile buttons from the Home header; their sidebar entries remain.
+- Starter content is curated rather than fully random. Actual recent/top plays replace starter rotation; pinned music stays. Songs are deduplicated across Home shelves. Mood chips show their filtered feed without unrelated local rotation.
+- Fresh installs explain that recommendations use listening history. Related discovery/music shelves refresh through the existing Home loading/refresh pipeline; not every upstream YouTube shelf is locally personalized. Pause-listening-history settings prevent new history from becoming recommendation signals.
+- Inspected LiMusic source at ff7025db316762430897c1502ce14f519833fa54: it combines the YouTube home feed with local recent items/artists and artist-seeded community playlists. Auralis uses its own Compose implementation; no LiMusic code copied.
+- Verified wide/narrow/new-user preview renders and tests for starter-to-personal rotation, persistent pins, cross-shelf duplicates, and mood-filter isolation. Android Home and shared recommendation code are unchanged.
 
 ## This batch
 
