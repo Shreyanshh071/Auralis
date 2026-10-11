@@ -5,6 +5,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 ## Owner's development and update preferences
 
 - Mini-player correction: the song-info block must have no hover highlight (owner clarified after the first hover styling). Only the cover opens the player; title/artist and the rest of the block are not interactive.
+- Installed that correction at 13:10 on 11 October, version 1.0.0; build passed, installed code verified, app reopened, 21 checked non-cache data files and shortcut preserved. Backup: `Downloads/Auralis-checkpoints/before-no-song-highlight-20261011-131021`.
 
 - Keep the Windows version at **1.0.0** until the owner explicitly requests a version increase.
 - After each completed, verified change, automatically update the existing installed app so the owner can check it (requested 11 October). Preserve settings and library, keep the existing shortcut, and do not put a fresh EXE in Downloads for each change.
