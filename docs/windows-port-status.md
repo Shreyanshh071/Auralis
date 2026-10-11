@@ -235,3 +235,7 @@ Installed and launched after a full app-data backup at Downloads/Auralis-checkpo
 ### Account menu rows and title-bar cleanup — 11 October 2026
 Account menu actions now use left-aligned 52 dp rows with a full-width rectangular hover highlight matching the reference. Removed the Settings gear from the window title bar. Find music retains the larger neutral button and no adjacent refresh control. Version remains 1.0.0.
 Windows packaging passed in 1m31s. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-account-hover-20261011-175528. All 32 checked non-cache user files and the shortcut target were preserved; installed code matches the release.
+
+### Find music proportions correction — 11 October 2026
+Changed the Find music button from 60 dp tall with a 210 dp minimum width to 64 dp tall with a 176 dp minimum width and narrower horizontal padding. Adjusted popup offset to keep its 8 dp gap. Neutral colours and larger text are retained. Version remains 1.0.0.
+Windows packaging passed in 58 seconds. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-find-music-proportions-20261011-175743. All 32 checked non-cache data files and the shortcut target were preserved; installed code matches the release.
