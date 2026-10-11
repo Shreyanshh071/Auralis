@@ -44,16 +44,14 @@ fun AuralisDesktopTheme(
         else -> systemInDark
     }
     val isAmoled = appearanceSettings.appTheme == "Pure AMOLED Black" || appearanceSettings.appTheme == "AMOLED"
-    val isCurated = CuratedPalettes.any { it.id == appearanceSettings.colorPalette }
+    val isWhite = appearanceSettings.colorPalette == "White"
+    val isCurated = isWhite || CuratedPalettes.any { it.id == appearanceSettings.colorPalette }
     val hasArtwork = artworkPalette != null && artworkPalette != DefaultArtworkPalette && artworkPalette.seedColor != Color.Unspecified
 
     val baseScheme = remember(isDark, isAmoled, isCurated, appearanceSettings.colorPalette, appearanceSettings.appTheme) {
         when {
-            isCurated -> getCuratedColorScheme(appearanceSettings.colorPalette, isDark, isAmoled, appearanceSettings.appTheme)
-            !isDark -> LightColorScheme
-            isAmoled -> AmoledDarkColorScheme
-            appearanceSettings.appTheme == "Midnight Velvet Dark" -> MidnightDarkColorScheme
-            else -> DarkColorScheme
+            isCurated && !isWhite -> getCuratedColorScheme(appearanceSettings.colorPalette, isDark, isAmoled, appearanceSettings.appTheme)
+            else -> desktopWhiteColorScheme(isDark, isAmoled, appearanceSettings.appTheme)
         }
     }
     // Like the phone: an artwork scheme is computed off the UI thread and swapped in one step.
@@ -117,6 +115,23 @@ fun AuralisDesktopTheme(
             content = content
         )
     }
+}
+
+/** Neutral desktop defaults; the phone keeps its existing colour schemes. */
+fun desktopWhiteColorScheme(isDark: Boolean, isAmoled: Boolean, appTheme: String): androidx.compose.material3.ColorScheme {
+    val base = when {
+        !isDark -> LightColorScheme
+        isAmoled -> AmoledDarkColorScheme
+        appTheme == "Midnight Velvet Dark" -> MidnightDarkColorScheme
+        else -> DarkColorScheme
+    }
+    val accent = if (isDark) Color.White else Color(0xFF242424)
+    val onAccent = if (isDark) Color(0xFF171717) else Color.White
+    val container = if (isDark) Color(0xFF383838) else Color(0xFFE4E4E4)
+    return base.copy(primary = accent, onPrimary = onAccent, primaryContainer = container, onPrimaryContainer = accent,
+        secondary = accent, onSecondary = onAccent, secondaryContainer = container, onSecondaryContainer = accent,
+        tertiary = accent, onTertiary = onAccent, tertiaryContainer = container, onTertiaryContainer = accent,
+        inversePrimary = if (isDark) Color(0xFF242424) else Color.White, surfaceTint = accent)
 }
 
 /** Behind option sheets: the cover, blurred and darkened (the phone draws its player colour field). */

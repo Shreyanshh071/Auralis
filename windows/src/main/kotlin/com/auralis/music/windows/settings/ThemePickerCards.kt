@@ -87,9 +87,9 @@ internal fun PaletteCards(selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Colour palette", style = MaterialTheme.typography.titleLarge)
         Text("Dynamic follows the playing artwork. Choose a swatch for a fixed palette.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ChoiceGrid(listOf("Dynamic") + CuratedPalettes.map { it.id }, selected, onSelect) { name ->
+        ChoiceGrid(listOf("White", "Dynamic") + CuratedPalettes.map { it.id }, selected, onSelect) { name ->
             val palette = CuratedPalettes.firstOrNull { it.id == name }
-            val colours = palette?.let { listOf(it.previewPrimary, it.previewSecondary, it.previewTertiary) }
+            val colours = if (name == "White") listOf(Color.White, Color(0xFFBDBDBD), Color(0xFF616161)) else palette?.let { listOf(it.previewPrimary, it.previewSecondary, it.previewTertiary) }
                 ?: listOf(Color(0xFFBA8BDC), Color(0xFFB4D96B), Color(0xFF71BCCA))
             Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.size(56.dp)) {
