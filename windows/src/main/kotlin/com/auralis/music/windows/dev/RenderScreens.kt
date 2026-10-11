@@ -204,6 +204,10 @@ fun main(args: Array<String>) {
             com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
         "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null,
             com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) },
+        "import-liquidify" to { com.auralis.music.ui.screens.ImportPlaylistsScreen(onDismiss = {}, onNavigateToYouTubeAccount = {},
+            onImportYouTubeLibraryPlaylists = {}, isImportingYouTube = false, youtubeImportMessage = null, onClearYouTubeImportMessage = {},
+            onImportYouTubePlaylist = {}, onImportSpotifyPlaylist = {}, isImportingSpotify = false, spotifyImportMessage = null,
+            onClearSpotifyImportMessage = {}) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
             "Auralis", null, false, {}, {}, {}) },

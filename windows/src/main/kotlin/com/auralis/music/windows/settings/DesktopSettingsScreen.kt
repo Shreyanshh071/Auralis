@@ -111,30 +111,8 @@ fun DesktopSettingsScreen(
             .navigationBarsPadding()
     ) {
             Column(modifier = Modifier.fillMaxSize().auralisPushParent(sectionPush)) {
-                // ── TOP APP BAR ──
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(Strings.back),
-                            tint = onBackground,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(Strings.settings),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = onBackground,
-                        fontSize = 22.sp
-                    )
-                }
+                // ── PAGE TITLE ──
+                com.auralis.music.ui.components.PageHeader(str(Strings.settings), onDismiss, Modifier.padding(horizontal = 12.dp))
 
                 // ── SETTINGS LIST ──
                 val listState = rememberLazyListState()

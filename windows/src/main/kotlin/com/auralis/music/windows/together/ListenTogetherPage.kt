@@ -14,7 +14,7 @@ fun ListenTogetherPage(controller: DesktopTogether, onBack: () -> Unit) {
     var code by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { TextButton(onClick = onBack) { Text("Back") } }
-        item { Text("Listen Together", style = MaterialTheme.typography.headlineLarge) }
+        item { com.auralis.music.ui.components.PageHeader("Listen Together", null) }
         item { Text("Listen in the same room as your friends on Auralis. Windows checks room updates every few seconds.") }
         state.message?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
         if (state.code.isEmpty()) {

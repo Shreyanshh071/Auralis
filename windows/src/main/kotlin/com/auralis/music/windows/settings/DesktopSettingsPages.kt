@@ -107,8 +107,7 @@ fun DesktopStorageSettings(onDismiss: () -> Unit) {
 @Composable
 internal fun SettingsPage(title: String, back: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp)) {
-        TextButton(onClick = back) { Text("Back") }
-        Text(title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(bottom = 20.dp))
+        com.auralis.music.ui.components.PageHeader(title, back, Modifier.padding(bottom = 8.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
     }
 }

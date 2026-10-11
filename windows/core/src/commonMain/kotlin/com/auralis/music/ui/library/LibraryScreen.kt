@@ -2420,6 +2420,11 @@ private fun PlaylistDetailView(
                 // ================================================================
                 // 4. TRACKS LIST
                 // ================================================================
+                if (wideTable && displayedItems.isNotEmpty()) item(key = "track_table_header", contentType = "header") {
+                    // Cover (48) + gap (14) before the title; the menu button (48) after the clock.
+                    com.auralis.music.ui.components.TrackTableHeader(leading = 62.dp, trailing = 48.dp, showNumber = false,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                }
                 itemsIndexed(
                     items = displayedItems,
                     key = { _, item -> item.instanceId },
@@ -2731,28 +2736,8 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 }
             }
             if (wide) {
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                )
-                Text(
-                    text = track.album?.takeIf { it.isNotBlank() } ?: "—",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                )
-                if (track.duration > 0 && track.duration != 210L) Text(
-                    text = trackDurationStr,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
+                com.auralis.music.ui.components.TrackLinkCellsRow(this, track)
+                com.auralis.music.ui.components.TrackTimeCell(track.duration.takeIf { it != 210L } ?: 0L)
             }
 
             if (isCurrent) {
