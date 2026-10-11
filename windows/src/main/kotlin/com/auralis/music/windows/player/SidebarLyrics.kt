@@ -87,8 +87,7 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                 }) {
             if (introDurationMs > 0L) item(key = "intro") {
                 AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    InstrumentalIntroIndicator(introTime, introDurationMs, Modifier.padding(start = 8.dp),
-                        isMetroLyrics = true, horizontalAlignment = Alignment.Start,
+                    InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = true,
                         onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
                 }
             }
