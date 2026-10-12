@@ -536,3 +536,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Full-player and sidebar inactive lyric hover now uses 55% text opacity instead of full singing white, retaining the existing rounded highlight and removing blur only from the hovered row. Active lyrics remain bright. Sidebar word hover no longer lights future unsung words.
 - Hover render checks passed for both full player and sidebar: muted but readable text, row highlight, click-to-seek callback and active-line brightness. Existing sidebar word/style checks also passed; inspected the full-player hover PNG.
 - MSI build passed (2m29s) and installed after normal shutdown with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-lyric-hover-20261013-000437. All 73 checked data files preserved; installed main/core jars match the build; desktop shortcut retained and Auralis relaunched.
+
+## Blend sidebar lyrics card into artwork — 2026-10-13
+
+- Reduced the Now playing sidebar lyrics card's white overlay from 14% to 7%, preserving more of the underlying song artwork colours and reducing the milky appearance. Text, hover and word highlighting are unchanged.
+- Rendered and inspected the existing Now playing sidebar preview: the softer card retains the underlying red/purple colour transition and sharp foreground controls.

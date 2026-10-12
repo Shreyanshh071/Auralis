@@ -79,7 +79,7 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
         Text(track.artist, Modifier.width(coverSize), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
         Column(Modifier.weight(1f, fill = false).animateContentSize().heightIn(max = if (lyricsCollapsed) 48.dp else 320.dp)
-            .width(coverSize).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .14f))) {
+            .width(coverSize).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .07f))) {
             Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
