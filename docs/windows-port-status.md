@@ -340,3 +340,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Library clears the selected playlist/smart collection and opens the overview. History opens listening history. Downloads opens the existing downloaded smart collection. Home and History clear any browse overlay. Playlists remain available through Library.
 - Compilation and MSI packaging passed (2m45s). No new tests for this reversible navigation UI change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-navigation-sidebar-20261012-150441.
+
+## Continuous playlist backdrop — 2026-10-12
+
+- Removed the playlist hero's separately enlarged/blurred cover and heavy black gradient. The header now exposes the same app-owned blurred artwork as the song list, eliminating the duplicated cover crops and hard split at the header boundary.
+- Current-song artwork therefore flows through the header during playback; when the player is empty, the playlist cover fills the existing single app backdrop. The foreground playlist cover and controls remain intact.
+- Visually inspected windows/build/screens/playlist-header.png: continuous colours behind header and track list with readable text. Preview rendering, compilation and MSI packaging passed (5m44s).
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-continuous-playlist-20261012-151226.
