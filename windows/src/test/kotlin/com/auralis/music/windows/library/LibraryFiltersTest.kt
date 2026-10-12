@@ -50,4 +50,14 @@ class LibraryFiltersTest {
         assertEquals(1, desktopLibraryItems(listOf(Playlist(album.id, album.title)), listOf(album)).size)
         assertTrue(desktopLibraryItems(emptyList(), emptyList()).isEmpty())
     }
+    @Test fun accountPlaylistsAppearInLibraryWithRemoteRoutingAndSource() {
+        val created = PlaylistResult("VLPLcreated", "My new playlist")
+        val entries = desktopLibraryItems(emptyList(), emptyList(), listOf(created, PlaylistResult("VLLM", "Liked songs")))
+        assertEquals(1, entries.size)
+        assertEquals("yt-account:${created.id}", entries.single().id)
+        assertEquals(created.title, entries.single().title)
+        assertEquals(LibrarySourceFilter.YOUTUBE, desktopPlaylistSource(entries.single()))
+        assertFalse(entries.single().isCustom)
+    }
+
 }

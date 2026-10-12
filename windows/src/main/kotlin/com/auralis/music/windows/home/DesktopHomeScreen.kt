@@ -57,6 +57,8 @@ internal fun DesktopHomeScreen(
     onUnpinShortcut: (SpeedDialItem) -> Unit = {},
     shortcutCandidates: List<SpeedDialItem> = emptyList(),
     onPinShortcut: (SpeedDialItem) -> Unit = {},
+    playlistCovers: Map<String, Playlist> = emptyMap(),
+    onShortcutMenu: (SpeedDialItem) -> Unit = {},
     modifier: Modifier = Modifier,
     findMusic: (@Composable () -> Unit)? = null,
     onRefresh: () -> Unit = {},
@@ -82,6 +84,8 @@ internal fun DesktopHomeScreen(
     val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
+    val recentsScroll = rememberLazyListState()
+    val loadingScroll = rememberLazyListState()
     val scrollHover = remember { MutableInteractionSource() }
     val scrollHovered by scrollHover.collectIsHoveredAsState()
     val scrollbarAlpha by animateFloatAsState(if (scrollHovered) 1f else 0f, tween(160))
@@ -108,7 +112,7 @@ internal fun DesktopHomeScreen(
             item("greeting") { HomeGreeting(greetingName) }
             item("shortcuts") {
                 HomeShortcuts(content.shortcuts.filter { it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds },
-                    shortcutCandidates, onShortcut, onPinShortcut, onUnpinShortcut)
+                    shortcutCandidates, onShortcut, onPinShortcut, onUnpinShortcut, onShortcutMenu, familiarActions, playlistCovers)
             }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -123,7 +127,7 @@ internal fun DesktopHomeScreen(
                         Text(if (serviceLoading || state.isLoading) "Loading recents…" else "Your recently played music will appear here.",
                             style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 12.dp))
-                    } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    } else LazyRow(state = recentsScroll, modifier = Modifier.mouseDragScroll(recentsScroll), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (recentsGrid) items(recents, key = { it.id }) { track ->
                             ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && isPlaying,
                                 { onPlay(track, recents) }, { onMenu(track) })
@@ -145,17 +149,17 @@ internal fun DesktopHomeScreen(
             if (serviceLoading && shelves.isEmpty()) item("loading") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HomeHeading("Albums & singles", null)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyRow(state = loadingScroll, modifier = Modifier.mouseDragScroll(loadingScroll), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(10) { Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh)) }
                     }
                 }
             }
             items(shelves, key = { it.id }) { shelf ->
-                HomeCarousel(shelf, currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu)
+                HomeCarousel(shelf, currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu, playlistCovers)
             }
             if (libraryShelf.isNotEmpty() && shelves.none { it.title.equals("From your library", true) }) item("library") {
                 HomeCarousel(DesktopHomeShelf("library", "From your library", albums = libraryShelf),
-                    currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu)
+                    currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu, playlistCovers)
             }
             if (serviceError != null || (serviceShelves == null && state.error != null)) item("error") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -178,7 +182,7 @@ internal fun DesktopHomeScreen(
 @Composable
 private fun HomeCarousel(shelf: DesktopHomeShelf, currentTrackId: String?, playing: Boolean,
     onPlay: (Track, List<Track>) -> Unit, onAlbum: (PlaylistResult) -> Unit,
-    onMenu: (Track) -> Unit, onAlbumMenu: (PlaylistResult) -> Unit) {
+    onMenu: (Track) -> Unit, onAlbumMenu: (PlaylistResult) -> Unit, playlistCovers: Map<String, Playlist>) {
     val order = shelf.order.ifEmpty { shelf.tracks.map { "track:${it.id}" } + shelf.albums.map { "album:${it.id}" } }
     val tracks = shelf.tracks.associateBy { it.id }; val albums = shelf.albums.associateBy { it.id }
     val row = rememberLazyListState()
@@ -192,14 +196,14 @@ private fun HomeCarousel(shelf: DesktopHomeShelf, currentTrackId: String?, playi
                 Icon(Icons.Outlined.ChevronRight, "Next in ${shelf.title}")
             }
         })
-        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyRow(state = row, modifier = Modifier.mouseDragScroll(row), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(order, key = { it }) { key ->
                 if (key.startsWith("track:")) tracks[key.removePrefix("track:")]?.let { track ->
                     ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && playing,
                         { onPlay(track, shelf.tracks) }, { onMenu(track) })
                 } else albums[key.removePrefix("album:")]?.let { album ->
                     ArtworkCard(album.title, album.author.orEmpty(), album.thumbnail, false,
-                        { onAlbum(album) }, { onAlbumMenu(album) }, opensPage = true)
+                        { onAlbum(album) }, { onAlbumMenu(album) }, opensPage = true, playlistCover = playlistCovers[album.id])
                 }
             }
         }

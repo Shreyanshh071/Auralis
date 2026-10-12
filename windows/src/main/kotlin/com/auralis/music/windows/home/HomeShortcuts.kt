@@ -12,6 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.MoreVert
+import com.auralis.music.ui.components.secondaryClick
+import com.auralis.music.windows.player.ArtworkAura
+import com.auralis.music.windows.player.AuraPresentation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,8 +31,11 @@ import com.auralis.music.domain.model.SpeedDialType
 
 @Composable
 internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDialItem>, open: (SpeedDialItem) -> Unit,
-    add: (SpeedDialItem) -> Unit, remove: (SpeedDialItem) -> Unit) {
+    add: (SpeedDialItem) -> Unit, remove: (SpeedDialItem) -> Unit,
+    onMenu: (SpeedDialItem) -> Unit = {}, artistActions: FamiliarArtistActions? = null,
+    playlistCovers: Map<String, com.auralis.music.domain.model.Playlist> = emptyMap()) {
     val freshPins = pins.map { pin -> candidates.firstOrNull { it.id == pin.id } ?: pin }
+    val row = androidx.compose.foundation.lazy.rememberLazyListState()
     var picking by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -38,18 +45,34 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
             TextButton(onClick = { query = ""; picking = true }) { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)); Text("Add") }
         }
         if (freshPins.isEmpty()) Text("Add playlists and artists you want to reach quickly.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        else LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        else LazyRow(state = row, modifier = Modifier.mouseDragScroll(row), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(freshPins, key = { it.id }) { item ->
-                Row(Modifier.width(264.dp).height(64.dp).clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainer).clickable { open(item) }, verticalAlignment = Alignment.CenterVertically) {
-                    ShortcutPhoto(item)
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                        Text(item.album?.author ?: if (item.type == SpeedDialType.ARTIST) "Artist" else "Playlist",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = { remove(item) }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Outlined.Close, "Remove ${item.name} from shortcuts", Modifier.size(14.dp))
+                var artistMenu by remember { mutableStateOf(false) }
+                val artist = FamiliarArtist(item.name, 0, item.id, item.image)
+                val menu = { if (item.type == SpeedDialType.ARTIST && artistActions != null) artistMenu = true else onMenu(item) }
+                Box(Modifier.width(292.dp).height(64.dp).clip(RoundedCornerShape(12.dp))
+                    .secondaryClick(menu).clickable { open(item) }) {
+                    ArtworkAura(com.auralis.music.ui.theme.DefaultArtworkPalette, Modifier.matchParentSize(),
+                        item.image ?: item.track?.thumbnail, AuraPresentation.SHORTCUT)
+                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                        val playlist = playlistCovers[item.album?.id ?: item.id.removePrefix("playlist-")]
+                        if (playlist != null) Box(Modifier.size(64.dp)) {
+                            com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 0.dp)
+                        } else ShortcutPhoto(item)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
+                            Text(item.album?.author ?: if (item.type == SpeedDialType.ARTIST) "Artist" else "Playlist",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color.White.copy(alpha = .72f))
+                        }
+                        Box {
+                            IconButton(onClick = menu, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Outlined.MoreVert, "Options for ${item.name}", Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color.White)
+                            }
+                            if (artistActions != null) ArtistMenu(artist, artistMenu, { artistMenu = false }, artistActions)
+                        }
+                        IconButton(onClick = { remove(item) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Outlined.Close, "Remove ${item.name} from shortcuts", Modifier.size(14.dp), tint = androidx.compose.ui.graphics.Color.White.copy(alpha = .7f))
+                        }
                     }
                 }
             }

@@ -19,7 +19,10 @@ object DesktopStrings {
     fun install(locale: Locale = Locale.getDefault()) {
         val base = load("values")
         val overlay = folderCandidates(locale).firstNotNullOfOrNull { folder -> load(folder).takeIf { it.isNotEmpty() } }.orEmpty()
-        table = base + overlay
+        table = base + overlay + mapOf(
+            "pin_to_speed_dial" to "Pin to Shortcuts",
+            "unpin_from_speed_dial" to "Unpin from Shortcuts"
+        )
         this.locale = locale
         StringLookup.resolve = { key -> table[key] }
         StringLookup.formatLocale = { this.locale }

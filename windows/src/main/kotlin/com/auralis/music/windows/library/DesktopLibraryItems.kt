@@ -23,12 +23,14 @@ internal fun desktopPlaylistSource(playlist: Playlist): LibrarySourceFilter? {
 internal fun savedAlbumEntryId(album: SavedAlbum) = SavedAlbumPrefix + album.id
 
 /** Saved albums are a separate store, while the shared Library grid displays playlist entries. */
-internal fun desktopLibraryItems(playlists: List<Playlist>, albums: List<SavedAlbum>): List<Playlist> =
+internal fun desktopLibraryItems(playlists: List<Playlist>, albums: List<SavedAlbum>, youtubePlaylists: List<PlaylistResult> = emptyList()): List<Playlist> =
     playlists + albums.filterNot { album ->
         playlists.any { it.id.removePrefix("album-").removePrefix("VL") == album.id.removePrefix("album-").removePrefix("VL") }
     }.map { album ->
         Playlist(savedAlbumEntryId(album), album.title, "Album by ${album.artist.orEmpty()}",
             album.thumbnail, createdAt = album.savedAt, isCustom = false)
+    } + youtubePlaylists.filter { it.id != "VLLM" }.map {
+        Playlist("yt-account:${it.id}", it.title, "Imported from YouTube Music", it.thumbnail, isCustom = false)
     }
 
 /** A saved album as the album page opens it (for callers outside this file's receiver scope). */

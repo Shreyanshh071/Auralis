@@ -82,7 +82,7 @@ internal fun FamiliarArtistsRow(artists: List<FamiliarArtist>, onOpen: (Familiar
             val scope = rememberCoroutineScope()
             val cardWidth = ((maxWidth - 60.dp) / 6).coerceIn(180.dp, 252.dp)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LazyRow(state = list, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(state = list, modifier = Modifier.fillMaxWidth().mouseDragScroll(list), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     itemsIndexed(artists.take(10)) { index, artist ->
                         ArtistPoster(artist, index + 1, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
                     }
@@ -182,7 +182,7 @@ private fun GlassButton(photo: String?, posterWidth: Dp, posterHeight: Dp, left:
 
 /** The ⋯ menu: Start radio, Add to shortcuts, Share, Save to library, Block artist (Li Music's artist menu). */
 @Composable
-private fun ArtistMenu(artist: FamiliarArtist, expanded: Boolean, dismiss: () -> Unit, actions: FamiliarArtistActions) {
+internal fun ArtistMenu(artist: FamiliarArtist, expanded: Boolean, dismiss: () -> Unit, actions: FamiliarArtistActions) {
     DropdownMenu(expanded, onDismissRequest = dismiss, shape = RoundedCornerShape(10.dp),
         containerColor = Color(0xF0151217), shadowElevation = 12.dp, tonalElevation = 0.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .08f))) {

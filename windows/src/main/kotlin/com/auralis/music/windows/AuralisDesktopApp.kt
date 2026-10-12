@@ -485,6 +485,7 @@ fun AuralisDesktopApp(
                     search = {
                         com.auralis.music.windows.search.FindMusicDropdown(
                             bar = true,
+                            focusRequests = searchFocusRequests,
                             state = searchState,
                             currentTrackId = queue?.current?.id,
                             isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
@@ -686,7 +687,9 @@ fun AuralisDesktopApp(
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 onOpenHistory = { destination = DesktopDestination.HISTORY },
                                 onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
-                                showMessage = showUnavailable
+                                showMessage = showUnavailable,
+                                youtubePlaylists = youtubeState.playlists,
+                                onYouTubePlaylist = ::openYouTubePlaylist
                             )
                         }
                         }
@@ -702,23 +705,7 @@ fun AuralisDesktopApp(
                             )
                         }
                         }
-                        // The phone's dock, floating over the page: the pages that used to be in the sidebar.
-                        GlassDock(
-                            selected = destination.takeIf { browse.top == null && it in DockTabs },
-                            tabs = DockTabs,
-                            onSelect = { tab ->
-                                showPlayer = false; browse.clear()
-                                if (tab == DesktopDestination.LIBRARY) {
-                                    // The Library tab is the whole library, not the playlist opened last.
-                                    selectedLibraryKey = null
-                                    libraryViewModel.closeSmartCollection(); libraryViewModel.selectPlaylist(null)
-                                }
-                                destination = tab
-                            },
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
-                            backdrop = dockBackdrop
-                        )
-                        androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 92.dp))
+                        androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 18.dp))
                     }
                     if (showNowPlaying && playback != null && lyrics != null) {
                       if (!rightIsCollapsed) SidebarResizeHandle(

@@ -44,8 +44,8 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
         return entries.any { it.status in setOf("QUEUED", "DOWNLOADING") }
     }
     override fun clearAllDownloads() = downloads.clear()
-    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) {
-        downloads.enqueue(tracks, playlistId, playlistName); message("Playlist download queued")
+    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>, coverUrl: String?) {
+        downloads.enqueue(tracks, playlistId, playlistName, coverUrl); message("Playlist download queued")
     }
 
     /** Into the user's Downloads folder, like the phone. */

@@ -33,7 +33,7 @@ class DesktopDownloads(
 ) {
     data class Entry(val key: String, val groupId: String, val groupName: String, val folder: String,
         val track: Track, val index: Int, val status: String = "QUEUED", val file: String? = null,
-        val bytes: Long = 0, val total: Long = 0, val error: String? = null)
+        val bytes: Long = 0, val total: Long = 0, val error: String? = null, val coverUrl: String? = null)
     private val metadata = metadataFile
     private val mutable = MutableStateFlow<List<Entry>>(emptyList())
     val entries = mutable.asStateFlow()
@@ -53,7 +53,7 @@ class DesktopDownloads(
                 val o = array.getJSONObject(i)
                 val e = Entry(o.getString("key"), o.getString("group"), o.getString("name"), o.getString("folder"),
                     TrackJson.decode(o.getJSONObject("track")), o.optInt("index"), o.getString("status"),
-                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null })
+                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null }, o.optString("cover").ifBlank { null })
                 if (e.status != "COMPLETED" || !available(e)) e.copy(status = "FAILED", error = "Download interrupted or file missing. Retry.") else e
             }
         }
@@ -79,13 +79,13 @@ class DesktopDownloads(
         val array = JSONArray().apply { entries.value.forEach { e -> put(JSONObject()
             .put("key", e.key).put("group", e.groupId).put("name", e.groupName).put("folder", e.folder)
             .put("track", TrackJson.encode(e.track)).put("index", e.index).put("status", e.status)
-            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty())) } }
+            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty()).put("cover", e.coverUrl.orEmpty())) } }
         metadata.parentFile.mkdirs()
         val tmp = File(metadata.parentFile, metadata.name + ".new")
         tmp.writeText(array.toString())
         Files.move(tmp.toPath(), metadata.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
-    @Synchronized fun enqueue(tracks: List<Track>, groupId: String = "individual", groupName: String = "Individual songs") {
+    @Synchronized fun enqueue(tracks: List<Track>, groupId: String = "individual", groupName: String = "Individual songs", coverUrl: String? = null) {
         require(groupId.isNotBlank())
         val existing = entries.value.firstOrNull { it.groupId == groupId }
         var folder = existing?.folder ?: sanitize(groupName)
@@ -94,7 +94,7 @@ class DesktopDownloads(
             val key = hash("$groupId|${track.id}")
             val old = entries.value.firstOrNull { it.key == key }
             if (old != null && (available(old) || running[key]?.isActive == true)) return@forEachIndexed
-            val e = old?.copy(status = "QUEUED", error = null) ?: Entry(key, groupId, groupName, folder, track, index)
+            val e = old?.copy(status = "QUEUED", error = null) ?: Entry(key, groupId, groupName, folder, track, index, coverUrl = coverUrl)
             update(e, false)
             running[key] = scope.launch(Dispatchers.IO) {
                 transfers.withLock {
@@ -156,7 +156,7 @@ class DesktopDownloads(
     fun clear() = entries.value.toList().forEach { remove(it.key) }
     fun retry(id: String) {
         val group = entries.value.filter { it.groupId == id }
-        if (group.isNotEmpty()) enqueue(group.map { it.track }, id, group.first().groupName)
+        if (group.isNotEmpty()) enqueue(group.map { it.track }, id, group.first().groupName, group.first().coverUrl)
     }
     companion object {
         val instance by lazy { DesktopDownloads(File(System.getProperty("user.home"), "Downloads/Auralis"), CoroutineScope(SupervisorJob() + Dispatchers.IO), metadataFile = File(desktopAppDataDir(), "download-index.json")) }

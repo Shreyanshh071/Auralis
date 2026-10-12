@@ -40,7 +40,7 @@ class DesktopDownloadsTest {
             manager.enqueue(listOf(track)); settled(1)
             assertContentEquals(bytes, assertNotNull(manager.localFile(track.id)).readBytes())
             assertEquals("Individual songs", manager.entries.value.first().folder)
-            manager.enqueue(listOf(track), "playlist-one", "My Playlist"); settled(2)
+            manager.enqueue(listOf(track), "playlist-one", "My Playlist", "https://example.com/playlist-cover.png"); settled(2)
             manager.enqueue(listOf(track), "playlist-two", "My Playlist"); settled(3)
             assertEquals(3, hits)
             assertEquals(3, manager.entries.value.map { it.folder }.distinct().size, "Playlist folders must not collide")
@@ -61,6 +61,7 @@ class DesktopDownloadsTest {
             } finally { scene.close() }
             val reloaded = DesktopDownloads(root, scope) { error("Offline files must not need network") }
             assertEquals(3, reloaded.entries.value.count(reloaded::available))
+            assertEquals("https://example.com/playlist-cover.png", reloaded.entries.value.first { it.groupId == "playlist-one" }.coverUrl)
             assertContentEquals(bytes, reloaded.localFile(track.id)!!.readBytes())
             manager.enqueue(listOf(Track("bad", "Bad", "Test"))); settled(4)
             assertEquals("FAILED", manager.entries.value.first { it.track.id == "bad" }.status)
