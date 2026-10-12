@@ -50,14 +50,27 @@ class LibraryFiltersTest {
         assertEquals(1, desktopLibraryItems(listOf(Playlist(album.id, album.title)), listOf(album)).size)
         assertTrue(desktopLibraryItems(emptyList(), emptyList()).isEmpty())
     }
-    @Test fun accountPlaylistsAppearInLibraryWithRemoteRoutingAndSource() {
-        val created = PlaylistResult("VLPLcreated", "My new playlist")
-        val entries = desktopLibraryItems(emptyList(), emptyList(), listOf(created, PlaylistResult("VLLM", "Liked songs")))
-        assertEquals(1, entries.size)
-        assertEquals("yt-account:${created.id}", entries.single().id)
-        assertEquals(created.title, entries.single().title)
-        assertEquals(LibrarySourceFilter.YOUTUBE, desktopPlaylistSource(entries.single()))
-        assertFalse(entries.single().isCustom)
+    @Test fun onlyExplicitlyCreatedOrImportedYouTubePlaylistsAreRetained() = runBlocking {
+        val dir = kotlin.io.path.createTempDirectory("auralis-explicit-playlists").toFile()
+        try {
+            val file = java.io.File(dir, "library.json")
+            val library = DesktopLibraryRepository(file)
+            val imported = library.upsertImportedPlaylist("youtube_music", "PLchosen", "Chosen import")
+            val unrelated = PlaylistResult("VLPLunselected", "Unselected account playlist")
+            val created = PlaylistResult("VLPLcreated", "aaaaa")
+            val kept = retainCreatedYouTubePlaylist(library, created)
+            assertEquals("imported:youtube_music:PLcreated", kept.id)
+            assertEquals(LibrarySourceFilter.YOUTUBE, desktopPlaylistSource(kept))
+            retainCreatedYouTubePlaylist(library, created)
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (!file.isFile) kotlinx.coroutines.delay(25)
+            }
+            val reopened = DesktopLibraryRepository(file).getPlaylists().first()
+            val items = desktopLibraryItems(reopened, emptyList())
+            assertEquals(setOf(imported.id, kept.id), items.map { it.id }.toSet())
+            assertEquals(2, items.size, "Creation must persist exactly one playlist without duplicates")
+            assertFalse(items.any { it.title == unrelated.title })
+        } finally { dir.deleteRecursively() }
     }
 
 }
