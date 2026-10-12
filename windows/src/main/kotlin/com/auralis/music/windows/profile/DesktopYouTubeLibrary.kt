@@ -118,6 +118,20 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
         if (state.value.activeId == id) { YouTubeSession.signOut(); refresh(force = true) }
         else mutable.value = mutable.value.copy(accounts = accounts.summaries())
     }
+    suspend fun createPlaylist(title: String): PlaylistResult {
+        val api = client ?: error("Connect YouTube Music and wait for your account to load.")
+        val version = generation
+        val created = api.createPlaylist(title)
+        check(version == generation) { "Playlist created in the previous account. Switch back to view it." }
+        val current = mutable.value
+        val playlists = listOf(created) + current.playlists.filterNot { it.id == created.id }
+        val identity = current.identity
+        val cookie = current.activeId?.let(accounts::session)?.optString("session")
+        if (identity != null && !cookie.isNullOrBlank()) accounts.save(identity, cookie, api.scope, playlists)
+        mutable.value = current.copy(playlists = playlists)
+        return created
+    }
+
     suspend fun tracks(playlist: PlaylistResult, onPage: (List<Track>) -> Unit): List<Track> {
         val api = client ?: error("Reconnect YouTube Music to open this playlist.")
         val version = generation

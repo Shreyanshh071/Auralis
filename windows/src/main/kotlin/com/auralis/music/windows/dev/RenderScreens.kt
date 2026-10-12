@@ -93,6 +93,7 @@ fun main(args: Array<String>) {
         }
     }.getOrDefault(com.auralis.music.ui.theme.DefaultArtworkPalette)
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "create-playlist" to { com.auralis.music.windows.library.CreatePlaylistDialog(true, "Connected YouTube account", {}, { _, _ -> }) },
         "shortcuts" to {
             val pins = listOf(
                 com.auralis.music.domain.model.SpeedDialItem(id = "album-local:preview", name = "gili gili",
