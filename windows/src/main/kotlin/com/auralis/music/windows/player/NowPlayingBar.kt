@@ -82,6 +82,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         val state by controller.state.collectAsState()
         val resolving by controller.resolving.collectAsState()
         val repeatMode by controller.repeatMode.collectAsState()
+        val roomActive by controller.roomActive.collectAsState()
         val track = queue.current
 
         val whiteButtons = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
@@ -121,7 +122,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         ) {
             val enabled = track != null
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = controller::shuffleUpcoming, enabled = queue.hasNext && controller.roomControl == null,
+                IconButton(onClick = controller::shuffleUpcoming, enabled = queue.hasNext && !roomActive,
                     colors = whiteButtons, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", Modifier.size(20.dp))
                 }
@@ -148,10 +149,10 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                         )
                     }
                 }
-                IconButton(onClick = controller::next, enabled = queue.hasNext || (enabled && controller.roomControl == null && repeatMode == DesktopPlaybackController.RepeatMode.ALL), colors = whiteButtons, modifier = Modifier.size(34.dp)) {
+                IconButton(onClick = controller::next, enabled = queue.hasNext || (enabled && !roomActive && repeatMode == DesktopPlaybackController.RepeatMode.ALL), colors = whiteButtons, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(22.dp))
                 }
-                IconButton(onClick = controller::cycleRepeatMode, enabled = enabled && controller.roomControl == null,
+                IconButton(onClick = controller::cycleRepeatMode, enabled = enabled && !roomActive,
                     colors = IconButtonDefaults.iconButtonColors(contentColor = if (repeatMode == DesktopPlaybackController.RepeatMode.OFF)
                         colors.onSurfaceVariant else colors.primary), modifier = Modifier.size(34.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -212,6 +213,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
 
 @Composable
 private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
+    val appearanceStore = com.auralis.music.data.datastore.LocalSettingsStores.current.appearance
+    val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
+    val state by controller.state.collectAsState()
     val position by controller.positionMs.collectAsState()
     val length by controller.lengthMs.collectAsState()
     val queue by controller.queue.collectAsState()
@@ -223,16 +227,18 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
 
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         TimeLabel(if (enabled) shownMs else 0L)
-        HoverSlider(
+        com.auralis.music.ui.components.AuralisPlayerSlider(
             value = fraction,
             onValueChange = { if (enabled && duration > 0) dragFraction = it },
             onValueChangeFinished = {
                 dragFraction?.let { controller.seekTo((it * duration).toLong()) }
                 dragFraction = null
             },
-            enabled = enabled && duration > 0,
-            activeColor = MaterialTheme.colorScheme.onSurface,
-            inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+            isPlaying = state == VlcAudioPlayer.State.PLAYING,
+            currentPosMs = shownMs, totalDurationMs = duration,
+            sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
+            activeTrackColor = MaterialTheme.colorScheme.onSurface,
+            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
             modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
         )
         TimeLabel(if (enabled) duration else 0L)

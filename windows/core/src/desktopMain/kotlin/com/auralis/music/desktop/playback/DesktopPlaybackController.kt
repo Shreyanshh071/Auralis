@@ -41,6 +41,7 @@ class DesktopPlaybackController(
     fun cycleRepeatMode() {
         if (roomControl != null) return
         _repeatMode.value = RepeatMode.entries[(_repeatMode.value.ordinal + 1) % RepeatMode.entries.size]
+        if (_repeatMode.value == RepeatMode.OFF) autoRadio.queueChanged() else autoRadio.cancelPending()
     }
 
     private val _queue = MutableStateFlow(Queue())
@@ -52,16 +53,20 @@ class DesktopPlaybackController(
             if (value) autoRadio.queueChanged() else autoRadio.cancelPending()
         }
     private val autoRadio = DesktopAutoRadio(scope, { _queue.value },
-        { autoLoadMore && roomControl == null }, { radioCandidates(it) },
+        { autoLoadMore && roomControl == null && _repeatMode.value == RepeatMode.OFF }, { radioCandidates(it) },
         { batch -> _queue.update { q -> q.copy(tracks = q.tracks + batch.filter { song -> q.tracks.none { it.id == song.id } }) } },
         { val q = _queue.value; if (q.hasNext) load(q.copy(index = q.index + 1)) })
     private val _session = MutableStateFlow(0L)
     val session: StateFlow<Long> = _session.asStateFlow()
+    private val _roomActive = MutableStateFlow(false)
+    val roomActive: StateFlow<Boolean> = _roomActive.asStateFlow()
     /** Active rooms route guest controls to the host instead of changing local playback. */
     @Volatile var roomControl: ((String, Track?, Long) -> Boolean)? = null
         set(value) {
             field = value
+            _roomActive.value = value != null
             if (value != null) autoRadio.cancelPending()
+            else autoRadio.queueChanged()
         }
     private val applyingRoom = ThreadLocal.withInitial { false }
     fun <T> fromRoom(block: () -> T): T {

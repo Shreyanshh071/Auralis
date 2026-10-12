@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -1218,10 +1219,11 @@ private fun AppearanceOptionsDialog(
 }
 
 @Composable
-private fun PlayerSliderStyleChooserDialog(
+fun PlayerSliderStyleChooserDialog(
     selectedStyle: String,
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    containerColor: Color = MaterialTheme.dynamicSurface
 ) {
     val haptics = com.auralis.music.ui.components.rememberViewHaptics()
     val normalizedSelected = when (selectedStyle) {
@@ -1244,10 +1246,10 @@ private fun PlayerSliderStyleChooserDialog(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .widthIn(max = 560.dp).fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.dynamicSurface)
+                .background(containerColor)
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

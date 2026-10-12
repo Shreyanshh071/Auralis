@@ -452,7 +452,7 @@ fun AuralisDesktopApp(
         // Blur the actual page beneath sign-in, rather than letting crisp rows show through
         // its translucent surface. No screenshot/readback is needed to open the dialog.
         Surface(modifier = Modifier.fillMaxSize().then(
-            if (showSignIn || showYouTubeAccounts) Modifier.blur(18.dp) else Modifier
+            if (showSignIn) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 titleBar(TitleBarActions(
@@ -513,7 +513,7 @@ fun AuralisDesktopApp(
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
                     canRefresh = true
                 ))
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().then(if (showYouTubeAccounts) Modifier.blur(18.dp) else Modifier)) {
                   val showNowPlaying = queue?.current != null && playback != null && lyrics != null
                   val leftTarget = if (leftCollapsed) 64f else sidebarWidth(leftSidebarWidth, 180f, 320f)
                   val rightLimit = (maxWidth.value - leftTarget - 360f - 6f).coerceAtMost(460f)

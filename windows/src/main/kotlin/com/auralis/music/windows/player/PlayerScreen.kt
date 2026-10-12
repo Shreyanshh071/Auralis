@@ -227,6 +227,8 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
 
 @Composable
 private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifier = Modifier) {
+    val appearanceStore = com.auralis.music.data.datastore.LocalSettingsStores.current.appearance
+    val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
     val length by playback.lengthMs.collectAsState()
     val state by playback.state.collectAsState()
     // The same per-frame clock as the lyrics, so the bar glides instead of jumping ~4 times a second.
@@ -242,15 +244,16 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         PlayerTime(shown)
-        HoverSlider(
+        com.auralis.music.ui.components.AuralisPlayerSlider(
             value = fraction,
             onValueChange = { if (duration > 0) dragFraction = it },
             onValueChangeFinished = {
                 dragFraction?.let { playback.seekTo((it * duration).toLong()) }
                 dragFraction = null
             },
-            enabled = duration > 0,
-            thin = 6.dp, thick = 12.dp,
+            isPlaying = state == VlcAudioPlayer.State.PLAYING,
+            currentPosMs = shown, totalDurationMs = duration,
+            sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
         )
         PlayerTime(duration)
@@ -272,6 +275,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val state by playback.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val repeat by playback.repeatMode.collectAsState()
+    val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
         DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
@@ -282,7 +286,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
             if (reveal > 0f) {
                 Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext) {
+                    IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext && !roomActive) {
                         Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", tint = Color.White, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
@@ -297,7 +301,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                         ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
                             modifier = Modifier.size(width = 46.dp, height = 28.dp))
                     }
-                    IconButton(onClick = playback::cycleRepeatMode) {
+                    IconButton(onClick = playback::cycleRepeatMode, enabled = !roomActive) {
                         Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                             "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
                             modifier = Modifier.size(28.dp))
