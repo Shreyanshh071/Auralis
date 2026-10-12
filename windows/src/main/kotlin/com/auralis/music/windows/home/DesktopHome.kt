@@ -211,8 +211,7 @@ internal fun DesktopHome(
         serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
         serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
         serviceError = if (youtubeSignedIn) remoteState.error else null,
-        libraryShelf = youtubePlaylists.filter { it.id != "VLLM" } +
-            playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
+        libraryShelf = playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
                 it.coverUrl ?: collageUrls[it.id] ?: it.tracks.firstOrNull()?.thumbnail, "Playlist · ${it.tracks.size} tracks") } +
             savedAlbums.map { PlaylistResult(it.id, it.title, it.thumbnail, it.artist) },
         loadingMore = if (youtubeSignedIn) remoteState.loadingMore else pageState.loading,

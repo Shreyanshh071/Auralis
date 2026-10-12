@@ -429,6 +429,7 @@ fun AuralisDesktopApp(
             onCreate = { name, onYouTube ->
                 if (onYouTube) {
                     val created = youtubeLibrary.createPlaylist(name)
+                    com.auralis.music.windows.library.retainCreatedYouTubePlaylist(library, created)
                     openYouTubePlaylist(created)
                 } else {
                     val created = library.createPlaylist(name)
@@ -687,9 +688,7 @@ fun AuralisDesktopApp(
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 onOpenHistory = { destination = DesktopDestination.HISTORY },
                                 onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
-                                showMessage = showUnavailable,
-                                youtubePlaylists = youtubeState.playlists,
-                                onYouTubePlaylist = ::openYouTubePlaylist
+                                showMessage = showUnavailable
                             )
                         }
                         }
