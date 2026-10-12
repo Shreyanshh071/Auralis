@@ -62,6 +62,11 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
         item { Choice("Seek bar", settings.playerSliderStyle, listOf("Wavy", "Slim", "Squiggly", "Default")) { update { copy(playerSliderStyle = it) } } }
         item { Toggle("Black mini-player", settings.pureBlackMiniPlayer) { update { copy(pureBlackMiniPlayer = it) } } }
         item { Text("Lyrics", style = MaterialTheme.typography.titleLarge) }
+        item {
+            val spicy = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation) ==
+                com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+            Choice("Lyrics style", if (spicy) "Spicy Lyrics" else "MetroLyrics", listOf("MetroLyrics", "Spicy Lyrics")) { update { copy(lyricsAnimation = it) } }
+        }
         item { Choice("Text position", settings.lyricsTextPosition, listOf("Left", "Centre", "Right")) { update { copy(lyricsTextPosition = it) } } }
         item { Text("Text size: ${settings.lyricsTextSize.toInt()}"); Slider(settings.lyricsTextSize, { update { copy(lyricsTextSize = it) } }, valueRange = 14f..36f) }
         item { Text("Line spacing: ${"%.1f".format(settings.lyricsLineSpacing)}"); Slider(settings.lyricsLineSpacing, { update { copy(lyricsLineSpacing = it) } }, valueRange = 1.1f..1.6f) }

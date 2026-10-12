@@ -305,6 +305,12 @@ fun AuralisDesktopApp(
             stores.appearance.updateSettings(current.copy(playerBackgroundStyle = "Dynamic", lyricsTextPosition = "Left"))
             libraryFlags.putStrings(mapOf("spicy_player_defaults" to "1"))
         }
+        // The Spicy Lyrics word animation the user asked for, once; Appearance > Lyrics style after.
+        if (libraryFlags.getString("spicy_lyrics_style", "0") != "1") {
+            val current = stores.appearance.settingsFlow.first()
+            stores.appearance.updateSettings(current.copy(lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS.displayName))
+            libraryFlags.putStrings(mapOf("spicy_lyrics_style" to "1"))
+        }
     }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         destination = when (stores.appearance.settingsFlow.first().defaultOpenTab) {
