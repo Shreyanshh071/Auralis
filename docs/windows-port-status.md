@@ -529,3 +529,4 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Replaced the Windows Squiggly slider's 80 raw-pixel wavelength with 28 dp spacing, bringing the widely spaced desktop peaks closer to the phone's appearance. The shared player/style-preview slider uses the same spacing at each desktop density. Preserved wave height, playhead and the original 3 1/3 second animation cycle.
 - Existing seekbar checks passed for both animated styles: movement during playback, flattening after pause, and seeking with the loaded song's duration. Inspected the Squiggly preview; MSI package passed (2m22s combined verification/build).
+- Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-squiggly-spacing-20261012-235516. All 73 checked data files preserved, desktop shortcut retained, installed main/core jars match the build and Auralis reopened.
