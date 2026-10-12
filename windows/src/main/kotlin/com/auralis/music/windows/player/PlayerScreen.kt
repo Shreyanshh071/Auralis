@@ -93,13 +93,13 @@ fun PlayerScreen(
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
 
-        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
             val wide = maxWidth > 900.dp
-            val leftWidth = if (wide) maxWidth * 0.42f else maxWidth
+            val leftWidth = if (wide) maxWidth * 0.44f else maxWidth
             // Spicy Lyrics' layout: the cover with room around it, the seek bar under it, then
             // the title block; playback controls and volume appear on the cover while hovered.
-            val coverSize = minOf(leftWidth - 48.dp, maxHeight - 170.dp, 560.dp).coerceAtLeast(160.dp)
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+            val coverSize = minOf(leftWidth - 24.dp, maxHeight - 180.dp, 640.dp).coerceAtLeast(160.dp)
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
                 Column(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -115,7 +115,7 @@ fun PlayerScreen(
                     Text(
                         text = track?.title.orEmpty(),
                         style = MaterialTheme.typography.titleLarge,
-                        fontSize = 28.sp,
+                        fontSize = 34.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 1,
@@ -127,7 +127,7 @@ fun PlayerScreen(
                     Text(
                         text = track?.artist.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 18.sp,
+                        fontSize = 22.sp,
                         color = Color.White.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -175,12 +175,13 @@ private fun PanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit) {
             Text(
                 text = item.label,
                 style = MaterialTheme.typography.labelLarge,
+                fontSize = 16.sp,
                 color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(if (isSelected) Color.White.copy(alpha = 0.18f) else Color.Transparent)
                     .clickable { onSelect(item) }
-                    .padding(horizontal = 18.dp, vertical = 8.dp)
+                    .padding(horizontal = 22.dp, vertical = 10.dp)
             )
         }
     }
@@ -207,8 +208,10 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
         }
         else -> CompositionLocalProvider(
             LocalLyricsUi provides DesktopLyricsUi,
-            // The phone's defaults: MetroLyrics, centred, standard blur.
-            LocalAppearanceSettings provides LocalAppearanceSettings.current
+            // Larger desktop presentation; retain the user's chosen renderer and size preference.
+            LocalAppearanceSettings provides LocalAppearanceSettings.current.let {
+                it.copy(lyricsTextSize = it.lyricsTextSize * 1.35f)
+            }
         ) {
             ExperimentalLyricsView(
                 lyrics = data,
@@ -259,7 +262,7 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
 @Composable
 private fun PlayerTime(ms: Long) {
     val seconds = (ms / 1000).coerceAtLeast(0)
-    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 14.sp, color = Color.White.copy(alpha = .8f))
+    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 17.sp, color = Color.White.copy(alpha = .8f))
 }
 
 /** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
@@ -282,24 +285,24 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                 Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext) {
-                        Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", tint = Color.White, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", tint = Color.White, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
-                        ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 40.dp, height = 24.dp))
+                        ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
                     }
                     IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(64.dp)) {
                         if (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING)
-                            ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 28.dp, height = 32.dp))
-                        else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 30.dp, height = 34.dp))
+                            ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 40.dp))
+                        else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 42.dp))
                     }
                     IconButton(onClick = playback::next, enabled = queue.hasNext, modifier = Modifier.size(56.dp)) {
                         ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
-                            modifier = Modifier.size(width = 40.dp, height = 24.dp))
+                            modifier = Modifier.size(width = 46.dp, height = 28.dp))
                     }
                     IconButton(onClick = playback::cycleRepeatMode) {
                         Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                             "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
-                            modifier = Modifier.size(24.dp))
+                            modifier = Modifier.size(28.dp))
                     }
                 }
                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(size * .42f),
