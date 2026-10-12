@@ -1,6 +1,5 @@
 package com.auralis.music.ui.library
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,9 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,9 +23,8 @@ internal fun DesktopPlaylistHero(playlist: Playlist, savedAlbums: List<SavedAlbu
     query: String, onQuery: (String) -> Unit, onBack: () -> Unit, onPlay: () -> Unit,
     onShuffle: () -> Unit, onOptions: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(0.dp))) {
-        Box(Modifier.matchParentSize().blur(28.dp)) { PlaylistCoverArt(playlist, savedAlbums, 0.dp) }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(
-            Color.Black.copy(alpha = .66f), Color.Black.copy(alpha = .75f), Color.Black.copy(alpha = .90f)))))
+        // The app owns one full-window artwork backdrop. Keeping this banner transparent
+        // avoids a second cover crop and lets it follow the playing song with the track list.
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
