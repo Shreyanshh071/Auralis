@@ -287,3 +287,11 @@ All 57 Windows tests passed; MSI packaging succeeded in 2m6s. Installed after a 
 Increased the cover cap from 560 to 640 dp, widened its column to 44%, reduced outer gutters and retained width/height bounds for smaller windows. Full-screen lyrics use a 1.35 presentation multiplier on the selected text-size preference (about 46 sp at the default), with the selected renderer retained. Title/artist text increased to 34/22 sp, seek times to 17 sp, tabs to 16 sp and hover transport glyphs were enlarged. Saved settings and compact sidebar sizing are unchanged. Version remains 1.0.0.
 
 Compilation and MSI packaging passed in 1m32s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-player-size-20261012-133225. All 65 checked non-cache user files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.
+
+## Windows dock live liquid glass — 2026-10-12
+
+- Replaced the dock's 86% dark painted fill with a live recording of the page behind it. The dock is excluded from that recording, so icons/text stay sharp and there is no recursive glass capture.
+- Uses the phone's 18 dp blur, 1.5 saturation, rounded-rectangle refraction shader (20 dp height / 28 dp amount), depth and chromatic dispersion on Skia. Tint remains 38% dark; the existing spring swell, pointer light and selected pill remain.
+- Removed History and Profile from the dock. Home, Library, Wrapped and Settings remain.
+- Verified with an ImageComposeScene render over alternating 8 px stripes: significantly reduced stripe variation within the dock, and changing the page from orange to blue updates the glass. Inspected both PNGs under windows/build/screens/dock-glass. Focused DockGlassRenderTest and MSI packaging passed (1m33s).
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-dock-glass-20261012-134357.

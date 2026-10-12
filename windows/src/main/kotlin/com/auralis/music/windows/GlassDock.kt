@@ -15,6 +15,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntSize
+import com.kyant.backdrop.Backdrop
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -54,7 +61,8 @@ internal fun GlassDock(
     selected: DesktopDestination?,
     tabs: List<DesktopDestination>,
     onSelect: (DesktopDestination) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null
 ) {
     val shape = RoundedCornerShape(30.dp)
     var pointer by remember { mutableStateOf(Offset.Unspecified) }
@@ -66,6 +74,10 @@ internal fun GlassDock(
             spring(dampingRatio = 0.5f, stiffness = DOCK_PRESS_STIFFNESS, visibilityThreshold = 0.001f))
     }
     val primary = MaterialTheme.colorScheme.primary
+    val glassLayer = rememberGraphicsLayer()
+    val glassEffect = remember { DockGlassEffect() }
+    DisposableEffect(glassEffect) { onDispose { glassEffect.close() } }
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     Box(
         modifier
             .height(56.dp)
@@ -89,22 +101,41 @@ internal fun GlassDock(
                     }
                 }
             }
-            .drawWithContent {
-                val outline = shape.createOutline(size, layoutDirection, this)
-                // Glass: a translucent dark fill (the phone's fallback base and tint together).
-                drawOutline(outline, Color(0xFF1C1D20).copy(alpha = 0.86f))
-                // A soft light pooled under the pointer, brighter while pressed.
-                val glow = (0.10f * (swell.value / HOVER_SWELL).coerceIn(0f, 1f) + 0.10f * ((swell.value - HOVER_SWELL) / (1f - HOVER_SWELL)).coerceIn(0f, 1f))
-                if (glow > 0.005f && pointer.isSpecified) drawOutline(outline, Brush.radialGradient(
-                    listOf(Color.White.copy(alpha = glow), Color.Transparent), center = pointer, radius = size.minDimension * 1.6f),
-                    blendMode = BlendMode.Plus)
-                // Specular rim, bright on top (the phone's rimBrush) and a faint top sheen.
-                drawOutline(outline, Brush.verticalGradient(0f to Color.White.copy(alpha = 0.07f), 0.45f to Color.Transparent))
-                drawContent()
-                val stroke = 1.dp.toPx()
-                drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.06f))),
-                    topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke),
-                    cornerRadius = CornerRadius(size.height / 2 - stroke / 2), style = Stroke(stroke))
+            .onGloballyPositioned { coordinates = it }
+            .drawWithCache {
+                val padding = 54.dp.toPx()
+                val glassDensity = androidx.compose.ui.unit.Density(density, fontScale)
+                glassLayer.renderEffect = glassEffect.create(size.width, size.height, padding, density)
+                onDrawWithContent {
+                    // Record only the page, with blur overscan: never blur icons or sample the dock itself.
+                    if (backdrop != null) {
+                        glassLayer.record(glassDensity, layoutDirection, IntSize((size.width + padding * 2).toInt(), (size.height + padding * 2).toInt())) {
+                            drawContext.canvas.translate(padding, padding)
+                            with(backdrop) { drawBackdrop(glassDensity, coordinates) {
+                                val scale = 1f + (DOCK_PRESSED_SCALE - 1f) * swell.value
+                                scaleX = scale; scaleY = scale
+                            } }
+                        }
+                        drawContext.canvas.translate(-padding, -padding)
+                        drawLayer(glassLayer)
+                        drawContext.canvas.translate(padding, padding)
+                    }
+                    val outline = shape.createOutline(size, layoutDirection, this)
+                    // Match the phone's dark tint over the live, 18 dp blurred page.
+                    drawOutline(outline, Color(0xFF101010).copy(alpha = if (backdrop != null) 0.38f else 0.86f))
+                    // A soft light pooled under the pointer, brighter while pressed.
+                    val glow = (0.10f * (swell.value / HOVER_SWELL).coerceIn(0f, 1f) + 0.10f * ((swell.value - HOVER_SWELL) / (1f - HOVER_SWELL)).coerceIn(0f, 1f))
+                    if (glow > 0.005f && pointer.isSpecified) drawOutline(outline, Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = glow), Color.Transparent), center = pointer, radius = size.minDimension * 1.6f),
+                        blendMode = BlendMode.Plus)
+                    // Specular rim, bright on top (the phone's rimBrush) and a faint top sheen.
+                    drawOutline(outline, Brush.verticalGradient(0f to Color.White.copy(alpha = 0.07f), 0.45f to Color.Transparent))
+                    drawContent()
+                    val stroke = 1.dp.toPx()
+                    drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.06f))),
+                        topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke),
+                        cornerRadius = CornerRadius(size.height / 2 - stroke / 2), style = Stroke(stroke))
+                }
             }
             .padding(horizontal = 10.dp, vertical = 9.dp)
     ) {
