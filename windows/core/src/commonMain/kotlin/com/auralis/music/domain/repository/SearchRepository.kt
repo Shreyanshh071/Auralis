@@ -24,6 +24,11 @@ interface SearchRepository {
     suspend fun searchPlaylists(query: String): List<PlaylistResult>
     suspend fun getSuggestions(query: String): List<String>
     suspend fun getArtistPage(artist: Artist): ArtistPage?
+    suspend fun getArtistPage(artist: Artist, onPreview: suspend (ArtistPage) -> Unit): ArtistPage? {
+        val page = getArtistPage(artist)
+        if (page != null) onPreview(page)
+        return page
+    }
     suspend fun getAlbumTracks(album: PlaylistResult): List<Track>
     fun getRecentSearchQueries(): Flow<List<String>>
     suspend fun recordSearchQuery(query: String)

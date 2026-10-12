@@ -17,5 +17,9 @@ data class ArtistPage(
     val radioBrowseId: String? = null,
     val radioParams: String? = null,
     val videos: List<Track> = emptyList(),
-    val playlists: List<PlaylistResult> = emptyList()
+    val playlists: List<PlaylistResult> = emptyList(),
+    /** Search-only recovery is not a complete artist page. */
+    val isFallback: Boolean = false,
+    val topSongsBrowseId: String? = null,
+    val catalogueIncomplete: Boolean = false
 )
