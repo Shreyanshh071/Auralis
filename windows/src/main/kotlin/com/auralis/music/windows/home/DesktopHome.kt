@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 /** Desktop presentation over the existing recommendation engine; Android's Home stays unchanged. */
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-fun DesktopHome(
+internal fun DesktopHome(
     viewModel: HomeViewModel,
     library: LibraryRepository,
     searchRepository: SearchRepository,
@@ -28,7 +28,9 @@ fun DesktopHome(
     showMessage: (String) -> Unit,
     findMusic: (@Composable () -> Unit)? = null,
     youtubePlaylists: List<PlaylistResult> = emptyList(),
-    onYouTubePlaylist: (PlaylistResult) -> Unit = {}
+    onYouTubePlaylist: (PlaylistResult) -> Unit = {},
+    /** Albums & singles from the listener's own taste; YouTube's new releases until there is one. */
+    tasteShelf: DesktopHomeShelf? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
@@ -109,7 +111,7 @@ fun DesktopHome(
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         findMusic = findMusic,
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
-        serviceShelves = if (youtubeSignedIn) listOfNotNull(remoteState.releases) + remoteState.shelves else null,
+        serviceShelves = if (youtubeSignedIn) listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves else null,
         serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
         serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
         serviceError = if (youtubeSignedIn) remoteState.error else null,
