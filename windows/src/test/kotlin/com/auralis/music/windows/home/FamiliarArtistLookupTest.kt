@@ -52,8 +52,8 @@ class FamiliarArtistLookupTest {
     @Test fun wikipediaReturnsDecodablePortraitsForScreenshotArtists() = runBlocking {
         org.junit.Assume.assumeTrue(System.getenv("AURALIS_VERIFY_ARTIST_PHOTOS") == "1")
         val client = com.auralis.music.data.network.InnerTubeClient()
-        for (name in listOf("Tame Impala", "Sidney Gish", "TV Girl", "Pawan Singh", "Ravyn Lenae", "The Police")) {
-            val photo = assertNotNull(client.fetchWikipediaArtistPortrait(name), name)
+        for (name in listOf("Tame Impala", "Sidney Gish", "TV Girl", "PAWAN SINGH", "Ravyn Lenae", "The Police")) {
+            val photo = assertNotNull(client.fetchWikipediaArtistPortrait(artistPortraitQuery(name)), name)
             val req = okhttp3.Request.Builder().url(photo).header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)").build()
             com.auralis.music.data.network.NetworkClientProvider.okHttpClient.newCall(req).execute().use { response ->
                 assertTrue(response.isSuccessful, "$name image HTTP ${response.code}")

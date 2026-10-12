@@ -31,7 +31,7 @@ internal class FamiliarArtistLookup(
             publish(current)
         }
         if (current.thumbnail == null) launch {
-            val photo = safely { portrait(name) }?.takeIf { it.isNotBlank() }
+            val photo = safely { portrait(artistPortraitQuery(name)) }?.takeIf { it.isNotBlank() }
             // A YouTube result that arrived meanwhile already has the preferred portrait.
             if (photo != null && current.thumbnail == null) update(Artist("", name, photo))
         }
@@ -46,4 +46,12 @@ internal class FamiliarArtistLookup(
     private suspend fun <T> safely(block: suspend () -> T): T? = try { block() }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { null }
+}
+
+/** Imported artist credits can be all caps; Wikipedia titles are case-sensitive after the first letter. */
+internal fun artistPortraitQuery(name: String): String {
+    val trimmed = name.trim()
+    return if (trimmed.any { it.isLetter() } && trimmed == trimmed.uppercase())
+        trimmed.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar { letter -> letter.titlecase() } }
+    else trimmed
 }
