@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -63,7 +64,11 @@ internal fun DesktopHomeScreen(
     onLoadMore: () -> Unit = {},
     moreSections: List<HomeSection> = emptyList(),
     serviceShelves: List<DesktopHomeShelf>? = null, serviceRecents: List<Track>? = null,
-    serviceLoading: Boolean = false, serviceError: String? = null, libraryShelf: List<PlaylistResult> = emptyList()
+    serviceLoading: Boolean = false, serviceError: String? = null, libraryShelf: List<PlaylistResult> = emptyList(),
+    /** The listener's most-played songs, shown as Quick picks above Albums & singles. */
+    quickPicks: List<Track> = emptyList(),
+    favoriteIds: Set<String> = emptySet(),
+    onToggleFavorite: (Track) -> Unit = {}
 ) {
     val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
     val colors = MaterialTheme.colorScheme
@@ -116,6 +121,9 @@ internal fun DesktopHomeScreen(
                         }
                     }
                 }
+            }
+            if (quickPicks.isNotEmpty()) item("most-played") {
+                QuickPicksGrid(quickPicks, currentTrackId, isPlaying, favoriteIds, onPlay, onMenu, onToggleFavorite)
             }
             if (serviceLoading && shelves.isEmpty()) item("loading") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -223,6 +231,55 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
                 if (active) "Playing" else null, tint = colors.primary, modifier = Modifier.padding(end = 12.dp).size(20.dp).alpha(playAlpha))
         }
       }
+    }
+}
+
+/** Quick picks: a numbered three-column grid of the most-played songs, with like and options. */
+@Composable
+private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlaying: Boolean, favoriteIds: Set<String>,
+    onPlay: (Track, List<Track>) -> Unit, onMenu: (Track) -> Unit, onToggleFavorite: (Track) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HomeHeading("Quick picks", null, trailing = {
+            TextButton(onClick = { tracks.firstOrNull()?.let { onPlay(it, tracks) } }) {
+                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Play all")
+            }
+        })
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            tracks.take(12).chunked(4).forEachIndexed { column, chunk ->
+                Column(Modifier.weight(1f)) {
+                    chunk.forEachIndexed { row, track ->
+                        val active = track.id == currentTrackId && isPlaying
+                        val liked = track.id in favoriteIds
+                        ContextMenuArea(items = { listOf(ContextMenuItem("Song options") { onMenu(track) }) }) {
+                            Row(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(10.dp))
+                                .clickable { onPlay(track, tracks) }.padding(horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("${column * 4 + row + 1}", Modifier.width(18.dp), style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant)
+                                HomeArtwork(track.thumbnail, Modifier.size(42.dp).clip(RoundedCornerShape(6.dp)))
+                                Column(Modifier.weight(1f)) {
+                                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
+                                        color = if (active) colors.primary else colors.onSurface)
+                                    Text(track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant)
+                                }
+                                IconButton(onClick = { onToggleFavorite(track) }, modifier = Modifier.size(30.dp)) {
+                                    Icon(if (liked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                        if (liked) "Remove from liked songs" else "Add to liked songs", Modifier.size(18.dp),
+                                        tint = if (liked) colors.primary else colors.onSurfaceVariant)
+                                }
+                                IconButton(onClick = { onMenu(track) }, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Outlined.MoreHoriz, "Song options", Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Keep columns the same width when there are fewer than twelve picks.
+            repeat(3 - (tracks.take(12).size + 3) / 4) { Spacer(Modifier.weight(1f)) }
+        }
     }
 }
 

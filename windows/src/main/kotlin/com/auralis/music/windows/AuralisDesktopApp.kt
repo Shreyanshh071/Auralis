@@ -142,6 +142,17 @@ fun AuralisDesktopApp(
     // Albums & singles that follow what the listener plays (see TasteReleases).
     val tasteReleases = remember { com.auralis.music.windows.home.TasteReleases(listeningStats, searchRepository, scope).also { it.start() } }
     val tasteShelf by tasteReleases.shelf.collectAsState()
+    // Quick picks: most played in the last 30 days (all time when that's too few), by plays then time.
+    val allListens by listeningStats.listens.collectAsState()
+    val quickPicks = remember(allListens) {
+        fun ranked(listens: List<com.auralis.music.desktop.library.DesktopListeningStats.Listen>) =
+            listens.groupBy { com.auralis.music.desktop.library.DesktopListeningStats.songKey(it.track) }.values
+                .sortedWith(compareByDescending<List<com.auralis.music.desktop.library.DesktopListeningStats.Listen>> { l -> l.count { it.countsAsPlay } }
+                    .thenByDescending { l -> l.sumOf { it.timeMs } })
+                .map { l -> l.groupBy { it.track.id }.values.maxBy { v -> v.sumOf { it.timeMs } }.first().track }
+        val recent = ranked(allListens.filter { it.startedAt >= System.currentTimeMillis() - 30L * 86_400_000L })
+        (if (recent.size >= 12) recent else (recent + ranked(allListens)).distinctBy { it.id }).take(12)
+    }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -455,6 +466,7 @@ fun AuralisDesktopApp(
                                 youtubePlaylists = youtubeState.playlists,
                                 onYouTubePlaylist = ::openYouTubePlaylist,
                                 tasteShelf = tasteShelf,
+                                quickPicks = quickPicks,
                                 // Search lives in the title bar now; Home shows no search button.
                                 findMusic = {},
                             )

@@ -190,6 +190,7 @@ fun main(args: Array<String>) {
             val albums = previewSongs.take(12).mapIndexed { i, song -> com.auralis.music.domain.model.PlaylistResult("preview-album-$i", song.title, song.thumbnail, "Album · ${song.artist}") }
             com.auralis.music.windows.home.DesktopHomeScreen(personalHome,
                 serviceRecents = (previewSongs + previewSongs).mapIndexed { i, track -> track.copy(id = "recent-$i") },
+                quickPicks = previewSongs.take(12), favoriteIds = setOfNotNull(previewSongs.getOrNull(1)?.id),
                 serviceShelves = listOf(
                     com.auralis.music.windows.home.DesktopHomeShelf("releases", "Albums & singles", albums = albums),
                     com.auralis.music.windows.home.DesktopHomeShelf("listen-again", "Listen again", "PREVIEW LISTENER", tracks = previewSongs.take(6)),
