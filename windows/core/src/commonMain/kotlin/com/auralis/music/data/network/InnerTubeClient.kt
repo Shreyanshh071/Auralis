@@ -1061,7 +1061,11 @@ open class InnerTubeClient(
     private fun followerCount(text: String?): Long = com.auralis.music.domain.search.SearchQueryMatcher.parsePlayCount(
         text?.let { Regex("""[\d.,]+\s*[KkMmBb]?""").find(it)?.value?.replace(" ", "") })
 
-    suspend fun getArtistPage(artist: Artist): ArtistPage? = withContext(Dispatchers.IO) {
+    suspend fun getArtistPage(artist: Artist): ArtistPage? = ArtistBrowseRequest.run {
+        withContext(Dispatchers.IO) { loadArtistPage(artist) }
+    }
+
+    private suspend fun loadArtistPage(artist: Artist): ArtistPage? {
         var resolvedArtist = artist
         try {
             var effectiveChannelId = artist.id
@@ -1268,7 +1272,7 @@ open class InnerTubeClient(
                 subscribers = subscribers ?: artist.subscribers
             )
 
-            ArtistPage(
+            return ArtistPage(
                 artist = finalArtist,
                 bannerUrl = bannerUrl,
                 description = description,
@@ -1282,10 +1286,11 @@ open class InnerTubeClient(
             )
         } catch (e: Exception) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            com.auralis.music.util.Log.w("AuralisArtist", "Could not browse '${artist.name}': ${e.javaClass.simpleName}: ${e.message}")
             val songs = try { search(artist.name, FILTER_SONGS).songs.filter {
                 com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(it.artist, artist.name)
             } } catch (_: Exception) { kotlinx.coroutines.currentCoroutineContext().ensureActive(); emptyList() }
-            if (songs.isNotEmpty()) {
+            return if (songs.isNotEmpty()) {
                 ArtistPage(
                     artist = resolvedArtist,
                     bannerUrl = resolvedArtist.thumbnail,
