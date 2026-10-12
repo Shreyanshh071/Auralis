@@ -110,11 +110,17 @@ fun AuralisDesktopApp(
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
     val navigation = remember { DesktopNavigation() }
     val browsePages = browse.stack.toList()
-    androidx.compose.runtime.LaunchedEffect(destination, browsePages) { navigation.record(DesktopRoute(destination, browsePages)) }
+    androidx.compose.runtime.LaunchedEffect(destination, browsePages, searchState.submittedQuery) {
+        navigation.record(DesktopRoute(destination, browsePages, if (destination == DesktopDestination.SEARCH) searchState.submittedQuery else null))
+    }
     fun restoreRoute(route: DesktopRoute?) {
         if (route == null) return
         showPlayer = false
         destination = route.destination
+        if (route.destination == DesktopDestination.SEARCH && route.searchQuery != null &&
+            (!searchState.hasSubmitted || searchState.query != route.searchQuery)) {
+            searchState.search(route.searchQuery, recordHistory = false)
+        }
         browse.stack.clear()
         val last = route.pages.lastOrNull()
         when {
@@ -302,7 +308,6 @@ fun AuralisDesktopApp(
             override fun toggleMute() { playback?.toggleMute() }
             override fun focusSearch() {
                 showPlayer = false
-                destination = DesktopDestination.SEARCH
                 searchFocusRequests++
             }
             override fun togglePlayer() { showPlayer = !showPlayer && playback?.queue?.value?.current != null }
@@ -588,7 +593,7 @@ fun AuralisDesktopApp(
                                     libraryViewModel.selectPlaylist(id)
                                     destination = DesktopDestination.LIBRARY
                                 },
-                                onNavigateToSearch = { destination = DesktopDestination.SEARCH },
+                                onNavigateToSearch = { showPlayer = false; searchFocusRequests++ },
                                 showMessage = showUnavailable,
                                 youtubePlaylists = youtubeState.playlists,
                                 onYouTubePlaylist = ::openYouTubePlaylist,

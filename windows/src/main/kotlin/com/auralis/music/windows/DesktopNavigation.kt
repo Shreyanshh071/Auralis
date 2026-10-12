@@ -3,8 +3,8 @@ package com.auralis.music.windows
 import androidx.compose.runtime.*
 import com.auralis.music.desktop.browse.BrowsePage
 
-internal data class DesktopRoute(val destination: DesktopDestination, val pages: List<BrowsePage>) {
-    val key get() = destination.name + pages.joinToString { page ->
+internal data class DesktopRoute(val destination: DesktopDestination, val pages: List<BrowsePage>, val searchQuery: String? = null) {
+    val key get() = destination.name + (if (destination == DesktopDestination.SEARCH) ":query:${searchQuery.orEmpty()}" else "") + pages.joinToString { page ->
         when (page) {
             is BrowsePage.Album -> "album:${page.album.id}"
             is BrowsePage.Artist -> "artist:${page.page.artist.id}:${page.page.artist.name}"

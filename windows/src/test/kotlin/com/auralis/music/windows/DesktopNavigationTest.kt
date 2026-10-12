@@ -32,4 +32,24 @@ class DesktopNavigationTest {
         assertEquals(home, history.back())
         assertFalse((history.forward()!!.pages.single() as BrowsePage.Album).isLoading)
     }
+    @Test fun searchQueriesAndTheirResultPagesRestoreAsSeparateRoutes() {
+        val history = DesktopNavigation()
+        val home = DesktopRoute(DesktopDestination.HOME, emptyList())
+        val first = DesktopRoute(DesktopDestination.SEARCH, emptyList(), "graduation")
+        val second = DesktopRoute(DesktopDestination.SEARCH, emptyList(), "be my baby")
+        val album = second.copy(pages = listOf(BrowsePage.Album(PlaylistResult("album", "Album"))))
+        history.record(home)
+        // Focusing the title-bar field stays on Home; only submitting creates a route.
+        history.record(home)
+        history.record(first); history.record(second); history.record(album)
+        assertEquals(second, history.back())
+        history.record(second)
+        assertEquals(first, history.back())
+        history.record(first)
+        assertEquals(home, history.back())
+        assertEquals(first, history.forward())
+        assertEquals(second, history.forward())
+        assertEquals(album, history.forward())
+    }
+
 }
