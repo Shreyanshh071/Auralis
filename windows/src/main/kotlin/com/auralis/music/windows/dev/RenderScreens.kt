@@ -216,20 +216,8 @@ fun main(args: Array<String>) {
         "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
         "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null, coverPalette) },
         "player-dynamic" to { com.auralis.music.windows.player.PlayerBackdrop("Dynamic", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
-        "lyrics-spicy" to {
-            // "You've been my muse for a long time", frozen part-way through "muse".
-            val words = listOf("You've ", "been ", "my ", "muse ", "for ", "a ", "long ", "time").mapIndexed { i, w ->
-                com.auralis.music.ui.lyrics.ExperimentalWordTimestamp(w, i * 0.5, i * 0.5 + 0.5)
-            }
-            val clock = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(1_700L) }
-            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()
-                .background(androidx.compose.ui.graphics.Color(0xFF3A2A33)).padding(40.dp)) {
-                com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics("You've been my muse for a long time", words, true, clock,
-                    androidx.compose.ui.text.TextStyle(fontSize = 44.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                    androidx.compose.ui.graphics.Color.White, androidx.compose.ui.graphics.Color.White, false, 0.35f,
-                    androidx.compose.ui.text.style.TextAlign.Left)
-            }
-        },
+        "lyrics-fluid" to { LyricRendererPreview(fluid = true) },
+        "lyrics-letters" to { LyricRendererPreview(fluid = false) },
         "lyrics-dots" to {
             androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF2A2230)),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -245,6 +233,13 @@ fun main(args: Array<String>) {
                 {}, com.auralis.music.windows.home.FamiliarArtistActions({ if (it.plays > 8) true else false }, { false }, {}, {}, { false }, {}, {}, { false }, {}, {}),
                 showControls = true)
         } },
+        "titlebar-narrow" to { com.auralis.music.windows.WindowTitleBar(
+            com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Shreyanshh", {}, {}, {}, {}, search = {
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                val state = androidx.compose.runtime.remember { com.auralis.music.windows.search.DesktopSearchState(search, scope) }
+                com.auralis.music.windows.search.FindMusicDropdown(state, null, false, { _, _ -> }, {}, {}, {}, {}, {}, bar = true)
+            }),
+            "Auralis", null, false, {}, {}, {}) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}, search = {
                 val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -280,8 +275,8 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar" -> 44; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
@@ -313,4 +308,22 @@ fun main(args: Array<String>) {
     }
     if (messages.isNotEmpty()) println("messages: $messages")
     kotlin.system.exitProcess(0)
+}
+
+/** "You've been my muse for a long time", frozen part-way through "muse", in the phone's renderers. */
+@androidx.compose.runtime.Composable
+private fun LyricRendererPreview(fluid: Boolean) {
+    val words = listOf("You've ", "been ", "my ", "muse ", "for ", "a ", "long ", "time").mapIndexed { i, w ->
+        com.auralis.music.domain.model.LyricWord(w, i * 500L, 500L)
+    }
+    val line = com.auralis.music.domain.model.LyricLine(0L, "You've been my muse for a long time", words = words)
+    val clock = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(1_700L) }
+    val style = androidx.compose.ui.text.TextStyle(fontSize = 34.sp, lineHeight = 44.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()
+        .background(androidx.compose.ui.graphics.Color(0xFF3A2A33)).padding(40.dp)) {
+        if (fluid) com.auralis.music.ui.lyrics.renderers.FluidLyricLine(line, words, clock, style, true)
+        else com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine(true, line, 4_000L, words, true, clock.value,
+            androidx.compose.ui.graphics.Color.White.copy(alpha = .35f), androidx.compose.ui.graphics.Color.White,
+            androidx.compose.ui.text.style.TextAlign.Left, androidx.compose.ui.Alignment.Start, 34f, 1.3f)
+    }
 }
