@@ -170,7 +170,31 @@ internal class AuraRenderer(image: ImageBitmap,
     """.trimIndent())
     private val builder = RuntimeShaderBuilder(effect).apply { child("cover", child) }
     private val paint = org.jetbrains.skia.Paint()
+    private val software = System.getProperty("skiko.renderApi").orEmpty().startsWith("SOFTWARE")
+    private var raster: Surface? = null
+    private var frame: Image? = null
+    private var frameTick = Long.MIN_VALUE
     fun draw(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, seconds: Float) {
+        if (software) {
+            // This background is already heavily blurred. Rasterize its warp at a small
+            // resolution so backdrop filters sample an image instead of re-evaluating
+            // the noise shader for every blur/refraction sample on the CPU.
+            val scale = 64f / maxOf(width, height).coerceAtLeast(64f)
+            val w = (width * scale).toInt().coerceAtLeast(1)
+            val h = (height * scale).toInt().coerceAtLeast(1)
+            if (raster?.width != w || raster?.height != h) {
+                raster?.close(); raster = Surface.makeRasterN32Premul(w,h)
+                frameTick = Long.MIN_VALUE
+            }
+            val tick = (seconds * 30).toLong()
+            if (frameTick != tick) {
+                drawWarp(raster!!.canvas, w.toFloat(), h.toFloat(), seconds)
+                frame?.close(); frame = raster!!.makeImageSnapshot(); frameTick = tick
+            }
+            canvas.drawImageRect(frame!!, Rect.makeWH(w.toFloat(),h.toFloat()), Rect.makeWH(width,height), SamplingMode.LINEAR, null, true)
+        } else drawWarp(canvas, width, height, seconds)
+    }
+    private fun drawWarp(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, seconds: Float) {
         builder.uniform("resolution", width, height); builder.uniform("time", seconds)
         builder.uniform("brightness", presentation.brightness); builder.uniform("saturation", presentation.saturation)
         builder.makeShader().use { shader ->
@@ -179,5 +203,5 @@ internal class AuraRenderer(image: ImageBitmap,
             paint.shader = null
         }
     }
-    override fun close() { paint.close(); builder.close(); effect.close(); child.close(); texture.close() }
+    override fun close() { frame?.close(); raster?.close(); paint.close(); builder.close(); effect.close(); child.close(); texture.close() }
 }

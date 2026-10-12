@@ -81,6 +81,8 @@ val prepareVlc by tasks.registering(Sync::class) {
 compose.desktop {
     application {
         mainClass = "com.auralis.music.windows.MainKt"
+        // Software rendering is exercised by verifySoftwareRendering before enabling it
+        // in the installer; GPU rendering remains until that performance check passes.
 
         // packageReleaseMsi / packageReleaseExe shrink unused library code (see proguard-rules.pro).
         buildTypes.release.proguard {
@@ -146,6 +148,19 @@ tasks.register<JavaExec>("verifyWindowFrame") {
     mainClass.set("com.auralis.music.windows.dev.WindowFrameCheckKt")
 }
 
+tasks.register<JavaExec>("verifyPlaybackControls") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.PlaybackControlsCheckKt")
+}
+
+tasks.register<JavaExec>("verifySoftwareRendering") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.SoftwareRenderingCheckKt")
+    jvmArgs("-Dskiko.renderApi=${findProperty("softwareBackend") ?: "SOFTWARE_FAST"}", "-Dsun.java2d.d3d=false")
+    if (findProperty("basicRendererCheck") != null) jvmArgs("-Dauralis.check.basic=true")
+    findProperty("rendererPart")?.let { jvmArgs("-Dauralis.check.part=$it") }
+}
+
 // Development check: ./gradlew :windows:probeLyrics -Pargs="Title::Artist::durationSec[::videoId]"
 tasks.register<JavaExec>("probeLyrics") {
     classpath = sourceSets["main"].runtimeClasspath
@@ -158,10 +173,4 @@ tasks.register<JavaExec>("probeStream") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
     args = listOfNotNull(findProperty("args")?.toString())
-}
-
-// Muted local audio; never controls the installed player or opens a window.
-tasks.register<JavaExec>("verifyPlaybackControls") {
-    classpath = sourceSets["main"].runtimeClasspath
-    mainClass.set("com.auralis.music.windows.dev.PlaybackControlsCheckKt")
 }
