@@ -295,3 +295,11 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Removed History and Profile from the dock. Home, Library, Wrapped and Settings remain.
 - Verified with an ImageComposeScene render over alternating 8 px stripes: significantly reduced stripe variation within the dock, and changing the page from orange to blue updates the glass. Inspected both PNGs under windows/build/screens/dock-glass. Focused DockGlassRenderTest and MSI packaging passed (1m33s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-dock-glass-20261012-134357.
+
+## Familiar Artists missing portraits — 2026-10-12
+
+- Root cause: artist cards depended entirely on paced YouTube artist searches. A YouTube network cooldown delayed those lookups, and a failed lookup was stored as null for the remainder of the session.
+- Portrait lookup now runs independently through the existing Wikipedia artist image source while YouTube resolves the channel. Successful channel/photo results are saved to cache/artist-portraits.properties and immediately reused on startup; channel-only replies preserve an existing portrait. Missing results retry after a minute rather than being permanently cached.
+- Wikipedia follows title redirects, allows five seconds per request, and propagates cancellation.
+- Three focused checks passed: portrait publication while YouTube waits, persistence/retry/cancellation, and live download/decoding of all six screenshot artists (Tame Impala, Sidney Gish, TV Girl, Pawan Singh, Ravyn Lenae, The Police). Image sizes ranged from 829x1105 to 1280x1600. MSI packaging passed.
+- Full data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-135604.

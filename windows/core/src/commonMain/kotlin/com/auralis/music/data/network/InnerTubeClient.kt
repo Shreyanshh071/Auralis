@@ -2023,12 +2023,12 @@ open class InnerTubeClient(
                 else -> artistName.trim().replace(" ", "_")
             }
             val encoded = java.net.URLEncoder.encode(cleanName, "UTF-8")
-            val url = "https://en.wikipedia.org/w/api.php?action=query&titles=$encoded&prop=pageimages&format=json&pithumbsize=1280"
+            val url = "https://en.wikipedia.org/w/api.php?action=query&redirects=1&titles=$encoded&prop=pageimages&format=json&pithumbsize=1280"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)")
                 .build()
-            val body = client.searchBody(request, 1_500L)
+            val body = client.searchBody(request, 5_000L)
             val json = JSONObject(body)
             val pages = json.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
             val firstKey = pages.keys().asSequence().firstOrNull() ?: return@withContext null
@@ -2043,7 +2043,7 @@ open class InnerTubeClient(
             val searchUrl = "https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=$searchEncoded&gsrlimit=1&prop=pageimages&pithumbsize=1280&format=json"
             val searchReq = Request.Builder().url(searchUrl).header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)").build()
             run {
-                val sBody = client.searchBody(searchReq, 1_500L)
+                val sBody = client.searchBody(searchReq, 5_000L)
                 val sJson = JSONObject(sBody)
                 val sPages = sJson.optJSONObject("query")?.optJSONObject("pages") ?: return@withContext null
                 val sKey = sPages.keys().asSequence().firstOrNull() ?: return@withContext null
@@ -2051,6 +2051,7 @@ open class InnerTubeClient(
             }
             null
         } catch (_: Exception) {
+            kotlin.coroutines.coroutineContext.ensureActive()
             null
         }
     }

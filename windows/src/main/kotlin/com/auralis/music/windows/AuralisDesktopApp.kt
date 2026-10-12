@@ -158,7 +158,7 @@ fun AuralisDesktopApp(
         (if (recent.size >= 12) recent else (recent + ranked(allListens)).distinctBy { it.id }).take(12)
     }
     // Familiar Artists (Li Music): top artists by the listener's own play count, with their photo
-    // and channel from one artist search each, cached for the session.
+    // and channel. Portraits load independently of YouTube and successful lookups survive restarts.
     val artistLookups = remember { androidx.compose.runtime.mutableStateMapOf<String, com.auralis.music.domain.model.Artist?>() }
     val blockedArtists by com.auralis.music.desktop.library.DesktopBlockedArtists.artists.collectAsState()
     val topArtistPlays = remember(allListens, blockedArtists) {
@@ -169,10 +169,23 @@ fun AuralisDesktopApp(
             .map { (_, l) -> l.first().track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().trim().removeSuffix(" - Topic") to l.size }
             .sortedByDescending { it.second }.take(10)
     }
+    val artistLookup = remember {
+        val portraitClient = com.auralis.music.data.network.InnerTubeClient()
+        com.auralis.music.windows.home.FamiliarArtistLookup(
+            com.auralis.music.util.PropertiesFileKeyValueStore(java.io.File(com.auralis.music.util.desktopAppDataDir(), "cache/artist-portraits.properties")),
+            backgroundSearch::searchArtists, portraitClient::fetchWikipediaArtistPortrait)
+    }
     androidx.compose.runtime.LaunchedEffect(topArtistPlays.map { it.first }) {
-        topArtistPlays.map { it.first }.filter { it !in artistLookups }.forEach { name ->
-            artistLookups[name] = runCatching { backgroundSearch.searchArtists(name) }.getOrNull()
-                ?.firstOrNull { com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(it.name, name) }
+        topArtistPlays.forEach { (name, _) ->
+            artistLookup.cached(name)?.let { artistLookups[name] = it }
+            launch {
+                while (true) {
+                    artistLookup.resolve(name) { artistLookups[name] = it }
+                    val found = artistLookups[name]
+                    if (!found?.id.isNullOrBlank() && !found?.thumbnail.isNullOrBlank()) break
+                    kotlinx.coroutines.delay(60_000L)
+                }
+            }
         }
     }
     val familiarArtists = topArtistPlays.map { (name, plays) ->
