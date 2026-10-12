@@ -305,3 +305,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Full data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-135604.
 - Final app startup check caught the imported uppercase credit PAWAN SINGH. Independent portrait queries now title-case all-uppercase credits for Wikipedia without changing the displayed artist name. The live check uses that exact uppercase input.
 - Final installation backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-140025.
+
+## Playlist cover background while idle — 2026-10-12
+
+- When the player has no current track, the open playlist supplies the app's existing blurred artwork backdrop and palette. Reads the selected playlist live, so opening another playlist updates the background and leaving its page returns to the normal idle background.
+- Uses the playlist cover first, then a track thumbnail when the cover is absent. Browse playlist/album pages also supply their own cover. A loaded song retains the existing song-background behaviour.
+- Rendered and visually inspected the real playlist detail screen with its blurred cover behind the header and track table: windows/build/screens/playlist-header.png. Compilation, preview rendering and MSI packaging passed. No new tests for this reversible presentation change.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-idle-20261012-140715.
