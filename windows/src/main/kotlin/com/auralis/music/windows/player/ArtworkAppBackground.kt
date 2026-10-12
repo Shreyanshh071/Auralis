@@ -34,7 +34,7 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, mod
         surfaceVariant = lerp(tint, contrast, .08f).copy(alpha = .55f), onBackground = foreground,
         onSurface = foreground, onSurfaceVariant = foreground.copy(alpha = .72f))
     Box(modifier.fillMaxSize().background(tint)) {
-        if (artwork != null) BlurredArtworkBackground(artwork, blurRadius = 48.dp, brightness = .45f, artworkScale = 1.10f)
+        if (artwork != null) BlurredArtworkBackground(artwork, blurRadius = 48.dp, brightness = .68f, artworkScale = 1.10f)
         // Shared settings/profile pages read the dynamic locals, while desktop browsing
         // pages read MaterialTheme. Both must see the same translucent artwork surfaces.
         CompositionLocalProvider(

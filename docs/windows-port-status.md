@@ -548,3 +548,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Sidebar lyrics now apply the selected text size and line spacing for plain, MetroLyrics, Fluid and letter renderers, preserving the existing 24sp default scale.
 - Pointer gesture check passed with delayed persistence: no commits while dragging, one final commit, and final value follows the pointer. Existing sidebar word/style and lyric hover checks also passed (five checks total). Includes the previously reviewed 7% lyrics-card tint update.
 - MSI build passed (2m25s); installed the combined slider/tint update with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-settings-sliders-20261013-001507. All 73 checked data files preserved; main/core jars match the build and the desktop shortcut is retained.
+
+## Brighter song-synced app background — 2026-10-13
+
+- Raised browsing artwork brightness from 45% to 68%, keeping the 48dp blur, 1.10x overscan, current-song switching and neutral translucent page surfaces.
+- Both artwork theme render checks passed: expected brighter white/blue cover pixels, preserved blue hue after song change and neutral panels without accent tint contamination.
