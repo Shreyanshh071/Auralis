@@ -139,6 +139,9 @@ fun AuralisDesktopApp(
     var refreshTick by remember { mutableStateOf(0) }
     var youtubePageAccount by remember { mutableStateOf<String?>(null) }
     var youtubePageId by remember { mutableStateOf<String?>(null) }
+    // Albums & singles that follow what the listener plays (see TasteReleases).
+    val tasteReleases = remember { com.auralis.music.windows.home.TasteReleases(listeningStats, searchRepository, scope).also { it.start() } }
+    val tasteShelf by tasteReleases.shelf.collectAsState()
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -451,6 +454,7 @@ fun AuralisDesktopApp(
                                 showMessage = showUnavailable,
                                 youtubePlaylists = youtubeState.playlists,
                                 onYouTubePlaylist = ::openYouTubePlaylist,
+                                tasteShelf = tasteShelf,
                                 // Search lives in the title bar now; Home shows no search button.
                                 findMusic = {},
                             )
