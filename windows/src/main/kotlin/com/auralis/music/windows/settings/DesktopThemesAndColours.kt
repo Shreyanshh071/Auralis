@@ -20,7 +20,6 @@ import kotlinx.coroutines.launch
 internal fun DesktopThemesAndColours(onBack: () -> Unit) {
     val store = LocalSettingsStores.current.appearance
     val settings by store.settingsFlow.collectAsState(store.getInitialSettings())
-    val liquidify by DesktopLiquidify.enabled.collectAsState()
     val scope = rememberCoroutineScope()
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
         scope.launch { store.updateSettings(settings.transform()) }
@@ -29,7 +28,8 @@ internal fun DesktopThemesAndColours(onBack: () -> Unit) {
         item { ThemeColourPreview() }
         item { ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } } }
         item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
-        item { LiquidifyCard(liquidify) { scope.launch(kotlinx.coroutines.Dispatchers.IO) { DesktopLiquidify.setEnabled(it) } } }
+        item { Text("Artwork backgrounds follow the current song in every theme. When the player is empty, an open playlist uses its cover.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
