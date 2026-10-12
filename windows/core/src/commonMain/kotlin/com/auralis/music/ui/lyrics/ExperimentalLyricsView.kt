@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -528,7 +529,10 @@ fun ExperimentalLyricsView(
         "right" -> Alignment.End
         else -> Alignment.CenterHorizontally
     }
-    val dotsSize = (34f * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.42f).dp
+    // Spicy Lyrics sets bigger, wrapping lines (about 46px bold, 1.3 line height) than MetroLyrics.
+    val spicyLayout = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val baseLyricSize = if (spicyLayout) 46f else 34f
+    val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.42f).dp
 
     val mergedLyricsList = remember(effectiveLines) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
@@ -1118,8 +1122,8 @@ fun ExperimentalLyricsView(
                                     isSelected = selectedIndices.contains(index),
                                     isSelectionModeActive = isSelectionModeActive,
                                     currentPositionState = currentPositionState,
-                                    lyricsTextSize = 34f * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f),
-                                    lyricsLineSpacing = appearance.lyricsLineSpacing.coerceIn(1.1f, 1.6f),
+                                    lyricsTextSize = baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f),
+                                    lyricsLineSpacing = if (spicyLayout) 1.3f else appearance.lyricsLineSpacing.coerceIn(1.1f, 1.6f),
                                     expressiveAccent = Color.White,
                                     lyricsTextPosition = appearance.lyricsTextPosition,
                                     isAutoScrollEnabled = isAutoScrollEnabled,
@@ -1378,8 +1382,11 @@ fun ExperimentalLyricsLine(
     val hoverAlpha by animateFloatAsState(if (mouseHover && hovered) .16f else 0f, tween(140), label = "lyricMouseHover")
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
-    val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp
-    val baseBottomPadding = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp
+    val spicy = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) ==
+        com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    // Spicy Lyrics: about 30px of air between lines, so each wrapped line reads as a block.
+    val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else if (spicy) 15.dp else 12.dp
+    val baseBottomPadding = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else if (spicy) 15.dp else 12.dp
     // A little extra air where the singer changes, so each speaker's lines read as one group.
     val speakerChangeGap = if (speakerSide != null && speakerStyle.isRunStart && index > 0 && !line.isBackground && isSynced) {
         MetroSpeakerChangeGap
@@ -1487,6 +1494,10 @@ fun ExperimentalLyricsLine(
         fun LineContent() {
             val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine || (mouseHover && hovered)) {
                 0f
+            } else if (spicy) {
+                // Spicy Lyrics: a soft blur growing about 1.2px a line away from the sung one.
+                if (!isAutoScrollEnabled || displayedCurrentLineIndex < 0) 0f
+                else (abs(index - displayedCurrentLineIndex) * 1.2f).coerceAtMost(6f)
             } else {
                 computeLyricsProgressiveBlur(
                     standardBlur = true,
@@ -1516,13 +1527,15 @@ fun ExperimentalLyricsLine(
 
             Column(
                 modifier = Modifier
+                    // Spicy Lyrics keeps a readable column (~860px) so long lines wrap.
+                    .then(if (spicy) Modifier.widthIn(max = 860.dp) else Modifier)
                     .fillMaxWidth()
                     .then(blurModifier),
                 horizontalAlignment = agentAlignment
             ) {
-                val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
+                val inactiveAlpha = if (line.isBackground) 0.08f else if (spicy) 0.5f else 0.20f
                 val activeAlpha = 1.0f
-                val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
+                val focusedAlpha = if (line.isBackground) 0.50f else if (spicy) 0.5f else 0.30f
                 val targetAlpha = if (mouseHover && hovered) {
                     1f
                 } else if (!isSynced) {
@@ -1531,6 +1544,9 @@ fun ExperimentalLyricsLine(
                     // While following playback a background line only shows beside its lead line.
                     // During a manual scroll every one is visible, so unsung ones dim like the rest.
                     activeAlpha
+                } else if (spicy) {
+                    // Spicy Lyrics: every other line at half white; distance shows through blur.
+                    inactiveAlpha
                 } else if (isAutoScrollEnabled && displayedCurrentLineIndex >= 0) {
                     when (abs(index - displayedCurrentLineIndex)) {
                         0 -> focusedAlpha
