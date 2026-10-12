@@ -303,3 +303,5 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Wikipedia follows title redirects, allows five seconds per request, and propagates cancellation.
 - Three focused checks passed: portrait publication while YouTube waits, persistence/retry/cancellation, and live download/decoding of all six screenshot artists (Tame Impala, Sidney Gish, TV Girl, Pawan Singh, Ravyn Lenae, The Police). Image sizes ranged from 829x1105 to 1280x1600. MSI packaging passed.
 - Full data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-135604.
+- Final app startup check caught the imported uppercase credit PAWAN SINGH. Independent portrait queries now title-case all-uppercase credits for Wikipedia without changing the displayed artist name. The live check uses that exact uppercase input.
+- Final installation backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-140025.
