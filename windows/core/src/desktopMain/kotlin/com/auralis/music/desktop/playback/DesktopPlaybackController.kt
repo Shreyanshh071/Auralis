@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 class DesktopPlaybackController(
     private val player: VlcAudioPlayer,
     private val scope: CoroutineScope,
+    private val offlineFile: (String) -> java.io.File? = { com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(it) },
     private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
 ) {
     enum class RepeatMode { OFF, ALL, ONE }
@@ -267,9 +268,13 @@ class DesktopPlaybackController(
         player.stop()
         loadJob = scope.launch {
             _resolving.value = true
+            val localAudio = offlineFile(track.id)
             val url = try {
-                val videoId = DesktopPlaybackMatch.videoId(track)
-                if (videoId == null) null else resolveStream(videoId)
+                localAudio?.absolutePath
+                    ?: run {
+                        val videoId = DesktopPlaybackMatch.videoId(track)
+                        if (videoId == null) null else resolveStream(videoId)
+                    }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -285,7 +290,7 @@ class DesktopPlaybackController(
                 player.setVolume(_volume.value)
                 currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
-                player.play(LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
+                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
                 lengthTrackId.value = track.id
                 if (preloadNext && q.hasNext) {
                     preloadJob?.cancel()

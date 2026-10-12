@@ -4,12 +4,13 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.i18n.Strings
 import com.auralis.music.ui.i18n.str
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
 /**
  * Shared UI's [PlatformActions] on desktop: messages go to [showMessage] (the window's snackbar),
- * sharing copies the text to the clipboard, and offline downloads aren't available yet.
+ * sharing copies text, and downloads are handled by the desktop file store.
  */
 class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformActions {
     override fun showMessage(text: String) = message(text)
@@ -20,10 +21,11 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
         message("Copied to clipboard")
     }
 
-    override fun isDownloaded(trackId: String) = false
-    override fun isDownloading(trackId: String) = false
-    override fun downloadTrack(track: Track) = message("Downloads aren't available on Windows yet")
-    override fun removeDownload(trackId: String) {}
+    private val downloads get() = com.auralis.music.desktop.library.DesktopDownloads.instance
+    override fun isDownloaded(trackId: String) = downloads.localFile(trackId) != null
+    override fun isDownloading(trackId: String) = downloads.isDownloading(trackId)
+    override fun downloadTrack(track: Track) { downloads.enqueue(listOf(track)); message("Download queued") }
+    override fun removeDownload(trackId: String) = downloads.removeTrack(trackId)
     override fun openUrl(url: String): Boolean = runCatching {
         java.awt.Desktop.getDesktop().browse(java.net.URI(url))
     }.isSuccess
@@ -37,10 +39,14 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
     }.getOrNull()
 
     @androidx.compose.runtime.Composable
-    override fun hasActiveDownloads() = false
-    override fun clearAllDownloads() {}
-    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) =
-        message("Downloads aren't available on Windows yet")
+    override fun hasActiveDownloads(): Boolean {
+        val entries = downloads.entries.collectAsState().value
+        return entries.any { it.status in setOf("QUEUED", "DOWNLOADING") }
+    }
+    override fun clearAllDownloads() = downloads.clear()
+    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) {
+        downloads.enqueue(tracks, playlistId, playlistName); message("Playlist download queued")
+    }
 
     /** Into the user's Downloads folder, like the phone. */
     override fun saveTextFile(fileName: String, content: String): String =

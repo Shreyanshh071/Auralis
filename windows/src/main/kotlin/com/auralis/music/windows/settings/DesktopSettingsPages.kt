@@ -107,7 +107,7 @@ fun DesktopStorageSettings(onDismiss: () -> Unit) {
         item { Text("Lyrics cache: ${com.auralis.music.util.formatBytes(lyricsBytes)}") }
         item { OutlinedButton(onClick = { clear { DesktopCaches.clearLyrics() } }, enabled = !busy) { Text("Clear saved lyrics") } }
         item { OutlinedButton(onClick = { com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache(); message = "Stream lookup cache cleared" }) { Text("Clear stream lookups") } }
-        item { Text("Offline downloads and an audio-file cache are not implemented on Windows yet. Audio streams are relayed in memory; no audio files are saved.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Downloads save complete audio files on this computer, grouped as individual songs or by playlist. Streaming audio is relayed in memory.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (message.isNotBlank()) item { Text(message) }
     }
 }

@@ -8,20 +8,21 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 /**
- * [LibraryPlatform] on desktop: no offline downloads yet, the Library's saved flags in [flags],
+ * [LibraryPlatform] on desktop: persistent offline downloads, the Library's saved flags in [flags],
  * and confirmations shown by [showMessage] (the window's snackbar) instead of the phone's pill.
  */
 class DesktopLibraryPlatform(
     private val flags: KeyValueStore,
     private val showMessage: (String) -> Unit
 ) : LibraryPlatform {
-    override val downloadedTracks: Flow<List<Track>> = flowOf(emptyList())
-    override val downloadJobs: Flow<List<PlaylistDownloadJob>> = flowOf(emptyList())
-    override fun jobTracks(jobId: String): List<Track> = emptyList()
-    override fun downloadedJobTracks(jobId: String): List<Track> = emptyList()
-    override fun removePlaylistDownloads(jobId: String) {}
-    override fun retryPlaylistDownload(jobId: String) {}
-    override fun removeDownload(trackId: String) {}
+    private val downloads get() = DesktopDownloads.instance
+    override val downloadedTracks: Flow<List<Track>> get() = downloads.tracks
+    override val downloadJobs: Flow<List<PlaylistDownloadJob>> get() = downloads.jobs
+    override fun jobTracks(jobId: String): List<Track> = downloads.groupTracks(jobId)
+    override fun downloadedJobTracks(jobId: String): List<Track> = downloads.groupTracks(jobId, true)
+    override fun removePlaylistDownloads(jobId: String) = downloads.removeGroup(jobId)
+    override fun retryPlaylistDownload(jobId: String) = downloads.retry(jobId)
+    override fun removeDownload(trackId: String) = downloads.removeTrack(trackId)
 
     override fun getInt(key: String, default: Int) = flags.getString(key, default.toString())?.toIntOrNull() ?: default
     override fun putInt(key: String, value: Int) = flags.putStrings(mapOf(key to value.toString()))

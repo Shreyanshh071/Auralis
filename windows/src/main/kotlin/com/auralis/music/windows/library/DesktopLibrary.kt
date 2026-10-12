@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 /**
  * The phone's Library screen on Windows: playlists, Liked and Most-played collections, saved
  * albums and artists, playlist pages, YouTube Music / Spotify link import and backups, backed by
- * the desktop library files. Offline downloads, Listen Together and the profile stay on the phone.
+ * the desktop library files. Downloads use the desktop file store and grouped downloads page.
  */
 @Composable
 fun DesktopLibrary(
@@ -51,6 +51,11 @@ fun DesktopLibrary(
     var showCreate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val savedAlbumEntries = uiState.savedAlbums.associateBy(::savedAlbumEntryId)
     val displayedState = uiState.copy(playlists = desktopLibraryItems(uiState.playlists, uiState.savedAlbums))
+
+    if (uiState.selectedSmartCollection == com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED) {
+        DesktopDownloadsPage(playback, back = { viewModel.closeSmartCollection() })
+        return
+    }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LibraryScreen(

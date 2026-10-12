@@ -378,3 +378,14 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Seven YouTubeLibraryTest checks passed, including private create payload, selected auth-user/page, normalized browse ID, blank names and missing playlistId. Tests use fake transport; no live test playlist was created. Visually inspected windows/build/screens/create-playlist.png. Compilation/render/MSI build passed (3m9s).
 - Initial normal shutdown did not close Auralis; user explicitly authorized stopping its processes before installation.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-create-playlist-20261012-154107.
+
+## Real Windows downloads and grouped offline library — 2026-10-12
+
+- Root cause: DesktopPlatformActions download actions were placeholders and DesktopLibraryPlatform exposed empty flows. Downloads routed to LibraryScreen's phone-only hub slot without a Windows implementation, producing a blank page.
+- Added DesktopDownloads: serialized actual audio transfers through the existing ranged stream relay, complete byte-length/container validation, temporary files published only on success, persistent metadata, live status/progress/errors, retry and owned-file removal. Download queues are persisted once per enqueue batch to avoid UI stalls on large playlists.
+- Files follow the phone's public folder structure at %USERPROFILE%\Downloads\Auralis\Individual songs\ and one sanitized folder per playlist; identical playlist names get distinct collision folders. Playlist files retain order numbering. Metadata lives at %APPDATA%\Auralis\download-index.json; logical track IDs remain unchanged, including Spotify imports.
+- Wired song and playlist menus (including Home album downloads), LibraryPlatform flows, storage byte count, and a real Windows Downloads page with groups, completion/failure counts, progress, retry, removal and offline play. Removed obsolete unsupported-download text.
+- Playback now prefers an indexed local file and bypasses network matching/stream relay. Live validation downloaded the complete 4,838,193-byte Tere Liye WebM into windows/build/download-live; muted VLC played it from disk with the resolver configured to fail if used (position 1,522 ms, duration 279,841 ms). This caught and fixed VLC's Windows file-URI handling: local playback uses the native absolute path.
+- Three focused tests passed: live complete file/offline playback, mock transfer/group/restart/error/truncation/removal checks, and safe Windows names. Visually inspected windows/build/screens/downloads-groups.png. Final MSI build passed (2m41s).
+- Previous placeholder clicks cannot be recovered as audio downloads; the user must queue those songs again.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-downloads-20261012-161116.
