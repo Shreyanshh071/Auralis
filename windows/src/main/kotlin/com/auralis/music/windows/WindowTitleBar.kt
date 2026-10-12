@@ -55,9 +55,10 @@ fun WindowTitleBar(
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.home).padding(start = 10.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (icon != null) Image(icon, "Home", Modifier.size(18.dp))
-                else Icon(Icons.Outlined.Home, "Home", Modifier.size(18.dp), tint = Color(0xFFBDD66A))
-                Text(title, color = Color(0xFFD4D0D8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                // The Auralis glyph (the header logo), tinted to the bar's text colour.
+                Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), "Home", Modifier.size(22.dp),
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE8E4EB)))
+                Text(title, color = Color(0xFFE8E4EB), fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
             ChromeButton(Icons.Outlined.ChevronLeft, "Back", actions.back, actions.canGoBack, 34)
             ChromeButton(Icons.Outlined.ChevronRight, "Forward", actions.forward, actions.canGoForward, 34)
