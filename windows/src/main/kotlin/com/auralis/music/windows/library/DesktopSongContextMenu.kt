@@ -20,8 +20,9 @@ import java.awt.MouseInfo
 /** A focusable, scrollable desktop menu at the initiating click, constrained to the window. */
 @Composable
 internal fun DesktopSongContextMenu(items: List<GlassMenuItem>, onDismiss: () -> Unit, background: @Composable () -> Unit) {
+    val invocation = LocalMenuInvocationAnchor.current
     val point = remember {
-        runCatching {
+        invocation?.point ?: runCatching {
             val window = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
                 ?: java.awt.Window.getWindows().firstOrNull { it.isVisible && it.isFocused }
                 ?: error("No focused window")
