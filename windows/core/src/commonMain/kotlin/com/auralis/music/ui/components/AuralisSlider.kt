@@ -420,7 +420,7 @@ fun AuralisSlider(
 
                     "Squiggly" -> {
                         // ── 4. SQUIGGLY STYLE — adapted SquigglySlider, value for value (see file header) ──
-                        // The phone's 80 physical pixels are roughly 28dp on its dense display.
+                        // Use a 48dp wavelength on desktop to preserve the phone's relaxed wave shape.
                         // Use logical spacing on desktop; height fades over 1.5 wavelengths centred on the
                         // playhead so the wave is half-height at the bar and seeps flat just past it.
                         val strokePx = with(density) { 5.dp.toPx() }
@@ -430,7 +430,7 @@ fun AuralisSlider(
                         val trackWidth = (endX - startX).coerceAtLeast(1f)
                         val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
 
-                        val waveLength = with(density) { 28.dp.toPx() }
+                        val waveLength = with(density) { 48.dp.toPx() }
                         val lineAmplitude = SQUIGGLY_AMPLITUDE_PX
                         val heightFraction = (animatedAmplitude.value / 2.8f).coerceIn(0f, 1f)
                         val transitionLength = 1.5f * waveLength

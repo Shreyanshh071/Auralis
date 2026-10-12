@@ -2,6 +2,9 @@ package com.auralis.music.windows.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -86,17 +89,26 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                 if (matches.isEmpty()) Text("No matching playlists or artists.")
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     items(matches, key = { it.id }) { item ->
-                        val pinned = pins.any { it.id == item.id }
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = !pinned) { add(item) }
-                            .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ShortcutPhoto(item)
-                            Text(item.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (pinned) "Added" else "Add", color = MaterialTheme.colorScheme.primary)
-                        }
+                        ShortcutCandidateRow(item, pins.any { it.id == item.id }) { add(item) }
                     }
                 }
             }
         })
+}
+
+@Composable
+internal fun ShortcutCandidateRow(item: SpeedDialItem, pinned: Boolean, onAdd: () -> Unit) {
+    val interaction = remember(item.id) { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && !pinned) .12f else 0f))
+        .hoverable(interaction)
+        .clickable(interactionSource = interaction, indication = null, enabled = !pinned, onClick = onAdd)
+        .padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        ShortcutPhoto(item)
+        Text(item.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(if (pinned) "Added" else "Add", color = MaterialTheme.colorScheme.primary)
+    }
 }
 
 @Composable
