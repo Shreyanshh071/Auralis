@@ -64,6 +64,8 @@ object DesktopStreamResolver {
         }
     }
 
+    internal fun initializeExtractor() = ensureInitialized()
+
     /** Starts NewPipe (its first extraction is slow) without waiting for it. */
     fun warmUp() {
         Thread({ runCatching { ensureInitialized() } }, "newpipe-warmup").apply { isDaemon = true }.start()
@@ -71,6 +73,7 @@ object DesktopStreamResolver {
 
     suspend fun resolve(videoId: String): String? = withContext(Dispatchers.IO) {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
+        if (!DesktopPlaybackMatch.isVideoId(target)) return@withContext null
         cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return@withContext it.url }
         // Not held back by a search block: YouTube still serves the player (checked 2026-10-12 while
         // search was blocked), and refusing here is what stopped every song from playing.

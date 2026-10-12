@@ -133,6 +133,21 @@ open class InnerTubeClient(
         }
     }
 
+    /** One foreground playback lookup; a background search cooldown must not reject it locally. */
+    suspend fun searchForPlayback(query: String): List<Track> = withContext(Dispatchers.IO) {
+        cachedSearch(query.trim(), FILTER_SONGS)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
+        val builder = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
+            .post(createWebRemixContext(query.trim(), FILTER_SONGS).toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com")
+        YouTubeSession.authHeaders("https://music.youtube.com").forEach { (name, value) -> builder.header(name, value) }
+        client.newBuilder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
+            .newCall(builder.build()).execute().use { response ->
+                if (!response.isSuccessful) throw java.io.IOException("Playback search HTTP ${response.code}")
+                val body = response.body?.string() ?: return@use emptyList()
+                rememberSearch(query.trim(), FILTER_SONGS, parseYtMusicSearchResults(JSONObject(body))).songs
+            }
+    }
+
     /** Separate cancellable transport for requests replaced on every edit of the search field. */
     open suspend fun searchLive(query: String, params: String? = null): SearchResults = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
