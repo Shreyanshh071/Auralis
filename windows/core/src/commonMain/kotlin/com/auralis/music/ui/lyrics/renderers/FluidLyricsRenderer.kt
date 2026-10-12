@@ -1,27 +1,22 @@
 package com.auralis.music.ui.lyrics.renderers
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.auralis.music.domain.model.LyricLine
@@ -149,63 +144,83 @@ fun FluidLyricLine(
     }
     var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
 
-    val rise: Modifier = Modifier.drawWithContent {
-        val t = timing
-        val l = layout
-        val pos = positionMs.value
-        if (t == null || l == null || !t.anyLifted(pos)) drawContent() else drawRisen(l, t, pos, WORD_RISE.toPx())
+    val geometry = remember(layout, timing) {
+        layout?.let { measured -> buildFluidGeometry(measured, timing) }
     }
-
-    Box(modifier) {
-        // Dim copy: the whole line, held back.
-        Text(
-            text = line.text,
-            style = style,
-            color = Color.White.copy(alpha = UNSUNG_ALPHA),
-            overflow = TextOverflow.Visible,
-            onTextLayout = { layout = it },
-            modifier = Modifier.fillMaxWidth().then(rise)
-        )
-        // Glow: a blurred copy lit only over words held long enough to earn it.
-        if (timing != null && timing.words.any { it.endMs - it.startMs >= GLOW_MIN_HELD_MS }) {
-            Text(
-                text = line.text,
-                style = style,
-                color = Color.White,
-                overflow = TextOverflow.Visible,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .blur(GLOW_RADIUS, BlurredEdgeTreatment.Unbounded)
-                    .drawWithContent {
-                        val l = layout ?: return@drawWithContent
-                        drawGlow(l, timing, positionMs.value)
-                    }
-            )
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    val raster = remember(layout, density, direction, timing) {
+        layout?.let { measured ->
+            val pad = with(density) { (GLOW_RADIUS * 2).toPx() }.toInt() + 2
+            val size = Size((measured.size.width + pad * 2).toFloat(), (measured.size.height + pad * 2).toFloat())
+            fun image(glow: Boolean): ImageBitmap {
+                val bitmap = ImageBitmap(size.width.toInt(), size.height.toInt())
+                CanvasDrawScope().draw(density, direction, Canvas(bitmap), size) {
+                    drawText(measured, color = if (glow) Color.Transparent else Color.White,
+                        topLeft = Offset(pad.toFloat(), pad.toFloat()),
+                        shadow = if (glow) Shadow(Color.White.copy(alpha = GLOW_ALPHA), blurRadius = with(density) { GLOW_RADIUS.toPx() }) else null)
+                }
+                return bitmap
+            }
+            FluidRaster(image(false), if (timing?.words?.any { it.endMs - it.startMs >= GLOW_MIN_HELD_MS } == true) image(true) else null, pad.toFloat())
         }
-        // Bright copy: revealed up to the singing, with a feathered front edge.
-        Text(
-            text = line.text,
-            style = style,
-            color = Color.White,
-            overflow = TextOverflow.Visible,
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(rise)
-                // The feather erases into its own layer, so it can't take the backdrop with it.
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    val pos = positionMs.value
-                    val t = timing
-                    val l = layout
-                    when {
-                        t == null -> if (pos >= line.time) drawContent()
-                        pos >= t.lineEndMs -> drawContent()
-                        pos <= t.lineStartMs -> Unit
-                        l != null -> drawSwept(l, t.revealedChars(pos), FEATHER.toPx())
+    }
+    // Rasterize glyphs and held-note blur once per layout. Animation only clips/translates
+    // these images; no per-frame paragraph repaint, shadow rasterization, or offscreen mask.
+    Text(
+        text = line.text, style = style, color = Color.White.copy(alpha = UNSUNG_ALPHA),
+        overflow = TextOverflow.Visible, onTextLayout = { layout = it },
+        modifier = modifier.fillMaxWidth().drawWithContent {
+            val measured = layout
+            val rows = geometry
+            val images = raster
+            if (measured == null || rows == null || images == null) { drawContent(); return@drawWithContent }
+            val pos = positionMs.value
+            val revealed = timing?.revealedChars(pos) ?: if (pos >= line.time) line.text.length.toFloat() else 0f
+            val peak = WORD_RISE.toPx()
+            for (row in rows) {
+                val edge = when {
+                    revealed <= row.start -> row.left
+                    revealed >= row.end -> row.right
+                    else -> {
+                        val i = revealed.toInt().coerceIn(row.start, row.end)
+                        val here = measured.xOn(i, row.index)
+                        here + (measured.xOn((i + 1).coerceAtMost(row.end), row.index) - here) * (revealed - i)
                     }
                 }
-        )
-    }
+                for (slice in row.slices) {
+                    val word = slice.word
+                    val lift = if (word != null && timing != null) timing.lift(word, pos) else 0f
+                    val offset = Offset(-images.pad, -images.pad - lift * peak)
+                    clipRect(slice.left, row.top - peak, slice.right, row.bottom) {
+                        drawImage(images.text, topLeft = offset, alpha = UNSUNG_ALPHA)
+                        if (edge > slice.left) {
+                            val featherStart = if (revealed >= row.end) edge else (edge - FEATHER.toPx()).coerceAtLeast(row.left)
+                            if (featherStart > slice.left) clipRect(right = minOf(slice.right, featherStart), top = row.top - peak, bottom = row.bottom) {
+                                drawImage(images.text, topLeft = offset)
+                            }
+                            if (revealed < row.end) {
+                                val width = (edge - featherStart) / 16f
+                                for (step in 0 until 16) {
+                                    val left = maxOf(slice.left, featherStart + step * width)
+                                    val right = minOf(slice.right, featherStart + (step + 1) * width)
+                                    if (right > left) clipRect(left, row.top - peak, right, row.bottom) {
+                                        drawImage(images.text, topLeft = offset, alpha = 1f - (step + .5f) / 16f)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (images.glow != null && word != null && word.endMs - word.startMs >= GLOW_MIN_HELD_MS && lift > .02f) {
+                        val pad = GLOW_RADIUS.toPx() * 2
+                        clipRect(slice.left - pad, row.top - pad, slice.right + pad, row.bottom + pad) {
+                            drawImage(images.glow, topLeft = offset, alpha = lift)
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -236,93 +251,32 @@ private fun TextLayoutResult.xOn(offset: Int, row: Int): Float {
     }
 }
 
-private fun ContentDrawScope.drawSwept(layout: TextLayoutResult, revealed: Float, featherPx: Float) {
-    if (revealed <= 0f) return
-    if (revealed >= layout.layoutInput.text.length) {
-        drawContent()
-        return
-    }
-    for (row in 0 until layout.lineCount) {
+
+private class FluidRaster(val text: ImageBitmap, val glow: ImageBitmap?, val pad: Float)
+
+private class FluidSlice(val left: Float, val right: Float, val word: FluidWord?)
+private class FluidRow(val index: Int, val start: Int, val end: Int, val left: Float, val right: Float,
+    val top: Float, val bottom: Float, val slices: List<FluidSlice>)
+
+private fun buildFluidGeometry(layout: TextLayoutResult, timing: FluidTiming?): List<FluidRow> =
+    (0 until layout.lineCount).map { row ->
         val start = layout.getLineStart(row)
-        if (revealed <= start) return
         val end = layout.getLineEnd(row, visibleEnd = true)
-        val cut = revealed < end
-        val right = if (cut) {
-            val i = revealed.toInt().coerceIn(start, end)
-            val here = layout.xOn(i, row)
-            val next = layout.xOn((i + 1).coerceAtMost(end), row)
-            here + (next - here) * (revealed - i)
-        } else layout.getLineRight(row)
-        // A whole row's height of headroom so lifted words aren't shaved off at the top.
-        val top = layout.getLineTop(row) - WORD_RISE.toPx()
-        val bottom = layout.getLineBottom(row)
-        clipRect(layout.getLineLeft(row), top, right, bottom) { this@drawSwept.drawContent() }
-        if (cut) {
-            clipRect(top = top, bottom = bottom) {
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        0f to Color.White,
-                        1f to Color.Transparent,
-                        startX = (right - featherPx).coerceAtLeast(layout.getLineLeft(row)),
-                        endX = right
-                    ),
-                    blendMode = BlendMode.DstIn
-                )
-            }
-        }
-    }
-}
-
-/** Redraws each lifted word slice a little higher; everything else is drawn flat. */
-private fun ContentDrawScope.drawRisen(layout: TextLayoutResult, timing: FluidTiming, pos: Long, peak: Float) {
-    for (row in 0 until layout.lineCount) {
-        val rowStart = layout.getLineStart(row)
-        val rowEnd = layout.getLineEnd(row, visibleEnd = true)
-        val top = layout.getLineTop(row)
-        val bottom = layout.getLineBottom(row)
-        var flatFrom = layout.getLineLeft(row)
-        for (word in timing.words) {
-            val s = maxOf(word.start, rowStart)
-            val e = minOf(word.end, rowEnd)
+        val left = layout.getLineLeft(row)
+        val right = layout.getLineRight(row)
+        val slices = mutableListOf<FluidSlice>()
+        var from = left
+        for (word in timing?.words.orEmpty()) {
+            val s = maxOf(start, word.start)
+            val e = minOf(end, word.end)
             if (s >= e) continue
-            val lift = timing.lift(word, pos)
-            if (lift <= 0.01f) continue
-            val from = layout.xOn(s, row)
-            val to = layout.xOn(e, row)
-            if (to <= from) continue
-            if (from > flatFrom) clipRect(flatFrom, top, from, bottom) { this@drawRisen.drawContent() }
-            clipRect(from, top - peak, to, bottom) {
-                translate(top = -lift * peak) { this@drawRisen.drawContent() }
-            }
-            flatFrom = to
+            val wordLeft = layout.xOn(s, row)
+            val wordRight = layout.xOn(e, row)
+            if (wordRight <= wordLeft) continue
+            if (wordLeft > from) slices += FluidSlice(from, wordLeft, null)
+            slices += FluidSlice(wordLeft, wordRight, word)
+            from = wordRight
         }
-        val rowRight = layout.getLineRight(row)
-        if (rowRight > flatFrom) clipRect(flatFrom, top, rowRight, bottom) { this@drawRisen.drawContent() }
+        if (right > from) slices += FluidSlice(from, right, null)
+        FluidRow(row, start, end, left, right, layout.getLineTop(row), layout.getLineBottom(row), slices)
     }
-}
-
-/** Lights the held words only, each at its own lift, so a quick line stays dark. */
-private fun ContentDrawScope.drawGlow(layout: TextLayoutResult, timing: FluidTiming, pos: Long) {
-    for (word in timing.words) {
-        if (word.endMs - word.startMs < GLOW_MIN_HELD_MS) continue
-        val strength = timing.lift(word, pos)
-        if (strength <= 0.02f) continue
-        for (row in 0 until layout.lineCount) {
-            val s = maxOf(word.start, layout.getLineStart(row))
-            val e = minOf(word.end, layout.getLineEnd(row, visibleEnd = true))
-            if (s >= e) continue
-            val from = layout.xOn(s, row)
-            val to = layout.xOn(e, row)
-            val pad = GLOW_RADIUS.toPx() * 2
-            clipRect(from - pad, layout.getLineTop(row) - pad, to + pad, layout.getLineBottom(row) + pad) {
-                // drawContent ignores alpha, so fade the glow by drawing it into a translucent layer.
-                drawContext.canvas.saveLayer(
-                    androidx.compose.ui.geometry.Rect(from - pad, layout.getLineTop(row) - pad, to + pad, layout.getLineBottom(row) + pad),
-                    androidx.compose.ui.graphics.Paint().apply { alpha = GLOW_ALPHA * strength }
-                )
-                translate(top = -strength * WORD_RISE.toPx()) { this@drawGlow.drawContent() }
-                drawContext.canvas.restore()
-            }
-        }
-    }
-}
