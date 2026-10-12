@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +40,7 @@ data class TitleBarActions(
     val accountMenu: (@Composable () -> Unit)? = null,
     val openImport: () -> Unit = {},
     val openDiscord: () -> Unit = {},
+    val openStats: () -> Unit = {},
     /** The search field centred in the bar; null hides it. */
     val search: (@Composable () -> Unit)? = null,
 )
@@ -54,7 +56,12 @@ fun WindowTitleBar(
     captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
     maximizeHovered: Boolean = false, searchBounds: (Rect) -> Unit = {}
 ) {
-    Box(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
+    // Where the left controls end and the right ones start, so the centred search never covers them.
+    var leftEnd by remember { mutableStateOf(0f) }
+    var rightStart by remember { mutableStateOf(Float.MAX_VALUE) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
+        val barWidth = with(density) { maxWidth.toPx() }
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.home).padding(start = 10.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -65,9 +72,10 @@ fun WindowTitleBar(
             }
             ChromeButton(Icons.Outlined.ChevronLeft, "Back", actions.back, actions.canGoBack, 34)
             ChromeButton(Icons.Outlined.ChevronRight, "Forward", actions.forward, actions.canGoForward, 34)
-            ChromeButton(Icons.Outlined.Refresh, "Refresh", actions.refresh, enabled = actions.canRefresh, width = 34)
+            ChromeButton(Icons.Outlined.Refresh, "Refresh", actions.refresh, enabled = actions.canRefresh, width = 34,
+                modifier = Modifier.onGloballyPositioned { leftEnd = it.boundsInParent().right })
             Spacer(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { captionBounds(it.boundsInWindow()) })
-            Box {
+            Box(Modifier.onGloballyPositioned { rightStart = it.boundsInParent().left }) {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 com.auralis.music.windows.profile.YouTubeAccountAvatar(actions.accountAvatar, Modifier.size(26.dp))
@@ -79,6 +87,7 @@ fun WindowTitleBar(
             }
             actions.accountMenu?.invoke()
             }
+            ChromeButton(Icons.Outlined.BarChart, "Stats", actions.openStats, width = 34)
             ChromeButton(com.auralis.music.ui.components.LocalBrandImages.current.discord(), "Discord", actions.openDiscord, width = 34)
             Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)
@@ -91,7 +100,16 @@ fun WindowTitleBar(
                 modifier = Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
             ChromeButton(Icons.Outlined.Close, "Close", close, closeButton = true)
         }
-        if (actions.search != null) Box(Modifier.align(Alignment.Center).fillMaxWidth(0.42f).widthIn(min = 320.dp, max = 620.dp).height(34.dp)
+        // Centred and up to 620dp when that clears both sides by 12dp; in a narrow window, the free
+        // gap between them instead, so it never covers the account or the buttons.
+        val desired = minOf(maxWidth * 0.42f, 620.dp).coerceAtLeast(320.dp)
+        val centredRoom = with(density) { (2f * minOf(barWidth / 2f - leftEnd, rightStart - barWidth / 2f) - 24.dp.toPx()).toDp() }
+        val gapStart = with(density) { (leftEnd + 12.dp.toPx()).toDp() }
+        val gap = with(density) { (rightStart - leftEnd - 24.dp.toPx()).toDp() }
+        val centred = centredRoom >= minOf(desired, 360.dp)
+        val searchWidth = if (centred) minOf(desired, centredRoom) else minOf(desired, gap)
+        if (actions.search != null && searchWidth >= 140.dp) Box((if (centred) Modifier.align(Alignment.Center)
+            else Modifier.align(Alignment.CenterStart).offset(x = gapStart)).width(searchWidth).height(34.dp)
             .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(Color(0xFF242026)))
     }

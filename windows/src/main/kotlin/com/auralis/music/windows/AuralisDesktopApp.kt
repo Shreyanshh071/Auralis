@@ -329,11 +329,10 @@ fun AuralisDesktopApp(
             stores.appearance.updateSettings(current.copy(playerBackgroundStyle = "Dynamic", lyricsTextPosition = "Left"))
             libraryFlags.putStrings(mapOf("spicy_player_defaults" to "1"))
         }
-        // The Spicy Lyrics word animation the user asked for, once; Appearance > Lyrics style after.
-        if (libraryFlags.getString("spicy_lyrics_style", "0") != "1") {
-            val current = stores.appearance.settingsFlow.first()
-            stores.appearance.updateSettings(current.copy(lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS.displayName))
-            libraryFlags.putStrings(mapOf("spicy_lyrics_style" to "1"))
+        // The Spicy Lyrics style was removed (2026-10-12); whoever had it moves to Auralis (Fluid).
+        stores.appearance.settingsFlow.first().let { current ->
+            if (current.lyricsAnimation.contains("spicy", ignoreCase = true)) stores.appearance.updateSettings(
+                current.copy(lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.FLUID.displayName))
         }
     }
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -451,6 +450,7 @@ fun AuralisDesktopApp(
                     },
                     openImport = { showPlayer = false; browse.clear(); destination = DesktopDestination.IMPORT },
                     openDiscord = { showPlayer = false; browse.clear(); destination = DesktopDestination.DISCORD },
+                    openStats = { showPlayer = false; browse.clear(); destination = DesktopDestination.STATS },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
                     canRefresh = true
                 ))
@@ -713,7 +713,8 @@ internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination
                     if (collapsed) "Expand navigation" else "Collapse navigation")
             }
         }
-        DesktopDestination.entries.filter { it !in setOf(DesktopDestination.SEARCH, DesktopDestination.SETTINGS, DesktopDestination.IMPORT, DesktopDestination.DISCORD) }.forEach { item ->
+        // Stats opens from the title bar (beside Discord), not the sidebar.
+        DesktopDestination.entries.filter { it !in setOf(DesktopDestination.SEARCH, DesktopDestination.SETTINGS, DesktopDestination.IMPORT, DesktopDestination.DISCORD, DesktopDestination.STATS) }.forEach { item ->
             SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) }, collapsed = collapsed)
         }
         SidebarItem(DesktopDestination.SETTINGS, isSelected = selected == DesktopDestination.SETTINGS,
