@@ -319,3 +319,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Removed the obsolete Liquidify background switch from Themes and colours and described the automatic behaviour there. Search surfaces also use their artwork treatment independently of the old preference.
 - Compilation and MSI packaging passed (1m44s). Existing artwork renderer and light/dark foreground handling are reused; no new test for this small presentation setting change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-always-artwork-20261012-141241.
+
+## Remove Windows artwork toggles — 2026-10-12
+
+- Removed Hide player artwork, Crop player artwork and Black mini-player from Windows Appearance settings.
+- Windows full-screen player always displays its standard cover, and the bottom player bar uses its normal theme surface. Removed the hidden-cover-only transport row and black-bar theme override, so old saved values cannot activate the removed features.
+- No remaining references to these three preference fields in windows/src/main. Compilation and MSI packaging passed (1m43s). Android and the shared backup preference format were kept intact.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-remove-artwork-options-20261012-141657.
