@@ -360,14 +360,28 @@ fun AuralisDesktopApp(
     val settingsPlatform = remember(playback) {
         com.auralis.music.windows.settings.DesktopSettingsPlatform(playback, history, searchRepository, discord = discordControl)
     }
-    val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(queue?.current?.thumbnail)
     val liquidify by com.auralis.music.windows.settings.DesktopLiquidify.enabled.collectAsState()
+    val backgroundLibrary by libraryViewModel.uiState.collectAsState()
+    val playlistCover = when (val page = browse.top) {
+        is com.auralis.music.desktop.browse.BrowsePage.Album -> page.album.thumbnail
+            ?: page.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+        null -> if (destination == DesktopDestination.LIBRARY) backgroundLibrary.selectedPlaylist?.let { playlist ->
+            playlist.coverUrl?.takeIf { it.isNotBlank() }
+                ?: playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+        } else null
+        else -> null
+    }
+    // With an empty player, the open playlist supplies the browsing backdrop.
+    val backgroundArtwork = if (queue?.current == null) playlistCover else if (liquidify) queue?.current?.thumbnail else null
+    val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(backgroundArtwork ?: queue?.current?.thumbnail)
     val initialSidebars = remember { SidebarLayoutPreferences.load() }
     var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
     var rightSidebarWidth by remember { mutableStateOf(initialSidebars.right) }
     var leftCollapsed by remember { mutableStateOf(initialSidebars.leftCollapsed) }
     // The Your Library row last opened, highlighted while its page shows.
     var selectedLibraryKey by remember { mutableStateOf<String?>(null) }
+    // The playlist whose options are open (right-click in Your Library).
+    var playlistMenu by remember { mutableStateOf<com.auralis.music.domain.model.Playlist?>(null) }
     var rightCollapsed by remember { mutableStateOf(initialSidebars.rightCollapsed) }
     // The right panel shows Now playing, or lyrics / the queue from the player bar's buttons.
     var sidePanel by remember { mutableStateOf(com.auralis.music.windows.player.SidePanel.NOW_PLAYING) }
@@ -382,7 +396,7 @@ fun AuralisDesktopApp(
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
-    com.auralis.music.windows.player.ArtworkAppBackground(if (liquidify) queue?.current?.thumbnail else null, artworkPalette) {
+    com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette) {
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
