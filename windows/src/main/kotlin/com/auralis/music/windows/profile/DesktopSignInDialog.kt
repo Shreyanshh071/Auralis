@@ -54,7 +54,8 @@ internal fun SignInGlassSurface(content: @Composable () -> Unit) {
     Surface(shape = MaterialTheme.shapes.extraLarge,
         color = androidx.compose.ui.graphics.Color(0xFF141318).copy(alpha = .60f),
         contentColor = androidx.compose.ui.graphics.Color.White,
-        tonalElevation = 0.dp, shadowElevation = 24.dp,
+        // No shadow: through the translucent glass it showed as a square inside the rounded panel.
+        tonalElevation = 0.dp, shadowElevation = 0.dp,
         border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = .12f))) {
         Box {
             Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
