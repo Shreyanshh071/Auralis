@@ -107,8 +107,7 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
-                    if (!appearance.hidePlayerThumbnail) CoverWithControls(playback, artworkUrl, track?.title, coverSize,
-                        if (appearance.cropAlbumArt) ContentScale.Crop else ContentScale.Fit)
+                    CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
                     Spacer(Modifier.height(22.dp))
                     PlayerSeekBar(playback, Modifier.width(coverSize))
                     Spacer(Modifier.height(18.dp))
@@ -134,7 +133,6 @@ fun PlayerScreen(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.width(coverSize)
                     )
-                    if (appearance.hidePlayerThumbnail) Transport(playback)
                 }
                 if (wide) {
                     Column(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -315,38 +313,6 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun Transport(playback: DesktopPlaybackController) {
-    val state by playback.state.collectAsState()
-    val queue by playback.queue.collectAsState()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-    ) {
-        // Sizes from the phone's classic player: 64dp skip targets, 76dp play/pause.
-        IconButton(onClick = playback::previous, modifier = Modifier.size(64.dp)) {
-            ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
-        }
-        Spacer(Modifier.width(20.dp))
-        IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(76.dp)) {
-            if (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING) {
-                ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 36.dp))
-            } else {
-                ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 38.dp))
-            }
-        }
-        Spacer(Modifier.width(20.dp))
-        IconButton(onClick = playback::next, enabled = queue.hasNext, modifier = Modifier.size(64.dp)) {
-            ClassicSkipGlyph(
-                forward = true,
-                color = Color.White.copy(alpha = if (queue.hasNext) 1f else 0.4f),
-                modifier = Modifier.size(width = 46.dp, height = 28.dp)
-            )
         }
     }
 }

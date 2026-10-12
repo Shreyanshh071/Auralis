@@ -59,10 +59,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
             }
         }
         item { BackgroundCards(settings.playerBackgroundStyle) { update { copy(playerBackgroundStyle = it) } } }
-        item { Toggle("Hide player artwork", settings.hidePlayerThumbnail) { update { copy(hidePlayerThumbnail = it) } } }
-        item { Toggle("Crop player artwork", settings.cropAlbumArt) { update { copy(cropAlbumArt = it) } } }
         item { Choice("Seek bar", settings.playerSliderStyle, listOf("Wavy", "Slim", "Squiggly", "Default")) { update { copy(playerSliderStyle = it) } } }
-        item { Toggle("Black mini-player", settings.pureBlackMiniPlayer) { update { copy(pureBlackMiniPlayer = it) } } }
         item { Text("Lyrics", style = MaterialTheme.typography.titleLarge) }
         item {
             val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,

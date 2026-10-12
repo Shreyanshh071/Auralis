@@ -59,24 +59,19 @@ import com.auralis.music.windows.search.DesktopArtwork
 @Composable
 fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {},
     onOpenQueue: () -> Unit = onOpenPlayer, onOpenLyrics: () -> Unit = onOpenPlayer) {
-    val normal = MaterialTheme.colorScheme
-    val black = com.auralis.music.ui.theme.LocalAppearanceSettings.current.pureBlackMiniPlayer
-    val colors = if (black) normal.copy(surface = androidx.compose.ui.graphics.Color.Black,
-        onSurface = androidx.compose.ui.graphics.Color.White, onSurfaceVariant = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f)) else normal
-    MaterialTheme(colorScheme = colors) { NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue, onOpenLyrics) }
+    NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue, onOpenLyrics)
 }
 
 @Composable
 private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit,
     onOpenQueue: () -> Unit, onOpenLyrics: () -> Unit) {
-    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(88.dp)
-            .background(if (appearance.pureBlackMiniPlayer) androidx.compose.ui.graphics.Color.Black else colors.surface)
+            .background(colors.surface)
             .padding(horizontal = 20.dp)
     ) {
         if (controller == null) {
