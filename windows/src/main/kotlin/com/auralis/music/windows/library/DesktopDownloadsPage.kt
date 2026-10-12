@@ -79,7 +79,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(enabled = values.any(downloads::available), onClick = {
                     val tracks = values.filter(downloads::available).map { it.track }
-                    tracks.firstOrNull()?.let { playback?.playFrom(it, tracks) }
+                    tracks.firstOrNull()?.let { playback?.playFrom(it, tracks, automatic = false) }
                 }) { Text("Play downloaded") }
                 TextButton(onClick = { selected?.let(downloads::retry) }) { Text("Retry failed") }
                 TextButton(onClick = { selected?.let(downloads::removeGroup); selected = null }) { Text("Remove folder downloads") }
@@ -88,7 +88,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                 items(values, key = { it.key }) { e ->
                     val available = downloads.available(e)
                     Column(Modifier.fillMaxWidth().clickable(enabled = available) {
-                        playback?.playFrom(e.track, values.filter(downloads::available).map { it.track })
+                        playback?.playFrom(e.track, values.filter(downloads::available).map { it.track }, automatic = false)
                     }.padding(12.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {

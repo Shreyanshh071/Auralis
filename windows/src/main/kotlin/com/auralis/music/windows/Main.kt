@@ -90,6 +90,8 @@ fun main(args: Array<String>) {
     // once audio starts, excluding failed stream lookups.
     val library = com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
     val history = com.auralis.music.desktop.library.DesktopHistoryRepository(java.io.File(dataDir, "history.json"), library)
+    val radioRecommendations = com.auralis.music.windows.player.DesktopRadioRecommendations(history)
+    playback?.radioCandidates = radioRecommendations::candidates
     val listeningStats = com.auralis.music.desktop.library.DesktopListeningStats(java.io.File(dataDir, "listening-stats.json"))
     val recorderScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     val privacyState = stores.privacy.settingsFlow.stateIn(recorderScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, kotlinx.coroutines.runBlocking { stores.privacy.settingsFlow.first() })
@@ -99,6 +101,7 @@ fun main(args: Array<String>) {
             com.auralis.music.desktop.playback.DesktopStreamResolver.quality = settings.audioQuality
             playback.setRate(settings.playbackRate)
             playback.preloadNext = settings.gaplessPlayback
+            playback.autoLoadMore = settings.autoLoadMore
         }
     }
     val together = com.auralis.music.windows.together.DesktopTogether(playback, com.auralis.music.windows.together.FirestoreRest.fromResource(), recorderScope)

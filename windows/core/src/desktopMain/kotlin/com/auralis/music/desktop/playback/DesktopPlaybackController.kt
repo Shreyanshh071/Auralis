@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -44,10 +45,24 @@ class DesktopPlaybackController(
 
     private val _queue = MutableStateFlow(Queue())
     val queue: StateFlow<Queue> = _queue.asStateFlow()
+    @Volatile var radioCandidates: suspend (Track) -> List<Track> = { emptyList() }
+    @Volatile var autoLoadMore: Boolean = true
+        set(value) {
+            field = value
+            if (value) autoRadio.queueChanged() else autoRadio.cancelPending()
+        }
+    private val autoRadio = DesktopAutoRadio(scope, { _queue.value },
+        { autoLoadMore && roomControl == null }, { radioCandidates(it) },
+        { batch -> _queue.update { q -> q.copy(tracks = q.tracks + batch.filter { song -> q.tracks.none { it.id == song.id } }) } },
+        { val q = _queue.value; if (q.hasNext) load(q.copy(index = q.index + 1)) })
     private val _session = MutableStateFlow(0L)
     val session: StateFlow<Long> = _session.asStateFlow()
     /** Active rooms route guest controls to the host instead of changing local playback. */
     @Volatile var roomControl: ((String, Track?, Long) -> Boolean)? = null
+        set(value) {
+            field = value
+            if (value != null) autoRadio.cancelPending()
+        }
     private val applyingRoom = ThreadLocal.withInitial { false }
     fun <T> fromRoom(block: () -> T): T {
         val before = applyingRoom.get()
@@ -114,7 +129,10 @@ class DesktopPlaybackController(
         }
         player.onFinished = { scope.launch {
             if (roomControl != null) { if (_queue.value.hasNext) next() }
-            else _queue.value.afterFinished(_repeatMode.value)?.let { load(it) }
+            else {
+                val next = _queue.value.afterFinished(_repeatMode.value)
+                if (next != null) load(next) else autoRadio.request(advanceWhenLoaded = true)
+            }
         } }
         player.onError = {
             scope.launch {
@@ -133,8 +151,11 @@ class DesktopPlaybackController(
         }
     }
 
-    fun playFrom(track: Track, list: List<Track>) {
+    fun playSingle(track: Track) = playFrom(track, listOf(track), automatic = true)
+
+    fun playFrom(track: Track, list: List<Track>, automatic: Boolean = list.size <= 1) {
         if (intercepted("play_track", track)) return
+        autoRadio.reset(automatic)
         val tracks = list.ifEmpty { listOf(track) }
         val index = tracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
         consecutiveFailures = 0
@@ -164,6 +185,7 @@ class DesktopPlaybackController(
         val q = _queue.value
         if (q.hasNext) load(q.copy(index = q.index + 1))
         else if (roomControl == null && q.current != null && _repeatMode.value == RepeatMode.ALL) load(q.copy(index = 0))
+        else autoRadio.request(advanceWhenLoaded = true)
     }
 
     /** Like the phone: restarts the song when more than 3 seconds in, otherwise goes back one. */
@@ -231,6 +253,7 @@ class DesktopPlaybackController(
         if (index !in q.tracks.indices || index == q.index) return
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
         _queue.value = Queue(tracks, if (index < q.index) q.index - 1 else q.index)
+        autoRadio.queueChanged()
     }
 
     /** Audio outputs for the player bar's device picker (id to name), and the chosen one. */
@@ -252,6 +275,7 @@ class DesktopPlaybackController(
     }
 
     fun release() {
+        autoRadio.reset(false)
         preloadJob?.cancel()
         loadJob?.cancel()
         player.release()
@@ -263,6 +287,7 @@ class DesktopPlaybackController(
         if (!isRetry) retriedTrackId = null
         lengthTrackId.value = null
         _queue.value = q
+        autoRadio.queueChanged()
         loadJob?.cancel()
         preloadJob?.cancel()
         player.stop()

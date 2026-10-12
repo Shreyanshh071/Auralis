@@ -76,7 +76,7 @@ fun DesktopLibrary(
                 else viewModel.selectPlaylist(playlist?.id, playlist)
             },
             onTrackClick = { track, list ->
-                if (playback != null) playback.playFrom(track, list) else showMessage("Playback needs VLC")
+                if (playback != null) playback.playFrom(track, list, automatic = false) else showMessage("Playback needs VLC")
             },
             onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
             onAddToPlaylist = viewModel::addTrackToPlaylist,

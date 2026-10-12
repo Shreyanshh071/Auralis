@@ -48,18 +48,11 @@ fun BrowsePages(
     val currentTrackId = queue?.current?.id
     val isPlaying = state == VlcAudioPlayer.State.PLAYING
     val play: (com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit = { track, list ->
-        if (playback != null) playback.playFrom(track, list) else onUnavailable("Playback needs VLC")
+        if (playback != null) playback.playFrom(track, list, automatic = false) else onUnavailable("Playback needs VLC")
     }
     // A song's radio: the song, then the radio engine's picks, without blocked artists.
     val startRadio: (com.auralis.music.domain.model.Track) -> Unit = { track ->
-        scope.launch {
-            val radio = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { com.auralis.music.data.network.InnerTubeClient().getRadioTracks(track.id, track.artist, track.title) }
-                    .getOrDefault(emptyList())
-            }
-            play(track, (listOf(track) + radio.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it) })
-                .distinctBy { it.id })
-        }
+        playback?.playSingle(track)
     }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         AnimatedContent(

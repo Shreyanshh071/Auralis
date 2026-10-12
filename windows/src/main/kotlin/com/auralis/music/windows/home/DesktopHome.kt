@@ -79,7 +79,7 @@ internal fun DesktopHome(
         paging.reset(if (state.isLoading) emptyList() else state.dynamicSections)
     }
     val play: (Track, List<Track>) -> Unit = { track, tracks ->
-        if (playback != null) playback.playFrom(track, tracks) else showMessage("Playback needs VLC")
+        if (playback != null) playback.playFrom(track, tracks, automatic = false) else showMessage("Playback needs VLC")
     }
     fun withAlbumTracks(album: PlaylistResult, action: suspend (List<Track>) -> Unit) {
         scope.launch {
@@ -98,12 +98,11 @@ internal fun DesktopHome(
         moreSections = pageState.sections,
         currentTrackId = queue?.current?.id,
         isPlaying = playing,
-        onPlay = play,
+        onPlay = { track, _ -> if (playback != null) playback.playSingle(track) else showMessage("Playback needs VLC") },
         onShortcut = { item ->
             when (item.type) {
                 SpeedDialType.TRACK -> item.track?.let { track ->
-                    val tracks = desktopHomeContent(state).shortcuts.mapNotNull { it.track }
-                    play(track, tracks.ifEmpty { listOf(track) })
+                    playback?.playSingle(track)
                 }
                 SpeedDialType.ALBUM -> {
                     val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image, item.artistQuery)
@@ -127,7 +126,7 @@ internal fun DesktopHome(
         } },
         onMenu = { menuTrack = it },
         onSearch = onNavigateToSearch,
-        onSurprise = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
+        onSurprise = { viewModel.getRandomSurpriseTrack()?.let { playback?.playSingle(it) } },
         onChip = viewModel::toggleChip,
         onAlbumMenu = { album ->
             val local = playlists.firstOrNull { "local:${it.id}" == album.id }

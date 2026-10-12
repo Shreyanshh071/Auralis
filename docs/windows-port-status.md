@@ -484,3 +484,15 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Capture the initiating press at the app root in Compose window pixels before child click handlers run. Both options popup hosts use that captured point instead of polling the later OS cursor/focused window; a cursor move after the click no longer moves the menu. Initial-pass recording does not consume the press. Existing edge flipping/clamping keeps menus on screen.
 - :windows:test --tests *SongMenuPositionTest* passed all four tests in 25s, including a real Compose pointer/click test at 150 percent density with nested padding, cursor movement after clicking, a second song click, bottom-right flipping and a small-window constraint.
 - Packaging/install: :windows:packageMsi passed in 2m35s. Installed 1.0.0 after normal shutdown with backup C:/Users/shrey/Downloads/Auralis-checkpoints/before-compact-song-menu-20261012-195206; all 70 checked data files and the existing shortcut were preserved. Installed app code matches the release.
+
+
+## 2026-10-12: Automatic single-song queue
+
+- Windows now starts a single-song radio session with the selected track plus up to fourteen recommendations (fifteen total), and requests another fourteen when one upcoming track remains, i.e. on the fourteenth song of the first batch. Manual Next or natural completion can wait for an already-running refill and advance once it arrives.
+- Home song selections, song shortcuts, Search/results/dropdown, History and Start radio use this mode. Explicit Library/album/download lists retain their own queue, including one-track albums/playlists; Listen Together queues do not receive automatic recommendations. The existing Auto load more setting controls the behavior.
+- Uses the same InnerTube radio provider as Android, with recent heavy rotation/history/liked songs and then artist-search fallback. Blocked artists and queued track IDs are excluded; each append is capped at fourteen. Fewer songs are possible when providers and local fallback do not have fourteen unused candidates.
+- Queue generations cancel/discard stale requests on a new selection, one in-flight refill prevents duplicate batches, manual additions during loading are preserved, and disabling autoplay or entering a room prevents a late append.
+- Verification: :windows:test --tests *DesktopAutoRadioTest* passed all four tests (final rebuild 22s), exercising initial/refill counts, no early refill, duplicate removal, a single concurrent request, manual additions during loading, end-of-queue advancement, disabled settings/room policy, stale queue cancellation and disabling/re-enabling autoplay during a request.
+
+Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 70 checked data files were preserved; installed application and core jar hashes match the build. Desktop shortcut preserved.
+
