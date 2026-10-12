@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import com.kyant.backdrop.backdrops.layerBackdrop
+
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
@@ -501,7 +503,9 @@ fun AuralisDesktopApp(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
+                    val dockBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
                     Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface)) {
+                        Box(Modifier.fillMaxSize().layerBackdrop(dockBackdrop)) {
                         androidx.compose.runtime.key(refreshTick) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {
@@ -630,6 +634,7 @@ fun AuralisDesktopApp(
                                 onDismiss = { menuTrack = null }
                             )
                         }
+                        }
                         // The phone's dock, floating over the page: the pages that used to be in the sidebar.
                         GlassDock(
                             selected = destination.takeIf { browse.top == null && it in DockTabs },
@@ -643,7 +648,8 @@ fun AuralisDesktopApp(
                                 }
                                 destination = tab
                             },
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp)
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
+                            backdrop = dockBackdrop
                         )
                         androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 92.dp))
                     }
@@ -723,8 +729,8 @@ fun AuralisDesktopApp(
 }
 
 /** The dock's tabs: the pages the sidebar used to list (Listen Together and Stats are in the title bar). */
-internal val DockTabs = listOf(DesktopDestination.HOME, DesktopDestination.LIBRARY, DesktopDestination.HISTORY,
-    DesktopDestination.WRAPPED, DesktopDestination.PROFILE, DesktopDestination.SETTINGS)
+internal val DockTabs = listOf(DesktopDestination.HOME, DesktopDestination.LIBRARY,
+    DesktopDestination.WRAPPED, DesktopDestination.SETTINGS)
 
 @Composable
 private fun NotBuiltYet(title: String, detail: String) {
