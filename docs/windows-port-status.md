@@ -312,3 +312,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Uses the playlist cover first, then a track thumbnail when the cover is absent. Browse playlist/album pages also supply their own cover. A loaded song retains the existing song-background behaviour.
 - Rendered and visually inspected the real playlist detail screen with its blurred cover behind the header and track table: windows/build/screens/playlist-header.png. Compilation, preview rendering and MSI packaging passed. No new tests for this reversible presentation change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-idle-20261012-140715.
+
+## Automatic artwork backgrounds in every theme — 2026-10-12
+
+- Removed the Liquidify gate from the app artwork backdrop: current-song artwork now supplies the changing blurred background in every theme mode. An open playlist/album cover remains the fallback when no current artwork is available.
+- Removed the obsolete Liquidify background switch from Themes and colours and described the automatic behaviour there. Search surfaces also use their artwork treatment independently of the old preference.
+- Compilation and MSI packaging passed (1m44s). Existing artwork renderer and light/dark foreground handling are reused; no new test for this small presentation setting change.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-always-artwork-20261012-141241.

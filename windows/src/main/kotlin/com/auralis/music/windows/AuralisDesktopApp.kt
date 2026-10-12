@@ -360,7 +360,6 @@ fun AuralisDesktopApp(
     val settingsPlatform = remember(playback) {
         com.auralis.music.windows.settings.DesktopSettingsPlatform(playback, history, searchRepository, discord = discordControl)
     }
-    val liquidify by com.auralis.music.windows.settings.DesktopLiquidify.enabled.collectAsState()
     val backgroundLibrary by libraryViewModel.uiState.collectAsState()
     val playlistCover = when (val page = browse.top) {
         is com.auralis.music.desktop.browse.BrowsePage.Album -> page.album.thumbnail
@@ -371,8 +370,8 @@ fun AuralisDesktopApp(
         } else null
         else -> null
     }
-    // With an empty player, the open playlist supplies the browsing backdrop.
-    val backgroundArtwork = if (queue?.current == null) playlistCover else if (liquidify) queue?.current?.thumbnail else null
+    // Artwork backgrounds are always active, independent of the selected theme mode.
+    val backgroundArtwork = queue?.current?.thumbnail?.takeIf { it.isNotBlank() } ?: playlistCover
     val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(backgroundArtwork ?: queue?.current?.thumbnail)
     val initialSidebars = remember { SidebarLayoutPreferences.load() }
     var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
@@ -475,7 +474,7 @@ fun AuralisDesktopApp(
                             onAddToQueue = { playback?.addToQueue(it) },
                             onMenuClick = { menuTrack = it },
                             onTypingChange = { typing = it },
-                            liquidify = liquidify,
+                            liquidify = true,
                             artwork = queue?.current?.thumbnail
                         )
                     },
