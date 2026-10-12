@@ -93,6 +93,14 @@ fun main(args: Array<String>) {
         }
     }.getOrDefault(com.auralis.music.ui.theme.DefaultArtworkPalette)
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "playlist-header" to {
+            com.auralis.music.ui.library.LibraryScreen(
+                currentTrackId = null, isPlaying = false,
+                uiState = com.auralis.music.ui.viewmodel.LibraryUiState(selectedPlaylist =
+                    com.auralis.music.domain.model.Playlist("sp_preview", "gili gili", tracks = previewSongs.take(16), coverUrl = previewSongs.firstOrNull()?.thumbnail)),
+                onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
+                onTrackClick = { _, _ -> }, onFavoriteToggle = {})
+        },
         "youtube-library" to {
             Row(Modifier.fillMaxSize()) {
                 Box(Modifier.width(232.dp).fillMaxHeight()) {
