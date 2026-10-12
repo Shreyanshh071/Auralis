@@ -478,7 +478,7 @@ fun AuralisDesktopApp(
                     accountLabel = if (youtubeSignedIn) youtubeState.identity?.name ?: "YouTube Music" else accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: "Sign in",
                     accountAvatar = if (youtubeSignedIn) youtubeState.identity?.avatar else null,
                     accountMenu = {
-                        if (showYouTubeAccounts) com.auralis.music.windows.profile.YouTubeAccountMenu(youtubeState,
+                        com.auralis.music.windows.profile.YouTubeAccountMenu(expanded = showYouTubeAccounts, state = youtubeState,
                             onSelect = { youtubeLibrary.switchAccount(it); showYouTubeAccounts = false },
                             onRemove = youtubeLibrary::removeAccount,
                             onAdd = { showYouTubeAccounts = false; showSignIn = true },
