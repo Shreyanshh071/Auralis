@@ -15,6 +15,9 @@ import kotlinx.coroutines.launch
 class DesktopSearchState(private val repository: SearchRepository, private val scope: CoroutineScope, private val mayRecordHistory: suspend () -> Boolean = { true }) {
     var query by mutableStateOf("")
         private set
+    /** The committed route remains stable while the title-bar field is being edited. */
+    var submittedQuery by mutableStateOf<String?>(null)
+        private set
     var results by mutableStateOf(SearchResults())
         private set
     var isSearching by mutableStateOf(false)
@@ -97,6 +100,7 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
         query = trimmed
+        submittedQuery = trimmed
         hasSubmitted = true
         searchFailed = false
         // A recent identical search shows complete at once while it refreshes.

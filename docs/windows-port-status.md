@@ -439,3 +439,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - User clarified that the moving glow should increase, rather than card dimensions. Increased only Shortcut aura brightness from 0.45 to 0.78 and saturation from 1.4 to 1.7. Existing animation, card dimensions, text, artwork, full player and sidebar rendering retain their settings.
 - This is a visual parameter adjustment; package compilation and installed-code/data verification follow.
 - MSI build passed (2m36s); installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-glow-20261012-185525. All 69 checked data files preserved and installed app code matches release.
+
+## Search Back navigation — 2026-10-12
+
+- Focusing title-bar search via Ctrl+F or Home's search action no longer navigates to an empty Search page before a query is submitted.
+- Navigation entries now retain the committed search query, independently of edits/clearing in the title bar. Back/Forward restores that submitted query/results when necessary, without adding a recent-history entry. Distinct submitted queries retain their own route identity; album/artist pages keep the query they came from.
+- Three DesktopNavigationTest checks passed, covering multiple queries, result-to-album Back/Forward, Home return, forward-history truncation and metadata loading without extra navigation steps.
+- MSI build passed (2m40s). Installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-search-navigation-20261012-190102; all 69 checked data files preserved and installed app code matches the release.
