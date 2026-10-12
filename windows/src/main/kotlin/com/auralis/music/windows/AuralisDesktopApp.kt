@@ -644,8 +644,9 @@ fun AuralisDesktopApp(
                                     onPlayNext = { playback?.playNext(it) }, onAddToQueue = { playback?.addToQueue(it) }
                                 )
                             }
-                            DesktopDestination.STATS, DesktopDestination.WRAPPED -> com.auralis.music.windows.history.ListeningStatsPage(
-                                listeningStats, playback, destination == DesktopDestination.WRAPPED,
+                            DesktopDestination.WRAPPED -> Box(Modifier.fillMaxSize())
+                            DesktopDestination.STATS -> com.auralis.music.windows.history.ListeningStatsPage(
+                                listeningStats, playback, false,
                                 onBack = { navigation.back()?.let(::restoreRoute) ?: run { destination = DesktopDestination.HOME } },
                                 onOpenWrapped = { destination = DesktopDestination.WRAPPED },
                                 search = backgroundSearch,
@@ -762,10 +763,16 @@ fun AuralisDesktopApp(
                         com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS }
                 )
             }
+            if (destination == DesktopDestination.WRAPPED) {
+                Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)) {
+                    com.auralis.music.windows.wrapped.DesktopWrappedPage(listeningStats, library, backgroundSearch,
+                        onClose = { destination = DesktopDestination.STATS })
+                }
+            }
             // The full player slides up over everything, like the phone's player sheet.
             androidx.compose.animation.AnimatedVisibility(
                 modifier = Modifier.padding(top = TITLE_BAR_HEIGHT),
-                visible = showPlayer && playback != null && lyrics != null,
+                visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
                 enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } +
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)),
                 exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(320)) { it } +

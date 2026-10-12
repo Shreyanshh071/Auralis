@@ -530,7 +530,7 @@ fun ExperimentalLyricsView(
         else -> Alignment.CenterHorizontally
     }
     val baseLyricSize = 34f
-    val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.58f).dp
+    val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f) * 0.58f).dp
 
     val mergedLyricsList = remember(effectiveLines) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
@@ -1120,7 +1120,7 @@ fun ExperimentalLyricsView(
                                     isSelected = selectedIndices.contains(index),
                                     isSelectionModeActive = isSelectionModeActive,
                                     currentPositionState = currentPositionState,
-                                    lyricsTextSize = baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f),
+                                    lyricsTextSize = baseLyricSize * (appearance.lyricsTextSize / 22f),
                                     lyricsLineSpacing = appearance.lyricsLineSpacing.coerceIn(1.1f, 1.6f),
                                     expressiveAccent = Color.White,
                                     lyricsTextPosition = appearance.lyricsTextPosition,
@@ -1382,8 +1382,11 @@ fun ExperimentalLyricsLine(
     val alignBackgroundCentered = line.isBackground && useAgentSides
     // Appearance > Lyrics style: MetroLyrics, Auralis (Fluid) or Apple Music (Letter by Letter).
     val animationMode = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
-    val baseTopPadding = if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp
-    val baseBottomPadding = if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp
+    // Trimmed text removes leading around single-line lyrics; apply the spacing preference
+    // between lyric rows too, so it remains visible when a line does not wrap.
+    val spacingAdjustment = (lyricsTextSize * (lyricsLineSpacing - 1.3f) / 2f).dp
+    val baseTopPadding = ((if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
+    val baseBottomPadding = ((if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
     // A little extra air where the singer changes, so each speaker's lines read as one group.
     val speakerChangeGap = if (speakerSide != null && speakerStyle.isRunStart && index > 0 && !line.isBackground && isSynced) {
         MetroSpeakerChangeGap
@@ -1592,7 +1595,7 @@ fun ExperimentalLyricsLine(
                 val effectiveLineHeight = if (line.isBackground) {
                     (effectiveFontSize.value * lyricsLineSpacing).sp
                 } else if (!isSynced) {
-                    (effectiveFontSize.value * 1.35f).sp
+                    (effectiveFontSize.value * lyricsLineSpacing).sp
                 } else {
                     (effectiveFontSize.value * lyricsLineSpacing).sp
                 }

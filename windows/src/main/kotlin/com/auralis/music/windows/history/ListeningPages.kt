@@ -162,7 +162,7 @@ fun ListeningStatsPage(
                     if (!wrapped) IconButton(onClick = onOpenWrapped) { Icon(Icons.Rounded.AutoAwesome, "Your Wrapped") }
                     Box {
                         IconButton(onClick = { statsMenu = true }) { Icon(Icons.Default.MoreVert, "Stats options") }
-                        DropdownMenu(statsMenu, onDismissRequest = { statsMenu = false }) {
+                        com.auralis.music.windows.GlassDropdownMenu(statsMenu, onDismissRequest = { statsMenu = false }) {
                             DropdownMenuItem(text = { Text("Clear listening stats") }, enabled = events.isNotEmpty(),
                                 leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
                                 onClick = { statsMenu = false; confirmClear = true })
@@ -177,7 +177,7 @@ fun ListeningStatsPage(
                             StatsPill(selected = false, onClick = { optionMenu = true }) {
                                 Text(option.label); Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
                             }
-                            DropdownMenu(optionMenu, onDismissRequest = { optionMenu = false }) {
+                            com.auralis.music.windows.GlassDropdownMenu(optionMenu, onDismissRequest = { optionMenu = false }) {
                                 StatsOption.entries.forEach { entry ->
                                     DropdownMenuItem(text = { Text(entry.label) }, onClick = { option = entry; chip = 0; optionMenu = false })
                                 }

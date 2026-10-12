@@ -3,6 +3,7 @@ package com.auralis.music.windows.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -53,15 +54,32 @@ import com.auralis.music.windows.search.DesktopArtwork
 fun QueueView(playback: DesktopPlaybackController, modifier: Modifier = Modifier) {
     val queue by playback.queue.collectAsState()
     val state by playback.state.collectAsState()
-    val listState = rememberLazyListState()
-    val historyCount = queue.index.coerceAtLeast(0)
+    QueueList(queue, state == VlcAudioPlayer.State.PLAYING, playback::playAt, playback::removeAt,
+        playback::clearHistory, playback::togglePlayPause, modifier)
+}
+
+@Composable
+internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolean,
+    onPlayAt: (Int) -> Unit, onRemoveAt: (Int) -> Unit, onClearHistory: () -> Unit, onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()) {
+    val upcomingStart = queue.index.coerceAtLeast(0)
+    val history = queue.history
+    val historyCount = history.size
+    var initiallyPositioned by remember { mutableStateOf(false) }
 
     // Open on the playing song, as the phone's queue does.
-    LaunchedEffect(Unit) {
-        if (historyCount > 0) listState.scrollToItem(historyCount + 1)
+    LaunchedEffect(queue.current != null) {
+        if (!initiallyPositioned && queue.current != null) {
+            if (historyCount > 0) listState.scrollToItem(historyCount + 1)
+            initiallyPositioned = true
+        }
     }
 
-    LazyColumn(state = listState, modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
+    // Keep enough trailing room to open at Continue Playing even with only one song left.
+    val trailing = (maxHeight - 56.dp * (queue.tracks.size - upcomingStart) - 24.dp).coerceAtLeast(24.dp)
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = trailing)) {
         if (historyCount > 0) {
             item(key = "history_header") {
                 QueueSectionHeader("History", action = {
@@ -71,29 +89,31 @@ fun QueueView(playback: DesktopPlaybackController, modifier: Modifier = Modifier
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = playback::clearHistory)
+                            .clickable(onClick = onClearHistory)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 })
             }
-            items(historyCount, key = { "h$it:${queue.tracks[it].id}" }) { i ->
-                QueueRow(queue.tracks[i], isCurrent = false, isPlaying = false, onClick = { playback.playAt(i) }, onRemove = { playback.removeAt(i) })
+            items(historyCount, key = { "h${history[it].index}:${history[it].value.id}" }) { offset ->
+                val (i, track) = history[offset]
+                QueueRow(track, isCurrent = false, isPlaying = false, onClick = { onPlayAt(i) }, onRemove = { onRemoveAt(i) })
             }
         }
         item(key = "continue_header") {
             QueueSectionHeader("Continue Playing", modifier = Modifier.padding(top = if (historyCount > 0) 10.dp else 0.dp))
         }
-        items(queue.tracks.size - historyCount, key = { "u${it + historyCount}:${queue.tracks[it + historyCount].id}" }) { offset ->
-            val i = offset + historyCount
+        items(queue.tracks.size - upcomingStart, key = { "u${it + upcomingStart}:${queue.tracks[it + upcomingStart].id}" }) { offset ->
+            val i = offset + upcomingStart
             QueueRow(
                 queue.tracks[i],
                 isCurrent = i == queue.index,
-                isPlaying = state == VlcAudioPlayer.State.PLAYING,
-                onClick = { if (i == queue.index) playback.togglePlayPause() else playback.playAt(i) },
-                onRemove = if (i == queue.index) null else ({ playback.removeAt(i) })
+                isPlaying = isPlaying,
+                onClick = { if (i == queue.index) onToggle() else onPlayAt(i) },
+                onRemove = if (i == queue.index) null else ({ onRemoveAt(i) })
             )
         }
     }
+}
 }
 
 @Composable

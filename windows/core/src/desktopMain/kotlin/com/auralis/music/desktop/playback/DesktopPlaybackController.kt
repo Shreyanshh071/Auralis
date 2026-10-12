@@ -24,7 +24,8 @@ class DesktopPlaybackController(
     private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
 ) {
     enum class RepeatMode { OFF, ALL, ONE }
-    data class Queue(val tracks: List<Track> = emptyList(), val index: Int = -1) {
+    data class Queue(val tracks: List<Track> = emptyList(), val index: Int = -1, val listenedIndices: Set<Int> = emptySet()) {
+        val history: List<IndexedValue<Track>> get() = tracks.withIndex().take(index.coerceAtLeast(0)).filter { it.index in listenedIndices }
         val current: Track? get() = tracks.getOrNull(index)
         val hasNext: Boolean get() = index in 0 until tracks.lastIndex
         fun afterFinished(repeat: RepeatMode): Queue? = when {
@@ -78,7 +79,7 @@ class DesktopPlaybackController(
         !applyingRoom.get() && roomControl?.invoke(action, track, position) == true
 
     fun syncRoomQueue(tracks: List<Track>, index: Int) {
-        if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = Queue(tracks, index)
+        if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = _queue.value.copy(tracks = tracks, index = index)
     }
 
     /** Rearrange only upcoming songs; keep the playing track, history and stream untouched. */
@@ -86,7 +87,7 @@ class DesktopPlaybackController(
         if (roomControl != null) return // The room host owns the shared queue order.
         val queue = _queue.value
         if (!queue.hasNext) return
-        _queue.value = queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled())
+        _queue.value = queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled(), listenedIndices = queue.listenedIndices.filter { it <= queue.index }.toSet())
     }
 
     /** True while the stream URL for the current song is being looked up. */
@@ -130,7 +131,10 @@ class DesktopPlaybackController(
         // Only sound counts as success: a failure streak ends when audio actually plays, not when
         // a URL is handed to libVLC (it reports a refused stream a moment later).
         scope.launch {
-            player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) consecutiveFailures = 0 }
+            player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) {
+                consecutiveFailures = 0
+                _queue.update { q -> q.current?.let { q.copy(listenedIndices = q.listenedIndices + q.index) } ?: q }
+            } }
         }
         player.onFinished = { scope.launch {
             if (roomControl != null) { if (_queue.value.hasNext) next() }
@@ -231,7 +235,7 @@ class DesktopPlaybackController(
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
         val tracks = q.tracks.toMutableList().apply { add(q.index + 1, track) }
-        _queue.value = q.copy(tracks = tracks)
+        _queue.value = q.copy(tracks = tracks, listenedIndices = q.listenedIndices.map { if (it > q.index) it + 1 else it }.toSet())
     }
 
     /** Adds [track] to the end of the queue (or plays it when nothing is queued). */
@@ -257,7 +261,8 @@ class DesktopPlaybackController(
         val q = _queue.value
         if (index !in q.tracks.indices || index == q.index) return
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
-        _queue.value = Queue(tracks, if (index < q.index) q.index - 1 else q.index)
+        _queue.value = q.copy(tracks = tracks, index = if (index < q.index) q.index - 1 else q.index,
+            listenedIndices = q.listenedIndices.filter { it != index }.map { if (it > index) it - 1 else it }.toSet())
         autoRadio.queueChanged()
     }
 
@@ -271,7 +276,7 @@ class DesktopPlaybackController(
         if (intercepted("edit_queue")) return
         val q = _queue.value
         if (q.index <= 0) return
-        _queue.value = Queue(q.tracks.drop(q.index), 0)
+        _queue.value = q.copy(tracks = q.tracks.drop(q.index), index = 0, listenedIndices = emptySet())
     }
 
     fun setVolume(volume: Float) {

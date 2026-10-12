@@ -186,7 +186,16 @@ private fun PanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit) {
 }
 
 @Composable
+internal fun rememberPlayerLyricsAppearance(): AppearanceSettings {
+    val appearanceStore = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
+    val appearance = appearanceStore?.settingsFlow?.collectAsState(appearanceStore.getInitialSettings())?.value
+        ?: LocalAppearanceSettings.current
+    return appearance.copy(lyricsTextSize = appearance.lyricsTextSize * 1.35f)
+}
+
+@Composable
 internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
+    val appearance = rememberPlayerLyricsAppearance()
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
@@ -207,9 +216,7 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
         else -> CompositionLocalProvider(
             LocalLyricsUi provides DesktopLyricsUi,
             // Larger desktop presentation; retain the user's chosen renderer and size preference.
-            LocalAppearanceSettings provides LocalAppearanceSettings.current.let {
-                it.copy(lyricsTextSize = it.lyricsTextSize * 1.35f)
-            }
+            LocalAppearanceSettings provides appearance
         ) {
             ExperimentalLyricsView(
                 lyrics = data,
