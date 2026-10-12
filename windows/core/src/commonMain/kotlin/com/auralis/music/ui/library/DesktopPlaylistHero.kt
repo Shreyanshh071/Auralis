@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.SavedAlbum
 
@@ -40,16 +41,16 @@ internal fun DesktopPlaylistHero(playlist: Playlist, savedAlbums: List<SavedAlbu
                 unfocusedBorderColor = Color.White.copy(alpha = .16f),
                 focusedBorderColor = Color.White.copy(alpha = .45f),
                 unfocusedContainerColor = Color.Black.copy(alpha = .24f), focusedContainerColor = Color.Black.copy(alpha = .24f)))
-        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(24.dp),
+        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
             verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            Box(Modifier.size(156.dp).clip(RoundedCornerShape(10.dp))) { PlaylistCoverArt(playlist, savedAlbums, 10.dp) }
+            Box(Modifier.size(184.dp).clip(RoundedCornerShape(10.dp))) { PlaylistCoverArt(playlist, savedAlbums, 10.dp) }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("PLAYLIST", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = .66f))
                     if (playlist.id.startsWith("sp_") || playlist.id.startsWith("imported:spotify:"))
                         Text("FROM SPOTIFY", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = .66f))
                 }
-                Text(playlist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
+                Text(playlist.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, fontSize = 32.sp,
                     color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .68f))
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -397,3 +397,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Compose desktop popup coordinates already include the popup position. Actual Popup rendering tests caught double-offset sampling and an empty display-list recording; both corrected before release. Verified spatial crop, striped-background blur, live page changes, sharp foreground detail and recording cleanup on dismissal. Existing dock rendering check also passed.
 - No GPU screenshot readback; capture uses Compose graphics layers. MSI is installed only after a full app-data backup and data/hash checks.
 - Full app-data backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-popup-glass-20261012-163348. Installed main/core jars match the release; all 68 checked data files preserved.
+
+## Playlist header sizing — 2026-10-12
+
+- Increased Windows playlist covers from 156 to 184 dp and names from 26 to 32 sp, retaining Auralis typography.
+- Reduced the header content's bottom inset from 24 to 8 dp, shifting cover/details down 16 dp and reducing the gap above track headings.
+- Visually inspected the rendered playlist-header.png; build and installer verification recorded below.
+- Render/MSI build passed (5m39s). Installed with full backup at C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-size-20261012-164305; all 68 checked data files preserved.
