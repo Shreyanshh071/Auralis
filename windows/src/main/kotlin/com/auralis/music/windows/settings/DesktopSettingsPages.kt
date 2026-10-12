@@ -14,6 +14,9 @@ import com.auralis.music.domain.model.AudioQuality
 import com.auralis.music.domain.model.PlayerSettings
 import com.auralis.music.ui.theme.CuratedPalettes
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Desktop pages expose controls with Windows implementations; unsupported phone controls are named. */
 @Composable
@@ -39,7 +42,10 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
     val store = LocalSettingsStores.current.appearance
     val settings by store.settingsFlow.collectAsState(store.getInitialSettings())
     val scope = rememberCoroutineScope()
-    fun update(transform: AppearanceSettings.() -> AppearanceSettings) { scope.launch { store.updateSettings(settings.transform()) } }
+    val updates = remember { Mutex() }
+    fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
+        scope.launch { updates.withLock { store.updateSettings(store.settingsFlow.first().transform()) } }
+    }
     var showThemes by remember { mutableStateOf(false) }
     var showSliderStyles by remember { mutableStateOf(false) }
     if (showSliderStyles) com.auralis.music.ui.screens.PlayerSliderStyleChooserDialog(
@@ -81,8 +87,8 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
             Choice("Lyrics style", current.displayName, styles.map { it.displayName }) { update { copy(lyricsAnimation = it) } }
         }
         item { Choice("Text position", settings.lyricsTextPosition, listOf("Left", "Centre", "Right")) { update { copy(lyricsTextPosition = it) } } }
-        item { Text("Text size: ${settings.lyricsTextSize.toInt()}"); Slider(settings.lyricsTextSize, { update { copy(lyricsTextSize = it) } }, valueRange = 14f..36f) }
-        item { Text("Line spacing: ${"%.1f".format(settings.lyricsLineSpacing)}"); Slider(settings.lyricsLineSpacing, { update { copy(lyricsLineSpacing = it) } }, valueRange = 1.1f..1.6f) }
+        item { ResponsiveSettingsSlider("Text size", settings.lyricsTextSize, 14f..36f, { it.toInt().toString() }) { value -> update { copy(lyricsTextSize = value) } } }
+        item { ResponsiveSettingsSlider("Line spacing", settings.lyricsLineSpacing, 1.1f..1.6f, { "%.1f".format(it) }) { value -> update { copy(lyricsLineSpacing = value) } } }
         item { Toggle("Blur surrounding lyrics", settings.standardLyricsBlur) { update { copy(standardLyricsBlur = it) } } }
         item { Toggle("Tap lyrics to seek", settings.changeLyricsOnTap) { update { copy(changeLyricsOnTap = it) } } }
         item { Toggle("Automatically scroll lyrics", settings.autoScrollLyrics) { update { copy(autoScrollLyrics = it) } } }
@@ -179,4 +185,18 @@ private fun Choice(title: String, selected: String, options: List<String>, selec
                 }
             }
         }, confirmButton = { TextButton(onClick = { expanded = false }) { Text("Cancel") } })
+}
+
+/** Pointer movement updates only this control; persist one value when the gesture ends. */
+@Composable
+internal fun ResponsiveSettingsSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>,
+    format: (Float) -> String, onCommit: (Float) -> Unit) {
+    var draft by remember { mutableFloatStateOf(value) }
+    var dragging by remember { mutableStateOf(false) }
+    LaunchedEffect(value) { if (!dragging) draft = value }
+    Column {
+        Text("$label: ${format(draft)}")
+        Slider(value = draft, onValueChange = { dragging = true; draft = it },
+            onValueChangeFinished = { dragging = false; onCommit(draft) }, valueRange = range)
+    }
 }
