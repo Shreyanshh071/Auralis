@@ -268,7 +268,13 @@ class DesktopPlaybackController(
         loadJob = scope.launch {
             _resolving.value = true
             val url = try {
-                resolveStream(track.id)
+                val videoId = DesktopPlaybackMatch.videoId(track)
+                if (videoId == null) null else resolveStream(videoId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                com.auralis.music.util.Log.w("DesktopPlayback", "Playback lookup failed for ${track.id}: ${e.javaClass.simpleName}")
+                null
             } finally {
                 _resolving.value = false
             }
@@ -283,7 +289,12 @@ class DesktopPlaybackController(
                 lengthTrackId.value = track.id
                 if (preloadNext && q.hasNext) {
                     preloadJob?.cancel()
-                    preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { resolveStream(q.tracks[q.index + 1].id) }
+                    preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val next = q.tracks[q.index + 1]
+                        // Do not start extra searches for unmatched imports in the background.
+                        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id) ?: next.id
+                        if (DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)
+                    }
                 }
             }
         }
@@ -296,7 +307,7 @@ class DesktopPlaybackController(
             next()
         } else if (consecutiveFailures >= 3) {
             com.auralis.music.util.Log.w("DesktopPlayback", "Stopped skipping after $consecutiveFailures songs in a row failed")
-            _errors.tryEmit(if (com.auralis.music.data.network.YouTubeBackoff.active)
+            _errors.tryEmit(if (DesktopPlaybackMatch.isVideoId(track.id) && com.auralis.music.data.network.YouTubeBackoff.active)
                 "YouTube is temporarily blocking requests from this network. Try again in a few minutes or switch networks."
                 else "Playback isn't working right now. Check your connection and try again.")
         }
