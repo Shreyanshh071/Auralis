@@ -37,7 +37,9 @@ internal fun DesktopHome(
     familiarArtists: List<FamiliarArtist> = emptyList()
 ) {
     val savedArtists by library.getSavedArtists().collectAsState(emptyList())
-    val followedIds = remember(savedArtists) { savedArtists.map { it.id }.toSet() }
+    val savedArtistIds = remember(savedArtists) { savedArtists.map { it.id }.toSet() }
+    val blocked by com.auralis.music.desktop.library.DesktopBlockedArtists.artists.collectAsState()
+    val subscriptions = remember { ArtistSubscriptions() }
     val favorites by library.getFavoriteTracks().collectAsState(emptyList())
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
     val state by viewModel.uiState.collectAsState()
@@ -53,6 +55,7 @@ internal fun DesktopHome(
     val remote = remember { DesktopRemoteHome(scope) }
     val remoteState by remote.state.collectAsState()
     LaunchedEffect(youtubeSignedIn, youtubeAccount) { remote.refresh() }
+    LaunchedEffect(youtubeSignedIn, youtubeAccount, familiarArtists.map { it.id }) { subscriptions.load(familiarArtists.map { it.id }) }
     val platform = LocalPlatformActions.current
     val preferences = remember { com.auralis.music.util.PropertiesFileKeyValueStore(
         java.io.File(com.auralis.music.util.desktopAppDataDir(), "desktop-home.properties")) }
@@ -119,17 +122,50 @@ internal fun DesktopHome(
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         findMusic = findMusic,
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
-        quickPicks = quickPicks,
+        quickPicks = quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
         familiarArtists = familiarArtists,
-        followedArtistIds = followedIds,
         onOpenFamiliarArtist = { a -> browse.openArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)) },
-        onToggleFollowArtist = { a -> scope.launch {
-            if (a.id in followedIds) library.removeArtist(a.id)
-            else library.saveArtist(com.auralis.music.domain.model.SavedArtist(a.id, a.name, a.photo))
-        } },
+        familiarActions = FamiliarArtistActions(
+            subscribed = { subscriptions.subscribed(it.id) },
+            subscribeBusy = { subscriptions.busy(it.id) },
+            toggleSubscribe = { a -> scope.launch { subscriptions.toggle(a.id, a.name).takeIf { it.isNotBlank() }?.let(showMessage) } },
+            startRadio = { a -> scope.launch {
+                showMessage("Starting ${a.name} radio")
+                val tracks = artistRadioTracks(searchRepository, Artist(id = a.id, name = a.name, thumbnail = a.photo))
+                if (tracks.isEmpty()) showMessage("Couldn't start ${a.name} radio. Try again.") else play(tracks.first(), tracks)
+            } },
+            isShortcut = { it.id.isNotBlank() && it.id in state.pinnedSpeedDialIds },
+            toggleShortcut = { a ->
+                if (a.id.isBlank()) showMessage("Couldn't find ${a.name} on YouTube Music")
+                else showMessage(if (viewModel.togglePinArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)))
+                    "Added ${a.name} to shortcuts" else "Removed ${a.name} from shortcuts")
+            },
+            share = { a ->
+                if (a.id.isBlank()) showMessage("Couldn't find ${a.name} on YouTube Music")
+                else platform.shareText(a.name, "https://music.youtube.com/channel/${a.id}", "Share artist")
+            },
+            inLibrary = { it.id.isNotBlank() && it.id in savedArtistIds },
+            toggleLibrary = { a -> scope.launch {
+                when {
+                    a.id.isBlank() -> showMessage("Couldn't find ${a.name} on YouTube Music")
+                    a.id in savedArtistIds -> { library.removeArtist(a.id); showMessage("Removed ${a.name} from your library") }
+                    else -> { library.saveArtist(com.auralis.music.domain.model.SavedArtist(a.id, a.name, a.photo)); showMessage("Saved ${a.name} to your library") }
+                }
+            } },
+            block = { a ->
+                com.auralis.music.desktop.library.DesktopBlockedArtists.block(a.id.ifBlank { null }, a.name)
+                showMessage("Blocked ${a.name}. Unblock in Settings > Player & audio.")
+            }
+        ),
         favoriteIds = favoriteIds,
         onToggleFavorite = { track -> scope.launch { library.toggleFavorite(track) } },
-        serviceShelves = if (youtubeSignedIn) listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves else null,
+        serviceShelves = if (youtubeSignedIn) (listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves).map { shelf ->
+            // Blocked artists are left out of recommendations (Li Music's block list).
+            if (blocked.isEmpty()) shelf else shelf.copy(tracks = shelf.tracks.filterNot {
+                com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
+                albums = shelf.albums.filterNot { it.id.startsWith("UC") &&
+                    com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) })
+        } else null,
         serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
         serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
         serviceError = if (youtubeSignedIn) remoteState.error else null,

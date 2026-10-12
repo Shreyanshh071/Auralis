@@ -69,9 +69,8 @@ internal fun DesktopHomeScreen(
     quickPicks: List<Track> = emptyList(),
     /** The listener's most-played artists (Familiar Artists, in place of Quick picks). */
     familiarArtists: List<FamiliarArtist> = emptyList(),
-    followedArtistIds: Set<String> = emptySet(),
     onOpenFamiliarArtist: (FamiliarArtist) -> Unit = {},
-    onToggleFollowArtist: (FamiliarArtist) -> Unit = {},
+    familiarActions: FamiliarArtistActions? = null,
     favoriteIds: Set<String> = emptySet(),
     onToggleFavorite: (Track) -> Unit = {}
 ) {
@@ -128,7 +127,8 @@ internal fun DesktopHomeScreen(
                 }
             }
             if (familiarArtists.size >= 3) item("familiar-artists") {
-                FamiliarArtistsRow(familiarArtists, followedArtistIds, onOpenFamiliarArtist, onToggleFollowArtist)
+                FamiliarArtistsRow(familiarArtists, onOpenFamiliarArtist, familiarActions ?: FamiliarArtistActions(
+                    { null }, { false }, {}, {}, { false }, {}, {}, { false }, {}, {}))
             } else if (quickPicks.isNotEmpty()) item("most-played") {
                 QuickPicksGrid(quickPicks, currentTrackId, isPlaying, favoriteIds, onPlay, onMenu, onToggleFavorite)
             }

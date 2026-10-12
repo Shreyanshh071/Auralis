@@ -95,7 +95,7 @@ fun FindMusicDropdown(
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val gap = with(density) { (if (bar) 34.dp else if (compact) 46.dp else 72.dp).roundToPx() }
+    val gap = with(density) { (if (bar) 40.dp else if (compact) 46.dp else 72.dp).roundToPx() }
     val position = remember(gap, bar) {
         object : androidx.compose.ui.window.PopupPositionProvider {
             override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect,
@@ -116,14 +116,14 @@ fun FindMusicDropdown(
         if (bar) {
             val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             val hovered by hover.collectIsHoveredAsState()
-            Row(Modifier.fillMaxSize().clip(RoundedCornerShape(50))
+            Row(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
                 .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f))
                 .hoverable(hover)
                 .clickable(interactionSource = hover, indication = null) { if (expanded) dismiss() else { mounted = true; expanded = true } }
                 .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Search, null, Modifier.size(16.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
-                Text("What do you want to play?", fontSize = 13.sp, color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+                Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
+                Text("What do you want to play?", fontSize = 14.sp, color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
             }
         } else
         if (compact) androidx.compose.material3.IconButton(onClick = {
@@ -174,7 +174,7 @@ fun FindMusicDropdown(
                 }
                 // Use the already cached cover for the frosted backdrop. GPU readback of the
                 // whole window here stalled the event thread before the first popup frame.
-                SearchDropdownSurface(liquidify, artwork, Modifier.width(if (bar) 520.dp else 480.dp).height(460.dp)
+                SearchDropdownSurface(liquidify, artwork, Modifier.width(if (bar) 620.dp else 480.dp).height(460.dp)
                     .then(Modifier.graphicsLayer {
                         // Make the very first painted frame visible, before the frame clock
                         // begins advancing the rest of the fade.

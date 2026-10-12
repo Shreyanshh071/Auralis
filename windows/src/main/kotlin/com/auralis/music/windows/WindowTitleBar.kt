@@ -43,6 +43,9 @@ data class TitleBarActions(
     val search: (@Composable () -> Unit)? = null,
 )
 
+/** The window's title bar height; tall enough to grab and drag to the top edge to maximize. */
+val TITLE_BAR_HEIGHT = 44.dp
+
 /** Compact desktop chrome. Report frame hit regions in physical client pixels to Windows. */
 @Composable
 fun WindowTitleBar(
@@ -51,7 +54,7 @@ fun WindowTitleBar(
     captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
     maximizeHovered: Boolean = false, searchBounds: (Rect) -> Unit = {}
 ) {
-    Box(Modifier.fillMaxWidth().height(36.dp).background(Color(0xFF0D0B0E))) {
+    Box(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.home).padding(start = 10.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -88,7 +91,7 @@ fun WindowTitleBar(
                 modifier = Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
             ChromeButton(Icons.Outlined.Close, "Close", close, closeButton = true)
         }
-        if (actions.search != null) Box(Modifier.align(Alignment.Center).fillMaxWidth(0.36f).widthIn(min = 280.dp, max = 460.dp).height(28.dp)
+        if (actions.search != null) Box(Modifier.align(Alignment.Center).fillMaxWidth(0.42f).widthIn(min = 320.dp, max = 620.dp).height(34.dp)
             .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(Color(0xFF242026)))
     }

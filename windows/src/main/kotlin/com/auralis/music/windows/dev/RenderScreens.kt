@@ -239,6 +239,12 @@ fun main(args: Array<String>) {
             }
         },
         "player-gradient" to { com.auralis.music.windows.player.PlayerBackdrop("Gradient", null, coverPalette) },
+        "familiar" to { Box(androidx.compose.ui.Modifier.padding(24.dp)) {
+            com.auralis.music.windows.home.FamiliarArtistsRow(listOf("Sidney Gish" to 14, "Kanye West" to 9, "Radiohead" to 7, "Arijit Singh" to 5, "KK" to 3, "Karan Aujla" to 2)
+                .mapIndexed { i, (name, plays) -> com.auralis.music.windows.home.FamiliarArtist(name, plays, "UCpreview$i", previewSongs.getOrNull(i)?.thumbnail) },
+                {}, com.auralis.music.windows.home.FamiliarArtistActions({ if (it.plays > 8) true else false }, { false }, {}, {}, { false }, {}, {}, { false }, {}, {}),
+                showControls = true)
+        } },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
             com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}, search = {
                 val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -275,7 +281,7 @@ fun main(args: Array<String>) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
             val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar" -> 36; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
+                height = when (name) { "titlebar" -> 44; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,

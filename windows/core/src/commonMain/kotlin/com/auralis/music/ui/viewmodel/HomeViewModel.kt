@@ -1429,7 +1429,55 @@ class HomeViewModel(
         return newPinnedState
     }
 
+    fun isArtistPinned(artistId: String): Boolean =
+        inMemoryPinnedItems.any { it.type == SpeedDialType.ARTIST && it.id == artistId }
+
+    /** Adds an artist to the Home shortcuts, or takes it back out (Li Music's "Add to shortcuts"). */
+    fun togglePinArtist(artist: com.auralis.music.domain.model.Artist): Boolean {
+        if (isArtistPinned(artist.id)) {
+            unpinFromSpeedDial(artist.id)
+            return false
+        }
+        val item = SpeedDialItem(id = artist.id, name = artist.name, type = SpeedDialType.ARTIST,
+            image = artist.thumbnail, artistQuery = artist.name, isPinned = true)
+        val updatedList = listOf(item) + inMemoryPinnedItems.filterNot { it.type == SpeedDialType.ARTIST && it.id == artist.id }
+        inMemoryPinnedItems = updatedList
+        _uiState.update { current ->
+            current.copy(
+                pinnedSpeedDialIds = computePinnedIds(updatedList),
+                speedDialPages = buildOptimisticSpeedDialPages(current.speedDialPages, updatedList)
+            )
+        }
+        val ctx = platform
+        viewModelScope.launch(ioDispatcher) {
+            pinPersistenceMutex.withLock {
+                ctx?.pinSpeedDialItem(item)
+                ctx?.saveSpeedDial(_uiState.value.speedDialPages)
+            }
+        }
+        return true
+    }
+
     fun unpinFromSpeedDial(itemId: String) {
+        // Artists (and any other id-keyed pin) come out by their id.
+        if (inMemoryPinnedItems.any { it.id == itemId && it.type == SpeedDialType.ARTIST }) {
+            val updatedList = inMemoryPinnedItems.filterNot { it.id == itemId && it.type == SpeedDialType.ARTIST }
+            inMemoryPinnedItems = updatedList
+            _uiState.update { current ->
+                current.copy(
+                    pinnedSpeedDialIds = computePinnedIds(updatedList),
+                    speedDialPages = buildOptimisticSpeedDialPages(current.speedDialPages, updatedList)
+                )
+            }
+            val ctx = platform
+            viewModelScope.launch(ioDispatcher) {
+                pinPersistenceMutex.withLock {
+                    ctx?.unpinSpeedDialItem(itemId)
+                    ctx?.saveSpeedDial(_uiState.value.speedDialPages)
+                }
+            }
+            return
+        }
         val isAlbum = SpeedDialIdHelper.isAlbumId(itemId) || inMemoryPinnedItems.any { it.id == itemId && it.type == SpeedDialType.ALBUM }
         val cleanAlbumId = itemId.removePrefix("album-").removePrefix("VL")
         val canonicalTrackId = SpeedDialIdHelper.getCanonicalTrackId(itemId)
