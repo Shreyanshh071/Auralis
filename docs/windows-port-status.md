@@ -369,3 +369,12 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Picker includes local playlists, saved artists and Familiar Artists. Local playlist tiles open the app's playlist page rather than remote album browsing. Current library metadata updates pinned covers/names/song counts.
 - Compiled, rendered and visually inspected windows/build/screens/shortcuts.png. MSI packaging passed (2m46s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcuts-20261012-153146.
+
+## Sidebar local and YouTube Music playlist creation — 2026-10-12
+
+- Added New playlist below Downloads. It opens an Auralis dialog with a name field and side-by-side YouTube Music / This device destinations, rather than LiMusic's stacked radio rows.
+- Inspected LiMusic commands.rs and innertube endpoints.rs: remote creation uses authenticated playlist/create with title and PRIVATE privacyStatus, reading the returned playlistId. Auralis uses its existing selected-account scoped YouTubeMusicClient; publishes/caches the new playlist in that account and opens it after confirmation. Account changes during the request are detected.
+- Device creation uses the existing local library repository and opens the created playlist. Busy state prevents repeat clicks/dismissal during writes; name validation and inline errors keep unconfirmed requests from being reported as success. YouTube creation waits for verified account loading to finish.
+- Seven YouTubeLibraryTest checks passed, including private create payload, selected auth-user/page, normalized browse ID, blank names and missing playlistId. Tests use fake transport; no live test playlist was created. Visually inspected windows/build/screens/create-playlist.png. Compilation/render/MSI build passed (3m9s).
+- Initial normal shutdown did not close Auralis; user explicitly authorized stopping its processes before installation.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-create-playlist-20261012-154107.

@@ -21,7 +21,7 @@ internal data class YouTubeIdentity(val name: String, val subtitle: String, val 
 internal data class YouTubeScope(val version: String = "1.20250101.01.00", val authUser: String = "0",
     val pageId: String? = null, val dataSyncId: String? = null, val visitor: String? = null)
 
-/** YouTube Music requests scoped to a snapshot of the selected browser session; the only write is subscribing. */
+/** YouTube Music requests scoped to a snapshot of the selected browser session; writes use the selected account. */
 internal class YouTubeMusicClient(
     private val cookie: String = YouTubeSession.authHeaders(ORIGIN)["Cookie"].orEmpty(),
     authUser: String = "0",
@@ -93,6 +93,16 @@ internal class YouTubeMusicClient(
     suspend fun setSubscribed(channelId: String, subscribed: Boolean) {
         post(if (subscribed) "subscription/subscribe" else "subscription/unsubscribe",
             JSONObject().put("channelIds", JSONArray().put(channelId)))
+    }
+
+    /** Create in the connected YouTube Music account, private until the user changes visibility. */
+    suspend fun createPlaylist(title: String): PlaylistResult {
+        val name = title.trim()
+        require(name.isNotBlank()) { "Enter a playlist name." }
+        val result = post("playlist/create", JSONObject().put("title", name).put("privacyStatus", "PRIVATE"))
+        val id = result.optString("playlistId").takeIf { it.isNotBlank() }
+            ?: error("YouTube did not confirm creation. Check your library before trying again.")
+        return PlaylistResult(if (id.startsWith("VL")) id else "VL$id", name)
     }
 
     suspend fun playlists(onPage: (List<PlaylistResult>) -> Unit): List<PlaylistResult> {

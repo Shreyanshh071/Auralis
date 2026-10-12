@@ -136,6 +136,7 @@ fun AuralisDesktopApp(
     val youtubeState by youtubeLibrary.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
+    var showCreatePlaylist by remember { mutableStateOf(false) }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
@@ -418,6 +419,22 @@ fun AuralisDesktopApp(
             }
         }
     ) {
+        if (showCreatePlaylist) com.auralis.music.windows.library.CreatePlaylistDialog(
+            youtubeAvailable = youtubeSignedIn && youtubeState.identity != null && !youtubeState.loading && youtubeState.error == null,
+            accountName = youtubeState.identity?.name,
+            onDismiss = { showCreatePlaylist = false },
+            onCreate = { name, onYouTube ->
+                if (onYouTube) {
+                    val created = youtubeLibrary.createPlaylist(name)
+                    openYouTubePlaylist(created)
+                } else {
+                    val created = library.createPlaylist(name)
+                    browse.clear(); showPlayer = false
+                    libraryViewModel.selectPlaylist(created.id, created)
+                    destination = DesktopDestination.LIBRARY
+                }
+                showUnavailable("Playlist created")
+            })
         if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account,
             onConnected = { youtubeLibrary.refresh(force = true) },
             onDisconnected = { youtubeState.activeId?.let(youtubeLibrary::removeAccount); youtubeLibrary.refresh(force = true) }) { showSignIn = false }
@@ -530,8 +547,9 @@ fun AuralisDesktopApp(
                                 else -> null
                             }, collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed },
                             onSelect = { page ->
-                                showPlayer = false; browse.clear(); selectedLibraryKey = null
+                                if (page != SidebarPage.NEW_PLAYLIST) { showPlayer = false; browse.clear(); selectedLibraryKey = null }
                                 when (page) {
+                                    SidebarPage.NEW_PLAYLIST -> showCreatePlaylist = true
                                     SidebarPage.HOME -> destination = DesktopDestination.HOME
                                     SidebarPage.HISTORY -> destination = DesktopDestination.HISTORY
                                     SidebarPage.LIBRARY -> {

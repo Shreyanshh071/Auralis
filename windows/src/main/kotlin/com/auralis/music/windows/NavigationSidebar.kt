@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.sp
 
 internal enum class SidebarPage(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Home), LIBRARY("Library", Icons.Outlined.LibraryMusic),
-    HISTORY("History", Icons.Outlined.History), DOWNLOADS("Downloads", Icons.Outlined.Download)
+    HISTORY("History", Icons.Outlined.History), DOWNLOADS("Downloads", Icons.Outlined.Download), NEW_PLAYLIST("New playlist", Icons.Outlined.Add)
 }
 
 @Composable

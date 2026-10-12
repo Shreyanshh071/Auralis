@@ -16,6 +16,34 @@ class YouTubeLibraryTest {
           {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Tame Impala"}]}}}
         ]}}"""
 
+    @Test fun createsPrivatePlaylistInSelectedAccountAndReturnsBrowseId() = runBlocking {
+        var writes = 0
+        val api = YouTubeMusicClient(cookie) { url, body, headers ->
+            if (body == null) """{"LOGGED_IN":true,"DATASYNC_ID":"channel||user","DELEGATED_SESSION_ID":"brand","SESSION_INDEX":2}"""
+            else {
+                writes++
+                assertTrue(url.contains("/playlist/create?"))
+                assertEquals("My playlist", body.getString("title"))
+                assertEquals("PRIVATE", body.getString("privacyStatus"))
+                assertEquals("2", headers["X-Goog-AuthUser"])
+                assertEquals("brand", headers["X-Goog-PageId"])
+                assertEquals(cookie, headers["Cookie"])
+                """{"playlistId":"PLcreated"}"""
+            }
+        }
+        api.resolveScope()
+        assertEquals(PlaylistResult("VLPLcreated", "My playlist"), api.createPlaylist("  My playlist  "))
+        assertEquals(1, writes, "Creation must not retry and produce duplicate playlists")
+    }
+    @Test fun rejectsBlankNamesAndUnconfirmedCreation() = runBlocking {
+        var writes = 0
+        val api = YouTubeMusicClient(cookie) { _, _, _ -> writes++; "{}" }
+        assertFailsWith<IllegalArgumentException> { api.createPlaylist("   ") }
+        assertEquals(0, writes)
+        assertFailsWith<IllegalStateException> { api.createPlaylist("Name") }
+        assertEquals(1, writes)
+    }
+
     @Test fun accountScopeComesFromSignedInShellAndUsesFreshAuthenticatedRequests() = runBlocking {
         val client = YouTubeMusicClient(cookie) { url, body, headers ->
             assertEquals(cookie, headers["Cookie"])
