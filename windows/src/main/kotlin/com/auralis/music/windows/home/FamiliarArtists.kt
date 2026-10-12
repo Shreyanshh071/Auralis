@@ -7,6 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -36,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 /** An artist the listener plays, with their own play count and (once looked up) photo and channel. */
 internal data class FamiliarArtist(val name: String, val plays: Int, val id: String = "", val photo: String? = null)
@@ -74,16 +78,25 @@ internal fun FamiliarArtistsRow(artists: List<FamiliarArtist>, onOpen: (Familiar
             Text("Familiar Artists", style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            // Six across at full width, then three, then two (whole rows only).
-            val columns = when { maxWidth >= 1000.dp -> 6; maxWidth >= 560.dp -> 3; else -> 2 }
-            val shown = artists.take(6)
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                shown.chunked(columns).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { artist ->
-                            ArtistPoster(artist, artists.indexOf(artist) + 1, { onOpen(artist) }, actions, Modifier.weight(1f), showControls)
-                        }
-                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            val list = rememberLazyListState()
+            val scope = rememberCoroutineScope()
+            val cardWidth = ((maxWidth - 60.dp) / 6).coerceIn(180.dp, 252.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(state = list, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    itemsIndexed(artists.take(10)) { index, artist ->
+                        ArtistPoster(artist, index + 1, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.IconButton(onClick = {
+                        scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
+                    }, enabled = list.canScrollBackward) {
+                        Icon(Icons.Outlined.ChevronLeft, "Previous artists")
+                    }
+                    androidx.compose.material3.IconButton(onClick = {
+                        scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex + 3).coerceAtMost(artists.take(10).lastIndex)) }
+                    }, enabled = list.canScrollForward) {
+                        Icon(Icons.Outlined.ChevronRight, "More artists")
                     }
                 }
             }
