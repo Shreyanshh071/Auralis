@@ -13,11 +13,11 @@ import org.jetbrains.skia.RuntimeShaderBuilder
 /** Compiled once per dock, filters rebuilt only on size/density changes. */
 internal class DockGlassEffect : AutoCloseable {
     private val effect = RuntimeEffect.makeForShader(DockLensShader)
-    fun create(width: Float, height: Float, padding: Float, density: Float): androidx.compose.ui.graphics.RenderEffect {
+    fun create(width: Float, height: Float, padding: Float, density: Float, cornerRadius: Float = height / 2f): androidx.compose.ui.graphics.RenderEffect {
         return RuntimeShaderBuilder(effect).use { builder ->
             builder.uniform("size", width, height)
             builder.uniform("offset", -padding, -padding)
-            val radius = height / 2f
+            val radius = cornerRadius.coerceAtMost(minOf(width, height) / 2f)
             builder.uniform("cornerRadii", radius, radius, radius, radius)
             builder.uniform("refractionHeight", 20f * density)
             builder.uniform("refractionAmount", -28f * density)

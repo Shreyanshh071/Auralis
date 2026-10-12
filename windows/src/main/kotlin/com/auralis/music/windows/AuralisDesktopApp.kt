@@ -396,8 +396,11 @@ fun AuralisDesktopApp(
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
-    com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette) {
+    val popupGlass = rememberPopupGlassSource()
+    com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette,
+        modifier = Modifier.recordPopupGlass(popupGlass)) {
     androidx.compose.runtime.CompositionLocalProvider(
+        LocalPopupGlassSource provides popupGlass,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
