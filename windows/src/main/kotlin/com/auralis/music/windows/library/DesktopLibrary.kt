@@ -25,7 +25,6 @@ import com.auralis.music.ui.viewmodel.LibraryViewModel
 import kotlinx.coroutines.launch
 
 /** The Library grid reads well up to about this wide; a playlist page sits in the same column. */
-private val LibraryMaxWidth = 1280.dp
 
 /**
  * The phone's Library screen on Windows: playlists, Liked and Most-played collections, saved
@@ -131,7 +130,8 @@ fun DesktopLibrary(
                     }
                 }
             },
-            modifier = Modifier.widthIn(max = LibraryMaxWidth).fillMaxWidth().fillMaxHeight()
+            // The whole panel, as the other pages: a centred column left empty bands either side.
+            modifier = Modifier.fillMaxSize()
         )
         if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {
             androidx.compose.material3.ExtendedFloatingActionButton(
