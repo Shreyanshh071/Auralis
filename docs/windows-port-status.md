@@ -553,3 +553,4 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Raised browsing artwork brightness from 45% to 68%, keeping the 48dp blur, 1.10x overscan, current-song switching and neutral translucent page surfaces.
 - Both artwork theme render checks passed: expected brighter white/blue cover pixels, preserved blue hue after song change and neutral panels without accent tint contamination.
+- MSI package passed (1m58s); installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-background-brightness-20261013-001949. All 73 checked data files preserved; installed app jar matches the build, desktop shortcut retained and Auralis relaunched.
