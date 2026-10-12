@@ -282,3 +282,8 @@ Inspected both supplied 240 fps recordings and sampled consecutive dot frames. T
 LyricsDotsMotionTest verifies more than 50 distinct frames in a 60-frame sequence, no alpha outside the solid dot edges, pause stability and seek reset. Focused dot/sidebar checks passed and rendered frames were inspected. Version remains 1.0.0.
 
 All 57 Windows tests passed; MSI packaging succeeded in 2m6s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-dots-motion-20261012-132752. All 65 checked non-cache user files and the shortcut were preserved; main and core installed modules match the release. Auralis was relaunched.
+
+### Larger full-screen player — 12 October 2026
+Increased the cover cap from 560 to 640 dp, widened its column to 44%, reduced outer gutters and retained width/height bounds for smaller windows. Full-screen lyrics use a 1.35 presentation multiplier on the selected text-size preference (about 46 sp at the default), with the selected renderer retained. Title/artist text increased to 34/22 sp, seek times to 17 sp, tabs to 16 sp and hover transport glyphs were enlarged. Saved settings and compact sidebar sizing are unchanged. Version remains 1.0.0.
+
+Compilation and MSI packaging passed in 1m32s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-player-size-20261012-133225. All 65 checked non-cache user files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.
