@@ -245,12 +245,18 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
     }
 }
 
-/** "Good morning, Name" at the top of Home, by the time of day; it moves on as the hour changes. */
+/**
+ * "Good morning, Name" at the top of Home, by the time of day with Li Music's hours: night before
+ * 5, morning before 12, afternoon before 18, evening after. Picked when Home opens, as Li Music
+ * does (a greeting that flips while you look at it is uncanny).
+ */
 @Composable
 private fun HomeGreeting(name: String?) {
-    var hour by remember { mutableStateOf(java.time.LocalTime.now().hour) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); hour = java.time.LocalTime.now().hour } }
-    val part = when (hour) { in 4..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
+    val part = remember {
+        when (java.time.LocalTime.now().hour) {
+            in 0..4 -> "Good night"; in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening"
+        }
+    }
     Text(if (name.isNullOrBlank()) part else "$part, ${name.trim()}",
         style = MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.3).sp),
         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
