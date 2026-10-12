@@ -89,4 +89,3 @@ class GlassDialogRenderTest {
         } finally { scene.close() }
     }
 }
-
