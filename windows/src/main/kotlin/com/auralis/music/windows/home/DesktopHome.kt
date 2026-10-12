@@ -34,7 +34,9 @@ internal fun DesktopHome(
     /** The listener's most-played songs (Quick picks). */
     quickPicks: List<Track> = emptyList(),
     /** The listener's most-played artists (Familiar Artists). */
-    familiarArtists: List<FamiliarArtist> = emptyList()
+    familiarArtists: List<FamiliarArtist> = emptyList(),
+    /** The listener's name for the greeting above Recents; null greets without one. */
+    greetingName: String? = null
 ) {
     val savedArtists by library.getSavedArtists().collectAsState(emptyList())
     val savedArtistIds = remember(savedArtists) { savedArtists.map { it.id }.toSet() }
@@ -124,6 +126,7 @@ internal fun DesktopHome(
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
         quickPicks = quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
         familiarArtists = familiarArtists,
+        greetingName = greetingName,
         onOpenFamiliarArtist = { a -> browse.openArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)) },
         familiarActions = FamiliarArtistActions(
             subscribed = { subscriptions.subscribed(it.id) },

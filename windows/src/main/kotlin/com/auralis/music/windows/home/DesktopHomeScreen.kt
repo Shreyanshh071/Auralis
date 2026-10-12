@@ -1,5 +1,7 @@
 package com.auralis.music.windows.home
 
+import androidx.compose.ui.layout.layout
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -69,6 +71,7 @@ internal fun DesktopHomeScreen(
     quickPicks: List<Track> = emptyList(),
     /** The listener's most-played artists (Familiar Artists, in place of Quick picks). */
     familiarArtists: List<FamiliarArtist> = emptyList(),
+    greetingName: String? = null,
     onOpenFamiliarArtist: (FamiliarArtist) -> Unit = {},
     familiarActions: FamiliarArtistActions? = null,
     favoriteIds: Set<String> = emptySet(),
@@ -100,6 +103,7 @@ internal fun DesktopHomeScreen(
         LazyColumn(Modifier.fillMaxSize(), state = scroll,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(34.dp)) {
+            item("greeting") { HomeGreeting(greetingName) }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeHeading("Recents", null, trailing = {
@@ -239,6 +243,22 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
         }
       }
     }
+}
+
+/** "Good morning, Name" at the top of Home, by the time of day; it moves on as the hour changes. */
+@Composable
+private fun HomeGreeting(name: String?) {
+    var hour by remember { mutableStateOf(java.time.LocalTime.now().hour) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); hour = java.time.LocalTime.now().hour } }
+    val part = when (hour) { in 4..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
+    Text(if (name.isNullOrBlank()) part else "$part, ${name.trim()}",
+        style = MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.3).sp),
+        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        // Sits closer to Recents than the 34dp between shelves (padding can't be negative).
+        modifier = Modifier.padding(top = 6.dp).layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints)
+            layout(placeable.width, (placeable.height - 18.dp.roundToPx()).coerceAtLeast(0)) { placeable.place(0, 0) }
+        })
 }
 
 /** Quick picks: a numbered three-column grid of the most-played songs, with like and options. */

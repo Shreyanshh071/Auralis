@@ -498,6 +498,9 @@ fun AuralisDesktopApp(
                                 tasteShelf = tasteShelf,
                                 quickPicks = quickPicks,
                                 familiarArtists = familiarArtists,
+                                // The greeting's name: the Auralis account's, else the YouTube account's.
+                                greetingName = accountState.profile?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: youtubeState.identity?.name?.takeIf { youtubeSignedIn && it.isNotBlank() },
                                 // Search lives in the title bar now; Home shows no search button.
                                 findMusic = {},
                             )
