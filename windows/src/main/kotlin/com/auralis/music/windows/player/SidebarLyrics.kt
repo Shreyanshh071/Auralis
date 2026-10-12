@@ -49,6 +49,17 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit) {
+    val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
+    val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
+    CompositionLocalProvider(LocalAppearanceSettings provides settings) {
+    SidebarLyricsContent(lyrics, position, onSeek)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit) {
+    val mode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
     val lines = remember(lyrics) {
         lyrics?.lines?.takeIf { it.isNotEmpty() }
             ?: lyrics?.plainLyrics?.lines()?.filter(String::isNotBlank)?.map { LyricLine(0, it) }.orEmpty()
@@ -93,7 +104,7 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
             if (introDurationMs > 0L) item(key = "intro") {
                 AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                     // Left, with the lyric text, as Spicy Lyrics places its dots.
-                    InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = true, horizontalAlignment = Alignment.Start,
+                    InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS, horizontalAlignment = Alignment.Start,
                         dotSize = 16.dp,
                         onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
                 }
@@ -102,7 +113,7 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                 // Spicy Lyrics' soft focus: lines blur and fade a little more the further they are
                 // from the one being sung, so they blend into the background.
                 val focus = if (active >= 0) active else 0
-                val distance = if (synced && !hovered) kotlin.math.abs(index - focus) else 0
+                val distance = if (mode == LyricsAnimationMode.METRO_LYRICS && synced && !hovered) kotlin.math.abs(index - focus) else 0
                 SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
@@ -140,19 +151,20 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             .then(if (blurAmount > 0.2.dp) Modifier.blur(blurAmount, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)) {
         val lyricStyle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
             fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily)
-        val timedActive = active && synced && line != null && position != null
-        if (timedActive && animationMode == LyricsAnimationMode.FLUID) {
+        if (synced && line != null && position != null && animationMode == LyricsAnimationMode.FLUID) {
             FluidLyricLine(line!!.copy(text = text),
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
-                positionMs = position!!, style = lyricStyle, isActive = true)
-        } else if (timedActive && animationMode == LyricsAnimationMode.APPLE_MUSIC_V2) {
+                positionMs = position!!, style = lyricStyle, isActive = active,
+                modifier = Modifier.graphicsLayer { this.alpha = if (active) 1f else alpha })
+        } else if (synced && line != null && position != null && animationMode == LyricsAnimationMode.APPLE_MUSIC_V2) {
             AppleMusicLyricsLine(isV2 = true, line = line!!.copy(text = text),
                 nextLineTime = line.effectiveEndTime ?: nextLineTime,
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
-                isActive = true, effectivePlaybackPosition = position!!.value,
+                isActive = active, effectivePlaybackPosition = position!!.value,
                 lineColor = Color.White, accentColor = Color.White,
                 textAlign = TextAlign.Left, alignment = Alignment.Start,
-                fontSizeSp = 24f, lineSpacingMultiplier = 1.25f, fontFamily = lyricStyle.fontFamily)
+                fontSizeSp = 24f, lineSpacingMultiplier = 1.25f, fontFamily = lyricStyle.fontFamily,
+                modifier = Modifier.graphicsLayer { this.alpha = if (active) 1f else alpha })
         } else if (active && !words.isNullOrEmpty() && position != null) {
             ExperimentalWordLevelLyrics(
                 mainText = text.ifBlank { line?.words?.joinToString("") { it.word }.orEmpty() },
