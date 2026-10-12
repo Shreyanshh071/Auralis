@@ -62,7 +62,8 @@ data class AppearanceSettings(
     val showUploadedPlaylist: Boolean = true
 ) {
     val shouldUseExperimentalLyrics: Boolean
-        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation) == LyricsAnimationMode.METRO_LYRICS
+        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation).let {
+            it == LyricsAnimationMode.METRO_LYRICS || it == LyricsAnimationMode.SPICY_LYRICS }
 }
 
 enum class LyricsAnimationMode(val displayName: String) {
@@ -72,7 +73,9 @@ enum class LyricsAnimationMode(val displayName: String) {
     GLOW("Glow"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
     LYRICS_V2_FLUID("Lyrics V2 (Fluid)"),
-    METRO_LYRICS("MetroLyrics");
+    METRO_LYRICS("MetroLyrics"),
+    /** Windows: Spicy Lyrics' per-word scale, lift, glow and gradient sweep. */
+    SPICY_LYRICS("Spicy Lyrics");
 
     companion object {
         fun fromDisplayName(name: String?): LyricsAnimationMode {
@@ -84,6 +87,7 @@ enum class LyricsAnimationMode(val displayName: String) {
                     name.contains("lyrics_v2", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("vivi", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("metro", ignoreCase = true) -> METRO_LYRICS
+                    name.contains("spicy", ignoreCase = true) -> SPICY_LYRICS
                     name.contains("glow", ignoreCase = true) -> GLOW
                     name.contains("apple", ignoreCase = true) -> GLOW
                     name.contains("fade", ignoreCase = true) -> FADE
