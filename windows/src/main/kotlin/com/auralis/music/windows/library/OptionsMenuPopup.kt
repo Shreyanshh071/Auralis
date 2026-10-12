@@ -18,13 +18,14 @@ import java.awt.MouseInfo
 
 /**
  * A song's, album's or playlist's options (the phone's sheet: same layout and options) as a menu
- * where it was asked for: at the right-click, or at the ⋮ that was clicked. Translucent dark
+ * where it was asked for: at the right-click, or at the â‹® that was clicked. Translucent dark
  * glass, not the item's cover. Kept inside the window; it opens up or left when there's no room.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun OptionsMenuPopup(onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    val point = remember { pointerInWindow() }
+    val invocation = LocalMenuInvocationAnchor.current
+    val point = remember { invocation?.point ?: pointerInWindow() }
     val provider = remember(point) {
         object : PopupPositionProvider {
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
@@ -41,17 +42,20 @@ internal fun OptionsMenuPopup(onDismiss: () -> Unit, content: @Composable () -> 
 /** The menu's glass: translucent dark with a faint top sheen and a hairline edge. */
 @Composable
 internal fun OptionsMenuSurface(maxHeight: Dp, content: @Composable () -> Unit) {
-    com.auralis.music.ui.components.CoverSheetTheme {
-        com.auralis.music.windows.LiquidPopupSurface(
-            modifier = Modifier.width(380.dp).heightIn(max = maxHeight)) {
-            Box(Modifier.padding(top = 16.dp, bottom = 8.dp)) {
-                CompositionLocalProvider(LocalContentColor provides Color.White) { content() }
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(density.density * .88f, density.fontScale)) {
+        com.auralis.music.ui.components.CoverSheetTheme {
+            com.auralis.music.windows.LiquidPopupSurface(
+                modifier = Modifier.width(380.dp).heightIn(max = maxHeight)) {
+                Box(Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+                    CompositionLocalProvider(LocalContentColor provides Color.White) { content() }
+                }
             }
         }
     }
 }
 
-/** The pointer in window pixels (where the right-click or the ⋮ click happened). */
+/** The pointer in window pixels (where the right-click or the â‹® click happened). */
 private fun pointerInWindow(): IntOffset = runCatching {
     val window = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
         ?: java.awt.Window.getWindows().firstOrNull { it.isVisible && it.isFocused }

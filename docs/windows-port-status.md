@@ -476,3 +476,11 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - The title-bar account popup now fades, slides slightly down and expands from its top-right anchor over 240ms, with a shorter 150ms closing transition. The glass surface, dimensions and account actions are unchanged.
 - Keep the popup composed through its exit instead of removing it immediately; release popup focus as soon as dismissal starts, and reset Manage accounts when reopening. The transition can reverse when reopened during dismissal.
 - Verification: desktop compilation and :windows:packageMsi passed (3m25s). Installed 1.0.0 after normal shutdown; backup C:/Users/shrey/Downloads/Auralis-checkpoints/before-account-animation-20261012-194525. All 70 checked data files and the existing shortcut were preserved, and the installed app jar matches the build. No live account mutations were performed.
+
+
+## 2026-10-12: Compact menus anchored to song clicks
+
+- Reduced the existing glass options menu uniformly by 12 percent (approximately 334px wide at 100 percent display scale), preserving its layout, actions and glass rendering.
+- Capture the initiating press at the app root in Compose window pixels before child click handlers run. Both options popup hosts use that captured point instead of polling the later OS cursor/focused window; a cursor move after the click no longer moves the menu. Initial-pass recording does not consume the press. Existing edge flipping/clamping keeps menus on screen.
+- :windows:test --tests *SongMenuPositionTest* passed all four tests in 25s, including a real Compose pointer/click test at 150 percent density with nested padding, cursor movement after clicking, a second song click, bottom-right flipping and a small-window constraint.
+- Packaging/install: :windows:packageMsi passed in 2m35s. Installed 1.0.0 after normal shutdown with backup C:/Users/shrey/Downloads/Auralis-checkpoints/before-compact-song-menu-20261012-195206; all 70 checked data files and the existing shortcut were preserved. Installed app code matches the release.
