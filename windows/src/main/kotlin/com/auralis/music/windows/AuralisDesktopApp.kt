@@ -522,8 +522,28 @@ fun AuralisDesktopApp(
                   }.distinctBy { it.key }
                   Row(Modifier.fillMaxSize().padding(8.dp)) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(panelShape)) {
-                        LibrarySidebar(libraryEntries, selectedLibraryKey.takeIf { destination == DesktopDestination.LIBRARY || browse.top != null },
-                            collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
+                        NavigationSidebar(
+                            selected = if (browse.top != null) null else when (destination) {
+                                DesktopDestination.HOME -> SidebarPage.HOME
+                                DesktopDestination.HISTORY -> SidebarPage.HISTORY
+                                DesktopDestination.LIBRARY -> if (appLibrary.selectedSmartCollection == com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED) SidebarPage.DOWNLOADS else SidebarPage.LIBRARY
+                                else -> null
+                            }, collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed },
+                            onSelect = { page ->
+                                showPlayer = false; browse.clear(); selectedLibraryKey = null
+                                when (page) {
+                                    SidebarPage.HOME -> destination = DesktopDestination.HOME
+                                    SidebarPage.HISTORY -> destination = DesktopDestination.HISTORY
+                                    SidebarPage.LIBRARY -> {
+                                        libraryViewModel.closeSmartCollection(); libraryViewModel.selectPlaylist(null)
+                                        destination = DesktopDestination.LIBRARY
+                                    }
+                                    SidebarPage.DOWNLOADS -> {
+                                        libraryViewModel.openSmartCollection(com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED)
+                                        destination = DesktopDestination.LIBRARY
+                                    }
+                                }
+                            })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
