@@ -34,6 +34,10 @@ import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.SyncType
+import com.auralis.music.domain.model.LyricsAnimationMode
+import com.auralis.music.ui.theme.LocalAppearanceSettings
+import com.auralis.music.ui.lyrics.renderers.FluidLyricLine
+import com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
 import com.auralis.music.ui.lyrics.InstrumentalIntroIndicator
@@ -101,7 +105,8 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                 SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                    blur = (distance * 1.2f).coerceAtMost(3.5f).dp)
+                    blur = (distance * 1.2f).coerceAtMost(3.5f).dp,
+                    nextLineTime = lines.getOrNull(index + 1)?.time)
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
@@ -113,7 +118,9 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
 @Composable
 internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, onClick: () -> Unit,
     previewHovered: Boolean = false, line: LyricLine? = null, position: State<Long>? = null,
-    syncType: SyncType = SyncType.PLAIN, blur: androidx.compose.ui.unit.Dp = 0.dp) {
+    syncType: SyncType = SyncType.PLAIN, blur: androidx.compose.ui.unit.Dp = 0.dp,
+    nextLineTime: Long? = null) {
+    val animationMode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
@@ -130,12 +137,26 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .then(if (blurAmount > 0.2.dp) Modifier.blur(blurAmount, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)) {
-        if (active && !words.isNullOrEmpty() && position != null) {
+        val lyricStyle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
+            fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily)
+        val timedActive = active && synced && line != null && position != null
+        if (timedActive && animationMode == LyricsAnimationMode.FLUID) {
+            FluidLyricLine(line!!.copy(text = text),
+                words = if (syncType == SyncType.RICHSYNC) line.words else null,
+                positionMs = position!!, style = lyricStyle, isActive = true)
+        } else if (timedActive && animationMode == LyricsAnimationMode.APPLE_MUSIC_V2) {
+            AppleMusicLyricsLine(isV2 = true, line = line!!.copy(text = text),
+                nextLineTime = line.effectiveEndTime ?: nextLineTime,
+                words = if (syncType == SyncType.RICHSYNC) line.words else null,
+                isActive = true, effectivePlaybackPosition = position!!.value,
+                lineColor = Color.White, accentColor = Color.White,
+                textAlign = TextAlign.Left, alignment = Alignment.Start,
+                fontSizeSp = 24f, lineSpacingMultiplier = 1.25f, fontFamily = lyricStyle.fontFamily)
+        } else if (active && !words.isNullOrEmpty() && position != null) {
             ExperimentalWordLevelLyrics(
                 mainText = text.ifBlank { line?.words?.joinToString("") { it.word }.orEmpty() },
                 words = words, isActiveLine = true, currentPositionState = position,
-                lyricStyle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
-                    fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily),
+                lyricStyle = lyricStyle,
                 lineColor = Color.White, expressiveAccent = Color.White,
                 isBackground = line?.isBackground == true,
                 focusedAlpha = if (hovered) 1f else .30f, alignment = TextAlign.Left)

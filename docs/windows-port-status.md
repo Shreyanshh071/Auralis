@@ -268,3 +268,10 @@ Compared the current Spicy Lyrics dynamic-background CSS with our Kawarp output.
 ArtworkAuraTest checks opaque output, white-cover dimming, pink/blue colour separation, dark-cover preservation in both presentations, and animation over time. Focused checks passed; generated colour previews were inspected. Version remains 1.0.0.
 
 All 55 Windows tests passed and MSI packaging succeeded in 3m1s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-aura-colour-20261012-130814. All 65 checked non-cache user files and the shortcut were preserved, both installed modules match the release, and Auralis was relaunched.
+
+### Selected lyrics style in side panels — 12 October 2026
+The shared compact lyrics view previously always used ExperimentalWordLevelLyrics (Metro). Active sidebar lines now read the live appearance selection and call the same FluidLyricLine or AppleMusicLyricsLine renderer used by the full player for Auralis Fluid and Apple Music Letter by Letter. Other selections retain the full player's existing word-renderer fallback. This covers the dedicated Lyrics panel, Now playing card and its detached lyrics window. Compact sizing, hover, scrolling and click-to-seek remain. Line-synced Apple lyrics use the explicit line end or next line start when available.
+
+Focused sidebar word/hover checks passed. Added a render check that switches Metro, Fluid and Apple within one open scene, verifies distinct output, advances playback and seeks back for each style; all three previews were inspected. Version remains 1.0.0.
+
+MSI packaging passed in 2m7s. Installed after a normal app close and full backup at Downloads/Auralis-checkpoints/before-sidebar-styles-20261012-131502. All 65 checked non-cache data files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.

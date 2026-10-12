@@ -16,8 +16,49 @@ import org.jetbrains.skia.EncodedImageFormat
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import kotlin.test.*
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import com.auralis.music.domain.model.AppearanceSettings
+import com.auralis.music.domain.model.LyricsAnimationMode
+import com.auralis.music.ui.theme.LocalAppearanceSettings
 
 class SidebarWordLyricsTest {
+    @Test fun sidebarChangesRendererWhenTheSelectedStyleChanges() {
+        val mode = mutableStateOf(LyricsAnimationMode.METRO_LYRICS)
+        val position = mutableLongStateOf(1600L)
+        val line = LyricLine(1000, "AAAA BBBB", words = listOf(
+            LyricWord("AAAA ", 1000, 1000), LyricWord("BBBB", 3000, 1000)))
+        val scene = ImageComposeScene(320, 90, coroutineContext = Dispatchers.Unconfined) {
+            MaterialTheme {
+                CompositionLocalProvider(LocalAppearanceSettings provides AppearanceSettings(lyricsAnimation = mode.value.displayName)) {
+                    Box(Modifier.fillMaxSize().background(Color.Black)) {
+                        SidebarLyricLine(line.text, true, true, {}, line = line, position = position, syncType = SyncType.RICHSYNC)
+                    }
+                }
+            }
+        }
+        try {
+            var frame = 0L
+            fun render(): ByteArray = scene.render(frame++ * 16_666_667L)
+                .encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes }
+            fun settled(): ByteArray { repeat(4) { render() }; return render() }
+            val output = java.io.File("build/screens/sidebar-styles").apply { mkdirs() }
+            val previews = listOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.FLUID, LyricsAnimationMode.APPLE_MUSIC_V2).map { selected ->
+                mode.value = selected
+                position.longValue = 1600L
+                val first = settled()
+                java.io.File(output, "${selected.name}.png").writeBytes(first)
+                position.longValue = 3800L
+                assertFalse(first.contentEquals(settled()), "$selected must follow the playback clock")
+                position.longValue = 1600L
+                assertContentEquals(first, settled(), "$selected must reset on seek")
+                first
+            }
+            for (i in previews.indices) for (j in i + 1 until previews.size)
+                assertFalse(previews[i].contentEquals(previews[j]), "Changing styles must select a different renderer without reopening the panel")
+        } finally { scene.close() }
+    }
+
     @Test fun sidebarUsesFullPlayerWordSweepAndDoesNotLightFutureWordsDuringARest() {
         val position = mutableLongStateOf(500L)
         val line = LyricLine(1000, "AAAA BBBB", words = listOf(
