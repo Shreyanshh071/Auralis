@@ -21,7 +21,7 @@ import javax.imageio.ImageIO
  * No audio analysis is fabricated: the flow runs at a steady speed.
  */
 internal enum class AuraPresentation(val brightness: Float, val saturation: Float) {
-    FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f), SHORTCUT(.45f, 1.4f)
+    FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f), SHORTCUT(.78f, 1.7f)
 }
 
 @Composable

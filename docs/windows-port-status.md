@@ -433,3 +433,9 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - User identified the existing creation as the empty aaaaa playlist with the default icon (VLPLcHketZqCSmc), distinguished from another aaaaa playlist with artwork. Restore only that exact playlist after a full backup; no remote playlists are deleted or changed.
 - Four LibraryFiltersTest checks passed, including persistence after the repository's asynchronous write, no duplicate on repeat creation retention, explicit import preservation and exclusion of an unselected account playlist. Build/install verification follows.
 - MSI build passed (2m23s); installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-explicit-playlists-20261012-184842. All 69 checked data files matched before the intentional one-playlist recovery. Recovery verified that all existing Library content was unchanged and added only the selected empty aaaaa entry. Installed app jar matches the release.
+
+## Stronger Shortcut glow — 2026-10-12
+
+- User clarified that the moving glow should increase, rather than card dimensions. Increased only Shortcut aura brightness from 0.45 to 0.78 and saturation from 1.4 to 1.7. Existing animation, card dimensions, text, artwork, full player and sidebar rendering retain their settings.
+- This is a visual parameter adjustment; package compilation and installed-code/data verification follow.
+- MSI build passed (2m36s); installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-glow-20261012-185525. All 69 checked data files preserved and installed app code matches release.
