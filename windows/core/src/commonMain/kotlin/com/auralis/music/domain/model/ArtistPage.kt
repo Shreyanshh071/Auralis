@@ -15,5 +15,7 @@ data class ArtistPage(
     val similarArtists: List<Artist> = emptyList(),
     val radioPlaylistId: String? = null,
     val radioBrowseId: String? = null,
-    val radioParams: String? = null
+    val radioParams: String? = null,
+    val videos: List<Track> = emptyList(),
+    val playlists: List<PlaylistResult> = emptyList()
 )

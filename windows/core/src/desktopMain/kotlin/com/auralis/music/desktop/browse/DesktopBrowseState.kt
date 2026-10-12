@@ -32,6 +32,10 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun openAlbum(album: PlaylistResult, fromArtist: ArtistPage? = null) {
         val initialTracks = if (album.id.startsWith("artist_top_songs:")) fromArtist?.topSongs.orEmpty() else emptyList()
+        if (initialTracks.isNotEmpty()) {
+            stack += BrowsePage.Album(album, initialTracks, isLoading = false)
+            return
+        }
         stack += BrowsePage.Album(album, initialTracks, isLoading = true)
         scope.launch {
             val tracks = runCatching { LocalizedContent.run { repository.getAlbumTracks(album) } }.getOrDefault(emptyList())
@@ -79,6 +83,7 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun retryArtist() {
         val top = top as? BrowsePage.Artist ?: return
+        artistPages.remove(top.page.artist.name.lowercase())
         stack.removeAt(stack.lastIndex)
         openArtist(top.page.artist)
     }

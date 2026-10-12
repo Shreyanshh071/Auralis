@@ -425,7 +425,7 @@ fun ArtistScreen(
             // ================================================================
             // 3. ABOUT SECTION (Subscribers, Monthly Audience, Bio)
             // ================================================================
-            // Settings → Content → Artist page decides which of the three show.
+            // Settings â†’ Content â†’ Artist page decides which of the three show.
             val shownSubscribers = artistPage.subscribers.takeIf { contentSettings.showArtistSubscriberCount }
             val shownMonthly = artistPage.monthlyAudience.takeIf { contentSettings.showMonthlyListeners }
             val shownDescription = artistPage.description.takeIf { contentSettings.showArtistDescription }
@@ -622,7 +622,7 @@ fun ArtistScreen(
                                 val durationStr = if (track.duration > 0) {
                                     val mins = track.duration / 60
                                     val secs = track.duration % 60
-                                    " • %d:%02d".format(mins, secs)
+                                    " â€¢ %d:%02d".format(mins, secs)
                                 } else ""
 
                                 Text(
@@ -775,8 +775,42 @@ fun ArtistScreen(
             }
 
             // ================================================================
-            // 6. FANS MIGHT ALSO LIKE (Similar Artists)
+            // 6. VIDEOS AND ARTIST PLAYLISTS
             // ================================================================
+            if (artistPage.videos.isNotEmpty()) {
+                item {
+                    Text("Videos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        items(artistPage.videos, key = { it.id }) { video ->
+                            Column(Modifier.width(210.dp).clip(RoundedCornerShape(12.dp))
+                                .clickable { onTrackClick(video, artistPage.videos) }.padding(4.dp)) {
+                                ArtworkCard(url = video.thumbnail, modifier = Modifier.width(202.dp).height(114.dp),
+                                    cornerRadius = 12.dp, contentDescription = video.title)
+                                Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                                Text(video.artist, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+            if (artistPage.playlists.isNotEmpty()) {
+                item {
+                    Text("Playlists by ${artistPage.artist.name}", style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        items(artistPage.playlists, key = { it.id }) { playlist ->
+                            Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp))
+                                .clickable { onAlbumClick(playlist) }.padding(4.dp)) {
+                                ArtworkCard(url = playlist.thumbnail.orEmpty(), modifier = Modifier.size(142.dp),
+                                    cornerRadius = 12.dp, contentDescription = playlist.title)
+                                Text(playlist.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+            // FANS MIGHT ALSO LIKE
             if (artistPage.similarArtists.isNotEmpty()) {
                 item {
                     Text(

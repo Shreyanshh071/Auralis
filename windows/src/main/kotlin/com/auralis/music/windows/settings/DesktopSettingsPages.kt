@@ -30,7 +30,7 @@ fun DesktopAudioSettings(onDismiss: () -> Unit) {
         item { BlockedArtistsSection() }
         item { HorizontalDivider() }
         item { Text("Not implemented on Windows yet", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Skip silence, Android spatial audio, restoring the queue after restart, automatic radio extension, Bluetooth reconnection, system-mute detection and keeping the screen awake are not connected. Closing Auralis stops playback.") }
+        item { Text("Skip silence, Android spatial audio, restoring the queue after restart, Bluetooth reconnection, system-mute detection and keeping the screen awake are not connected. Closing Auralis stops playback.") }
     }
 }
 
@@ -41,6 +41,10 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) { scope.launch { store.updateSettings(settings.transform()) } }
     var showThemes by remember { mutableStateOf(false) }
+    var showSliderStyles by remember { mutableStateOf(false) }
+    if (showSliderStyles) com.auralis.music.ui.screens.PlayerSliderStyleChooserDialog(
+        settings.playerSliderStyle, { update { copy(playerSliderStyle = it) } }, { showSliderStyles = false },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f))
     if (showThemes) {
         DesktopThemesAndColours { showThemes = false }
         return
@@ -59,7 +63,15 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
             }
         }
         item { BackgroundCards(settings.playerBackgroundStyle) { update { copy(playerBackgroundStyle = it) } } }
-        item { Choice("Seek bar", settings.playerSliderStyle, listOf("Wavy", "Slim", "Squiggly", "Default")) { update { copy(playerSliderStyle = it) } } }
+        item {
+            Surface(onClick = { showSliderStyles = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column { Text("Seek bar", style = MaterialTheme.typography.titleMedium); Text(settings.playerSliderStyle) }
+                    Text("Choose ›")
+                }
+            }
+        }
         item { Text("Lyrics", style = MaterialTheme.typography.titleLarge) }
         item {
             val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,
@@ -144,13 +156,27 @@ private fun Toggle(title: String, checked: Boolean, change: (Boolean) -> Unit) {
 @Composable
 private fun Choice(title: String, selected: String, options: List<String>, select: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Column {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Box {
-            OutlinedButton(onClick = { expanded = true }) { Text(selected) }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { select(option); expanded = false }) }
-            }
+    Surface(onClick = { expanded = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column { Text(title, style = MaterialTheme.typography.titleMedium); Text(selected, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text("Choose ›")
         }
     }
+    if (expanded) AlertDialog(onDismissRequest = { expanded = false }, title = { Text(title) },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f),
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                options.forEach { option ->
+                    Surface(onClick = { select(option); expanded = false },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        color = if (option == selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            RadioButton(selected = option == selected, onClick = null)
+                            Spacer(Modifier.width(12.dp)); Text(option)
+                        }
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { expanded = false }) { Text("Cancel") } })
 }

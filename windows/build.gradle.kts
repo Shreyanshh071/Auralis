@@ -159,3 +159,9 @@ tasks.register<JavaExec>("probeStream") {
     mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
     args = listOfNotNull(findProperty("args")?.toString())
 }
+
+// Muted local audio; never controls the installed player or opens a window.
+tasks.register<JavaExec>("verifyPlaybackControls") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.PlaybackControlsCheckKt")
+}

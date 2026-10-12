@@ -1101,7 +1101,7 @@ open class InnerTubeClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val body = client.searchBody(request, 6_000L)
+            val body = client.searchBody(request, 12_000L)
             val json = JSONObject(body)
 
             val header = json.optJSONObject("header")?.optJSONObject("musicImmersiveHeaderRenderer")
@@ -1167,6 +1167,8 @@ open class InnerTubeClient(
             val topSongs = mutableListOf<Track>()
             val albums = mutableListOf<PlaylistResult>()
             val singles = mutableListOf<PlaylistResult>()
+            val videos = mutableListOf<Track>()
+            val artistPlaylists = mutableListOf<PlaylistResult>()
             val similarArtists = mutableListOf<Artist>()
 
             val sectionList = artistSections(json)
@@ -1179,11 +1181,11 @@ open class InnerTubeClient(
 
                 val shelfHeader = shelf.optJSONObject("header")?.optJSONObject("musicShelfBasicHeaderRenderer")
                     ?: shelf.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                val rawShelfTitle = shelfHeader?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.lowercase()
+                val rawShelfTitle = (shelfHeader?.optJSONObject("title") ?: shelf.optJSONObject("title"))?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.lowercase()
                     ?: "songs"
                 // English titles name the shelf directly. Localized ones (content language) don't
                 // match those words, so name it from what it holds instead; see artistShelfKind.
-                val englishTitle = listOf("song", "album", "single", "ep", "fan", "like", "similar").any { rawShelfTitle.contains(it) }
+                val englishTitle = listOf("song", "album", "single", "ep", "fan", "like", "similar", "video", "playlist").any { rawShelfTitle.contains(it) }
                 val shelfTitle = if (englishTitle) rawShelfTitle else when (artistShelfKind(shelf)) {
                     ArtistShelfKind.SONGS -> "songs"
                     ArtistShelfKind.ARTISTS -> "fans might also like"
@@ -1192,6 +1194,22 @@ open class InnerTubeClient(
                 }
 
                 val contents = shelf.optJSONArray("contents") ?: JSONArray()
+                // LiMusic opens these same targets for the catalogue. Expand the artist's
+                // own items, retaining the preview if a secondary request fails.
+                val endpoint = artistMoreEndpoint(shelf)
+                if (endpoint != null && listOf("song", "album", "single", "ep").any { shelfTitle.contains(it) }) {
+                    try {
+                        val moreRequest = Request.Builder().url("$YT_MUSIC_API/browse?prettyPrint=false")
+                            .post(createBrowseContext(endpoint.getString("browseId"), endpoint.optString("params").takeIf { it.isNotBlank() })
+                                .toString().toRequestBody(JSON_MEDIA_TYPE))
+                            .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com").build()
+                        val more = artistCatalogueItems(JSONObject(client.searchBody(moreRequest, 4_000L)))
+                        for (k in 0 until minOf(more.length(), 100)) contents.put(more.optJSONObject(k))
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        com.auralis.music.util.Log.w("AuralisArtist", "Catalogue preview retained: ${e.javaClass.simpleName}")
+                    }
+                }
 
                 for (j in 0 until contents.length()) {
                     val cObj = contents.optJSONObject(j) ?: continue
@@ -1202,7 +1220,11 @@ open class InnerTubeClient(
                         val parsedPlaylists = mutableListOf<PlaylistResult>()
                         parseMusicListItem(itemResp, parsedSongs, parsedArtists, parsedPlaylists)
 
-                        if (shelfTitle.contains("song") || (i == 0 && !shelfTitle.contains("album") && !shelfTitle.contains("single"))) {
+                        if (shelfTitle.contains("video")) {
+                            videos.addAll(parsedSongs)
+                        } else if (shelfTitle.contains("playlist")) {
+                            artistPlaylists.addAll(parsedPlaylists)
+                        } else if (shelfTitle.contains("song") || (i == 0 && !shelfTitle.contains("album") && !shelfTitle.contains("single"))) {
                             topSongs.addAll(parsedSongs)
                         } else if (shelfTitle.contains("album")) {
                             albums.addAll(parsedPlaylists)
@@ -1216,7 +1238,14 @@ open class InnerTubeClient(
                     val twoRow = cObj.optJSONObject("musicTwoRowItemRenderer")
                     if (twoRow != null) {
                         val parsedTrack = parseMusicTwoRowItem(twoRow)
-                        if (shelfTitle.contains("album")) {
+                        if (shelfTitle.contains("video")) {
+                            if (parsedTrack != null) videos.add(parsedTrack)
+                        } else if (shelfTitle.contains("playlist")) {
+                            val title = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Playlist"
+                            val id = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                            val thumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
+                            if (!id.isNullOrBlank()) artistPlaylists.add(PlaylistResult(id, title, thumbnail = thumb.ifBlank { null }, author = artistName))
+                        } else if (shelfTitle.contains("album")) {
                             val aTitle = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Album"
                             val aNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val aThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
@@ -1238,23 +1267,12 @@ open class InnerTubeClient(
                 }
             }
 
-            // Strictly filter top tracks so only official songs by this artist are included
             val targetName = artistName.lowercase().trim()
-            val filteredOfficial = topSongs.filter { trk ->
-                val trkArtist = trk.artist.lowercase()
-                val isMatchingArtist = trkArtist.contains(targetName) || targetName.contains(trkArtist) || trk.artist.contains("YouTube Artist", ignoreCase = true)
-                val isCoverOrFanEdit = trk.title.contains("cover", ignoreCase = true) ||
-                        trk.title.contains("remake", ignoreCase = true) ||
-                        trk.title.contains("karaoke", ignoreCase = true) ||
-                        trk.title.contains("instrumental", ignoreCase = true) ||
-                        trk.title.contains("reaction", ignoreCase = true) ||
-                        trk.title.contains("tutorial", ignoreCase = true) ||
-                        trk.title.contains("parody", ignoreCase = true)
-                isMatchingArtist && !isCoverOrFanEdit
-            }.distinctBy { it.id }
 
-            val resolvedTopSongs = if (filteredOfficial.isNotEmpty()) {
-                filteredOfficial
+            val resolvedTopSongs = if (topSongs.isNotEmpty()) {
+                // The channel's own curated shelf is authoritative, including collaborations
+                // and official instrumentals. Broad title filters discarded valid releases.
+                topSongs
             } else {
                 val searchHits = search(artistName, FILTER_SONGS)
                 searchHits.songs.filter { trk ->
@@ -1282,6 +1300,8 @@ open class InnerTubeClient(
                 albums = albums.distinctBy { it.id },
                 singles = singles.distinctBy { it.id },
                 similarArtists = similarArtists.distinctBy { it.id },
+                videos = videos.distinctBy { it.id },
+                playlists = artistPlaylists.distinctBy { it.id },
                 radioPlaylistId = radioPlaylistId
             )
         } catch (e: Exception) {

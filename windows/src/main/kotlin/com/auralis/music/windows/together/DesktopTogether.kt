@@ -6,6 +6,8 @@ import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -32,7 +34,7 @@ class DesktopTogether(private val playback: DesktopPlaybackController?, private 
     private var lastGuestSeekVersion = -1L
 
     init {
-        playback?.roomControl = { action, track, position ->
+        val controls: (String, Track?, Long) -> Boolean = { action, track, position ->
             val state = mutable.value
             if (state.code.isBlank() || state.host) false
             else {
@@ -43,6 +45,12 @@ class DesktopTogether(private val playback: DesktopPlaybackController?, private 
                     else -> mutable.value = state.copy(message = "The host controls this action. Add a song to the queue to recommend it.")
                 }
                 true
+            }
+        }
+        // Having a room service is not the same as being connected to a room.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            state.map { it.code.isNotBlank() }.distinctUntilChanged().collect { connected ->
+                playback?.roomControl = if (connected) controls else null
             }
         }
     }

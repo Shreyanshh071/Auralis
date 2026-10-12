@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -82,6 +83,9 @@ fun AuralisSlider(
     val density = LocalDensity.current
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(value) }
+    val changeValue by rememberUpdatedState(onValueChange)
+    val finishChange by rememberUpdatedState(onValueChangeFinished)
+    val tick by rememberUpdatedState(onTick)
 
     val effectiveProgress = if (isDragging) dragProgress else value.coerceIn(0f, 1f)
 
@@ -164,15 +168,15 @@ fun AuralisSlider(
                                     // Discrete tap confirmed
                                     val tapProgress = (change.position.x / width).coerceIn(0f, 1f)
                                     dragProgress = tapProgress
-                                    onValueChange(tapProgress)
-                                    onTick()
+                                    changeValue(tapProgress)
+                                    tick()
                                     change.consume()
-                                    onValueChangeFinished()
+                                    finishChange()
                                 } else {
                                     change.consume()
                                     isDragging = false
-                                    onTick()
-                                    onValueChangeFinished()
+                                    tick()
+                                    finishChange()
                                 }
                                 break
                             }
@@ -190,15 +194,15 @@ fun AuralisSlider(
                                     isDragging = true
                                     val progress = (change.position.x / width).coerceIn(0f, 1f)
                                     dragProgress = progress
-                                    onValueChange(progress)
-                                    onTick()
+                                    changeValue(progress)
+                                    tick()
                                     change.consume()
                                 }
                             } else {
                                 val newProgress = (change.position.x / width).coerceIn(0f, 1f)
                                 if (newProgress != dragProgress) {
                                     dragProgress = newProgress
-                                    onValueChange(newProgress)
+                                    changeValue(newProgress)
                                 }
                                 change.consume()
                             }
@@ -206,7 +210,7 @@ fun AuralisSlider(
 
                         if (dragStarted && isDragging) {
                             isDragging = false
-                            onValueChangeFinished()
+                            finishChange()
                         }
                     }
                 }
