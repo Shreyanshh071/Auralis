@@ -641,18 +641,14 @@ fun LibraryScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Image(
-                                    painter = com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(),
-                                    contentDescription = str(Strings.auralis_logo),
-                                    colorFilter = ColorFilter.tint(themeOnBackground),
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                // Windows page title: no logo, the same size as the other pages' headings.
                                 Text(
                                     text = str(Strings.library),
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = themeOnBackground,
-                                    fontSize = 26.sp
+                                    fontSize = 32.sp,
+                                    lineHeight = 38.sp
                                 )
                             }
 
