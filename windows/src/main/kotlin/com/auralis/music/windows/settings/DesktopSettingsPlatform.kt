@@ -40,7 +40,7 @@ class DesktopSettingsPlatform(
     override val updater: UpdaterControl? = null
 
     override val storage = object : StorageControl {
-        override fun downloadedSongsBytes(): Long? = null
+        override fun downloadedSongsBytes(): Long = com.auralis.music.desktop.library.DesktopDownloads.instance.entries.value.filter { com.auralis.music.desktop.library.DesktopDownloads.instance.available(it) }.sumOf { it.bytes }
         override fun songCacheBytes() = 0L
         override fun imageCacheBytes() = DesktopCaches.imageBytes()
         override fun clearSongCache() = 0L

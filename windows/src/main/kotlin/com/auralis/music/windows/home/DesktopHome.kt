@@ -228,7 +228,7 @@ internal fun DesktopHome(
                 tracks.forEach { library.addTrackToPlaylist(id, it) }
             } },
             onPinToSpeedDial = { viewModel.togglePinAlbum(album) },
-            onDownload = { showMessage("Downloads aren't available on Windows yet") },
+            onDownload = { withAlbumTracks(album) { tracks -> platform.downloadPlaylist(album.id.removePrefix("local:"), album.title, tracks) } },
             onViewArtist = { album.author?.let { browse.openArtist(Artist(id = "", name = it)) } },
             onDismiss = { menuAlbum = null }
         )
