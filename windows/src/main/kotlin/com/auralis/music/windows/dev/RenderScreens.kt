@@ -93,6 +93,15 @@ fun main(args: Array<String>) {
         }
     }.getOrDefault(com.auralis.music.ui.theme.DefaultArtworkPalette)
     val screens: List<Pair<String, @Composable () -> Unit>> = listOf(
+        "shortcuts" to {
+            val pins = listOf(
+                com.auralis.music.domain.model.SpeedDialItem(id = "album-local:preview", name = "gili gili",
+                    type = com.auralis.music.domain.model.SpeedDialType.ALBUM, image = previewSongs.firstOrNull()?.thumbnail,
+                    album = com.auralis.music.domain.model.PlaylistResult("local:preview", "gili gili", author = "Playlist · 97 songs"), isPinned = true),
+                com.auralis.music.domain.model.SpeedDialItem(id = "artist-preview", name = "Billy Idol",
+                    type = com.auralis.music.domain.model.SpeedDialType.ARTIST, image = previewSongs.getOrNull(1)?.thumbnail, isPinned = true))
+            Box(Modifier.fillMaxSize().padding(16.dp)) { com.auralis.music.windows.home.HomeShortcuts(pins, pins, {}, {}, {}) }
+        },
         "playlist-header" to {
             com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail, coverPalette) {
             com.auralis.music.ui.library.LibraryScreen(

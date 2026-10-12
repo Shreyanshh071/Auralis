@@ -98,8 +98,10 @@ internal fun DesktopHome(
                     val tracks = desktopHomeContent(state).shortcuts.mapNotNull { it.track }
                     play(track, tracks.ifEmpty { listOf(track) })
                 }
-                SpeedDialType.ALBUM -> browse.openAlbum(item.album ?: PlaylistResult(
-                    item.id.removePrefix("album-"), item.name, item.image, item.artistQuery))
+                SpeedDialType.ALBUM -> {
+                    val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image, item.artistQuery)
+                    if (album.id.startsWith("local:")) onOpenPlaylist(album.id.removePrefix("local:")) else browse.openAlbum(album)
+                }
                 SpeedDialType.PLAYLIST -> onOpenPlaylist(item.id.removePrefix("playlist-"))
                 SpeedDialType.ARTIST -> browse.openArtist(Artist(id = item.id.takeIf { it.startsWith("UC") }.orEmpty(),
                     name = item.artistQuery ?: item.name, thumbnail = item.image))
@@ -122,6 +124,20 @@ internal fun DesktopHome(
         onChip = viewModel::toggleChip,
         onAlbumMenu = { menuAlbum = it },
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
+        shortcutCandidates = playlists.map { p ->
+            val album = PlaylistResult("local:${p.id}", p.title, p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail,
+                "Playlist · ${p.tracks.size} songs")
+            SpeedDialItem(id = "album-${album.id}", name = p.title, type = SpeedDialType.ALBUM, image = album.thumbnail, album = album)
+        } + savedArtists.map { a -> SpeedDialItem(id = a.id, name = a.name, type = SpeedDialType.ARTIST,
+            image = a.thumbnail, artistQuery = a.query ?: a.name) } + familiarArtists.map { a -> SpeedDialItem(id = a.id.ifBlank { "yt:${a.name}" }, name = a.name,
+            type = SpeedDialType.ARTIST, image = a.photo, artistQuery = a.name) },
+        onPinShortcut = { item ->
+            when (item.type) {
+                SpeedDialType.ALBUM -> item.album?.let { viewModel.togglePinAlbum(it) }
+                SpeedDialType.ARTIST -> viewModel.togglePinArtist(Artist(item.id, item.name, item.image))
+                else -> Unit
+            }
+        },
         findMusic = findMusic,
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
         quickPicks = quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },

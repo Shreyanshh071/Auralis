@@ -361,3 +361,11 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Replaced the responsive multi-row grid with a LazyRow of 4:5 posters. Width adapts to the panel (180–252 dp), keeps cards readable, and scrolls horizontally. Previous/More artists arrow controls sit at the right below the posters and move three positions, with availability based on actual scroll bounds.
 - Compilation and MSI packaging passed (2m39s). No new tests for this reversible layout change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-ten-artists-20261012-152311.
+
+## Home Shortcuts section — 2026-10-12
+
+- Inspected LiMusic's Shortcuts.svelte and ShortcutPicker.svelte in the existing local reference: wide curated tiles, visible empty section, library filter picker and fresh library metadata. Implemented an Auralis Compose section, without copying Svelte code.
+- Added Shortcuts below the Home greeting, with 64 dp wide tiles, circular artist artwork, horizontal scrolling, Add picker with filtering and duplicate prevention, and remove controls. Uses HomeViewModel's existing persisted pinned-item storage.
+- Picker includes local playlists, saved artists and Familiar Artists. Local playlist tiles open the app's playlist page rather than remote album browsing. Current library metadata updates pinned covers/names/song counts.
+- Compiled, rendered and visually inspected windows/build/screens/shortcuts.png. MSI packaging passed (2m46s).
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcuts-20261012-153146.
