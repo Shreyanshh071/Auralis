@@ -20,7 +20,7 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("New playlist") },
+    com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("New playlist") },
         text = {
             Column(Modifier.width(440.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(name, { name = it; error = null }, enabled = !busy, singleLine = true,

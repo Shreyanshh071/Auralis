@@ -78,7 +78,7 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
             }
         }
     }
-    if (picking) AlertDialog(onDismissRequest = { picking = false }, title = { Text("Add a shortcut") },
+    if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text("Add a shortcut") },
         confirmButton = { TextButton(onClick = { picking = false }) { Text("Done") } }, text = {
             Column(Modifier.width(420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Filter playlists and artists") })

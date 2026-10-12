@@ -407,6 +407,7 @@ fun AuralisDesktopApp(
         modifier = Modifier.recordPopupGlass(popupGlass).then(com.auralis.music.windows.library.menuInvocationRecorder(menuInvocation))) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalPopupGlassSource provides popupGlass,
+        com.auralis.music.ui.components.LocalGlassDialogHost provides { dismiss, content -> GlassDialog(dismiss, content) },
         com.auralis.music.windows.library.LocalMenuInvocationAnchor provides menuInvocation,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(nativeDensity.density * densityScale, nativeDensity.fontScale),
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
