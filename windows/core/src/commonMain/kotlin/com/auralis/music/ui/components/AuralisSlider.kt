@@ -420,8 +420,8 @@ fun AuralisSlider(
 
                     "Squiggly" -> {
                         // ── 4. SQUIGGLY STYLE — adapted SquigglySlider, value for value (see file header) ──
-                        // Pixel-based like the original: 80px wavelength, 6px amplitude, drifting 24px/s
-                        // (squigglyPhasePx), height fading linearly over 1.5 wavelengths centred on the
+                        // The phone's 80 physical pixels are roughly 28dp on its dense display.
+                        // Use logical spacing on desktop; height fades over 1.5 wavelengths centred on the
                         // playhead so the wave is half-height at the bar and seeps flat just past it.
                         val strokePx = with(density) { 5.dp.toPx() }
                         val r = strokePx / 2f
@@ -430,11 +430,11 @@ fun AuralisSlider(
                         val trackWidth = (endX - startX).coerceAtLeast(1f)
                         val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
 
-                        val waveLength = SQUIGGLY_WAVELENGTH_PX
+                        val waveLength = with(density) { 28.dp.toPx() }
                         val lineAmplitude = SQUIGGLY_AMPLITUDE_PX
                         val heightFraction = (animatedAmplitude.value / 2.8f).coerceIn(0f, 1f)
                         val transitionLength = 1.5f * waveLength
-                        val phaseOffset = squigglyPhasePx(waveFrameNanos)
+                        val phaseOffset = squigglyPhaseFraction(waveFrameNanos) * waveLength
 
                         fun waveY(x: Float): Float {
                             val coeff = ((thumbX + transitionLength / 2f - x) / transitionLength).coerceIn(0f, 1f)
@@ -519,18 +519,16 @@ private fun formatDuration(millis: Long): String {
     return String.format("%d:%02d", minutes, seconds)
 }
 
-// SquigglySlider constants (raw pixels, as in the original; see file header).
-private const val SQUIGGLY_WAVELENGTH_PX = 80f
+// Preserve the existing wave height and the phone's 80px / 24px-per-second cycle.
 private const val SQUIGGLY_AMPLITUDE_PX = 6f
-private const val SQUIGGLY_PHASE_SPEED_PX = 24f
 
 // Wavy: one Bézier cycle every 1.5s. Squiggly: drifts 24px/s, wrapping each wavelength.
 private const val WAVY_CYCLE_NANOS = 1_500_000_000L
-private const val SQUIGGLY_CYCLE_NANOS = (SQUIGGLY_WAVELENGTH_PX / SQUIGGLY_PHASE_SPEED_PX * 1_000_000_000L).toLong()
+private const val SQUIGGLY_CYCLE_NANOS = 3_333_333_333L
 
 // Modulo on the Long first: frame times are ~1e13ns, past Float precision.
 private fun wavyPhaseFraction(frameNanos: Long): Float =
     (frameNanos % WAVY_CYCLE_NANOS).toFloat() / WAVY_CYCLE_NANOS
 
-private fun squigglyPhasePx(frameNanos: Long): Float =
-    (frameNanos % SQUIGGLY_CYCLE_NANOS).toFloat() / SQUIGGLY_CYCLE_NANOS * SQUIGGLY_WAVELENGTH_PX
+private fun squigglyPhaseFraction(frameNanos: Long): Float =
+    (frameNanos % SQUIGGLY_CYCLE_NANOS).toFloat() / SQUIGGLY_CYCLE_NANOS
