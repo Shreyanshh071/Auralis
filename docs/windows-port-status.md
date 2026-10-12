@@ -446,3 +446,9 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Navigation entries now retain the committed search query, independently of edits/clearing in the title bar. Back/Forward restores that submitted query/results when necessary, without adding a recent-history entry. Distinct submitted queries retain their own route identity; album/artist pages keep the query they came from.
 - Three DesktopNavigationTest checks passed, covering multiple queries, result-to-album Back/Forward, Home return, forward-history truncation and metadata loading without extra navigation steps.
 - MSI build passed (2m40s). Installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-search-navigation-20261012-190102; all 69 checked data files preserved and installed app code matches the release.
+
+## Restore soft song-synced browsing blur — 2026-10-12
+
+- The colour-fidelity adjustment reduced browsing blur too far to 7 dp, leaving enlarged cover details visible. Restored the previous 48 dp blur and 1.10x image overscan for the app background. It continues following the current song (or idle playlist) across modes; neutral overlays and 45% brightness preserve the colour correction.
+- Both ArtworkPageThemeTest checks passed (47s build/test), verifying neutral glass locals, no red/pink tint from sparse artwork accents, expected brightness and hue after switching covers. Inspected the rendered blue-page.png and confirmed its soft blurred field.
+- MSI build passed (2m32s); installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-background-blur-20261012-190609. All 70 checked data files preserved; installed code matches release.
