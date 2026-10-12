@@ -138,7 +138,7 @@ fun LyricsIntervalIndicator(
     strokeWidth: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroStrokeWidth else WavyProgressIndicatorDefaults.StandardStrokeWidth,
     gapSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroTrackGapSize else WavyProgressIndicatorDefaults.StandardTrackGapSize,
     dotsAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
-    dotSize: Dp = if (isMetroLyrics) 12.dp else 10.dp,
+    dotSize: Dp = if (isMetroLyrics) 18.dp else 16.dp,
     onSkip: (() -> Unit)? = null
 ) {
     val alphaAnim = remember { Animatable(if (visible) 1f else 0f) }
@@ -157,12 +157,6 @@ fun LyricsIntervalIndicator(
     val progress = if (gapEndMs > gapStartMs) {
         ((currentPositionMs - gapStartMs).toFloat() / (gapEndMs - gapStartMs).toFloat()).coerceIn(0f, 1f)
     } else 0f
-
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
-        label = "intervalProgress"
-    )
 
     val targetHeight = maxOf(if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp, dotSize * 3) * heightAnim.value
     val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
@@ -191,12 +185,14 @@ fun LyricsIntervalIndicator(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-                    .then(if (onSkip != null) Modifier.clickable(onClick = onSkip) else Modifier)
+                    .then(if (onSkip != null) Modifier.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null, onClick = onSkip) else Modifier)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 // Spicy Lyrics' interlude dots in place of the ring.
                 LyricsDots(
-                    progress = animatedProgress,
+                    progress = progress,
                     elapsedMs = currentPositionMs - gapStartMs,
                     remainingMs = gapEndMs - currentPositionMs,
                     color = color,

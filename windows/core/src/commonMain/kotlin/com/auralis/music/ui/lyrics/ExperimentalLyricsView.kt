@@ -519,7 +519,7 @@ fun ExperimentalLyricsView(
     }
     val introTimeState = remember {
         derivedStateOf {
-            (currentPositionState.longValue.coerceAtLeast(0L) / 50L) * 50L
+            currentPositionState.longValue.coerceAtLeast(0L)
         }
     }
 
@@ -530,7 +530,7 @@ fun ExperimentalLyricsView(
         else -> Alignment.CenterHorizontally
     }
     val baseLyricSize = 34f
-    val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.42f).dp
+    val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f).coerceIn(0.8f, 1.4f) * 0.70f).dp
 
     val mergedLyricsList = remember(effectiveLines) {
         val list = mutableListOf<ExperimentalLyricsListItem>()

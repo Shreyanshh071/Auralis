@@ -275,3 +275,10 @@ The shared compact lyrics view previously always used ExperimentalWordLevelLyric
 Focused sidebar word/hover checks passed. Added a render check that switches Metro, Fluid and Apple within one open scene, verifies distinct output, advances playback and seeks back for each style; all three previews were inspected. Version remains 1.0.0.
 
 MSI packaging passed in 2m7s. Installed after a normal app close and full backup at Downloads/Auralis-checkpoints/before-sidebar-styles-20261012-131502. All 65 checked non-cache data files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.
+
+### Interlude dot motion and size — 12 October 2026
+Inspected both supplied 240 fps recordings and sampled consecutive dot frames. The reference uses larger dots, curved lift/scale changes and spring settling; our dots used straight-line interpolation, a radial aura, smaller sizes and an intro clock quantized to 50 ms. Replaced the curves with natural cubic splines and independent playback-driven springs, increased the full-player dot diameter from 0.42 to 0.70 times the base lyric size, and increased compact intro dots to 16 dp. Removed the radial aura and click hover/ripple pill. Intro and interlude progress now follow the smooth clock without the redundant progress tween. Pause freezes the springs; seeking resets them. Android sources are unchanged.
+
+LyricsDotsMotionTest verifies more than 50 distinct frames in a 60-frame sequence, no alpha outside the solid dot edges, pause stability and seek reset. Focused dot/sidebar checks passed and rendered frames were inspected. Version remains 1.0.0.
+
+All 57 Windows tests passed; MSI packaging succeeded in 2m6s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-dots-motion-20261012-132752. All 65 checked non-cache user files and the shortcut were preserved; main and core installed modules match the release. Auralis was relaunched.
