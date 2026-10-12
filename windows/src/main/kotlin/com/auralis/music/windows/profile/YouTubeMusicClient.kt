@@ -204,7 +204,10 @@ internal fun parseYouTubeTracks(root: JSONObject): List<Track> {
     val roots = containers.ifEmpty { listOf(root) }
     val parser = com.auralis.music.data.network.InnerTubeClient()
     return roots.flatMap { container ->
-        youtubeNodes(container, "musicResponsiveListItemRenderer").flatMap { row ->
+        // Music only: a liked-videos list also holds Shorts and plain YouTube uploads (tech reviews,
+        // tutorials); those never show in Auralis.
+        youtubeNodes(container, "musicResponsiveListItemRenderer")
+            .filterNot { com.auralis.music.data.network.YouTubeShortsFilter.isNonMusicVideo(it) }.flatMap { row ->
             val tracks = mutableListOf<Track>()
             parser.parseMusicListItem(row, tracks, mutableListOf())
             tracks

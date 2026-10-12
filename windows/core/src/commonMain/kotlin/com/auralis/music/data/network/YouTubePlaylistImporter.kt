@@ -534,7 +534,8 @@ class YouTubePlaylistImporter(
                     }
 
                     if (!videoId.isNullOrBlank() && title.isNotBlank() && !isVideoUnavailable &&
-                        !YouTubeShortsFilter.hasShortsMarker(item) &&
+                        // Music only: no Shorts, podcasts or plain YouTube uploads.
+                        !YouTubeShortsFilter.isNonMusicVideo(item) &&
                         !YouTubeShortsFilter.isUnlinkedShortUgc(item, durationSec)
                     ) {
                         tracks.add(

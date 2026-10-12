@@ -470,7 +470,8 @@ fun AuralisDesktopApp(
                       if (resizingRight) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "right sidebar width")
                   // Spotify-style layout: Your Library, page and Now playing are rounded panels with even gaps.
                   val panelShape = RoundedCornerShape(12.dp)
-                  // Your Library (left panel): Liked Songs, then every playlist and saved album.
+                  // Your Library (left panel): Liked Songs, then the playlists you imported or synced from the
+                  // phone (the local library). The YouTube account's own playlists stay out until imported.
                   val appLibrary by libraryViewModel.uiState.collectAsState()
                   fun openLibrary(key: String, select: () -> Unit) {
                       showPlayer = false; browse.clear(); selectedLibraryKey = key; select(); destination = DesktopDestination.LIBRARY
@@ -480,19 +481,14 @@ fun AuralisDesktopApp(
                           openLibrary("liked") { libraryViewModel.openSmartCollection(com.auralis.music.ui.viewmodel.SmartCollectionType.LIKED) }
                       })
                       appLibrary.playlists.forEach { p ->
-                          add(LibraryEntry("local:${p.id}", p.title, "Playlist · ${p.tracks.size} songs", p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail) {
+                          // Where it came from, so two imports with the same name can be told apart.
+                          val source = when (com.auralis.music.windows.library.desktopPlaylistSource(p)) {
+                              com.auralis.music.ui.library.LibrarySourceFilter.SPOTIFY -> "Spotify"
+                              com.auralis.music.ui.library.LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+                              else -> "Playlist"
+                          }
+                          add(LibraryEntry("local:${p.id}", p.title, "$source · ${p.tracks.size} songs", p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail) {
                               openLibrary("local:${p.id}") { libraryViewModel.selectPlaylist(p.id, p) }
-                          })
-                      }
-                      youtubeState.playlists.forEach { y ->
-                          add(LibraryEntry("yt:${y.id}", y.title, listOfNotNull("YouTube Music", y.author?.takeIf { it.isNotBlank() }).joinToString(" · "), y.thumbnail) {
-                              selectedLibraryKey = "yt:${y.id}"; openYouTubePlaylist(y)
-                          })
-                      }
-                      appLibrary.savedAlbums.forEach { a ->
-                          add(LibraryEntry("album:${a.id}", a.title, listOfNotNull("Album", a.artist?.takeIf { it.isNotBlank() }).joinToString(" · "), a.thumbnail) {
-                              showPlayer = false; selectedLibraryKey = "album:${a.id}"
-                              browse.openAlbum(com.auralis.music.windows.library.libraryAlbumAsBrowse(a))
                           })
                       }
                   }.distinctBy { it.key }
