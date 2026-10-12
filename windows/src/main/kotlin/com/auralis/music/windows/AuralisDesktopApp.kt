@@ -653,9 +653,10 @@ internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination
             modifier = Modifier.padding(start = 8.dp, bottom = 20.dp)
         ) {
             if (!collapsed) {
-            if (logo != null) Image(logo, contentDescription = null, modifier = Modifier.size(24.dp))
+            Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), contentDescription = null,
+                modifier = Modifier.size(28.dp), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onSurface))
             Spacer(Modifier.width(12.dp))
-            Text("Auralis", modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+            Text("Auralis", modifier = Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
             }
             androidx.compose.material3.IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
                 Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ChevronLeft,
