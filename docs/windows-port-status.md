@@ -326,3 +326,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Windows full-screen player always displays its standard cover, and the bottom player bar uses its normal theme surface. Removed the hidden-cover-only transport row and black-bar theme override, so old saved values cannot activate the removed features.
 - No remaining references to these three preference fields in windows/src/main. Compilation and MSI packaging passed (1m43s). Android and the shared backup preference format were kept intact.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-remove-artwork-options-20261012-141657.
+
+## Compact card follows selected lyric style — 2026-10-12
+
+- The compact sidebar now observes the live appearance store directly, including detached lyric windows. Fluid and Apple render surrounding lines through their own renderers; the distance blur and Metro intro flag are now limited to MetroLyrics.
+- The selected style changes in the open card without reopening it. Inactive Fluid uses the lightweight text path, preserving its glyph-cache performance.
+- All three SidebarWordLyricsTest checks passed: renderer switching, pause/seek/rest timing, and the whole compact card switching from the live store even when its parent supplies Metro defaults. Inspected Fluid/Apple card renders under windows/build/screens/compact-card-styles. MSI packaging passed (2m11s).
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-card-style-20261012-145935.

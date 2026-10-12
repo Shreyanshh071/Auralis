@@ -23,6 +23,42 @@ import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 
 class SidebarWordLyricsTest {
+    @Test fun compactCardFollowsLiveStoreEvenWhenParentHasDefaultStyle() {
+        val settings = kotlinx.coroutines.flow.MutableStateFlow(AppearanceSettings())
+        val store = object : com.auralis.music.ui.theme.AppearanceSettingsStore {
+            override fun getInitialSettings() = settings.value
+            override val settingsFlow = settings
+            override suspend fun updateSettings(value: AppearanceSettings) { settings.value = value }
+            override suspend fun hideMostPlayedPlaylist(playlistId: String) {}
+        }
+        val position = mutableLongStateOf(1600L)
+        val data = com.auralis.music.domain.model.LyricsData(SyncType.RICHSYNC, listOf(
+            LyricLine(1000, "Sometimes she holds", words = listOf(LyricWord("Sometimes ", 1000, 1000), LyricWord("she holds", 3000, 1000))),
+            LyricLine(5000, "her hand too tight", words = listOf(LyricWord("her hand ", 5000, 1000), LyricWord("too tight", 6500, 1000)))),
+            provider = com.auralis.music.domain.model.LyricsProvider.AMLL)
+        val scene = ImageComposeScene(340, 240, coroutineContext = Dispatchers.Unconfined) {
+            MaterialTheme {
+                CompositionLocalProvider(com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides store,
+                    LocalAppearanceSettings provides AppearanceSettings()) {
+                    Box(Modifier.fillMaxSize().background(Color.Black)) { SidebarLyricsView(data, position, {}) }
+                }
+            }
+        }
+        try {
+            var frame = 0L
+            val output = java.io.File("build/screens/compact-card-styles").apply { mkdirs() }
+            val images = listOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.FLUID, LyricsAnimationMode.APPLE_MUSIC_V2).map { mode ->
+                settings.value = AppearanceSettings(lyricsAnimation = mode.displayName)
+                repeat(30) { scene.render(frame++ * 16_666_667L).close() }
+                val bytes = scene.render(frame++ * 16_666_667L).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes } }
+                java.io.File(output, "${mode.name}.png").writeBytes(bytes)
+                bytes
+            }
+            for (i in images.indices) for (j in i + 1 until images.size)
+                assertFalse(images[i].contentEquals(images[j]), "The whole compact card must follow live store style changes")
+        } finally { scene.close() }
+    }
+
     @Test fun sidebarChangesRendererWhenTheSelectedStyleChanges() {
         val mode = mutableStateOf(LyricsAnimationMode.METRO_LYRICS)
         val position = mutableLongStateOf(1600L)
