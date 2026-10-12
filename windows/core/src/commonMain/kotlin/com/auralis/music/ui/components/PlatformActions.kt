@@ -32,7 +32,7 @@ interface PlatformActions {
     fun clearAllDownloads()
 
     /** Downloads a whole playlist for offline playback. */
-    fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>)
+    fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>, coverUrl: String? = null)
 
     /** Saves [content] as a file the user can find; returns the message to show (where it went, or the error). */
     fun saveTextFile(fileName: String, content: String): String
@@ -51,7 +51,7 @@ object NoPlatformActions : PlatformActions {
     override fun isDownloading(trackId: String) = false
     override fun downloadTrack(track: Track) {}
     override fun removeDownload(trackId: String) {}
-    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>) {}
+    override fun downloadPlaylist(playlistId: String, playlistName: String, tracks: List<Track>, coverUrl: String?) {}
     @androidx.compose.runtime.Composable
     override fun hasActiveDownloads() = false
     override fun clearAllDownloads() {}

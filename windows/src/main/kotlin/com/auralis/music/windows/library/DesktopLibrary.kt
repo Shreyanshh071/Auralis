@@ -41,7 +41,9 @@ fun DesktopLibrary(
     onOpenProfile: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenListenTogether: () -> Unit,
-    showMessage: (String) -> Unit
+    showMessage: (String) -> Unit,
+    youtubePlaylists: List<com.auralis.music.domain.model.PlaylistResult> = emptyList(),
+    onYouTubePlaylist: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
@@ -50,10 +52,10 @@ fun DesktopLibrary(
     // The phone opens "New playlist" from its bottom dock; on Windows it is a button on the Library page.
     var showCreate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val savedAlbumEntries = uiState.savedAlbums.associateBy(::savedAlbumEntryId)
-    val displayedState = uiState.copy(playlists = desktopLibraryItems(uiState.playlists, uiState.savedAlbums))
+    val displayedState = uiState.copy(playlists = desktopLibraryItems(uiState.playlists, uiState.savedAlbums, youtubePlaylists))
 
     if (uiState.selectedSmartCollection == com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED) {
-        DesktopDownloadsPage(playback, back = { viewModel.closeSmartCollection() })
+        DesktopDownloadsPage(playback, back = { viewModel.closeSmartCollection() }, playlists = uiState.playlists)
         return
     }
 
@@ -73,7 +75,9 @@ fun DesktopLibrary(
             onPlaylistSelect = { playlist ->
                 val album = savedAlbumEntries[playlist?.id]
                 if (album != null) browse.openAlbum(album.asBrowseAlbum())
-                else viewModel.selectPlaylist(playlist?.id, playlist)
+                else if (playlist?.id?.startsWith("yt-account:") == true) {
+                    youtubePlaylists.firstOrNull { "yt-account:${it.id}" == playlist.id }?.let(onYouTubePlaylist)
+                } else viewModel.selectPlaylist(playlist?.id, playlist)
             },
             onTrackClick = { track, list ->
                 if (playback != null) playback.playFrom(track, list) else showMessage("Playback needs VLC")

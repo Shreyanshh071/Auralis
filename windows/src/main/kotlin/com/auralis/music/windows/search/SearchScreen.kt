@@ -90,12 +90,14 @@ fun FindMusicDropdown(
     artwork: String? = null,
     compact: Boolean = false,
     /** The slim field centred in the title bar; the results open centred beneath it. */
-    bar: Boolean = false
+    bar: Boolean = false,
+    focusRequests: Int = 0
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     var mounted by remember { androidx.compose.runtime.mutableStateOf(false) }
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { FocusRequester() }
+    LaunchedEffect(focusRequests) { if (bar && focusRequests > 0) focus.requestFocus() }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { (if (bar) 40.dp else if (compact) 46.dp else 72.dp).roundToPx() }
     val position = remember(gap, bar) {
@@ -280,24 +282,9 @@ fun SearchScreen(
     focusRequests: Int = 0,
     onTypingChange: (Boolean) -> Unit = {}
 ) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(focusRequests) { focusRequester.requestFocus() }
-
-    Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        SearchBar(
-            query = state.query,
-            onQueryChange = state::onQueryChange,
-            onSearch = { state.search() },
-            onClear = state::clear,
-            focusRequester = focusRequester,
-            modifier = Modifier
-                .widthIn(max = ContentMaxWidth)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .onFocusChanged { onTypingChange(it.hasFocus) }
-        )
-
-        Box(modifier = Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth().weight(1f)) {
+    // The title bar owns the single search field; results use the whole content panel.
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             val results = state.results
             when {
                 state.isSearching && results.isEmpty() -> Box(Modifier.fillMaxSize().padding(top = 40.dp), contentAlignment = Alignment.TopCenter) {

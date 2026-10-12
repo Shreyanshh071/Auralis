@@ -240,7 +240,7 @@ fun PlaylistOptionsBottomSheet(
         platformActions.downloadPlaylist(
             playlistId = playlist.id,
             playlistName = playlist.title,
-            tracks = playlist.tracks
+            tracks = playlist.tracks, coverUrl = playlist.coverUrl
         )
     }
 
@@ -501,7 +501,7 @@ fun PlaylistOptionsBottomSheet(
                                     platformActions.downloadPlaylist(
                                         playlistId = playlist.id,
                                         playlistName = playlist.title,
-                                        tracks = playlist.tracks
+                                        tracks = playlist.tracks, coverUrl = playlist.coverUrl
                                     )
                                 }
                             )

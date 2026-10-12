@@ -48,9 +48,16 @@ internal fun DesktopHome(
     val queue = playback?.queue?.collectAsState()?.value
     val playing = playback?.state?.collectAsState()?.value == VlcAudioPlayer.State.PLAYING
     var menuTrack by remember { mutableStateOf<Track?>(null) }
+    var menuPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var menuAlbum by remember { mutableStateOf<PlaylistResult?>(null) }
     val playlists by library.getPlaylists().collectAsState(emptyList())
     val savedAlbums by library.getSavedAlbums().collectAsState(emptyList())
+    var collageUrls by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(playlists) {
+        playlists.filter { it.coverUrl.isNullOrBlank() }.forEach { playlist ->
+            com.auralis.music.windows.library.playlistCollage(playlist.tracks)?.let { image -> collageUrls = collageUrls + (playlist.id to image) }
+        }
+    }
     val scope = rememberCoroutineScope()
     val youtubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
     val youtubeAccount by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
@@ -122,10 +129,26 @@ internal fun DesktopHome(
         onSearch = onNavigateToSearch,
         onSurprise = { viewModel.getRandomSurpriseTrack()?.let { play(it, listOf(it)) } },
         onChip = viewModel::toggleChip,
-        onAlbumMenu = { menuAlbum = it },
+        onAlbumMenu = { album ->
+            val local = playlists.firstOrNull { "local:${it.id}" == album.id }
+            if (local != null) menuPlaylist = local else menuAlbum = album
+        },
+        playlistCovers = playlists.associateBy { "local:${it.id}" },
+        onShortcutMenu = { item ->
+            when (item.type) {
+                SpeedDialType.TRACK -> menuTrack = item.track
+                SpeedDialType.PLAYLIST -> menuPlaylist = playlists.firstOrNull { it.id == item.id.removePrefix("playlist-") }
+                SpeedDialType.ALBUM -> {
+                    val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image)
+                    val local = playlists.firstOrNull { "local:${it.id}" == album.id }
+                    if (local != null) menuPlaylist = local else menuAlbum = album
+                }
+                else -> Unit
+            }
+        },
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         shortcutCandidates = playlists.map { p ->
-            val album = PlaylistResult("local:${p.id}", p.title, p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail,
+            val album = PlaylistResult("local:${p.id}", p.title, p.coverUrl ?: collageUrls[p.id] ?: p.tracks.firstOrNull()?.thumbnail,
                 "Playlist · ${p.tracks.size} songs")
             SpeedDialItem(id = "album-${album.id}", name = p.title, type = SpeedDialType.ALBUM, image = album.thumbnail, album = album)
         } + savedArtists.map { a -> SpeedDialItem(id = a.id, name = a.name, type = SpeedDialType.ARTIST,
@@ -190,7 +213,7 @@ internal fun DesktopHome(
         serviceError = if (youtubeSignedIn) remoteState.error else null,
         libraryShelf = youtubePlaylists.filter { it.id != "VLLM" } +
             playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
-                it.coverUrl ?: it.tracks.firstOrNull()?.thumbnail, "Playlist · ${it.tracks.size} tracks") } +
+                it.coverUrl ?: collageUrls[it.id] ?: it.tracks.firstOrNull()?.thumbnail, "Playlist · ${it.tracks.size} tracks") } +
             savedAlbums.map { PlaylistResult(it.id, it.title, it.thumbnail, it.artist) },
         loadingMore = if (youtubeSignedIn) remoteState.loadingMore else pageState.loading,
         canLoadMore = if (youtubeSignedIn) remoteState.token != null else pageState.canLoadMore,
@@ -206,6 +229,13 @@ internal fun DesktopHome(
     )
     menuTrack?.let { track ->
         DesktopTrackMenu(track, library, playback, browse, viewModel, showMessage, { menuTrack = null })
+    }
+    menuPlaylist?.let { playlist ->
+        com.auralis.music.ui.library.PlaylistOptionsBottomSheet(playlist = playlist,
+            onDismiss = { menuPlaylist = null },
+            onEditPlaylist = { id, title, desc, cover -> scope.launch { library.updatePlaylist(id, title, desc, cover) } },
+            onAddToQueue = { tracks -> tracks.forEach { playback?.addToQueue(it) } },
+            onDeletePlaylist = { scope.launch { library.deletePlaylist(playlist.id) }; menuPlaylist = null })
     }
     menuAlbum?.let { album ->
         AlbumOptionsMenu(
@@ -228,7 +258,7 @@ internal fun DesktopHome(
                 tracks.forEach { library.addTrackToPlaylist(id, it) }
             } },
             onPinToSpeedDial = { viewModel.togglePinAlbum(album) },
-            onDownload = { withAlbumTracks(album) { tracks -> platform.downloadPlaylist(album.id.removePrefix("local:"), album.title, tracks) } },
+            onDownload = { withAlbumTracks(album) { tracks -> platform.downloadPlaylist(album.id.removePrefix("local:"), album.title, tracks, album.thumbnail) } },
             onViewArtist = { album.author?.let { browse.openArtist(Artist(id = "", name = it)) } },
             onDismiss = { menuAlbum = null }
         )

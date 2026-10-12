@@ -21,7 +21,7 @@ import javax.imageio.ImageIO
  * No audio analysis is fabricated: the flow runs at a steady speed.
  */
 internal enum class AuraPresentation(val brightness: Float, val saturation: Float) {
-    FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f)
+    FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f), SHORTCUT(.45f, 1.4f)
 }
 
 @Composable
@@ -33,7 +33,9 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
         val decoded = withContext(Dispatchers.IO) {
             runCatching {
                 val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(artwork) ?: artwork
-                com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+                if (java.io.File(url).isFile) ImageIO.read(java.io.File(url))?.let(::auraTexture)
+                else if (url.startsWith("file:")) ImageIO.read(java.io.File(java.net.URI(url)))?.let(::auraTexture)
+                else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
                     .newCall(Request.Builder().url(url).build()).execute().use { response ->
                         check(response.isSuccessful)
                         response.body?.byteStream()?.use(ImageIO::read)?.let(::auraTexture)

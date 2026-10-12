@@ -97,7 +97,20 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
                         mutable.value = mutable.value.copy(playlists = page)
                     }
                 }
-                if (generation == version) mutable.value = mutable.value.copy(loading = false)
+                if (generation == version) {
+                    mutable.value = mutable.value.copy(loading = false)
+                    // YouTube sometimes omits playlist thumbnails; build the phone's four-song cover.
+                    mutable.value.playlists.filter { it.thumbnail.isNullOrBlank() && it.id != "VLLM" }.forEach { playlist ->
+                        ensureActive()
+                        val cover = runCatching { com.auralis.music.windows.library.playlistCollage(api.tracks(playlist) {}) }.getOrNull()
+                        ensureActive()
+                        if (cover != null && generation == version) {
+                            val repaired = mutable.value.playlists.map { if (it.id == playlist.id) it.copy(thumbnail = cover) else it }
+                            accounts.save(identity, cookie, api.scope, repaired)
+                            mutable.value = mutable.value.copy(playlists = repaired)
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 if (generation == version) mutable.value = mutable.value.copy(loading = false,
