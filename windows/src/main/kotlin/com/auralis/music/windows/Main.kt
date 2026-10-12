@@ -145,6 +145,7 @@ fun main(args: Array<String>) {
             state = windowState
         ) {
             var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
+            var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var maximizeHovered by remember { mutableStateOf(false) }
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(900, 600)
@@ -152,7 +153,19 @@ fun main(args: Array<String>) {
                     .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
                 nativeFrame = frame
                 val inputRestore = installWindowInputRestore(window)
-                onDispose { inputRestore.close(); frame?.close() }
+                val taskbar = if (frame != null && playback != null) runCatching {
+                    com.auralis.music.windows.media.TaskbarPlaybackControls(frame, window.windowHandle, playback::previous, playback::togglePlayPause, playback::next)
+                }.onFailure { Log.w(TAG, "Taskbar controls unavailable: ${it.message}") }.getOrNull() else null
+                taskbarControls = taskbar
+                onDispose { taskbarControls = null; taskbar?.close(); inputRestore.close(); frame?.close() }
+            }
+            LaunchedEffect(taskbarControls) {
+                val controls = taskbarControls
+                if (controls != null && playback != null) {
+                    kotlinx.coroutines.flow.combine(playback.queue, playback.state) { queue, state ->
+                        Triple(queue.current != null, state == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING, queue.hasNext)
+                    }.collect { (hasTrack, playing, next) -> controls.update(hasTrack, playing, next) }
+                }
             }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 stores.privacy.settingsFlow.collect { privacy ->

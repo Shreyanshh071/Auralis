@@ -28,6 +28,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
     @Volatile var maximizeBounds: Rect = Rect.Zero
     /** The title bar's search field: inside the drag area, but clicks must reach it. */
     @Volatile var searchBounds: Rect = Rect.Zero
+    @Volatile var onTaskbarMessage: ((Int, Long) -> Boolean)? = null
     private var maximizePressed = false
     private var maximizeHovered = false
 
@@ -74,6 +75,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
         val procedure = Procedure { current, message, w, l ->
             try {
                 when {
+                    root && onTaskbarMessage?.invoke(message, w.toLong()) == true -> LRESULT(0)
                     root && message == 0x00A0 -> { // Non-client hover bypasses Compose's hoverable.
                         hoverMaximize(w.toInt() == 9)
                         val tracking = Memory(if (Native.POINTER_SIZE == 8) 24L else 16L)
