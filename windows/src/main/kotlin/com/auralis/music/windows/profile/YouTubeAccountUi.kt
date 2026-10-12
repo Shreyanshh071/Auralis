@@ -1,5 +1,15 @@
 package com.auralis.music.windows.profile
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -16,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -37,36 +48,51 @@ internal fun YouTubeAccountAvatar(url: String?, modifier: Modifier = Modifier.si
 
 @Composable
 internal fun YouTubeAccountMenu(state: YouTubeLibraryState, onSelect: (String) -> Unit,
-    onRemove: (String) -> Unit, onAdd: () -> Unit, onSettings: () -> Unit, onRefresh: () -> Unit, onDismiss: () -> Unit) {
+    onRemove: (String) -> Unit, onAdd: () -> Unit, onSettings: () -> Unit, onRefresh: () -> Unit, onDismiss: () -> Unit, expanded: Boolean = true) {
     var manage by remember { mutableStateOf(false) }
+    val visibility = remember { MutableTransitionState(false) }
+    visibility.targetState = expanded
+    LaunchedEffect(expanded) { if (expanded) manage = false }
+    if (!visibility.currentState && !visibility.targetState) return
     Popup(alignment = Alignment.TopEnd, offset = IntOffset(0, 36), onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true)) {
-        SignInGlassSurface {
-            Column(Modifier.width(380.dp).heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (manage) "Manage accounts" else "Switch account", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close") }
-                }
-                state.accounts.forEach { item ->
-                    Row(Modifier.fillMaxWidth().clickable { onSelect(item.id) }.padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        YouTubeAccountAvatar(item.identity.avatar, Modifier.size(40.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.identity.name, fontWeight = FontWeight.SemiBold)
-                            Text(item.identity.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (manage) IconButton(onClick = { onRemove(item.id) }) { Icon(Icons.Outlined.DeleteOutline, "Remove ${item.identity.name}") }
-                        else if (item.id == state.activeId) Icon(Icons.Outlined.Check, "Selected account")
+        properties = PopupProperties(focusable = expanded)) {
+        AnimatedVisibility(
+            visibleState = visibility,
+            enter = fadeIn(tween(180)) +
+                scaleIn(tween(240, easing = CubicBezierEasing(.16f, 1f, .3f, 1f)),
+                    initialScale = .94f, transformOrigin = TransformOrigin(1f, 0f)) +
+                slideInVertically(tween(240, easing = CubicBezierEasing(.16f, 1f, .3f, 1f))) { -it / 30 },
+            exit = fadeOut(tween(130)) +
+                scaleOut(tween(150), targetScale = .97f, transformOrigin = TransformOrigin(1f, 0f)) +
+                slideOutVertically(tween(150)) { -it / 50 }
+        ) {
+            SignInGlassSurface {
+                Column(Modifier.width(380.dp).heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                    Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (manage) "Manage accounts" else "Switch account", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                        IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close") }
                     }
+                    state.accounts.forEach { item ->
+                        Row(Modifier.fillMaxWidth().clickable { onSelect(item.id) }.padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            YouTubeAccountAvatar(item.identity.avatar, Modifier.size(40.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(item.identity.name, fontWeight = FontWeight.SemiBold)
+                                Text(item.identity.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (manage) IconButton(onClick = { onRemove(item.id) }) { Icon(Icons.Outlined.DeleteOutline, "Remove ${item.identity.name}") }
+                            else if (item.id == state.activeId) Icon(Icons.Outlined.Check, "Selected account")
+                        }
+                    }
+                    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    state.error?.let {
+                        Text(it, modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onRefresh, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Try again") }
+                    }
+                    AccountMenuAction("Add account", Icons.Outlined.Add, onAdd)
+                    AccountMenuAction(if (manage) "Back to accounts" else "Manage accounts", Icons.Outlined.ManageAccounts) { manage = !manage }
+                    AccountMenuAction("Settings", Icons.Outlined.Settings, onSettings)
                 }
-                if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                state.error?.let {
-                    Text(it, modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = onRefresh, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Try again") }
-                }
-                AccountMenuAction("Add account", Icons.Outlined.Add, onAdd)
-                AccountMenuAction(if (manage) "Back to accounts" else "Manage accounts", Icons.Outlined.ManageAccounts) { manage = !manage }
-                AccountMenuAction("Settings", Icons.Outlined.Settings, onSettings)
             }
         }
     }
