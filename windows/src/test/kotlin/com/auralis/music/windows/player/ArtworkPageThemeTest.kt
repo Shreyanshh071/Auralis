@@ -79,12 +79,12 @@ class ArtworkPageThemeTest {
                 return listOf(pixel shr 16 and 255, pixel shr 8 and 255, pixel and 255)
             }
             val background = rgb(neutral, 60, 260)
-            assertTrue(background.all { it in 110..118 }, "White artwork should have 45% brightness: $background")
+            assertTrue(background.all { it in 169..177 }, "White artwork should have 68% brightness: $background")
             val panel = rgb(neutral, 60, 60)
             assertTrue(panel.max() - panel.min() <= 1, "Neutral cover must remain neutral beneath panels: $panel")
             artwork.value = blue.absolutePath
             val colour = rgb(render("blue-page.png"), 60, 260)
-            assertTrue(colour[0] < 3 && colour[1] in 53..62 && colour[2] in 110..118,
+            assertTrue(colour[0] < 3 && colour[1] in 83..91 && colour[2] in 169..177,
                 "New cover should retain its own hue and brightness: $colour")
         } finally { scene.close() }
     }
