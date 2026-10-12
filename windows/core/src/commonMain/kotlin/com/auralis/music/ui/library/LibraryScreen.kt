@@ -1060,7 +1060,7 @@ fun LibraryScreen(
         val dialogShape = RoundedCornerShape(28.dp)
         val pageView = com.auralis.music.ui.glass.rememberDialogPageAnchor()
 
-        AlertDialog(
+        com.auralis.music.ui.components.GlassAlertDialog(
             onDismissRequest = { showCreateDialog = false },
             modifier = if (headerGlass != null) Modifier.liquidGlassDialog(headerGlass, dialogShape, pageView) else Modifier,
             shape = if (headerGlass != null) dialogShape else AlertDialogDefaults.shape,

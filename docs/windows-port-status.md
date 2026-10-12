@@ -516,3 +516,10 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - NVIDIA staff document disabling only the overlay notification as a global workaround, independent of app recognition: https://forums.developer.nvidia.com/t/how-to-prevent-in-game-overlay-from-triggering/256026/10 . This is distinct from disabling the overlay, recording or game tools, but still needs owner agreement because the hint would also be hidden in games.
 - Windows computer-use skill loaded; node_repl + @oai/sky initialization failed twice (with a kernel reset between attempts): "failed to write kernel assets: The system cannot find the path specified. (os error 3)". No NVIDIA UI automation or preference changes were performed.
 
+
+## Glass playlist and shortcut dialogs — 2026-10-12
+
+- Routed desktop New playlist, the Library New Playlist dialog and Home Add a shortcut through a shared glass dialog host, using the account popup's live page capture and lens/blur effect. Text, controls and artwork thumbnails draw above the blur.
+- The centered modal uses a separate popup scene, excludes its scrim/panel from page capture, dismisses on Escape or background click, and scrolls in small windows. Playlist creation's busy/error and destination behaviour remain intact.
+- Three render checks passed (two centered/create-dialog checks plus the existing popup backdrop check): correct backdrop region and colours, sharp foreground, capture cleanup and live page updates. Inspected the dark-theme New playlist rendering.
+- NVIDIA's global hint/overlay settings remain unchanged at the user's request. The Auralis-only overlay issue is unresolved; the slow software-rendering experiment was not installed.
