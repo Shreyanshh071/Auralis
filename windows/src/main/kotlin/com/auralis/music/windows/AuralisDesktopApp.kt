@@ -156,13 +156,14 @@ fun AuralisDesktopApp(
     // Familiar Artists (Li Music): top artists by the listener's own play count, with their photo
     // and channel from one artist search each, cached for the session.
     val artistLookups = remember { androidx.compose.runtime.mutableStateMapOf<String, com.auralis.music.domain.model.Artist?>() }
-    val topArtistPlays = remember(allListens) {
-        allListens.filter { it.countsAsPlay }
+    val blockedArtists by com.auralis.music.desktop.library.DesktopBlockedArtists.artists.collectAsState()
+    val topArtistPlays = remember(allListens, blockedArtists) {
+        allListens.filter { it.countsAsPlay && !com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it.track, blockedArtists) }
             .groupBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(
                 it.track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().removeSuffix(" - Topic")) }
             .filterKeys { it.isNotBlank() && it != "unknown artist" }
             .map { (_, l) -> l.first().track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().trim().removeSuffix(" - Topic") to l.size }
-            .sortedByDescending { it.second }.take(8)
+            .sortedByDescending { it.second }.take(10)
     }
     androidx.compose.runtime.LaunchedEffect(topArtistPlays.map { it.first }) {
         topArtistPlays.map { it.first }.filter { it !in artistLookups }.forEach { name ->
@@ -173,7 +174,7 @@ fun AuralisDesktopApp(
     val familiarArtists = topArtistPlays.map { (name, plays) ->
         val found = artistLookups[name]
         com.auralis.music.windows.home.FamiliarArtist(found?.name ?: name, plays, found?.id.orEmpty(), found?.thumbnail)
-    }.take(6)
+    }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }.take(6)
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -652,7 +653,7 @@ fun AuralisDesktopApp(
             }
             // The full player slides up over everything, like the phone's player sheet.
             androidx.compose.animation.AnimatedVisibility(
-                modifier = Modifier.padding(top = 36.dp),
+                modifier = Modifier.padding(top = TITLE_BAR_HEIGHT),
                 visible = showPlayer && playback != null && lyrics != null,
                 enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } +
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)),

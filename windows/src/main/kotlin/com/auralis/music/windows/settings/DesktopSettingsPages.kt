@@ -27,6 +27,8 @@ fun DesktopAudioSettings(onDismiss: () -> Unit) {
         item { Toggle("Preload the next song's stream", settings.gaplessPlayback) { scope.launch { stores.settings.setGaplessPlayback(it) } } }
         item { Text("Preloading reduces lookup time between tracks; VLC stream changes are not guaranteed to be gapless.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { HorizontalDivider() }
+        item { BlockedArtistsSection() }
+        item { HorizontalDivider() }
         item { Text("Not implemented on Windows yet", style = MaterialTheme.typography.titleMedium) }
         item { Text("Skip silence, Android spatial audio, restoring the queue after restart, automatic radio extension, Bluetooth reconnection, system-mute detection and keeping the screen awake are not connected. Closing Auralis stops playback.") }
     }
@@ -108,6 +110,24 @@ fun DesktopStorageSettings(onDismiss: () -> Unit) {
         item { OutlinedButton(onClick = { com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache(); message = "Stream lookup cache cleared" }) { Text("Clear stream lookups") } }
         item { Text("Offline downloads and an audio-file cache are not implemented on Windows yet. Audio streams are relayed in memory; no audio files are saved.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (message.isNotBlank()) item { Text(message) }
+    }
+}
+
+/** The block list (Li Music's): who is left out of radio and recommendations, with Unblock. */
+@Composable
+private fun BlockedArtistsSection() {
+    val blocked by com.auralis.music.desktop.library.DesktopBlockedArtists.artists.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Blocked artists", style = MaterialTheme.typography.titleMedium)
+        Text("Blocked artists are left out of radio and recommendations. Albums and playlists you open still play everything in them.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (blocked.isEmpty()) Text("Nobody blocked yet. Use \"Block artist\" from an artist's ⋮ menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        blocked.forEach { artist ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(artist.name, modifier = Modifier.weight(1f))
+                TextButton(onClick = { com.auralis.music.desktop.library.DesktopBlockedArtists.unblock(artist.key) }) { Text("Unblock") }
+            }
+        }
     }
 }
 

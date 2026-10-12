@@ -50,6 +50,17 @@ fun BrowsePages(
     val play: (com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit = { track, list ->
         if (playback != null) playback.playFrom(track, list) else onUnavailable("Playback needs VLC")
     }
+    // A song's radio: the song, then the radio engine's picks, without blocked artists.
+    val startRadio: (com.auralis.music.domain.model.Track) -> Unit = { track ->
+        scope.launch {
+            val radio = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { com.auralis.music.data.network.InnerTubeClient().getRadioTracks(track.id, track.artist, track.title) }
+                    .getOrDefault(emptyList())
+            }
+            play(track, (listOf(track) + radio.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it) })
+                .distinctBy { it.id })
+        }
+    }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         AnimatedContent(
             targetState = browse.stack.size to top,
@@ -80,7 +91,7 @@ fun BrowsePages(
                     onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
                     onPlayNext = { playback?.playNext(it) },
                     onAddToQueue = { playback?.addToQueue(it) },
-                    onStartRadio = { onUnavailable("Radio on Windows comes later") },
+                    onStartRadio = startRadio,
                     onOpenArtist = browse::openArtist,
                     onBack = { browse.pop() }
                 )
@@ -102,7 +113,7 @@ fun BrowsePages(
                     onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
                     onPlayNext = { playback?.playNext(it) },
                     onAddToQueue = { playback?.addToQueue(it) },
-                    onStartRadio = { onUnavailable("Radio on Windows comes later") },
+                    onStartRadio = startRadio,
                     onOpenArtist = browse::openArtist,
                     onAlbumClick = { browse.openAlbum(it, fromArtist = page.page) },
                     onBack = { browse.pop() },

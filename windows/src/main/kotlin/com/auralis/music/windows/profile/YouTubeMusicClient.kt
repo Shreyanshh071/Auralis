@@ -21,7 +21,7 @@ internal data class YouTubeIdentity(val name: String, val subtitle: String, val 
 internal data class YouTubeScope(val version: String = "1.20250101.01.00", val authUser: String = "0",
     val pageId: String? = null, val dataSyncId: String? = null, val visitor: String? = null)
 
-/** Read-only YouTube Music requests scoped to a snapshot of the selected browser session. */
+/** YouTube Music requests scoped to a snapshot of the selected browser session; the only write is subscribing. */
 internal class YouTubeMusicClient(
     private val cookie: String = YouTubeSession.authHeaders(ORIGIN)["Cookie"].orEmpty(),
     authUser: String = "0",
@@ -78,6 +78,22 @@ internal class YouTubeMusicClient(
 
     suspend fun browseHome(browseId: String = "FEmusic_home", continuation: String? = null): JSONObject =
         post("browse", if (continuation == null) JSONObject().put("browseId", browseId) else JSONObject().put("continuation", continuation))
+
+    /**
+     * The account's subscription to an artist, read off the artist page's subscribe button: the
+     * channel the button acts on (often the official channel, not the browsed one) and its state.
+     */
+    suspend fun artistSubscription(browseId: String): Pair<String, Boolean>? {
+        val button = youtubeNodes(post("browse", JSONObject().put("browseId", browseId)), "subscribeButtonRenderer").firstOrNull()
+            ?: return null
+        return button.optString("channelId").ifBlank { browseId } to button.optBoolean("subscribed")
+    }
+
+    /** Subscribes the signed-in account to a channel, or unsubscribes it (YouTube's own write). */
+    suspend fun setSubscribed(channelId: String, subscribed: Boolean) {
+        post(if (subscribed) "subscription/subscribe" else "subscription/unsubscribe",
+            JSONObject().put("channelIds", JSONArray().put(channelId)))
+    }
 
     suspend fun playlists(onPage: (List<PlaylistResult>) -> Unit): List<PlaylistResult> {
         val values = linkedMapOf<String, PlaylistResult>()
