@@ -333,3 +333,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - The selected style changes in the open card without reopening it. Inactive Fluid uses the lightweight text path, preserving its glyph-cache performance.
 - All three SidebarWordLyricsTest checks passed: renderer switching, pause/seek/rest timing, and the whole compact card switching from the live store even when its parent supplies Metro defaults. Inspected Fluid/Apple card renders under windows/build/screens/compact-card-styles. MSI packaging passed (2m11s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-card-style-20261012-145935.
+
+## Replace library sidebar with navigation — 2026-10-12
+
+- Replaced the left playlist list with Home, Library, History and Downloads rows, using Auralis typography and the existing translucent artwork surface. Selected row has a rounded highlight; the panel remains collapsible.
+- Library clears the selected playlist/smart collection and opens the overview. History opens listening history. Downloads opens the existing downloaded smart collection. Home and History clear any browse overlay. Playlists remain available through Library.
+- Compilation and MSI packaging passed (2m45s). No new tests for this reversible navigation UI change.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-navigation-sidebar-20261012-150441.
