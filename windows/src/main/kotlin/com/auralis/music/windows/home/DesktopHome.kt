@@ -95,6 +95,10 @@ fun DesktopHome(
             album.id.startsWith("local:") -> onOpenPlaylist(album.id.removePrefix("local:"))
             album.id.startsWith("UC") -> browse.openArtist(Artist(album.id, album.title, album.thumbnail))
             youtubePlaylists.any { it.id == album.id } -> onYouTubePlaylist(album)
+            // Any YouTube playlist on Home (Listen again, mixes): open it through the signed-in
+            // account, which can read private ones; it is shown, not added to the Library.
+            youtubeSignedIn && (album.id.startsWith("VL") || album.id.startsWith("PL") || album.id.startsWith("RD")) ->
+                onYouTubePlaylist(if (album.id.startsWith("VL")) album else album.copy(id = "VL" + album.id))
             else -> browse.openAlbum(album)
         } },
         onMenu = { menuTrack = it },
