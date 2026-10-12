@@ -1,6 +1,8 @@
 package com.auralis.music.windows.search
 
 import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.clickable
@@ -108,10 +110,15 @@ fun FindMusicDropdown(
             }
         }
     }
+    // Title bar: the bar itself is the text field (no second field inside the dropdown).
+    var fieldFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun dismiss() { expanded = false; onTypingChange(false) }
     fun submit(text: String) {
-        if (text.isNotBlank()) { dismiss(); onSearch(text) }
+        if (text.isNotBlank()) { dismiss(); if (bar) focusManager.clearFocus(); onSearch(text) }
     }
+    fun open() { mounted = true; expanded = true }
     Box {
         if (bar) {
             val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -119,11 +126,38 @@ fun FindMusicDropdown(
             Row(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
                 .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f))
                 .hoverable(hover)
-                .clickable(interactionSource = hover, indication = null) { if (expanded) dismiss() else { mounted = true; expanded = true } }
+                .clickable(interactionSource = hover, indication = null) { focus.requestFocus(); open() }
                 .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
-                Text("What do you want to play?", fontSize = 14.sp, color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (state.query.isEmpty()) Text("What do you want to play?", fontSize = 14.sp,
+                        color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+                    BasicTextField(
+                        value = state.query,
+                        onValueChange = { state.onQueryChange(it); if (!expanded) open() },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                            .onFocusChanged { f ->
+                                fieldFocused = f.isFocused
+                                if (f.isFocused) { open(); onTypingChange(true) }
+                                // Clicking a result moves focus first; give the click a moment to land.
+                                else scope.launch { kotlinx.coroutines.delay(200); if (!fieldFocused) dismiss() }
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) false
+                                else when (event.key) {
+                                    androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter -> { submit(state.query); true }
+                                    androidx.compose.ui.input.key.Key.Escape -> { dismiss(); focusManager.clearFocus(); true }
+                                    else -> false
+                                }
+                            }
+                    )
+                }
+                if (state.query.isNotEmpty()) Icon(Icons.Default.Close, "Clear search", Modifier.size(16.dp)
+                    .clickable { state.clear(); focus.requestFocus() }, tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
             }
         } else
         if (compact) androidx.compose.material3.IconButton(onClick = {
@@ -149,8 +183,10 @@ fun FindMusicDropdown(
         if (mounted) {
             androidx.compose.ui.window.Popup(
                 popupPositionProvider = position,
-                onDismissRequest = ::dismiss,
-                properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+                // Title bar: typing stays in the bar, so the dropdown never takes focus.
+                // A click outside closes it and leaves the field; a click on the field itself focuses it again.
+                onDismissRequest = { dismiss(); if (bar) focusManager.clearFocus() },
+                properties = androidx.compose.ui.window.PopupProperties(focusable = !bar)
             ) {
                 LaunchedEffect(expanded) {
                     if (expanded) {
@@ -174,7 +210,7 @@ fun FindMusicDropdown(
                 }
                 // Use the already cached cover for the frosted backdrop. GPU readback of the
                 // whole window here stalled the event thread before the first popup frame.
-                SearchDropdownSurface(liquidify, artwork, Modifier.width(if (bar) 620.dp else 480.dp).height(460.dp)
+                SearchDropdownSurface(liquidify, artwork, glass = bar, modifier = Modifier.width(if (bar) 620.dp else 480.dp).height(460.dp)
                     .then(Modifier.graphicsLayer {
                         // Make the very first painted frame visible, before the frame clock
                         // begins advancing the rest of the fade.
@@ -184,8 +220,8 @@ fun FindMusicDropdown(
                         scaleY = scaleX
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (bar) .5f else 1f, 0f)
                     })) {
-                    Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
-                        SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
+                    Column(Modifier.fillMaxSize().padding(top = if (bar) 8.dp else 4.dp)) {
+                        if (!bar) SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
                             Modifier.fillMaxWidth().padding(12.dp))
                         Box(Modifier.fillMaxWidth().weight(1f)) {
                             SuggestionsOrRecent(state, currentTrackId, isPlaying,
@@ -206,9 +242,25 @@ fun FindMusicDropdown(
 internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifier: Modifier = Modifier,
     backdrop: androidx.compose.ui.graphics.ImageBitmap? = null,
     backdropOffset: androidx.compose.ui.unit.IntOffset = androidx.compose.ui.unit.IntOffset.Zero,
+    /** Title bar: translucent frosted glass (the playing cover blurred under a see-through tint). */
+    glass: Boolean = false,
     content: @Composable () -> Unit) {
     val colours = MaterialTheme.colorScheme
     val light = colours.onSurface.luminance() < .5f
+    if (glass) {
+        val shape = RoundedCornerShape(16.dp)
+        Box(modifier.clip(shape)
+            .border(1.dp, Color.White.copy(alpha = .12f), shape)) {
+            if (!artwork.isNullOrBlank()) Box(Modifier.fillMaxSize().graphicsLayer { alpha = .55f }) {
+                com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 60.dp)
+            }
+            Box(Modifier.fillMaxSize().background(Color(0xFF141318).copy(alpha = if (artwork.isNullOrBlank()) .78f else .62f)))
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to Color.White.copy(alpha = .06f), .3f to Color.Transparent)))
+            content()
+        }
+        return
+    }
     Surface(modifier, shape = RoundedCornerShape(18.dp),
         color = if (liquidify) { if (light) Color(0xFFF7F4F9) else Color(0xFF171519) } else colours.surface.copy(alpha = 1f),
         tonalElevation = if (liquidify) 0.dp else 6.dp, shadowElevation = 12.dp,
