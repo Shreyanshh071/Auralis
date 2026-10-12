@@ -39,6 +39,8 @@ data class TitleBarActions(
     val accountMenu: (@Composable () -> Unit)? = null,
     val openImport: () -> Unit = {},
     val openDiscord: () -> Unit = {},
+    /** The search field centred in the bar; null hides it. */
+    val search: (@Composable () -> Unit)? = null,
 )
 
 /** Compact desktop chrome. Report frame hit regions in physical client pixels to Windows. */
@@ -47,14 +49,15 @@ fun WindowTitleBar(
     actions: TitleBarActions, title: String, icon: Painter?, maximized: Boolean,
     minimize: () -> Unit, maximize: () -> Unit, close: () -> Unit,
     captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
-    maximizeHovered: Boolean = false
+    maximizeHovered: Boolean = false, searchBounds: (Rect) -> Unit = {}
 ) {
     Box(Modifier.fillMaxWidth().height(36.dp).background(Color(0xFF0D0B0E))) {
-        Text(title, color = Color(0xFFD4D0D8), fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(36.dp).fillMaxHeight().clickable(onClick = actions.home), contentAlignment = Alignment.Center) {
+            Row(Modifier.fillMaxHeight().clickable(onClick = actions.home).padding(start = 10.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (icon != null) Image(icon, "Home", Modifier.size(18.dp))
                 else Icon(Icons.Outlined.Home, "Home", Modifier.size(18.dp), tint = Color(0xFFBDD66A))
+                Text(title, color = Color(0xFFD4D0D8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
             ChromeButton(Icons.Outlined.ChevronLeft, "Back", actions.back, actions.canGoBack, 34)
             ChromeButton(Icons.Outlined.ChevronRight, "Forward", actions.forward, actions.canGoForward, 34)
@@ -84,6 +87,8 @@ fun WindowTitleBar(
                 modifier = Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
             ChromeButton(Icons.Outlined.Close, "Close", close, closeButton = true)
         }
+        if (actions.search != null) Box(Modifier.align(Alignment.Center).fillMaxWidth(0.36f).widthIn(min = 280.dp, max = 460.dp).height(28.dp)
+            .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(Color(0xFF242026)))
     }
 }
