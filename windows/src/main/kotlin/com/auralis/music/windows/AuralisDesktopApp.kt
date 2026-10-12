@@ -389,6 +389,22 @@ fun AuralisDesktopApp(
                     openAccount = { if (youtubeSignedIn) showYouTubeAccounts = true else showSignIn = true },
                     openTogether = { showPlayer = false; browse.clear(); destination = DesktopDestination.TOGETHER },
                     openSettings = { showPlayer = false; browse.clear(); destination = DesktopDestination.SETTINGS },
+                    search = {
+                        com.auralis.music.windows.search.FindMusicDropdown(
+                            bar = true,
+                            state = searchState,
+                            currentTrackId = queue?.current?.id,
+                            isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
+                            onPlay = { track, tracks -> playback?.playFrom(track, tracks) ?: showUnavailable("Playback needs VLC (64-bit)") },
+                            onSearch = { query -> searchState.search(query); showPlayer = false; browse.clear(); destination = DesktopDestination.SEARCH },
+                            onPlayNext = { playback?.playNext(it) },
+                            onAddToQueue = { playback?.addToQueue(it) },
+                            onMenuClick = { menuTrack = it },
+                            onTypingChange = { typing = it },
+                            liquidify = liquidify,
+                            artwork = queue?.current?.thumbnail
+                        )
+                    },
                     openImport = { showPlayer = false; browse.clear(); destination = DesktopDestination.IMPORT },
                     openDiscord = { showPlayer = false; browse.clear(); destination = DesktopDestination.DISCORD },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
@@ -435,22 +451,8 @@ fun AuralisDesktopApp(
                                 showMessage = showUnavailable,
                                 youtubePlaylists = youtubeState.playlists,
                                 onYouTubePlaylist = ::openYouTubePlaylist,
-                                findMusic = {
-                                    com.auralis.music.windows.search.FindMusicDropdown(
-                                        compact = false,
-                                        state = searchState,
-                                        currentTrackId = queue?.current?.id,
-                                        isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
-                                        onPlay = { track, tracks -> playback?.playFrom(track, tracks) ?: showUnavailable("Playback needs VLC (64-bit)") },
-                                        onSearch = { query -> searchState.search(query); destination = DesktopDestination.SEARCH },
-                                        onPlayNext = { playback?.playNext(it) },
-                                        onAddToQueue = { playback?.addToQueue(it) },
-                                        onMenuClick = { menuTrack = it },
-                                        onTypingChange = { typing = it },
-                                        liquidify = liquidify,
-                                        artwork = queue?.current?.thumbnail
-                                    )
-                                }
+                                // Search lives in the title bar now; Home shows no search button.
+                                findMusic = {},
                             )
                             DesktopDestination.SEARCH -> com.auralis.music.windows.search.SearchScreen(
                                 state = searchState,

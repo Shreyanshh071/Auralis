@@ -202,7 +202,7 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
     val active = item.track?.id == currentTrackId && playing
     val colors = MaterialTheme.colorScheme
     val background by animateColorAsState(if (hovered) colors.surfaceContainerHigh else colors.surfaceContainer, tween(150))
-    val playAlpha by animateFloatAsState(if (hovered || active) 1f else 0f, tween(150))
+    val playAlpha by animateFloatAsState(if (active) 1f else 0f, tween(150))
     Box(modifier) {
       ContextMenuArea(items = { buildList {
           menu?.let { add(ContextMenuItem(if (item.type == SpeedDialType.ALBUM) "Album options" else "Song options", it)) }
@@ -253,11 +253,12 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
         Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
             Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp))) {
                 HomeArtwork(image, Modifier.fillMaxSize())
-                androidx.compose.animation.AnimatedVisibility(visible = hovered || active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
+                // No hover play/open button (the card itself is the click target); only the song
+                // that's playing keeps a small "playing" badge.
+                androidx.compose.animation.AnimatedVisibility(visible = active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
                     modifier = Modifier.align(Alignment.BottomEnd)) {
                   FilledIconButton(onClick = click, modifier = Modifier.padding(9.dp).size(36.dp)) {
-                    Icon(when { active -> Icons.Outlined.GraphicEq; opensPage -> Icons.Outlined.ArrowOutward; else -> Icons.Outlined.PlayArrow },
-                        when { active -> "Playing"; opensPage -> "Open"; else -> "Play" })
+                    Icon(Icons.Outlined.GraphicEq, "Playing")
                 }
                 }
             }

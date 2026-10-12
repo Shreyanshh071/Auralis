@@ -216,6 +216,7 @@ fun main(args: Array<String>) {
                             }, close = closeApp,
                             captionBounds = { nativeFrame?.captionBounds = it },
                             maximizeBounds = { nativeFrame?.maximizeBounds = it },
+                            searchBounds = { nativeFrame?.searchBounds = it },
                             maximizeHovered = maximizeHovered)
                     }
                     if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()

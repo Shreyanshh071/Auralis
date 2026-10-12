@@ -222,7 +222,11 @@ fun main(args: Array<String>) {
         },
         "player-gradient" to { com.auralis.music.windows.player.PlayerBackdrop("Gradient", null, coverPalette) },
         "titlebar" to { com.auralis.music.windows.WindowTitleBar(
-            com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
+            com.auralis.music.windows.TitleBarActions(true, false, {}, {}, {}, "Sign in", {}, {}, {}, {}, search = {
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                val state = androidx.compose.runtime.remember { com.auralis.music.windows.search.DesktopSearchState(search, scope) }
+                com.auralis.music.windows.search.FindMusicDropdown(state, null, false, { _, _ -> }, {}, {}, {}, {}, {}, bar = true)
+            }),
             "Auralis", null, false, {}, {}, {}) },
         "history" to { com.auralis.music.windows.history.HistorySheet(
             listOf(com.auralis.music.domain.model.HistoryEntry(sampleTrack, System.currentTimeMillis())), isPlaying = false,

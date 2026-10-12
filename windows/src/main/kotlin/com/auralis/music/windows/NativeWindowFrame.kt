@@ -26,6 +26,8 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
     private val originalStyle = user.GetWindowLong(hwnd, WinUser.GWL_STYLE)
     @Volatile var captionBounds: Rect = Rect.Zero
     @Volatile var maximizeBounds: Rect = Rect.Zero
+    /** The title bar's search field: inside the drag area, but clicks must reach it. */
+    @Volatile var searchBounds: Rect = Rect.Zero
     private var maximizePressed = false
     private var maximizeHovered = false
 
@@ -189,6 +191,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
         val offset = androidx.compose.ui.geometry.Offset(point.x.toFloat(), point.y.toFloat())
         return when {
             maximizeBounds.contains(offset) -> 9 // HTMAXBUTTON: Windows 11 Snap layouts, native toggle.
+            searchBounds.contains(offset) -> 1 // HTCLIENT: the search field.
             captionBounds.contains(offset) -> 2 // HTCAPTION: drag-to-top, drag-to-restore, double click.
             else -> 1 // HTCLIENT
         }

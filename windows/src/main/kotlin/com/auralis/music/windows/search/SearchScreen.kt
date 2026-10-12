@@ -1,5 +1,8 @@
 package com.auralis.music.windows.search
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -83,20 +86,23 @@ fun FindMusicDropdown(
     onTypingChange: (Boolean) -> Unit,
     liquidify: Boolean = false,
     artwork: String? = null,
-    compact: Boolean = false
+    compact: Boolean = false,
+    /** The slim field centred in the title bar; the results open centred beneath it. */
+    bar: Boolean = false
 ) {
     var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     var mounted by remember { androidx.compose.runtime.mutableStateOf(false) }
     val reveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { FocusRequester() }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val gap = with(density) { (if (compact) 46.dp else 72.dp).roundToPx() }
-    val position = remember(gap) {
+    val gap = with(density) { (if (bar) 34.dp else if (compact) 46.dp else 72.dp).roundToPx() }
+    val position = remember(gap, bar) {
         object : androidx.compose.ui.window.PopupPositionProvider {
             override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect,
                 windowSize: androidx.compose.ui.unit.IntSize, layoutDirection: androidx.compose.ui.unit.LayoutDirection,
                 popupContentSize: androidx.compose.ui.unit.IntSize): androidx.compose.ui.unit.IntOffset {
-                val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+                val x = (if (bar) anchorBounds.center.x - popupContentSize.width / 2 else anchorBounds.right - popupContentSize.width)
+                    .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
                 val y = (anchorBounds.top + gap).coerceIn(0, (windowSize.height - popupContentSize.height).coerceAtLeast(0))
                 return androidx.compose.ui.unit.IntOffset(x, y)
             }
@@ -107,6 +113,19 @@ fun FindMusicDropdown(
         if (text.isNotBlank()) { dismiss(); onSearch(text) }
     }
     Box {
+        if (bar) {
+            val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            val hovered by hover.collectIsHoveredAsState()
+            Row(Modifier.fillMaxSize().clip(RoundedCornerShape(50))
+                .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f))
+                .hoverable(hover)
+                .clickable(interactionSource = hover, indication = null) { if (expanded) dismiss() else { mounted = true; expanded = true } }
+                .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Search, null, Modifier.size(16.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
+                Text("What do you want to play?", fontSize = 13.sp, color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+            }
+        } else
         if (compact) androidx.compose.material3.IconButton(onClick = {
             if (expanded) dismiss() else { mounted = true; expanded = true }
         }) { Icon(Icons.Default.Search, "Find music", Modifier.size(20.dp)) }
@@ -155,7 +174,7 @@ fun FindMusicDropdown(
                 }
                 // Use the already cached cover for the frosted backdrop. GPU readback of the
                 // whole window here stalled the event thread before the first popup frame.
-                SearchDropdownSurface(liquidify, artwork, Modifier.width(480.dp).height(460.dp)
+                SearchDropdownSurface(liquidify, artwork, Modifier.width(if (bar) 520.dp else 480.dp).height(460.dp)
                     .then(Modifier.graphicsLayer {
                         // Make the very first painted frame visible, before the frame clock
                         // begins advancing the rest of the fade.
@@ -163,7 +182,7 @@ fun FindMusicDropdown(
                         translationY = -10.dp.toPx() * (1f - reveal.value)
                         scaleX = .97f + .03f * reveal.value
                         scaleY = scaleX
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (bar) .5f else 1f, 0f)
                     })) {
                     Column(Modifier.fillMaxSize().padding(top = 4.dp)) {
                         SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
