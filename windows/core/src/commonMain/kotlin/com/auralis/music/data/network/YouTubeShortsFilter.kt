@@ -52,6 +52,34 @@ object YouTubeShortsFilter {
         return containsMarker(item)
     }
 
+    /**
+     * Not music: a Short, a podcast episode, or a plain YouTube upload (MUSIC_VIDEO_TYPE_UGC, e.g.
+     * "RealMe 7 Pro Tips & Tricks" from a liked-videos list) that links no album or single.
+     * Songs (ATV) and official music videos (OMV) always pass.
+     */
+    fun isNonMusicVideo(item: JSONObject): Boolean {
+        if (hasShortsMarker(item)) return true
+        val text = item.toString()
+        if (text.contains("MUSIC_VIDEO_TYPE_PODCAST_EPISODE")) return true
+        if (!text.contains("MUSIC_VIDEO_TYPE_UGC")) return false
+        return !linksRelease(item)
+    }
+
+    private fun linksRelease(item: JSONObject): Boolean {
+        val columns = item.optJSONArray("flexColumns") ?: return false
+        for (index in 1 until columns.length()) {
+            val runs = columns.optJSONObject(index)
+                ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                ?.optJSONObject("text")?.optJSONArray("runs") ?: continue
+            for (runIndex in 0 until runs.length()) {
+                val browseId = runs.optJSONObject(runIndex)?.optJSONObject("navigationEndpoint")
+                    ?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
+                if (browseId.startsWith("MPRE") || browseId.startsWith("OLAK")) return true
+            }
+        }
+        return false
+    }
+
     /** Catch sub-minute user uploads with no music release link when player metadata is unavailable. */
     fun isUnlinkedShortUgc(item: JSONObject, durationSeconds: Long): Boolean {
         if (durationSeconds > 60L || !item.toString().contains("MUSIC_VIDEO_TYPE_UGC")) return false
