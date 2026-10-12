@@ -42,6 +42,14 @@ fun main(args: Array<String>) {
     // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
     val dataDir = desktopAppDataDir()
     YouTubeSession.init(com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "youtube-session.properties")))
+    // Spotify's session (sp_dc cookie, protected by the Windows user like YouTube's).
+    val spotifyFile = com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "spotify-session.properties"))
+    com.auralis.music.data.network.SpotifySession.init(object : com.auralis.music.data.network.SpotifySession.Store {
+        override fun getString(key: String) = spotifyFile.getString(key, "") ?: ""
+        override fun getLong(key: String) = spotifyFile.getString(key, "0")?.toLongOrNull() ?: 0L
+        override fun put(values: Map<String, Any>) = spotifyFile.putStrings(values.mapValues { it.value.toString() })
+        override fun clear() = spotifyFile.clear()
+    })
     // The phone's settings files (DataStore), and content settings (language, region, proxy,
     // lyrics providers) applied to every request as on the phone.
     val stores = com.auralis.music.desktop.settings.DesktopDataStores(java.io.File(dataDir, "settings"))

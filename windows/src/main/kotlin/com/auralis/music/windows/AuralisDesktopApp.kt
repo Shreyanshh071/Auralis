@@ -309,6 +309,8 @@ fun AuralisDesktopApp(
     var rightSidebarWidth by remember { mutableStateOf(initialSidebars.right) }
     var leftCollapsed by remember { mutableStateOf(initialSidebars.leftCollapsed) }
     var rightCollapsed by remember { mutableStateOf(initialSidebars.rightCollapsed) }
+    // The right panel shows Now playing, or lyrics / the queue from the player bar's buttons.
+    var sidePanel by remember { mutableStateOf(com.auralis.music.windows.player.SidePanel.NOW_PLAYING) }
     var resizingLeft by remember { mutableStateOf(false) }
     var resizingRight by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(leftSidebarWidth, rightSidebarWidth, leftCollapsed, rightCollapsed) {
@@ -326,6 +328,12 @@ fun AuralisDesktopApp(
         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance,
+        // Spotify sign-in reads the session from the user's own browser (no embedded browser here).
+        com.auralis.music.ui.screens.LocalWebSignIn provides remember {
+            com.auralis.music.ui.screens.WebSignIn(spotifySignIn = { signedIn, dismiss ->
+                com.auralis.music.windows.profile.DesktopSpotifySignIn(signedIn, dismiss)
+            })
+        },
         com.auralis.music.ui.components.LocalTrackLinks provides com.auralis.music.ui.components.TrackLinks(
             openArtist = { name -> showPlayer = false; browse.openArtist(com.auralis.music.domain.model.Artist(id = "", name = name)) },
             openAlbum = { track -> showPlayer = false; browse.openTrackAlbum(track) { showUnavailable("Couldn't find that album") } }
@@ -390,7 +398,7 @@ fun AuralisDesktopApp(
                   val showNowPlaying = queue?.current != null && playback != null && lyrics != null
                   val leftTarget = if (leftCollapsed) 64f else sidebarWidth(leftSidebarWidth, 180f, 320f)
                   val rightLimit = (maxWidth.value - leftTarget - 360f - 6f).coerceAtMost(460f)
-                  val rightIsCollapsed = rightCollapsed || rightLimit < 280f
+                  val rightIsCollapsed = (rightCollapsed && sidePanel == com.auralis.music.windows.player.SidePanel.NOW_PLAYING) || rightLimit < 280f
                   val rightTarget = if (!showNowPlaying) 0f else if (rightIsCollapsed) 40f else sidebarWidth(rightSidebarWidth, 280f, rightLimit)
                   val leftLimit = (maxWidth.value - rightTarget - 360f - 12f).coerceIn(180f, 320f)
                   val leftDisplay by androidx.compose.animation.core.animateDpAsState(
@@ -564,10 +572,23 @@ fun AuralisDesktopApp(
                         androidx.compose.animation.AnimatedVisibility(visible = !rightIsCollapsed,
                             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
                             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
-                        com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
-                            onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
-                            modifier = Modifier.width(sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp).fillMaxHeight(), palette = artworkPalette,
-                            onCollapse = { rightCollapsed = true })
+                        val panelModifier = Modifier.width(sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp).fillMaxHeight()
+                        val closePanel = { sidePanel = com.auralis.music.windows.player.SidePanel.NOW_PLAYING }
+                        when (sidePanel) {
+                            com.auralis.music.windows.player.SidePanel.LYRICS ->
+                                com.auralis.music.windows.player.SidePanelSheet("Lyrics", closePanel, panelModifier) {
+                                    com.auralis.music.windows.player.SideLyricsPanel(playback, lyrics)
+                                }
+                            com.auralis.music.windows.player.SidePanel.QUEUE ->
+                                com.auralis.music.windows.player.SidePanelSheet("Queue", closePanel, panelModifier) {
+                                    com.auralis.music.windows.player.QueueView(playback, Modifier.fillMaxSize())
+                                }
+                            com.auralis.music.windows.player.SidePanel.NOW_PLAYING ->
+                                com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
+                                    onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
+                                    modifier = panelModifier, palette = artworkPalette,
+                                    onCollapse = { rightCollapsed = true })
+                        }
                         }
                       }
                     }
@@ -576,8 +597,11 @@ fun AuralisDesktopApp(
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
                     onOpenPlayer = { if (canShowPlayer) showPlayer = true },
-                    onOpenQueue = { if (canShowPlayer) { playerPanel = com.auralis.music.windows.player.PlayerPanel.QUEUE; showPlayer = true } },
-                    onOpenLyrics = { if (canShowPlayer) { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true } }
+                    // Toggle the right panel, as Spotify's lyrics and queue buttons do.
+                    onOpenQueue = { if (canShowPlayer) sidePanel = if (sidePanel == com.auralis.music.windows.player.SidePanel.QUEUE)
+                        com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.QUEUE },
+                    onOpenLyrics = { if (canShowPlayer) sidePanel = if (sidePanel == com.auralis.music.windows.player.SidePanel.LYRICS)
+                        com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS }
                 )
             }
             // The full player slides up over everything, like the phone's player sheet.

@@ -34,6 +34,26 @@ internal object BrowserYouTubeLogin {
     }.sortedBy { it.label }
 
     fun read(profile: Profile): String {
+        val (cookie, protected) = readCookies(profile, "youtube.com")
+        check(YouTubeSession.hasAuthCookies(cookie)) {
+            if (protected) "This browser protects its session with Windows App-Bound Encryption. Use Firefox/Zen or paste a YouTube cookie."
+            else "No signed-in YouTube session was found. Sign in at music.youtube.com in this profile, then try again."
+        }
+        return cookie
+    }
+
+    /** The profile's Spotify session cookies (sp_dc), for Spotify sign-in. */
+    fun readSpotify(profile: Profile): String {
+        val (cookie, protected) = readCookies(profile, "spotify.com")
+        check(com.auralis.music.data.network.SpotifySession.hasAuth(cookie, "")) {
+            if (protected) "This browser protects its session with Windows App-Bound Encryption. Use Firefox/Zen or paste your sp_dc cookie."
+            else "No signed-in Spotify session was found. Sign in at open.spotify.com in this profile, then try again."
+        }
+        return cookie
+    }
+
+    /** Cookies for [domain] and its subdomains from [profile], and whether some were unreadable (App-Bound). */
+    private fun readCookies(profile: Profile, domain: String): Pair<String, Boolean> {
         // Read-only SQLite transactions preserve a consistent view including Firefox's WAL;
         // no copies containing unrelated browser sessions are made or left in temp folders.
         val key = if (profile.firefox) null else runCatching {
@@ -46,8 +66,8 @@ internal object BrowserYouTubeLogin {
         try {
             DriverManager.getConnection("jdbc:sqlite:${profile.database.toURI()}?mode=ro").use { connection ->
                 val sql = if (profile.firefox)
-                    "SELECT host, name, value, NULL FROM moz_cookies WHERE (host = 'youtube.com' OR host LIKE '%.youtube.com') AND (expiry = 0 OR expiry > strftime('%s','now')) ORDER BY lastAccessed"
-                else "SELECT host_key, name, value, encrypted_value FROM cookies WHERE (host_key = 'youtube.com' OR host_key LIKE '%.youtube.com') AND (expires_utc = 0 OR expires_utc > (strftime('%s','now') + 11644473600) * 1000000) ORDER BY last_access_utc"
+                    "SELECT host, name, value, NULL FROM moz_cookies WHERE (host = '$domain' OR host LIKE '%.$domain') AND (expiry = 0 OR expiry > strftime('%s','now')) ORDER BY lastAccessed"
+                else "SELECT host_key, name, value, encrypted_value FROM cookies WHERE (host_key = '$domain' OR host_key LIKE '%.$domain') AND (expires_utc = 0 OR expires_utc > (strftime('%s','now') + 11644473600) * 1000000) ORDER BY last_access_utc"
                 connection.createStatement().use { statement ->
                     statement.queryTimeout = 3
                     statement.executeQuery(sql).use { rows -> while (rows.next()) {
@@ -62,13 +82,8 @@ internal object BrowserYouTubeLogin {
                     } }
                 }
             }
-        } catch (_: Exception) { error("Couldn't read this profile. Close that browser normally and try again, or paste a YouTube cookie.") }
-        val cookie = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
-        check(YouTubeSession.hasAuthCookies(cookie)) {
-            if (protected) "This browser protects its session with Windows App-Bound Encryption. Use Firefox/Zen or paste a YouTube cookie."
-            else "No signed-in YouTube session was found. Sign in at music.youtube.com in this profile, then try again."
-        }
-        return cookie
+        } catch (_: Exception) { error("Couldn't read this profile. Close that browser normally and try again, or paste the cookie instead.") }
+        return cookies.entries.joinToString("; ") { "${it.key}=${it.value}" } to protected
     }
     internal fun decrypt(value: ByteArray, key: ByteArray?, host: String): String? = runCatching {
         val prefix = String(value.take(3).toByteArray(), Charsets.US_ASCII)
