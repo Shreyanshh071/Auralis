@@ -389,3 +389,11 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Three focused tests passed: live complete file/offline playback, mock transfer/group/restart/error/truncation/removal checks, and safe Windows names. Visually inspected windows/build/screens/downloads-groups.png. Final MSI build passed (2m41s).
 - Previous placeholder clicks cannot be recovered as audio downloads; the user must queue those songs again.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-downloads-20261012-161116.
+
+## Liquid glass options and search popups — 2026-10-12
+
+- Root cause: options menus used a translucent fill; search used a separate blurred song cover. Neither sampled the app beneath the popup, so crisp background imagery showed through.
+- Added one app-only display-list source, recorded only while popups are open. Options and search draw the correctly positioned region through the same 18 dp blur, 1.5 saturation and Kyant refraction/chromatic glass shader used by the phone/dock. Text and controls render afterward, sharp; menu layout is retained.
+- Compose desktop popup coordinates already include the popup position. Actual Popup rendering tests caught double-offset sampling and an empty display-list recording; both corrected before release. Verified spatial crop, striped-background blur, live page changes, sharp foreground detail and recording cleanup on dismissal. Existing dock rendering check also passed.
+- No GPU screenshot readback; capture uses Compose graphics layers. MSI is installed only after a full app-data backup and data/hash checks.
+- Full app-data backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-popup-glass-20261012-163348. Installed main/core jars match the release; all 68 checked data files preserved.

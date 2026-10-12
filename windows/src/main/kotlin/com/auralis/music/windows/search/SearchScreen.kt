@@ -237,7 +237,7 @@ fun FindMusicDropdown(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onTypingChange(false) } }
 }
 
-/** Match Liquidify's blurred cover backdrop while keeping the search rows sharp. */
+/** Frost the actual app beneath search while keeping recommendation rows sharp. */
 @Composable
 internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifier: Modifier = Modifier,
     backdrop: androidx.compose.ui.graphics.ImageBitmap? = null,
@@ -245,39 +245,9 @@ internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifie
     /** Title bar: translucent frosted glass (the playing cover blurred under a see-through tint). */
     glass: Boolean = false,
     content: @Composable () -> Unit) {
-    val colours = MaterialTheme.colorScheme
-    val light = colours.onSurface.luminance() < .5f
-    if (glass) {
-        val shape = RoundedCornerShape(16.dp)
-        Box(modifier.clip(shape)
-            .border(1.dp, Color.White.copy(alpha = .12f), shape)) {
-            if (!artwork.isNullOrBlank()) Box(Modifier.fillMaxSize().graphicsLayer { alpha = .55f }) {
-                com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 60.dp)
-            }
-            Box(Modifier.fillMaxSize().background(Color(0xFF141318).copy(alpha = if (artwork.isNullOrBlank()) .78f else .62f)))
-            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                0f to Color.White.copy(alpha = .06f), .3f to Color.Transparent)))
-            content()
-        }
-        return
-    }
-    Surface(modifier, shape = RoundedCornerShape(18.dp),
-        color = if (liquidify) { if (light) Color(0xFFF7F4F9) else Color(0xFF171519) } else colours.surface.copy(alpha = 1f),
-        tonalElevation = if (liquidify) 0.dp else 6.dp, shadowElevation = 12.dp,
-        border = if (liquidify) BorderStroke(1.dp, colours.onSurface.copy(alpha = .12f)) else null) {
-        Box(Modifier.fillMaxSize()) {
-            if (liquidify) {
-                if (backdrop != null) {
-                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize().then(Modifier.blur(24.dp))) {
-                        drawImage(backdrop, topLeft = androidx.compose.ui.geometry.Offset(-backdropOffset.x.toFloat(), -backdropOffset.y.toFloat()))
-                    }
-                } else com.auralis.music.windows.player.BlurredArtworkBackground(artwork, blurRadius = 40.dp)
-                Box(Modifier.fillMaxSize().background(
-                    if (light) Color(0xFFF7F4F9).copy(alpha = .70f) else Color(0xFF171519).copy(alpha = .50f)))
-            }
-            content()
-        }
-    }
+    val light = MaterialTheme.colorScheme.onSurface.luminance() < .5f
+    com.auralis.music.windows.LiquidPopupSurface(modifier,
+        tint = if (light) Color.White.copy(alpha = .42f) else Color(0xFF101010).copy(alpha = .38f), content = content)
 }
 
 /** The Windows pieces of the shared search UI. Text is English until the app's translations are shared. */
