@@ -30,8 +30,12 @@ internal fun DesktopHome(
     youtubePlaylists: List<PlaylistResult> = emptyList(),
     onYouTubePlaylist: (PlaylistResult) -> Unit = {},
     /** Albums & singles from the listener's own taste; YouTube's new releases until there is one. */
-    tasteShelf: DesktopHomeShelf? = null
+    tasteShelf: DesktopHomeShelf? = null,
+    /** The listener's most-played songs (Quick picks). */
+    quickPicks: List<Track> = emptyList()
 ) {
+    val favorites by library.getFavoriteTracks().collectAsState(emptyList())
+    val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
     val state by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
     val playing = playback?.state?.collectAsState()?.value == VlcAudioPlayer.State.PLAYING
@@ -111,6 +115,9 @@ internal fun DesktopHome(
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         findMusic = findMusic,
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
+        quickPicks = quickPicks,
+        favoriteIds = favoriteIds,
+        onToggleFavorite = { track -> scope.launch { library.toggleFavorite(track) } },
         serviceShelves = if (youtubeSignedIn) listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves else null,
         serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
         serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
