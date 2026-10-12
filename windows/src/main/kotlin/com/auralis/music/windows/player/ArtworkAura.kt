@@ -20,8 +20,13 @@ import javax.imageio.ImageIO
  * preblur a tiny cover once, then warp its coordinates on the GPU.
  * No audio analysis is fabricated: the flow runs at a steady speed.
  */
+internal enum class AuraPresentation(val brightness: Float, val saturation: Float) {
+    FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f)
+}
+
 @Composable
-internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null, brightness: Float = .57f) {
+internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null,
+    presentation: AuraPresentation = AuraPresentation.SIDEBAR) {
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(artwork) {
         if (artwork == null) { cover = null; return@LaunchedEffect }
@@ -53,7 +58,7 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
                     .map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
             }
         } else {
-            val resources = remember(image, brightness) { AuraRenderer(image, brightness) }
+            val resources = remember(image, presentation) { AuraRenderer(image, presentation) }
             DisposableEffect(resources) { onDispose { resources.close() } }
             Canvas(Modifier.fillMaxSize()) {
                 drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
@@ -99,7 +104,8 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
 
 // Domain-warp noise and octave mixing adapted from Better Lyrics/Kawarp (MIT).
 // License is bundled at third-party/kawarp-LICENSE.txt.
-internal class AuraRenderer(image: ImageBitmap, private val brightness: Float = .57f) : AutoCloseable {
+internal class AuraRenderer(image: ImageBitmap,
+    private val presentation: AuraPresentation = AuraPresentation.SIDEBAR) : AutoCloseable {
     private val texture = Image.makeFromBitmap(image.asSkiaBitmap())
     private val child = texture.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR)
     private val effect = RuntimeEffect.makeForShader("""
@@ -107,6 +113,7 @@ internal class AuraRenderer(image: ImageBitmap, private val brightness: Float = 
         uniform float2 resolution;
         uniform float time;
         uniform float brightness;
+        uniform float saturation;
   float3 mod289(float3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   float2 mod289(float2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   float3 permute(float3 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -146,23 +153,24 @@ internal class AuraRenderer(image: ImageBitmap, private val brightness: Float = 
             float2 warp = float2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
             float2 samplePoint = clamp(uv + warp, 0.0, 1.0) * 128.0;
             half3 colour = cover.eval(samplePoint).rgb;
-            half luminance = dot(colour, half3(0.2126, 0.7152, 0.0722));
-            colour = max(half3(0.0), mix(half3(luminance), colour, 1.5));
-            if (brightness >= 0.99) {
-                // Kawarp's own output pass (Spicy Lyrics' full screen): a light vignette only.
-                float2 c = uv - 0.5;
-                colour *= half(1.0 - dot(c, c) * 0.3);
-            } else {
-                // The sidebar card: dimmed for a readable foreground.
-                colour *= brightness - 0.12 * uv.y;
-            }
-            return half4(colour, 1.0);
+            // Kawarp's output is first written to an 8-bit canvas: vignette, 1.5x
+            // saturation, then clamp. Its CSS filter is a separate, subsequent pass.
+            colour *= half(1.0 - dot(center, center) * 0.3);
+            half luminance = dot(colour, half3(0.299, 0.587, 0.114));
+            colour = clamp(mix(half3(luminance), colour, 1.5), 0.0, 1.0);
+            // spicy-dynamic-bg.css: saturate(2.5) brightness(.65) for the full player,
+            // brightness(.6) saturate(2.65) for the sidebar. These linear operations
+            // commute; keep the intermediate canvas clamp above, before CSS filtering.
+            half cssLuminance = dot(colour, half3(0.213, 0.715, 0.072));
+            colour = mix(half3(cssLuminance), colour, saturation) * brightness;
+            return half4(clamp(colour, 0.0, 1.0), 1.0);
         }
     """.trimIndent())
     private val builder = RuntimeShaderBuilder(effect).apply { child("cover", child) }
     private val paint = org.jetbrains.skia.Paint()
     fun draw(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, seconds: Float) {
-        builder.uniform("resolution", width, height); builder.uniform("time", seconds); builder.uniform("brightness", brightness)
+        builder.uniform("resolution", width, height); builder.uniform("time", seconds)
+        builder.uniform("brightness", presentation.brightness); builder.uniform("saturation", presentation.saturation)
         builder.makeShader().use { shader ->
             paint.shader = shader
             canvas.drawRect(Rect.makeWH(width, height), paint)

@@ -261,3 +261,10 @@ The active Fluid line repeatedly repainted complete text layers for individual w
 The same 900×250 wrapped-line render test improved from 38.52 ms median / 115.45 ms p95 to 9.46 ms median / 11.26 ms p95 across 180 frames after warmup. These are focused renderer measurements, not whole-app frame-rate guarantees. The test also verifies seeking updates the sweep and completed words remain bright. Visually inspected the wrapped-line image. Version remains 1.0.0.
 
 All 54 Windows tests passed; MSI packaging succeeded in 2m49s. Installed after a normal app close and full backup at Downloads/Auralis-checkpoints/before-fluid-lyrics-20261012-125823. All 64 checked non-cache user files and the shortcut were preserved; main and core installed modules match the release. Auralis was relaunched.
+
+### Dynamic lyrics background colour correction — 12 October 2026
+Compared the current Spicy Lyrics dynamic-background CSS with our Kawarp output. The Windows full player used brightness=1 and omitted the subsequent CSS saturate(2.5) brightness(.65) filter; its sidebar also used a different dimming curve. This left bright artwork pale behind white lyrics. Added explicit full-player and sidebar presentation settings matching the final filters (.65/2.5 and .6/2.65), corrected Kawarp luminance weights and output order, and preserved the intermediate canvas clamp before the final filter. Both passes are combined in the existing GPU shader, without another blur or offscreen layer. Source: https://github.com/Spikerko/spicy-lyrics/blob/main/src/css/DynamicBG/spicy-dynamic-bg.css
+
+ArtworkAuraTest checks opaque output, white-cover dimming, pink/blue colour separation, dark-cover preservation in both presentations, and animation over time. Focused checks passed; generated colour previews were inspected. Version remains 1.0.0.
+
+All 55 Windows tests passed and MSI packaging succeeded in 3m1s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-aura-colour-20261012-130814. All 65 checked non-cache user files and the shortcut were preserved, both installed modules match the release, and Auralis was relaunched.

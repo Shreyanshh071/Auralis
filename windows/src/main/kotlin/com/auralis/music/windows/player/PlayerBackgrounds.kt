@@ -45,8 +45,8 @@ import kotlin.math.sin
 internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette) {
     // "Dynamic" is Spicy Lyrics' full-screen background: the Kawarp warp the sidebar card uses.
     if (styleKey.equals("Dynamic", ignoreCase = true)) {
-        // Kawarp exactly as Spicy Lyrics' full screen draws it: vivid, undimmed, 1.5x saturation.
-        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, brightness = 1f)
+        // Include the final CSS colour filter, not just the undimmed Kawarp canvas.
+        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, AuraPresentation.FULL_PLAYER)
         return
     }
     val style = PlayerBackgroundStyle.fromKey(styleKey)
