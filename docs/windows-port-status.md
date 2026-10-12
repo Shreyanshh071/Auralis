@@ -541,3 +541,9 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Reduced the Now playing sidebar lyrics card's white overlay from 14% to 7%, preserving more of the underlying song artwork colours and reducing the milky appearance. Text, hover and word highlighting are unchanged.
 - Rendered and inspected the existing Now playing sidebar preview: the softer card retains the underlying red/purple colour transition and sharp foreground controls.
+
+## Responsive lyrics settings sliders — 2026-10-13
+
+- Lyrics text size and line spacing now keep pointer changes in local slider state and persist once on release, avoiding per-move storage writes and app-wide appearance recomposition. Labels update with the pointer immediately. Appearance writes are serialized and use the latest stored settings to avoid stale copies overwriting other choices.
+- Sidebar lyrics now apply the selected text size and line spacing for plain, MetroLyrics, Fluid and letter renderers, preserving the existing 24sp default scale.
+- Pointer gesture check passed with delayed persistence: no commits while dragging, one final commit, and final value follows the pointer. Existing sidebar word/style and lyric hover checks also passed (five checks total). Includes the previously reviewed 7% lyrics-card tint update.

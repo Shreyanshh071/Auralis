@@ -149,7 +149,9 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .then(if (blurAmount > 0.2.dp) Modifier.blur(blurAmount, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)) {
-        val lyricStyle = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
+        val textSize = LocalAppearanceSettings.current.lyricsTextSize * (24f / 22f)
+        val lineHeight = textSize * LocalAppearanceSettings.current.lyricsLineSpacing
+        val lyricStyle = TextStyle(fontSize = textSize.sp, lineHeight = lineHeight.sp, fontWeight = FontWeight.Bold,
             fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily)
         if (synced && line != null && position != null && animationMode == LyricsAnimationMode.FLUID) {
             FluidLyricLine(line!!.copy(text = text),
@@ -163,7 +165,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 isActive = active, effectivePlaybackPosition = position!!.value,
                 lineColor = Color.White, accentColor = Color.White,
                 textAlign = TextAlign.Left, alignment = Alignment.Start,
-                fontSizeSp = 24f, lineSpacingMultiplier = 1.25f, fontFamily = lyricStyle.fontFamily,
+                fontSizeSp = textSize, lineSpacingMultiplier = LocalAppearanceSettings.current.lyricsLineSpacing, fontFamily = lyricStyle.fontFamily,
                 modifier = Modifier.graphicsLayer { this.alpha = if (active) 1f else alpha })
         } else if (active && !words.isNullOrEmpty() && position != null) {
             ExperimentalWordLevelLyrics(
@@ -174,7 +176,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 isBackground = line?.isBackground == true,
                 focusedAlpha = .30f, alignment = TextAlign.Left)
         } else {
-            Text(text, color = Color.White.copy(alpha = alpha), fontSize = 24.sp, lineHeight = 30.sp,
+            Text(text, color = Color.White.copy(alpha = alpha), fontSize = textSize.sp, lineHeight = lineHeight.sp,
                 fontWeight = FontWeight.Bold)
         }
     }
