@@ -191,7 +191,7 @@ fun AuralisDesktopApp(
     val familiarArtists = topArtistPlays.map { (name, plays) ->
         val found = artistLookups[name]
         com.auralis.music.windows.home.FamiliarArtist(found?.name ?: name, plays, found?.id.orEmpty(), found?.thumbnail)
-    }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }.take(6)
+    }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }.take(10)
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,

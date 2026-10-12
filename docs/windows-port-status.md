@@ -354,3 +354,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Refreshes the current pointer position by dispatching a mouse-move event to the component beneath it. Does not move the cursor, synthesize a click, or activate an unfocused app; owned popups keep focus. Listeners are removed on disposal.
 - Compilation and MSI packaging passed. WindowInputRestoreTest passed on the AWT event thread and verifies Skia targeting past unrelated first children. Actual user Alt+Tab interaction was not automated in this session.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-input-restore-20261012-151817.
+
+## Ten Familiar Artists in horizontal carousel — 2026-10-12
+
+- Raised the Familiar Artists output limit from six to ten (ranked by the listener's play counts).
+- Replaced the responsive multi-row grid with a LazyRow of 4:5 posters. Width adapts to the panel (180–252 dp), keeps cards readable, and scrolls horizontally. Previous/More artists arrow controls sit at the right below the posters and move three positions, with availability based on actual scroll bounds.
+- Compilation and MSI packaging passed (2m39s). No new tests for this reversible layout change.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-ten-artists-20261012-152311.
