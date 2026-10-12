@@ -997,6 +997,9 @@ class SearchRepositoryImpl(
         innerTubeClient.getArtistPage(artist)
     }
 
+    override suspend fun getArtistPage(artist: Artist, onPreview: suspend (ArtistPage) -> Unit): ArtistPage? =
+        innerTubeClient.getArtistPage(artist, onPreview)
+
     private val youtubePlaylistImporter = com.auralis.music.data.network.YouTubePlaylistImporter()
 
     private fun filterOfficialAlbumTracks(album: PlaylistResult, tracks: List<Track>): List<Track> {

@@ -502,7 +502,7 @@ fun ArtistScreen(
                 val onOpenTopSongs = {
                     onAlbumClick(
                         com.auralis.music.domain.model.PlaylistResult(
-                            id = "artist_top_songs:${artistPage.artist.id.ifBlank { artistPage.artist.name }}",
+                            id = artistPage.topSongsBrowseId ?: "artist_top_songs:${artistPage.artist.id.ifBlank { artistPage.artist.name }}",
                             title = "${artistPage.artist.name} - Top songs",
                             author = artistPage.artist.name,
                             thumbnail = artistPage.artist.thumbnail ?: artistPage.bannerUrl
@@ -537,6 +537,24 @@ fun ArtistScreen(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
+                    }
+                }
+            }
+
+            if (artistPage.catalogueIncomplete) {
+                item {
+                    Column(Modifier.padding(horizontal = 18.dp)) {
+                        Text("Some artist lists could not load.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onRetry) { Text(str(Strings.retry)) }
+                    }
+                }
+            }
+
+            if (loadFailed && artistPage.topSongs.isNotEmpty()) {
+                item {
+                    Column(Modifier.padding(horizontal = 18.dp)) {
+                        Text("Full artist page could not load. These are song search results.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onRetry) { Text(str(Strings.retry)) }
                     }
                 }
             }
@@ -576,7 +594,7 @@ fun ArtistScreen(
                 }
             } else {
                 itemsIndexed(
-                    items = artistPage.topSongs,
+                    items = artistPage.topSongs.take(5),
                     key = { index, track -> stableTopSongKeys.getOrElse(index) { "${track.id}_$index" } },
                     contentType = { _, _ -> "track" }
                 ) { index, track ->

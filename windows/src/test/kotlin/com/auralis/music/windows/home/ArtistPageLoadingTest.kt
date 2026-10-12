@@ -56,6 +56,20 @@ class ArtistPageLoadingTest {
         assertEquals(1, requests)
     }
 
+    @Test fun searchOnlyRecoveryIsMarkedIncomplete() = runBlocking {
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(503).message("Unavailable")
+                .body("unavailable".toResponseBody()).build()
+        }.build()
+        val song = Track("recovery", "Recovery song", "Example Artist")
+        val tube = object : InnerTubeClient(http) {
+            override suspend fun search(query: String, params: String?) = SearchResults(songs = listOf(song))
+        }
+        val page = assertNotNull(tube.getArtistPage(Artist("UCexample", "Example Artist")))
+        assertTrue(page.isFallback, "Search results must not be cached or shown as a complete artist page")
+        assertEquals(listOf(song), page.topSongs)
+    }
+
     @Test fun liveArtistPage() = runBlocking {
         org.junit.Assume.assumeTrue(System.getenv("AURALIS_VERIFY_ARTIST_PAGES") == "1")
         val http = NetworkClientProvider.okHttpClient.newBuilder().addInterceptor { chain ->
@@ -69,7 +83,11 @@ class ArtistPageLoadingTest {
         }.build()
         com.auralis.music.data.network.YouTubeBackoff.trip()
         for (name in listOf("Tame Impala", "TV Girl", "Sidney Gish")) {
-            val page = assertNotNull(InnerTubeClient(http).getArtistPage(Artist("", name)), name)
+            val start = System.nanoTime()
+            val page = assertNotNull(InnerTubeClient(http).getArtistPage(Artist("", name)) { preview ->
+                println("$name overview ${(System.nanoTime() - start) / 1_000_000}ms: ${preview.topSongs.size} songs, ${preview.albums.size} albums")
+            }, name)
+            println("$name complete ${(System.nanoTime() - start) / 1_000_000}ms; fallback=${page.isFallback}")
             println("${page.artist.name}: ${page.topSongs.size} songs, ${page.albums.size} albums")
             assertTrue(page.topSongs.isNotEmpty(), name)
             assertTrue(page.albums.isNotEmpty(), name)

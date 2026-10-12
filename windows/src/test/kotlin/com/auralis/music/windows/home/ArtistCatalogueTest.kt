@@ -20,15 +20,23 @@ class ArtistCatalogueTest {
             .put("contents",items).apply { if(endpoint != null) put("bottomEndpoint",JSONObject().put("browseEndpoint",JSONObject().put("browseId",endpoint).put("params","opaque-params"))) })
 
     @Test fun expandsOwnCatalogueKeepsCollaborationsAndSeparatesVideosAndPlaylists() = runBlocking {
-        val requested = mutableListOf<String>()
+        val requested = java.util.Collections.synchronizedList(mutableListOf<String>())
+        var previewSeen = false
+        val catalogueStarted = java.util.concurrent.CountDownLatch(2)
         val root = page(JSONArray().put(shelf("Top songs",JSONArray().put(song("preview")),"VLsongs"))
             .put(shelf("Albums",JSONArray().put(release("MPREpreview")),"MPADalbums"))
             .put(shelf("Videos",JSONArray().put(song("video"))))
-            .put(shelf("Playlists by Example Artist",JSONArray().put(release("VLplaylist")))))
+            .put(shelf("Playlists by Example Artist",JSONArray().put(release("VLplaylist"))))
+            .put(shelf("Featured on",JSONArray().put(release("VLfeatured"))))
+            .put(JSONObject("""{"musicDescriptionShelfRenderer":{"description":{"runs":[{"text":"Artist biography."}]}}}""")))
         val http = OkHttpClient.Builder().addInterceptor { chain ->
             val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer)
             val body = JSONObject(buffer.readUtf8()); val id = body.getString("browseId"); requested.add(id)
-            if(id != "UCexample") assertEquals("opaque-params",body.getString("params"))
+            if(id != "UCexample") {
+                assertEquals("opaque-params",body.getString("params"))
+                catalogueStarted.countDown()
+                assertTrue(catalogueStarted.await(2, java.util.concurrent.TimeUnit.SECONDS), "Catalogue requests must overlap")
+            }
             val response = when(id) {
                 "UCexample" -> root
                 "VLsongs" -> JSONObject().put("contents",JSONObject().put("musicPlaylistShelfRenderer",JSONObject().put("contents",JSONArray().put(song("preview")).put(song("official","Official Instrumental")))))
@@ -37,11 +45,18 @@ class ArtistCatalogueTest {
             }
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(response.toString().toResponseBody()).build()
         }.build()
-        val result = assertNotNull(InnerTubeClient(http).getArtistPage(Artist("UCexample","Example Artist",thumbnail="portrait")))
+        val result = assertNotNull(InnerTubeClient(http).getArtistPage(Artist("UCexample","Example Artist",thumbnail="portrait")) { preview ->
+            assertEquals(listOf("UCexample"), requested.toList(), "Overview must arrive before catalogue requests")
+            assertEquals(listOf("MPREpreview"), preview.albums.map { it.id })
+            assertEquals(listOf("preview"), preview.topSongs.map { it.id })
+            previewSeen = true
+        })
+        assertTrue(previewSeen)
         assertEquals(listOf("preview","official"),result.topSongs.map { it.id })
         assertEquals(listOf("MPREpreview","MPREfull"),result.albums.map { it.id })
         assertEquals(listOf("video"),result.videos.map { it.id })
-        assertEquals(listOf("VLplaylist"),result.playlists.map { it.id })
-        assertEquals(listOf("UCexample","VLsongs","MPADalbums"),requested)
+        assertEquals(listOf("VLplaylist", "VLfeatured"),result.playlists.map { it.id })
+        assertEquals("Artist biography.", result.description)
+        assertEquals(setOf("UCexample","VLsongs","MPADalbums"),requested.toSet())
     }
 }

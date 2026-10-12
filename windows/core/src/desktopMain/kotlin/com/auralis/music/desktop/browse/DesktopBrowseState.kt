@@ -69,14 +69,21 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun openArtist(artist: Artist) {
         val cached = artistPages[artist.name.lowercase()]
-        stack += BrowsePage.Artist(cached ?: ArtistPage(artist = artist), isLoading = cached == null)
+        var current = BrowsePage.Artist(cached ?: ArtistPage(artist = artist), isLoading = cached == null)
+        stack += current
         if (cached != null) return
         scope.launch {
-            val page = runCatching { LocalizedContent.run { repository.getArtistPage(artist) } }.getOrNull()
-            if (page != null && page.topSongs.isNotEmpty()) artistPages[artist.name.lowercase()] = page
-            replace({ it is BrowsePage.Artist && (it.page.artist.id == artist.id || it.page.artist.name.equals(artist.name, true)) }) { current ->
-                current as BrowsePage.Artist
-                BrowsePage.Artist(page ?: current.page, isLoading = false, loadFailed = page == null || page.topSongs.isEmpty())
+            val page = runCatching { LocalizedContent.run { repository.getArtistPage(artist) { preview ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    replace({ it === current }) {
+                        BrowsePage.Artist(preview, isLoading = true).also { current = it }
+                    }
+                }
+            } } }.getOrNull()
+            if (page != null && page.topSongs.isNotEmpty() && !page.isFallback && !page.catalogueIncomplete) artistPages[artist.name.lowercase()] = page
+            replace({ it === current }) {
+                BrowsePage.Artist(page ?: current.page, isLoading = false,
+                    loadFailed = page == null || page.topSongs.isEmpty() || page.isFallback)
             }
         }
     }

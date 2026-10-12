@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -18,6 +20,7 @@ open class InnerTubeClient(
     private val client: OkHttpClient = NetworkClientProvider.okHttpClient
 ) {
     private data class CachedSearch(val timeMs: Long, val results: SearchResults)
+    private val resolvedArtistIds = java.util.concurrent.ConcurrentHashMap<String, Artist>()
     private val recentSearches = java.util.concurrent.ConcurrentHashMap<String, CachedSearch>()
     private fun cachedSearch(query: String, params: String?): SearchResults? =
         recentSearches[query.lowercase() + "|" + params.orEmpty()]?.takeIf {
@@ -1038,7 +1041,7 @@ open class InnerTubeClient(
      * Fetches full YouTube Music Artist Page including header portrait, subscriber count,
      * bio description, top songs, albums, singles, and similar artists.
      */
-    private enum class ArtistShelfKind { SONGS, RELEASES, ARTISTS, OTHER }
+    private enum class ArtistShelfKind { SONGS, RELEASES, ARTISTS, PLAYLISTS, OTHER }
 
     /** What an artist-page shelf holds, judged from its items' endpoints (language independent). */
     private fun artistShelfKind(shelf: JSONObject): ArtistShelfKind {
@@ -1046,14 +1049,21 @@ open class InnerTubeClient(
         val first = contents.optJSONObject(0) ?: return ArtistShelfKind.OTHER
         if (first.has("musicResponsiveListItemRenderer")) return ArtistShelfKind.SONGS
         val twoRow = first.optJSONObject("musicTwoRowItemRenderer") ?: return ArtistShelfKind.OTHER
-        val pageType = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+        val browseEndpoint = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+        val pageType = browseEndpoint
             ?.optJSONObject("browseEndpointContextSupportedConfigs")
             ?.optJSONObject("browseEndpointContextMusicConfig")
             ?.optString("pageType")
         return when (pageType) {
             "MUSIC_PAGE_TYPE_ALBUM" -> ArtistShelfKind.RELEASES
             "MUSIC_PAGE_TYPE_ARTIST" -> ArtistShelfKind.ARTISTS
-            else -> ArtistShelfKind.OTHER
+            "MUSIC_PAGE_TYPE_PLAYLIST" -> ArtistShelfKind.PLAYLISTS
+            else -> when {
+                browseEndpoint?.optString("browseId")?.startsWith("VL") == true -> ArtistShelfKind.PLAYLISTS
+                browseEndpoint?.optString("browseId")?.startsWith("MPRE") == true -> ArtistShelfKind.RELEASES
+                browseEndpoint?.optString("browseId")?.startsWith("UC") == true -> ArtistShelfKind.ARTISTS
+                else -> ArtistShelfKind.OTHER
+            }
         }
     }
 
@@ -1061,14 +1071,14 @@ open class InnerTubeClient(
     private fun followerCount(text: String?): Long = com.auralis.music.domain.search.SearchQueryMatcher.parsePlayCount(
         text?.let { Regex("""[\d.,]+\s*[KkMmBb]?""").find(it)?.value?.replace(" ", "") })
 
-    suspend fun getArtistPage(artist: Artist): ArtistPage? = ArtistBrowseRequest.run {
-        withContext(Dispatchers.IO) { loadArtistPage(artist) }
+    suspend fun getArtistPage(artist: Artist, onPreview: suspend (ArtistPage) -> Unit = {}): ArtistPage? = ArtistBrowseRequest.run {
+        withContext(Dispatchers.IO) { loadArtistPage(artist, onPreview) }
     }
 
-    private suspend fun loadArtistPage(artist: Artist): ArtistPage? {
-        var resolvedArtist = artist
+    private suspend fun loadArtistPage(artist: Artist, onPreview: suspend (ArtistPage) -> Unit): ArtistPage? {
+        var resolvedArtist = if (artist.id.startsWith("UC")) artist else resolvedArtistIds[artist.name.lowercase()] ?: artist
         try {
-            var effectiveChannelId = artist.id
+            var effectiveChannelId = resolvedArtist.id
 
             // If channelId is not a real YouTube channel ID, search to resolve it
             if (!effectiveChannelId.startsWith("UC")) {
@@ -1089,6 +1099,8 @@ open class InnerTubeClient(
                 if (match != null) {
                     effectiveChannelId = match.id
                     resolvedArtist = match
+                    if (resolvedArtistIds.size >= 64) resolvedArtistIds.clear()
+                    resolvedArtistIds[artist.name.lowercase()] = match
                 }
                 if (!effectiveChannelId.startsWith("UC")) throw java.io.IOException("Artist identity not resolved")
             }
@@ -1170,9 +1182,19 @@ open class InnerTubeClient(
             val videos = mutableListOf<Track>()
             val artistPlaylists = mutableListOf<PlaylistResult>()
             val similarArtists = mutableListOf<Artist>()
+            var topSongsBrowseId: String? = null
+            var catalogueIncomplete = false
 
             val sectionList = artistSections(json)
+            if (description == null) {
+                description = (0 until sectionList.length()).firstNotNullOfOrNull { i ->
+                    val shelf = sectionList.optJSONObject(i)?.optJSONObject("musicDescriptionShelfRenderer")
+                    val runs = shelf?.optJSONObject("description")?.optJSONArray("runs")
+                    runs?.let { (0 until it.length()).joinToString("") { j -> it.optJSONObject(j)?.optString("text").orEmpty() }.trim().ifBlank { null } }
+                }
+            }
 
+            fun parseShelves() {
             var albumShelvesSeen = 0
             for (i in 0 until sectionList.length()) {
                 val secObj = sectionList.optJSONObject(i) ?: continue
@@ -1189,27 +1211,15 @@ open class InnerTubeClient(
                 val shelfTitle = if (englishTitle) rawShelfTitle else when (artistShelfKind(shelf)) {
                     ArtistShelfKind.SONGS -> "songs"
                     ArtistShelfKind.ARTISTS -> "fans might also like"
+                    ArtistShelfKind.PLAYLISTS -> "playlists"
                     ArtistShelfKind.RELEASES -> if (albumShelvesSeen++ == 0) "albums" else "singles"
                     ArtistShelfKind.OTHER -> rawShelfTitle
                 }
 
-                val contents = shelf.optJSONArray("contents") ?: JSONArray()
-                // LiMusic opens these same targets for the catalogue. Expand the artist's
-                // own items, retaining the preview if a secondary request fails.
-                val endpoint = artistMoreEndpoint(shelf)
-                if (endpoint != null && listOf("song", "album", "single", "ep").any { shelfTitle.contains(it) }) {
-                    try {
-                        val moreRequest = Request.Builder().url("$YT_MUSIC_API/browse?prettyPrint=false")
-                            .post(createBrowseContext(endpoint.getString("browseId"), endpoint.optString("params").takeIf { it.isNotBlank() })
-                                .toString().toRequestBody(JSON_MEDIA_TYPE))
-                            .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com").build()
-                        val more = artistCatalogueItems(JSONObject(client.searchBody(moreRequest, 4_000L)))
-                        for (k in 0 until minOf(more.length(), 100)) contents.put(more.optJSONObject(k))
-                    } catch (e: Exception) {
-                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                        com.auralis.music.util.Log.w("AuralisArtist", "Catalogue preview retained: ${e.javaClass.simpleName}")
-                    }
+                if (shelfTitle.contains("song") && topSongsBrowseId == null) {
+                    topSongsBrowseId = artistMoreEndpoint(shelf)?.optString("browseId")?.takeIf { it.startsWith("VL") }
                 }
+                val contents = shelf.optJSONArray("contents") ?: JSONArray()
 
                 for (j in 0 until contents.length()) {
                     val cObj = contents.optJSONObject(j) ?: continue
@@ -1267,6 +1277,9 @@ open class InnerTubeClient(
                 }
             }
 
+            }
+            parseShelves()
+
             val targetName = artistName.lowercase().trim()
 
             val resolvedTopSongs = if (topSongs.isNotEmpty()) {
@@ -1290,20 +1303,59 @@ open class InnerTubeClient(
                 subscribers = subscribers ?: artist.subscribers
             )
 
-            return ArtistPage(
+            fun snapshot() = ArtistPage(
                 artist = finalArtist,
                 bannerUrl = bannerUrl,
                 description = description,
                 subscribers = subscribers,
                 monthlyAudience = monthlyAudience,
-                topSongs = resolvedTopSongs.distinctBy { it.id },
+                topSongs = topSongs.ifEmpty { resolvedTopSongs }.distinctBy { it.id },
                 albums = albums.distinctBy { it.id },
                 singles = singles.distinctBy { it.id },
                 similarArtists = similarArtists.distinctBy { it.id },
                 videos = videos.distinctBy { it.id },
                 playlists = artistPlaylists.distinctBy { it.id },
-                radioPlaylistId = radioPlaylistId
+                radioPlaylistId = radioPlaylistId,
+                topSongsBrowseId = topSongsBrowseId,
+                catalogueIncomplete = catalogueIncomplete,
+                isFallback = topSongs.isEmpty() && albums.isEmpty() && singles.isEmpty() && videos.isEmpty() && artistPlaylists.isEmpty()
             )
+            // Show all overview shelves before waiting for expanded catalogues.
+            onPreview(snapshot())
+            coroutineScope {
+                (0 until sectionList.length()).mapNotNull { i ->
+                    val sec = sectionList.optJSONObject(i)
+                    val shelf = sec?.optJSONObject("musicShelfRenderer") ?: sec?.optJSONObject("musicCarouselShelfRenderer")
+                    val endpoint = shelf?.let(::artistMoreEndpoint)
+                    val header = shelf?.optJSONObject("header")?.let { it.optJSONObject("musicCarouselShelfBasicHeaderRenderer") ?: it.optJSONObject("musicShelfBasicHeaderRenderer") }
+                    val title = (header?.optJSONObject("title") ?: shelf?.optJSONObject("title"))?.optJSONArray("runs")
+                        ?.optJSONObject(0)?.optString("text").orEmpty().lowercase()
+                    if (shelf == null || endpoint == null ||
+                        (artistShelfKind(shelf) !in listOf(ArtistShelfKind.SONGS, ArtistShelfKind.RELEASES) &&
+                            !listOf("song", "album", "single", "ep").any { title.contains(it) })) null
+                    else async {
+                        try {
+                            val request = Request.Builder().url("$YT_MUSIC_API/browse?prettyPrint=false")
+                                .post(createBrowseContext(endpoint.getString("browseId"), endpoint.optString("params").takeIf { it.isNotBlank() })
+                                    .toString().toRequestBody(JSON_MEDIA_TYPE))
+                                .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com").build()
+                            shelf to artistCatalogueItems(JSONObject(client.searchBody(request, 8_000L)))
+                        } catch (e: Exception) {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            com.auralis.music.util.Log.w("AuralisArtist", "Catalogue preview retained: ${e.javaClass.simpleName}")
+                            null
+                        }
+                    }
+                }.awaitAll().forEach { result ->
+                    if (result == null) { catalogueIncomplete = true; return@forEach }
+                    val (shelf, more) = result
+                    val items = shelf.optJSONArray("contents") ?: JSONArray().also { shelf.put("contents", it) }
+                    for (i in 0 until minOf(more.length(), 100)) items.put(more.optJSONObject(i))
+                }
+            }
+            parseShelves()
+            return snapshot()
+
         } catch (e: Exception) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             com.auralis.music.util.Log.w("AuralisArtist", "Could not browse '${artist.name}': ${e.javaClass.simpleName}: ${e.message}")
@@ -1314,7 +1366,8 @@ open class InnerTubeClient(
                 ArtistPage(
                     artist = resolvedArtist,
                     bannerUrl = resolvedArtist.thumbnail,
-                    topSongs = songs
+                    topSongs = songs,
+                    isFallback = true
                 )
             } else null
         }
