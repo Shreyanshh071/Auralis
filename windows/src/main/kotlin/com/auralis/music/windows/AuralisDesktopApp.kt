@@ -153,6 +153,27 @@ fun AuralisDesktopApp(
         val recent = ranked(allListens.filter { it.startedAt >= System.currentTimeMillis() - 30L * 86_400_000L })
         (if (recent.size >= 12) recent else (recent + ranked(allListens)).distinctBy { it.id }).take(12)
     }
+    // Familiar Artists (Li Music): top artists by the listener's own play count, with their photo
+    // and channel from one artist search each, cached for the session.
+    val artistLookups = remember { androidx.compose.runtime.mutableStateMapOf<String, com.auralis.music.domain.model.Artist?>() }
+    val topArtistPlays = remember(allListens) {
+        allListens.filter { it.countsAsPlay }
+            .groupBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(
+                it.track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().removeSuffix(" - Topic")) }
+            .filterKeys { it.isNotBlank() && it != "unknown artist" }
+            .map { (_, l) -> l.first().track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().trim().removeSuffix(" - Topic") to l.size }
+            .sortedByDescending { it.second }.take(8)
+    }
+    androidx.compose.runtime.LaunchedEffect(topArtistPlays.map { it.first }) {
+        topArtistPlays.map { it.first }.filter { it !in artistLookups }.forEach { name ->
+            artistLookups[name] = runCatching { searchRepository.searchArtists(name) }.getOrNull()
+                ?.firstOrNull { com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(it.name, name) }
+        }
+    }
+    val familiarArtists = topArtistPlays.map { (name, plays) ->
+        val found = artistLookups[name]
+        com.auralis.music.windows.home.FamiliarArtist(found?.name ?: name, plays, found?.id.orEmpty(), found?.thumbnail)
+    }.take(6)
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -473,6 +494,7 @@ fun AuralisDesktopApp(
                                 onYouTubePlaylist = ::openYouTubePlaylist,
                                 tasteShelf = tasteShelf,
                                 quickPicks = quickPicks,
+                                familiarArtists = familiarArtists,
                                 // Search lives in the title bar now; Home shows no search button.
                                 findMusic = {},
                             )

@@ -67,6 +67,11 @@ internal fun DesktopHomeScreen(
     serviceLoading: Boolean = false, serviceError: String? = null, libraryShelf: List<PlaylistResult> = emptyList(),
     /** The listener's most-played songs, shown as Quick picks above Albums & singles. */
     quickPicks: List<Track> = emptyList(),
+    /** The listener's most-played artists (Familiar Artists, in place of Quick picks). */
+    familiarArtists: List<FamiliarArtist> = emptyList(),
+    followedArtistIds: Set<String> = emptySet(),
+    onOpenFamiliarArtist: (FamiliarArtist) -> Unit = {},
+    onToggleFollowArtist: (FamiliarArtist) -> Unit = {},
     favoriteIds: Set<String> = emptySet(),
     onToggleFavorite: (Track) -> Unit = {}
 ) {
@@ -122,7 +127,9 @@ internal fun DesktopHomeScreen(
                     }
                 }
             }
-            if (quickPicks.isNotEmpty()) item("most-played") {
+            if (familiarArtists.size >= 3) item("familiar-artists") {
+                FamiliarArtistsRow(familiarArtists, followedArtistIds, onOpenFamiliarArtist, onToggleFollowArtist)
+            } else if (quickPicks.isNotEmpty()) item("most-played") {
                 QuickPicksGrid(quickPicks, currentTrackId, isPlaying, favoriteIds, onPlay, onMenu, onToggleFavorite)
             }
             if (serviceLoading && shelves.isEmpty()) item("loading") {

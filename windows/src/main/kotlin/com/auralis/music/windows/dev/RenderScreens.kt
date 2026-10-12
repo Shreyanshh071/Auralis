@@ -192,6 +192,8 @@ fun main(args: Array<String>) {
             com.auralis.music.windows.home.DesktopHomeScreen(personalHome,
                 serviceRecents = (previewSongs + previewSongs).mapIndexed { i, track -> track.copy(id = "recent-$i") },
                 quickPicks = previewSongs.take(12), favoriteIds = setOfNotNull(previewSongs.getOrNull(1)?.id),
+                familiarArtists = listOf("Tame Impala" to 14, "Kanye West" to 9, "Radiohead" to 7, "Arijit Singh" to 5, "KK" to 3, "Karan Aujla" to 2)
+                    .mapIndexed { i, (name, plays) -> com.auralis.music.windows.home.FamiliarArtist(name, plays, "UCpreview$i", previewSongs.getOrNull(i)?.thumbnail) },
                 serviceShelves = listOf(
                     com.auralis.music.windows.home.DesktopHomeShelf("releases", "Albums & singles", albums = albums),
                     com.auralis.music.windows.home.DesktopHomeShelf("listen-again", "Listen again", "PREVIEW LISTENER", tracks = previewSongs.take(6)),

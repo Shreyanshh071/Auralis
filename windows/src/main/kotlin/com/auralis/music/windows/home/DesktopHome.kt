@@ -32,8 +32,12 @@ internal fun DesktopHome(
     /** Albums & singles from the listener's own taste; YouTube's new releases until there is one. */
     tasteShelf: DesktopHomeShelf? = null,
     /** The listener's most-played songs (Quick picks). */
-    quickPicks: List<Track> = emptyList()
+    quickPicks: List<Track> = emptyList(),
+    /** The listener's most-played artists (Familiar Artists). */
+    familiarArtists: List<FamiliarArtist> = emptyList()
 ) {
+    val savedArtists by library.getSavedArtists().collectAsState(emptyList())
+    val followedIds = remember(savedArtists) { savedArtists.map { it.id }.toSet() }
     val favorites by library.getFavoriteTracks().collectAsState(emptyList())
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
     val state by viewModel.uiState.collectAsState()
@@ -116,6 +120,13 @@ internal fun DesktopHome(
         findMusic = findMusic,
         onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
         quickPicks = quickPicks,
+        familiarArtists = familiarArtists,
+        followedArtistIds = followedIds,
+        onOpenFamiliarArtist = { a -> browse.openArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)) },
+        onToggleFollowArtist = { a -> scope.launch {
+            if (a.id in followedIds) library.removeArtist(a.id)
+            else library.saveArtist(com.auralis.music.domain.model.SavedArtist(a.id, a.name, a.photo))
+        } },
         favoriteIds = favoriteIds,
         onToggleFavorite = { track -> scope.launch { library.toggleFavorite(track) } },
         serviceShelves = if (youtubeSignedIn) listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves else null,
