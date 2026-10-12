@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.blur
 
 import androidx.compose.runtime.Composable
@@ -213,6 +214,20 @@ fun main(args: Array<String>) {
         "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
         "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null, coverPalette) },
         "player-dynamic" to { com.auralis.music.windows.player.PlayerBackdrop("Dynamic", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
+        "lyrics-spicy" to {
+            // "You've been my muse for a long time", frozen part-way through "muse".
+            val words = listOf("You've ", "been ", "my ", "muse ", "for ", "a ", "long ", "time").mapIndexed { i, w ->
+                com.auralis.music.ui.lyrics.ExperimentalWordTimestamp(w, i * 0.5, i * 0.5 + 0.5)
+            }
+            val clock = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(1_700L) }
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color(0xFF3A2A33)).padding(40.dp)) {
+                com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics("You've been my muse for a long time", words, true, clock,
+                    androidx.compose.ui.text.TextStyle(fontSize = 44.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    androidx.compose.ui.graphics.Color.White, androidx.compose.ui.graphics.Color.White, false, 0.35f,
+                    androidx.compose.ui.text.style.TextAlign.Left)
+            }
+        },
         "lyrics-dots" to {
             androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF2A2230)),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
