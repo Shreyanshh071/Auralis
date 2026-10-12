@@ -320,9 +320,10 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
 /**
  * The phone's "Blur" player background: the artwork blurred 120dp (drawn at half size and scaled
  * up, as the phone does), scaled 1.10, crossfading between songs, under a 30% black scrim.
+ * Browsing overrides blur/brightness/scale to match Liquify without affecting the player defaults.
  */
 @Composable
-internal fun BlurredArtworkBackground(url: String?, blurRadius: Dp = 120.dp) {
+internal fun BlurredArtworkBackground(url: String?, blurRadius: Dp = 120.dp, brightness: Float = .70f, artworkScale: Float = 1.10f) {
     Crossfade(targetState = url, animationSpec = tween(700), label = "playerBackground") { artwork ->
         Box(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
             if (artwork != null) {
@@ -334,13 +335,13 @@ internal fun BlurredArtworkBackground(url: String?, blurRadius: Dp = 120.dp) {
                     modifier = Modifier
                         .fillMaxSize(1f / downscale)
                         .graphicsLayer {
-                            scaleX = 1.10f * downscale
-                            scaleY = 1.10f * downscale
+                            scaleX = artworkScale * downscale
+                            scaleY = artworkScale * downscale
                         }
                         .blur(blurRadius / downscale)
                 )
             }
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.30f)))
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - brightness.coerceIn(0f, 1f))))
 }

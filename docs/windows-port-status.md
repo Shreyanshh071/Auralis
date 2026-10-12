@@ -404,3 +404,11 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Reduced the header content's bottom inset from 24 to 8 dp, shifting cover/details down 16 dp and reducing the gap above track headings.
 - Visually inspected the rendered playlist-header.png; build and installer verification recorded below.
 - Render/MSI build passed (5m39s). Installed with full backup at C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-size-20261012-164305; all 68 checked data files preserved.
+
+## Artwork colour fidelity — 2026-10-12
+
+- Root cause: browsing used a 70%-bright, 48 dp blurred, 1.10x zoomed cover under palette-coloured panels. Sparse coloured details (e.g. No Dogs Allowed's red signature) could select a red accent and tint the whole neutral background pink.
+- Matched Liquify's static-cover pipeline: centred cover, 7 dp blur, 45% brightness; neutral dark/light glass overlays instead of blending the accent palette into page surfaces. Accent colours and full-player blur defaults are retained. Applies automatically to song and idle-playlist covers across Windows modes.
+- Reference: https://github.com/NMWplays/Liquify/blob/main/user.css (.liquify-bg-layer).
+- Two ArtworkPageThemeTest checks passed, including rendered white-with-red-detail and blue covers, neutral panels, 45% pixel brightness and song-switch hue preservation. Inspected neutral-page.png and blue-page.png under windows/build/screens/artwork-colours.
+- Installed successfully; full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-artwork-colours-20261012-172801; all 69 checked data files preserved.
