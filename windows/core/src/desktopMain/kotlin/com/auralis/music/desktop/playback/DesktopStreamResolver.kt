@@ -72,7 +72,8 @@ object DesktopStreamResolver {
     suspend fun resolve(videoId: String): String? = withContext(Dispatchers.IO) {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
         cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return@withContext it.url }
-        if (com.auralis.music.data.network.YouTubeBackoff.active) return@withContext null
+        // Not held back by a search block: YouTube still serves the player (checked 2026-10-12 while
+        // search was blocked), and refusing here is what stopped every song from playing.
         val started = System.currentTimeMillis()
         // YouTube now and then refuses a freshly issued stream URL (HTTP 403) that a new lookup
         // replaces with a working one. Check each URL with a two-byte request before libVLC gets

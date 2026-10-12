@@ -152,3 +152,10 @@ tasks.register<JavaExec>("probeLyrics") {
     mainClass.set("com.auralis.music.windows.dev.ProbeLyricsKt")
     args = (findProperty("args")?.toString() ?: "").split("::")
 }
+
+// Development check: ./gradlew :windows:probeStream -Pargs="videoId"
+tasks.register<JavaExec>("probeStream") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
+    args = listOfNotNull(findProperty("args")?.toString())
+}

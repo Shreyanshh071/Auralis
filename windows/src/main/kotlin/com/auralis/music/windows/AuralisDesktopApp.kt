@@ -140,7 +140,9 @@ fun AuralisDesktopApp(
     var youtubePageAccount by remember { mutableStateOf<String?>(null) }
     var youtubePageId by remember { mutableStateOf<String?>(null) }
     // Albums & singles that follow what the listener plays (see TasteReleases).
-    val tasteReleases = remember { com.auralis.music.windows.home.TasteReleases(listeningStats, searchRepository, scope).also { it.start() } }
+    // Background lookups queue behind one paced gate (a launch burst got the network blocked).
+    val backgroundSearch = remember(searchRepository) { com.auralis.music.windows.home.PacedSearchRepository(searchRepository) }
+    val tasteReleases = remember { com.auralis.music.windows.home.TasteReleases(listeningStats, backgroundSearch, scope).also { it.start() } }
     val tasteShelf by tasteReleases.shelf.collectAsState()
     // Quick picks: most played in the last 30 days (all time when that's too few), by plays then time.
     val allListens by listeningStats.listens.collectAsState()
@@ -167,7 +169,7 @@ fun AuralisDesktopApp(
     }
     androidx.compose.runtime.LaunchedEffect(topArtistPlays.map { it.first }) {
         topArtistPlays.map { it.first }.filter { it !in artistLookups }.forEach { name ->
-            artistLookups[name] = runCatching { searchRepository.searchArtists(name) }.getOrNull()
+            artistLookups[name] = runCatching { backgroundSearch.searchArtists(name) }.getOrNull()
                 ?.firstOrNull { com.auralis.music.domain.search.SearchQueryMatcher.isAuthorMatch(it.name, name) }
         }
     }
@@ -178,7 +180,7 @@ fun AuralisDesktopApp(
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
-            searchRepository = searchRepository,
+            searchRepository = backgroundSearch,
             platform = homePlatform,
             libraryRepository = library
         )
@@ -538,7 +540,7 @@ fun AuralisDesktopApp(
                                 listeningStats, playback, destination == DesktopDestination.WRAPPED,
                                 onBack = { navigation.back()?.let(::restoreRoute) ?: run { destination = DesktopDestination.HOME } },
                                 onOpenWrapped = { destination = DesktopDestination.WRAPPED },
-                                search = searchRepository,
+                                search = backgroundSearch,
                                 onOpenArtist = browse::openArtist,
                                 onTrackMenu = { menuTrack = it }
                             )
