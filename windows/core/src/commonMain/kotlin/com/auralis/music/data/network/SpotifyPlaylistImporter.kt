@@ -1152,11 +1152,12 @@ class SpotifyPlaylistImporter(
         // A failed request comes back as empty results; during a 16-way parallel import that
         // happens often enough to leave songs unmatched, so an empty answer is asked once more.
         suspend fun songs(query: String, filter: String? = InnerTubeClient.FILTER_SONGS): List<Track> {
-            var result = if (filter != null) innerTubeClient.search(query, filter).songs else innerTubeClient.search(query).songs
-            if (result.isEmpty()) {
-                kotlinx.coroutines.delay(400)
-                result = if (filter != null) innerTubeClient.search(query, filter).songs else innerTubeClient.search(query).songs
+            // Paced with the other background searches, so a big playlist can't get the network blocked.
+            suspend fun once() = YouTubeBackgroundGate.run {
+                if (filter != null) innerTubeClient.search(query, filter).songs else innerTubeClient.search(query).songs
             }
+            var result = once()
+            if (result.isEmpty()) result = once()
             seen?.addAll(result)
             return result
         }
@@ -1260,7 +1261,15 @@ class SpotifyPlaylistImporter(
                                 kotlinx.coroutines.delay(100)
                             }
 
-                            val topMatch = matchToYouTube(track)
+                            // A block mid-match empties the remaining searches; that is not "no match".
+                            // Wait it out and match the song again rather than give up on it.
+                            var trips = YouTubeBackoff.trips
+                            var topMatch = matchToYouTube(track)
+                            while (topMatch == null && trips != YouTubeBackoff.trips) {
+                                YouTubeBackoff.awaitClear()
+                                trips = YouTubeBackoff.trips
+                                topMatch = matchToYouTube(track)
+                            }
 
                             val count = completedCounter.incrementAndGet()
                             if (count % 5 == 0 || count == total) {
