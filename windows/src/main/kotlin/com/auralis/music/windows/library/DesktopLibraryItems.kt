@@ -31,6 +31,9 @@ internal fun desktopLibraryItems(playlists: List<Playlist>, albums: List<SavedAl
             album.thumbnail, createdAt = album.savedAt, isCustom = false)
     }
 
+/** A saved album as the album page opens it (for callers outside this file's receiver scope). */
+internal fun libraryAlbumAsBrowse(album: SavedAlbum) = album.asBrowseAlbum()
+
 internal fun SavedAlbum.asBrowseAlbum() = PlaylistResult(
     id = id, title = title, thumbnail = thumbnail, author = artist, trackCount = trackCount, releaseType = "album"
 )

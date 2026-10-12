@@ -96,7 +96,7 @@ fun main(args: Array<String>) {
         "youtube-library" to {
             Row(Modifier.fillMaxSize()) {
                 Box(Modifier.width(232.dp).fillMaxHeight()) {
-                    com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {})
+                    com.auralis.music.windows.LibrarySidebar(previewLibraryEntries(previewSongs), null, false, {})
                 }
                 Box(Modifier.weight(1f)) { homePreview(true) }
             }
@@ -127,11 +127,14 @@ fun main(args: Array<String>) {
                 }
             }
         },
-        "sidebar-expanded" to { Box(androidx.compose.ui.Modifier.width(232.dp).fillMaxHeight()) {
-            com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, false, {})
+        "sidebar-expanded" to { Box(androidx.compose.ui.Modifier.width(280.dp).fillMaxHeight()) {
+            com.auralis.music.windows.LibrarySidebar(previewLibraryEntries(previewSongs), "local:1", false, {})
         } },
         "sidebar-collapsed" to { Box(androidx.compose.ui.Modifier.width(64.dp).fillMaxHeight()) {
-            com.auralis.music.windows.Sidebar(com.auralis.music.windows.DesktopDestination.HOME, {}, true, {})
+            com.auralis.music.windows.LibrarySidebar(previewLibraryEntries(previewSongs), "local:1", true, {})
+        } },
+        "dock" to { Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF181818)), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            com.auralis.music.windows.GlassDock(com.auralis.music.windows.DesktopDestination.HOME, com.auralis.music.windows.DockTabs, {})
         } },
         "themes-colours" to { com.auralis.music.windows.settings.DesktopThemesAndColours {} },
         "song-context-menu" to {
@@ -276,7 +279,7 @@ fun main(args: Array<String>) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
             val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
+                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
@@ -327,3 +330,9 @@ private fun LyricRendererPreview(fluid: Boolean) {
             androidx.compose.ui.text.style.TextAlign.Left, androidx.compose.ui.Alignment.Start, 34f, 1.3f)
     }
 }
+
+private fun previewLibraryEntries(songs: List<com.auralis.music.domain.model.Track>) = listOf(
+    com.auralis.music.windows.LibraryEntry("liked", "Liked Songs", "Playlist · 214 songs", null, liked = true) {}) +
+    listOf("Late night drive", "Gym", "Hindi hits", "Indie mix", "Lo-fi").mapIndexed { i, name ->
+        com.auralis.music.windows.LibraryEntry("local:$i", name, "Playlist · ${12 + i * 7} songs", songs.getOrNull(i)?.thumbnail) {}
+    }

@@ -351,6 +351,8 @@ fun AuralisDesktopApp(
     var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
     var rightSidebarWidth by remember { mutableStateOf(initialSidebars.right) }
     var leftCollapsed by remember { mutableStateOf(initialSidebars.leftCollapsed) }
+    // The Your Library row last opened, highlighted while its page shows.
+    var selectedLibraryKey by remember { mutableStateOf<String?>(null) }
     var rightCollapsed by remember { mutableStateOf(initialSidebars.rightCollapsed) }
     // The right panel shows Now playing, or lyrics / the queue from the player bar's buttons.
     var sidePanel by remember { mutableStateOf(com.auralis.music.windows.player.SidePanel.NOW_PLAYING) }
@@ -466,11 +468,37 @@ fun AuralisDesktopApp(
                       if (resizingLeft) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "left sidebar width")
                   val rightDisplay by androidx.compose.animation.core.animateDpAsState(rightTarget.dp,
                       if (resizingRight) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(280), label = "right sidebar width")
-                  // Spotify-style layout: sidebar, page and Now playing are rounded panels with even gaps.
+                  // Spotify-style layout: Your Library, page and Now playing are rounded panels with even gaps.
                   val panelShape = RoundedCornerShape(12.dp)
+                  // Your Library (left panel): Liked Songs, then every playlist and saved album.
+                  val appLibrary by libraryViewModel.uiState.collectAsState()
+                  fun openLibrary(key: String, select: () -> Unit) {
+                      showPlayer = false; browse.clear(); selectedLibraryKey = key; select(); destination = DesktopDestination.LIBRARY
+                  }
+                  val libraryEntries = buildList {
+                      add(LibraryEntry("liked", "Liked Songs", "Playlist · ${appLibrary.favorites.size} songs", null, liked = true) {
+                          openLibrary("liked") { libraryViewModel.openSmartCollection(com.auralis.music.ui.viewmodel.SmartCollectionType.LIKED) }
+                      })
+                      appLibrary.playlists.forEach { p ->
+                          add(LibraryEntry("local:${p.id}", p.title, "Playlist · ${p.tracks.size} songs", p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail) {
+                              openLibrary("local:${p.id}") { libraryViewModel.selectPlaylist(p.id, p) }
+                          })
+                      }
+                      youtubeState.playlists.forEach { y ->
+                          add(LibraryEntry("yt:${y.id}", y.title, listOfNotNull("YouTube Music", y.author?.takeIf { it.isNotBlank() }).joinToString(" · "), y.thumbnail) {
+                              selectedLibraryKey = "yt:${y.id}"; openYouTubePlaylist(y)
+                          })
+                      }
+                      appLibrary.savedAlbums.forEach { a ->
+                          add(LibraryEntry("album:${a.id}", a.title, listOfNotNull("Album", a.artist?.takeIf { it.isNotBlank() }).joinToString(" · "), a.thumbnail) {
+                              showPlayer = false; selectedLibraryKey = "album:${a.id}"
+                              browse.openAlbum(com.auralis.music.windows.library.libraryAlbumAsBrowse(a))
+                          })
+                      }
+                  }.distinctBy { it.key }
                   Row(Modifier.fillMaxSize().padding(8.dp)) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(panelShape)) {
-                        Sidebar(selected = destination, onSelect = { destination = it; browse.clear() },
+                        LibrarySidebar(libraryEntries, selectedLibraryKey.takeIf { destination == DesktopDestination.LIBRARY || browse.top != null },
                             collapsed = leftCollapsed, onToggle = { leftCollapsed = !leftCollapsed })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(
@@ -606,7 +634,22 @@ fun AuralisDesktopApp(
                                 onDismiss = { menuTrack = null }
                             )
                         }
-                        androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
+                        // The phone's dock, floating over the page: the pages that used to be in the sidebar.
+                        GlassDock(
+                            selected = destination.takeIf { browse.top == null && it in DockTabs },
+                            tabs = DockTabs,
+                            onSelect = { tab ->
+                                showPlayer = false; browse.clear()
+                                if (tab == DesktopDestination.LIBRARY) {
+                                    // The Library tab is the whole library, not the playlist opened last.
+                                    selectedLibraryKey = null
+                                    libraryViewModel.closeSmartCollection(); libraryViewModel.selectPlaylist(null)
+                                }
+                                destination = tab
+                            },
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp)
+                        )
+                        androidx.compose.material3.SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 92.dp))
                     }
                     if (showNowPlaying && playback != null && lyrics != null) {
                       if (!rightIsCollapsed) SidebarResizeHandle(
@@ -683,74 +726,9 @@ fun AuralisDesktopApp(
 
 }
 
-@Composable
-internal fun Sidebar(selected: DesktopDestination, onSelect: (DesktopDestination) -> Unit, collapsed: Boolean, onToggle: () -> Unit) {
-    val logo = remember {
-        Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
-            ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surface)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 8.dp, bottom = 20.dp)
-        ) {
-            if (!collapsed) {
-            Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), contentDescription = null,
-                modifier = Modifier.size(28.dp), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onSurface))
-            Spacer(Modifier.width(12.dp))
-            Text("Auralis", modifier = Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-            }
-            androidx.compose.material3.IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
-                Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ChevronLeft,
-                    if (collapsed) "Expand navigation" else "Collapse navigation")
-            }
-        }
-        // Stats opens from the title bar (beside Discord), not the sidebar.
-        DesktopDestination.entries.filter { it !in setOf(DesktopDestination.SEARCH, DesktopDestination.SETTINGS, DesktopDestination.IMPORT, DesktopDestination.DISCORD, DesktopDestination.STATS) }.forEach { item ->
-            SidebarItem(item, isSelected = item == selected, onClick = { onSelect(item) }, collapsed = collapsed)
-        }
-        SidebarItem(DesktopDestination.SETTINGS, isSelected = selected == DesktopDestination.SETTINGS,
-            onClick = { onSelect(DesktopDestination.SETTINGS) }, collapsed = collapsed)
-    }
-}
-
-@Composable
-private fun SidebarItem(item: DesktopDestination, isSelected: Boolean, onClick: () -> Unit, collapsed: Boolean) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) colors.surfaceContainerHigh else colors.surface)
-            .clickable(onClick = onClick)
-            .padding(horizontal = if (collapsed) 8.dp else 12.dp)
-    ) {
-        Icon(item.icon, contentDescription = item.label, tint = if (isSelected) colors.primary else colors.onSurfaceVariant)
-        androidx.compose.animation.AnimatedVisibility(!collapsed,
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(Modifier.width(14.dp))
-        Text(
-            item.label,
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isSelected) colors.onSurface else colors.onSurfaceVariant, maxLines = 1
-        )
-        }
-        }
-    }
-}
+/** The dock's tabs: the pages the sidebar used to list (Listen Together and Stats are in the title bar). */
+internal val DockTabs = listOf(DesktopDestination.HOME, DesktopDestination.LIBRARY, DesktopDestination.HISTORY,
+    DesktopDestination.WRAPPED, DesktopDestination.PROFILE, DesktopDestination.SETTINGS)
 
 @Composable
 private fun NotBuiltYet(title: String, detail: String) {
