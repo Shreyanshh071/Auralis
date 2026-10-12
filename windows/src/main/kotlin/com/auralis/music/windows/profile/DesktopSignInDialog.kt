@@ -1,5 +1,12 @@
 package com.auralis.music.windows.profile
 
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
@@ -42,12 +49,34 @@ internal fun DesktopSignInDialog(account: DesktopAccount, onConnected: () -> Uni
 /** The app content beneath the modal is blurred in AuralisDesktopApp, leaving this content sharp. */
 @Composable
 internal fun SignInGlassSurface(content: @Composable () -> Unit) {
+    // Glass over the blurred app (BitChord's sign-in): a light dark tint, a faint top sheen and
+    // a hairline edge, so the colours behind show through.
     Surface(shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .82f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = androidx.compose.ui.graphics.Color(0xFF141318).copy(alpha = .60f),
+        contentColor = androidx.compose.ui.graphics.Color.White,
         tonalElevation = 0.dp, shadowElevation = 24.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .14f)),
-        content = content)
+        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = .12f))) {
+        Box {
+            Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to androidx.compose.ui.graphics.Color.White.copy(alpha = .06f), .35f to androidx.compose.ui.graphics.Color.Transparent)))
+            content()
+        }
+    }
+}
+
+/** A plain glass list row (BitChord-style), for choosing a browser profile. */
+@Composable
+internal fun GlassRow(label: String, enabled: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, onClick: () -> Unit) {
+    val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
+        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && enabled) .08f else 0f))
+        .hoverable(hover).clickable(enabled = enabled, interactionSource = hover, indication = null, onClick = onClick)
+        .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (icon != null) Icon(icon, null, Modifier.size(20.dp), tint = androidx.compose.ui.graphics.Color.White.copy(alpha = .85f))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = androidx.compose.ui.graphics.Color.White.copy(alpha = if (enabled) 1f else .5f))
+    }
 }
 
 @Composable
@@ -92,11 +121,10 @@ internal fun BrowserYouTubePicker(previewProfiles: List<BrowserYouTubeLogin.Prof
             profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
             profiles!!.isEmpty() -> Text("No supported browser profiles found. You can paste a YouTube cookie below.")
             else -> profiles!!.forEach { profile ->
-                OutlinedButton(onClick = { import { BrowserYouTubeLogin.read(profile) to profile.label } },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(profile.label) }
+                GlassRow(profile.label, enabled = !busy) { import { BrowserYouTubeLogin.read(profile) to profile.label } }
             }
         }
-        TextButton(onClick = { paste = !paste }, enabled = !busy) { Text("Paste a YouTube cookie instead") }
+        GlassRow("Paste a cookie instead", enabled = !busy, icon = androidx.compose.material.icons.Icons.Outlined.ContentPaste) { paste = !paste }
         if (paste) {
             OutlinedTextField(cookie, { cookie = it }, label = { Text("YouTube Cookie header") }, modifier = Modifier.fillMaxWidth(),
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), enabled = !busy, maxLines = 3)
