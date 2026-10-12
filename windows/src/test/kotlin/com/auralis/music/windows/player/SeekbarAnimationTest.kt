@@ -44,6 +44,8 @@ class SeekbarAnimationTest {
                     return scene.render(frame++ * 16_666_667).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes } }
                 }
                 val first=render(); val second=render()
+                java.io.File("build/screens/seekbar-spacing").mkdirs()
+                java.io.File("build/screens/seekbar-spacing/$style.png").writeBytes(first)
                 assertFalse(first.contentEquals(second), "$style must animate during playback")
                 playing.value=false
                 render()
