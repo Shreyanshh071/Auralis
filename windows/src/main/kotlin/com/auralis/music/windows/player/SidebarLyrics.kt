@@ -69,7 +69,7 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
     // Same intro countdown the full player shows before the first synced line.
     val introDurationMs = if (synced) lines.first().time.takeIf { it >= 1500L } ?: 0L else 0L
     val introActive by remember(introDurationMs) { derivedStateOf { introDurationMs > 0L && position.value < introDurationMs } }
-    val introTime = remember { derivedStateOf { (position.value.coerceAtLeast(0L) / 50L) * 50L } }
+    val introTime = remember { derivedStateOf { position.value.coerceAtLeast(0L) } }
     val list = rememberLazyListState()
     var manualScroll by remember { mutableLongStateOf(0L) }
     val hover = remember { MutableInteractionSource() }
@@ -94,6 +94,7 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
                 AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                     // Left, with the lyric text, as Spicy Lyrics places its dots.
                     InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = true, horizontalAlignment = Alignment.Start,
+                        dotSize = 16.dp,
                         onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
                 }
             }

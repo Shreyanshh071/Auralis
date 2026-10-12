@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,18 +121,10 @@ fun InstrumentalIntroIndicator(
     strokeWidth: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroStrokeWidth else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardStrokeWidth,
     gapSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardTrackGapSize,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
-    dotSize: Dp = if (isMetroLyrics) 12.dp else 10.dp,
+    dotSize: Dp = if (isMetroLyrics) 18.dp else 16.dp,
     onSkipIntro: (() -> Unit)? = null
 ) {
     val currentTimeMs = currentTimeMsState.value
-    // Reaches 100% 650ms before line 0 starts singing, then completes and collapses smoothly
-    val effectiveEnd = (introDurationMs - 650L).coerceAtLeast(1000L)
-    val progress = (currentTimeMs.toFloat() / effectiveEnd.toFloat()).coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.LinearEasing),
-        label = "introProgress"
-    )
 
     val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
 
@@ -146,7 +139,9 @@ fun InstrumentalIntroIndicator(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .then(if (onSkipIntro != null) Modifier.clickable(onClick = onSkipIntro) else Modifier)
+                .then(if (onSkipIntro != null) Modifier.clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null, onClick = onSkipIntro) else Modifier)
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             LyricsDots(
