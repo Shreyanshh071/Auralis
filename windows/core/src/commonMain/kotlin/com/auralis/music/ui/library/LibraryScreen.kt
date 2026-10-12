@@ -2002,7 +2002,9 @@ private fun PlaylistDetailView(
         // ================================================================
         // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
         // ================================================================
-        if (!glassHero) topBar()
+        if (!glassHero) {
+            BoxWithConstraints { if (maxWidth < 720.dp) topBar() }
+        }
 
         // Opening search brings the list to the top, where the collapsed header was.
         LaunchedEffect(isSearchActive) {
@@ -2022,7 +2024,7 @@ private fun PlaylistDetailView(
                     .onGloballyPositioned { listTopInRoot = it.positionInRoot().y },
                 contentPadding = bottomChromePadding()
             ) {
-                if (glassHero) {
+                if (glassHero && !wideTable) {
                     item(key = "search_bar_gap", contentType = "gap") { Spacer(Modifier.height(searchBarGap)) }
                 }
                 // Header Content
@@ -2030,13 +2032,21 @@ private fun PlaylistDetailView(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
+                            .padding(horizontal = if (wideTable) 0.dp else 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        if (wideTable) DesktopPlaylistHero(
+                            playlist, savedAlbums,
+                            "${playlist.tracks.size} tracks • $durationFormatted",
+                            searchQuery, { searchQuery = it }, onBack,
+                            onPlay = { displayedTracks.firstOrNull()?.let { onPlayTrack(it, displayedTracks) } },
+                            onShuffle = { displayedTracks.shuffled().let { tracks -> tracks.firstOrNull()?.let { onPlayTrack(it, tracks) } } },
+                            onOptions = { showOptionsMenu = true }
+                        )
                         // Searching folds the cover, title and buttons away so results sit right under
                         // the search bar; closing search unfolds them again.
                         AnimatedVisibility(
-                            visible = !isSearchActive,
+                            visible = !isSearchActive && !wideTable,
                             enter = expandVertically(tween(380, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) +
                                 fadeIn(tween(260, delayMillis = 80)),
                             exit = shrinkVertically(tween(340, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) +
@@ -2304,8 +2314,8 @@ private fun PlaylistDetailView(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .padding(horizontal = if (wideTable) 24.dp else 4.dp, vertical = 6.dp),
+                            horizontalArrangement = if (wideTable) Arrangement.End else Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Sort Order Dropdown
@@ -2585,7 +2595,7 @@ private fun PlaylistDetailView(
         }
     }
     // Floats over the hero cover in liquid glass mode.
-    if (glassHero) topBar()
+    if (glassHero) BoxWithConstraints { if (maxWidth < 720.dp) topBar() }
     }
 
     if (showOptionsMenu) {
