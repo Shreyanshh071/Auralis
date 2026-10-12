@@ -484,7 +484,10 @@ object SearchQueryMatcher {
             MatchTier.EXACT_TITLE -> 1
             MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE ->
                 if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 100L) 1 else 2
-            MatchTier.TYPO_MATCH -> 3
+            // A near-spelling with 10x the plays of every exact-spelling match is the song the
+            // user means ("imposter syndrome" -> Sidney Gish's "Impostor Syndrome", which YouTube
+            // Music lists first, over a 363K-play "Imposter Syndrome").
+            MatchTier.TYPO_MATCH -> if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 10L) 1 else 3
             MatchTier.ARTIST_MATCH -> 4
             MatchTier.METADATA_PARTIAL -> 5
         }

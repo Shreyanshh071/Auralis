@@ -32,10 +32,17 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
         if (url.isNullOrBlank()) {
             Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
+            val source = (if (highRes) com.auralis.music.ui.components.getHighResArtworkUrl(url)
+                else com.auralis.music.ui.components.getOptimizedThumbnailUrl(url)) ?: url
+            // A fixed decode size: sizing to the first layout decoded covers that start tiny (the
+            // Now playing panel animating open) at a few pixels, and they stayed pixelated.
+            val context = coil3.compose.LocalPlatformContext.current
+            val request = androidx.compose.runtime.remember(source, highRes) {
+                coil3.request.ImageRequest.Builder(context).data(source).size(if (highRes) 1200 else 400).build()
+            }
             AsyncImage(
                 // Sized like the phone's rows: 400x400 album art, 16:9 frames for video thumbnails.
-                model = (if (highRes) com.auralis.music.ui.components.getHighResArtworkUrl(url)
-                    else com.auralis.music.ui.components.getOptimizedThumbnailUrl(url)) ?: url,
+                model = request,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize()

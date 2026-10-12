@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -823,6 +824,14 @@ val SPOTIFY_GREEN = Color(0xFF1DB954)
 // brand red and green, so the page sits quietly on whatever background is showing.
 private val IMPORT_ACCENT: Color
     @Composable get() = MaterialTheme.colorScheme.onSurface
+// Playlist pickers are solid sheets: the theme's surface is see-through under artwork theming,
+// so it is laid over an opaque base (dark or light to match the theme).
+private val SHEET_COLOR: Color
+    @Composable get() {
+        val scheme = MaterialTheme.colorScheme
+        val base = if (scheme.onSurface.luminance() > 0.5f) Color(0xFF141317) else Color(0xFFF7F5F8)
+        return scheme.surface.compositeOver(base)
+    }
 private val IMPORT_ON_ACCENT: Color
     @Composable get() = if (MaterialTheme.colorScheme.onSurface.luminance() > 0.5f) Color.Black else Color.White
 
@@ -926,7 +935,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = SHEET_COLOR
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1040,7 +1049,7 @@ fun YouTubePlaylistPickerBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = SHEET_COLOR,
         dragHandle = {
             Column(
                 modifier = Modifier
