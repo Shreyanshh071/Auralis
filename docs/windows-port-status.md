@@ -347,3 +347,10 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Current-song artwork therefore flows through the header during playback; when the player is empty, the playlist cover fills the existing single app backdrop. The foreground playlist cover and controls remain intact.
 - Visually inspected windows/build/screens/playlist-header.png: continuous colours behind header and track list with readable text. Preview rendering, compilation and MSI packaging passed (5m44s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-continuous-playlist-20261012-151226.
+
+## Restore pointer input after Alt+Tab — 2026-10-12
+
+- Replaced the previous windowActivated-only, null-focus-owner recovery (which walked only first children) with activation and windowGainedFocus listeners. They run after AWT activation, verify the app is active/focused, locate the actual Skia surface across all component branches, and request focus if the window/container owns it.
+- Refreshes the current pointer position by dispatching a mouse-move event to the component beneath it. Does not move the cursor, synthesize a click, or activate an unfocused app; owned popups keep focus. Listeners are removed on disposal.
+- Compilation and MSI packaging passed. WindowInputRestoreTest passed on the AWT event thread and verifies Skia targeting past unrelated first children. Actual user Alt+Tab interaction was not automated in this session.
+- Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-input-restore-20261012-151817.
