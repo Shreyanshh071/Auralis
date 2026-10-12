@@ -1527,8 +1527,8 @@ fun ExperimentalLyricsLine(
                 val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
                 val activeAlpha = 1.0f
                 val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
-                val targetAlpha = if (mouseHover && hovered) {
-                    1f
+                val targetAlpha = if (mouseHover && hovered && !isActiveLine) {
+                    0.55f
                 } else if (!isSynced) {
                     0.85f
                 } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled)) {

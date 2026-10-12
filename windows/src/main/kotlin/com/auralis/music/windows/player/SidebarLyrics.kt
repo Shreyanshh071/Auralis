@@ -136,7 +136,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
-    val alpha by animateFloatAsState(if (active || hovered || !synced) 1f else .38f, tween(160), label = "sidebarLineText")
+    val alpha by animateFloatAsState(if (active || !synced) 1f else if (hovered) .55f else .38f, tween(160), label = "sidebarLineText")
     val blurAmount by androidx.compose.animation.core.animateDpAsState(if (active || hovered) 0.dp else blur, tween(300), label = "sidebarLineBlur")
     val background by animateFloatAsState(if (hovered) .16f else 0f, tween(140), label = "sidebarLineHover")
     val words = remember(line, syncType) {
@@ -172,7 +172,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 lyricStyle = lyricStyle,
                 lineColor = Color.White, expressiveAccent = Color.White,
                 isBackground = line?.isBackground == true,
-                focusedAlpha = if (hovered) 1f else .30f, alignment = TextAlign.Left)
+                focusedAlpha = .30f, alignment = TextAlign.Left)
         } else {
             Text(text, color = Color.White.copy(alpha = alpha), fontSize = 24.sp, lineHeight = 30.sp,
                 fontWeight = FontWeight.Bold)
