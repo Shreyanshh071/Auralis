@@ -24,8 +24,8 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, mod
     val light = base.background.luminance() > .5f
     val foreground = if (light) Color(0xFF211D25) else Color.White
     val contrast = if (light) Color.Black else Color.White
-    // Liquify filters the cover itself (blur 7px, brightness 45%); neutral glass
-    // overlays must not recolour it with a palette accent such as a tiny red signature.
+    // Keep the soft song-synced artwork field. Neutral glass overlays must not
+    // recolour it with a palette accent such as a tiny red signature.
     val tint by animateColorAsState(if (artwork != null) if (light) Color(0xFFF6F6F6) else Color(0xFF101010) else base.background, tween(600))
     val surfaces = if (artwork == null) base else base.copy(
         background = tint.copy(alpha = if (light) .68f else .16f), surface = tint.copy(alpha = if (light) .74f else .24f),
@@ -34,7 +34,7 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, mod
         surfaceVariant = lerp(tint, contrast, .08f).copy(alpha = .55f), onBackground = foreground,
         onSurface = foreground, onSurfaceVariant = foreground.copy(alpha = .72f))
     Box(modifier.fillMaxSize().background(tint)) {
-        if (artwork != null) BlurredArtworkBackground(artwork, blurRadius = 7.dp, brightness = .45f, artworkScale = 1f)
+        if (artwork != null) BlurredArtworkBackground(artwork, blurRadius = 48.dp, brightness = .45f, artworkScale = 1.10f)
         // Shared settings/profile pages read the dynamic locals, while desktop browsing
         // pages read MaterialTheme. Both must see the same translucent artwork surfaces.
         CompositionLocalProvider(
