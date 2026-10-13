@@ -37,3 +37,10 @@ internal fun libraryAlbumAsBrowse(album: SavedAlbum) = album.asBrowseAlbum()
 internal fun SavedAlbum.asBrowseAlbum() = PlaylistResult(
     id = id, title = title, thumbnail = thumbnail, author = artist, trackCount = trackCount, releaseType = "album"
 )
+
+/** Preserve saved album identity; local playlist shortcuts open the local playlist page. */
+internal fun playlistShortcutTarget(playlist: Playlist): PlaylistResult = PlaylistResult(
+    id = if (playlist.id.startsWith(SavedAlbumPrefix)) playlist.id.removePrefix(SavedAlbumPrefix) else "local:${playlist.id}",
+    title = playlist.title, thumbnail = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
+    author = if (playlist.id.startsWith(SavedAlbumPrefix)) playlist.description?.removePrefix("Album by ") else "Playlist · ${playlist.tracks.size} songs"
+)
