@@ -71,7 +71,8 @@ fun main(args: Array<String>) {
     // installed VLC. Without either, the app still runs and the bar explains what is missing.
     val bundledVlc = System.getProperty("compose.application.resources.dir")?.let { java.io.File(it, "vlc") }
     val playback = com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(bundledVlc)?.let {
-        com.auralis.music.desktop.playback.DesktopPlaybackController(it, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default))
+        com.auralis.music.desktop.playback.DesktopPlaybackController(it, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+            volumeStore = PropertiesFileKeyValueStore(java.io.File(dataDir, "playback-volume.properties")))
     }
     com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
     // Lyrics: the phone's provider race. AMLL keeps its song index in the cache folder, as on the phone.

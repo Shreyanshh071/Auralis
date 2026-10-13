@@ -21,6 +21,7 @@ class DesktopPlaybackController(
     private val player: VlcAudioPlayer,
     private val scope: CoroutineScope,
     private val offlineFile: (String) -> java.io.File? = { com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(it) },
+    volumeStore: com.auralis.music.util.KeyValueStore? = null,
     private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
 ) {
     enum class RepeatMode { OFF, ALL, ONE }
@@ -115,8 +116,9 @@ class DesktopPlaybackController(
     private val _resolving = MutableStateFlow(false)
     val resolving: StateFlow<Boolean> = _resolving.asStateFlow()
 
-    private val _volume = MutableStateFlow(1f)
-    val volume: StateFlow<Float> = _volume.asStateFlow()
+    private val volumeState = DesktopVolumeState(volumeStore, player.currentVolume(), player::setVolume)
+    private val _volume = volumeState.volume
+    val volume: StateFlow<Float> = _volume
 
     val state: StateFlow<VlcAudioPlayer.State> get() = player.state
     val positionMs: StateFlow<Long> get() = player.positionMs
@@ -238,17 +240,8 @@ class DesktopPlaybackController(
 
     fun volumeBy(delta: Float) = setVolume(_volume.value + delta)
 
-    private var volumeBeforeMute = 1f
-
-    /** Mutes, or brings back the volume from before muting. */
-    fun toggleMute() {
-        if (_volume.value > 0f) {
-            volumeBeforeMute = _volume.value
-            setVolume(0f)
-        } else {
-            setVolume(volumeBeforeMute.takeIf { it > 0f } ?: 1f)
-        }
-    }
+    /** Restores the same pre-mute volume, including after restarting while muted. */
+    fun toggleMute() = volumeState.toggleMute()
 
     /** Puts [track] right after the playing song (or plays it when nothing is queued). */
     fun playNext(track: Track) {
@@ -311,8 +304,7 @@ class DesktopPlaybackController(
     }
 
     fun setVolume(volume: Float) {
-        _volume.value = volume.coerceIn(0f, 1f)
-        player.setVolume(_volume.value)
+        volumeState.set(volume)
     }
 
     fun release() {

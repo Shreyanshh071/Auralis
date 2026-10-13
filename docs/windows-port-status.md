@@ -721,3 +721,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Downloads now offers Change folder beside the save location and remembers the selected directory for future downloads.
 - Each indexed download records its directory; legacy entries retain the previous root on a folder change, so old files remain playable and removable without moving them.
 - DownloadDirectoryTest verifies old-file preservation, new saves in the chosen folder, restart and removal; existing transfer validation test also passed.
+
+### 2026-10-13: Restore playback volume consistently
+- Both volume sliders and VLC now share a persisted desktop volume state. Startup restores the saved level; without a preference the native level is used.
+- Muting preserves the previous level across restart. VLC reapplies the requested level when a new audio output starts, outside the native event callback.
+- DesktopVolumeStateTest passed restart-at-half-volume, subsequent adjustment, muted restart/unmute, invalid input and native initial-level checks.
