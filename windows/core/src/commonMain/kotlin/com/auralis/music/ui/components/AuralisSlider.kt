@@ -520,7 +520,7 @@ private fun formatDuration(millis: Long): String {
 }
 
 // Preserve the existing wave height and the phone's 80px / 24px-per-second cycle.
-private const val SQUIGGLY_AMPLITUDE_PX = 6f
+private const val SQUIGGLY_AMPLITUDE_PX = 3f
 
 // Wavy: one Bézier cycle every 1.5s. Squiggly: drifts 24px/s, wrapping each wavelength.
 private const val WAVY_CYCLE_NANOS = 1_500_000_000L
