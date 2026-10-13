@@ -701,3 +701,7 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Persisted shortcuts now appear below New playlist on every Windows page, with a scrollable compact layout and collapsed cover view. Home no longer duplicates the shortcut strip.
 - Sidebar retains Add, open, options and unpin actions; local playlist collages feed the artwork aura, which flows continuously even without hover or playback. Missing artwork gets an animated colour fallback.
 - SidebarShortcutsTest checks placement, opening, options, expanded/collapsed renders and animation without hover.
+
+### 2026-10-13: Align import selection controls
+- Playlist selection uses a fixed 40dp checkbox column centered on each 46dp cover, an explicit gap, and consistent row padding. Entire rows toggle selection with checkbox semantics; disabled imports reject clicks.
+- ImportPlaylistAlignmentTest renders one/two-line titles and checks selection from checkbox and cover targets plus disabled behavior.
