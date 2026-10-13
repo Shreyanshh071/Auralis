@@ -402,6 +402,7 @@ fun AuralisDesktopApp(
     val nativeDensity = androidx.compose.ui.platform.LocalDensity.current
     val densityScale = when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
+    val shortcutPinIds by remember(homeViewModel) { homeViewModel.uiState.map { it.pinnedSpeedDialIds }.distinctUntilChanged() }.collectAsState(emptySet())
     val popupGlass = rememberPopupGlassSource()
     val menuInvocation = remember { com.auralis.music.windows.library.MenuInvocationAnchor() }
     com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette,
@@ -415,6 +416,11 @@ fun AuralisDesktopApp(
         com.auralis.music.ui.settings.LocalSettingsPlatform provides settingsPlatform,
         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance,
         // Spotify sign-in reads the session from the user's own browser (no embedded browser here).
+        com.auralis.music.ui.library.LocalPlaylistShortcutActions provides remember(shortcutPinIds) {
+            com.auralis.music.ui.library.PlaylistShortcutActions(
+                isPinned = { homeViewModel.isAlbumPinned(com.auralis.music.windows.library.playlistShortcutTarget(it).id) },
+                toggle = { homeViewModel.togglePinAlbum(com.auralis.music.windows.library.playlistShortcutTarget(it)) })
+        },
         com.auralis.music.ui.screens.LocalWebSignIn provides remember {
             com.auralis.music.ui.screens.WebSignIn(spotifySignIn = { signedIn, dismiss ->
                 com.auralis.music.windows.profile.DesktopSpotifySignIn(signedIn, dismiss)

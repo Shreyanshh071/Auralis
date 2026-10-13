@@ -202,6 +202,10 @@ import java.util.Locale
 
 
 
+/** Desktop binds playlist menus to the same persisted shortcuts as album and song menus. */
+class PlaylistShortcutActions(val isPinned: (Playlist) -> Boolean, val toggle: (Playlist) -> Unit)
+val LocalPlaylistShortcutActions = androidx.compose.runtime.staticCompositionLocalOf<PlaylistShortcutActions?> { null }
+
 @Composable
 fun PlaylistOptionsBottomSheet(
     playlist: Playlist,
@@ -214,6 +218,9 @@ fun PlaylistOptionsBottomSheet(
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val coroutineScope = rememberCoroutineScope()
+    val shortcutActions = LocalPlaylistShortcutActions.current
+    val isShortcutPinned = shortcutActions?.isPinned?.invoke(playlist) == true
+    val shortcutTitle = if (isShortcutPinned) "Unpin from shortcuts" else "Pin to shortcuts"
     var activeDialog by remember { mutableStateOf(initialDialog) }
 
     var editTitle by remember(playlist.title) { mutableStateOf(playlist.title) }
@@ -250,6 +257,9 @@ fun PlaylistOptionsBottomSheet(
         val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { platformActions.isDownloaded(it.id) }
         val items = buildList {
             add(com.auralis.music.ui.components.GlassMenuItem(str(Strings.add_to_queue), Icons.Default.PlaylistAdd) { addPlaylistToQueue() })
+            if (!isSmartPlaylistMenu && shortcutActions != null) {
+                add(com.auralis.music.ui.components.GlassMenuItem(shortcutTitle, Icons.Default.GridView) { shortcutActions.toggle(playlist) })
+            }
             if (!isSmartPlaylistMenu) {
                 add(com.auralis.music.ui.components.GlassMenuItem(str(Strings.edit), Icons.Default.Edit, dismisses = false) {
                     editTitle = playlist.title
@@ -444,6 +454,14 @@ fun PlaylistOptionsBottomSheet(
                     }
 
                     Spacer(modifier = Modifier.height(2.dp))
+
+                    if (!isSmartPlaylist && shortcutActions != null) {
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .08f))) {
+                            PlaylistActionRow(icon = Icons.Default.GridView, title = shortcutTitle,
+                                subtitle = if (isShortcutPinned) "Remove from the sidebar" else "Keep this in your sidebar",
+                                onClick = { shortcutActions.toggle(playlist); onDismiss() })
+                        }
+                    }
 
                     // ── GROUP 1: EDIT & EXPORT ──
                     Column(
