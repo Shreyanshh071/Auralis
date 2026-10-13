@@ -693,3 +693,6 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Compact import action buttons paint an animated hover/focus/press state over their full clipped bounds, including padding. Clicks, keyboard semantics and disabled states remain functional.
 - Spotify sign-in now uses the shared glass popup, translucent profile/action buttons and paste field, a close control, and parent scrolling.
 - ImportPopupTest, GlassButtonHoverTest and SpotifyGlassRenderTest passed; full-width hover pixels and captured Spotify backdrop rendered and inspected.
+
+### 2026-10-13: Import picker playlist artwork
+- Compact YouTube import selection now displays each available 46dp playlist cover and subtitle beside the checkbox and name. Liked Music and missing covers have fallback icons.

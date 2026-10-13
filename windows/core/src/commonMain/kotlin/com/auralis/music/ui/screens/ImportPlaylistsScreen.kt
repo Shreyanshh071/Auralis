@@ -184,7 +184,22 @@ fun ImportPlaylistsScreen(
                                 if (playlist.id in selectedPlaylists) selectedPlaylists.remove(playlist.id) else selectedPlaylists.add(playlist.id)
                             }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(playlist.id in selectedPlaylists, null)
-                                Text(playlist.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Box(Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .07f)),
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(if (playlist.isLikedMusic) Icons.Default.Favorite else Icons.Default.LibraryMusic,
+                                        null, tint = IMPORT_ACCENT.copy(alpha = .75f), modifier = Modifier.size(22.dp))
+                                    if (!playlist.thumbnail.isNullOrBlank()) com.auralis.music.ui.components.LocalArtworkRenderer.current.Image(
+                                        url = playlist.thumbnail, contentDescription = null,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        crossfade = false, modifier = Modifier.fillMaxSize())
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(playlist.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    if (playlist.subtitle.isNotBlank()) Text(playlist.subtitle,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                         ImportActionButton({ onImportYouTubeLibraryPlaylists(all.filter { it.id in selectedPlaylists }) }, Modifier.fillMaxWidth(), enabled = selectedPlaylists.isNotEmpty() && !isImportingYouTube) {
