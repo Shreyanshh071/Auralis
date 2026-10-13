@@ -32,7 +32,6 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -186,7 +185,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                 IconButton(onClick = { devices = controller.outputDevices() }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.Headphones, "Sound output", tint = iconTint, modifier = Modifier.size(20.dp))
                 }
-                DropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
+                com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
                     Text("Sound output", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     val chosen = controller.outputDevice
