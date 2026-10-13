@@ -591,3 +591,12 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Shortcut candidates now fill the dialog's available content width instead of stopping at a fixed 420dp, extending the highlight toward the right edge. Increased the row's right padding from 8dp to 20dp so Add has more highlighted space after it.
 - Existing hover/click-guard render check and MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-hover-width-20261013-101422; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
+
+## Faster timestamp seeking — 2026-10-13
+
+- Replaced the relay's uncached 512 KiB downloads with aligned 32 KiB blocks, a bounded 8 MiB LRU per retained stream (four-stream limit), shared in-flight block fetches and generation-cancelled prefetch up to 2 MiB ahead. Cached audio can be reused across overlapping/backward seeks; fresh seeks need a much smaller first transfer. Foreground requests run independently of the background queue.
+- Retained refusal retries/fresh-URL recovery and same-file length checks. Validate upstream range offsets and block sizes; a whole-file 200 response can no longer be mistaken for a nonzero range. Refreshing URLs is serialized; prefetch never triggers expensive URL refreshes.
+- Reduced VLC's loopback-relay network buffer from 1500ms to 300ms, keeping the larger buffer for direct remote URLs and precise timestamp seeking.
+- Relay regression passed against a throttled range server: exact bytes for random/overlapping/cross-block/end ranges, repeated cache hits without re-fetching, and maximum upstream requests of 32 KiB. Cached overlap returned in 1ms.
+- Native muted VLC playback check passed using a generated 180-second WebM/Opus fixture served at 160 KiB/s. Seeking to 30/140/60/20 seconds and waiting for audio position to advance another 250ms took 815/1045/858/839ms. These are controlled local-source timings, not a guarantee for an uncached YouTube server. MSI package passed.
+- Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-seek-cache-20261013-102735; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
