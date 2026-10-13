@@ -53,17 +53,17 @@ import kotlinx.coroutines.delay
 /** Compact sidebar layout using the same genuine word timing and renderer as the full player. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs) {
+internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs, lineGap: androidx.compose.ui.unit.Dp = 0.dp) {
     val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
     CompositionLocalProvider(LocalAppearanceSettings provides settings) {
-    SidebarLyricsContent(lyrics, position, onSeek, durationMs)
+    SidebarLyricsContent(lyrics, position, onSeek, durationMs, lineGap)
     }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?) {
+private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?, lineGap: androidx.compose.ui.unit.Dp) {
     val mode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
     val lines = remember(lyrics) {
         lyrics?.lines?.takeIf { it.isNotEmpty() }
@@ -108,6 +108,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     }
     Box(Modifier.fillMaxSize().hoverable(hover)) {
         LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(lineGap),
             modifier = Modifier.fillMaxSize()
                 .onPointerEvent(PointerEventType.Scroll) { manualScroll = System.currentTimeMillis() }
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
