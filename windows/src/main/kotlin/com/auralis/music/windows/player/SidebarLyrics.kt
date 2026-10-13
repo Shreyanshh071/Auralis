@@ -21,7 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -126,7 +129,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 // Spicy Lyrics' soft focus: lines blur and fade a little more the further they are
                 // from the one being sung, so they blend into the background.
                 val focus = if (active >= 0) active else 0
-                val distance = if (mode == LyricsAnimationMode.METRO_LYRICS && synced && !hovered) kotlin.math.abs(index - focus) else 0
+                val distance = if (mode == LyricsAnimationMode.METRO_LYRICS && synced) kotlin.math.abs(index - focus) else 0
                 SidebarLyricLine(line.text, activeBreak == null && (if (line.hasWordTiming) index in singing else active == index), synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
@@ -160,19 +163,26 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
-    val alpha by animateFloatAsState(if (active || !synced) 1f else if (hovered) .55f else .38f, tween(160), label = "sidebarLineText")
-    val blurAmount by androidx.compose.animation.core.animateDpAsState(if (active || hovered) 0.dp else blur, tween(300), label = "sidebarLineBlur")
-    val background by animateFloatAsState(if (hovered) .16f else 0f, tween(140), label = "sidebarLineHover")
+    val easing = CubicBezierEasing(.2f, 0f, 0f, 1f)
+    val alpha = animateFloatAsState(if (active || !synced) 1f else if (hovered) .55f else .38f, tween(260, easing = easing), label = "sidebarLineText")
+    val blurAmount = androidx.compose.animation.core.animateDpAsState(if (active || hovered) 0.dp else blur, tween(320, easing = easing), label = "sidebarLineBlur")
+    val background = animateFloatAsState(if (hovered) .10f else 0f, tween(260, easing = easing), label = "sidebarLineHover")
     val words = remember(line, syncType) {
         line?.let { resolveExperimentalWordTimestamps(it, syncType) }?.let(::presentationWordTimestamps)
     }
     Box(Modifier.fillMaxWidth()
             .padding(vertical = 2.dp).clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = background))
+            .drawBehind { drawRect(Color.White.copy(alpha = background.value)) }
             .hoverable(interaction)
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp)
-            .then(if (blurAmount > 0.2.dp) Modifier.blur(blurAmount, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier)) {
+            .graphicsLayer {
+                // Hover changes drawing properties, keeping text layout and the layer stable.
+                this.alpha = alpha.value
+                val radius = blurAmount.value.toPx()
+                renderEffect = if (radius > .1f) BlurEffect(radius, radius, TileMode.Decal) else null
+                clip = false
+            }) {
         val textSize = LocalAppearanceSettings.current.lyricsTextSize * (24f / 22f)
         val lineHeight = textSize * LocalAppearanceSettings.current.lyricsLineSpacing
         val lyricStyle = TextStyle(fontSize = textSize.sp, lineHeight = lineHeight.sp, fontWeight = FontWeight.Bold,
@@ -181,7 +191,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             FluidLyricLine(line!!.copy(text = text),
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
                 positionMs = position!!, style = lyricStyle, isActive = active,
-                modifier = Modifier.graphicsLayer { this.alpha = if (active) 1f else alpha })
+                modifier = Modifier)
         } else if (synced && line != null && position != null && animationMode == LyricsAnimationMode.APPLE_MUSIC_V2) {
             AppleMusicLyricsLine(isV2 = true, line = line!!.copy(text = text),
                 nextLineTime = line.effectiveEndTime ?: nextLineTime,
@@ -190,7 +200,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 lineColor = Color.White, accentColor = Color.White,
                 textAlign = TextAlign.Left, alignment = Alignment.Start,
                 fontSizeSp = textSize, lineSpacingMultiplier = LocalAppearanceSettings.current.lyricsLineSpacing, fontFamily = lyricStyle.fontFamily,
-                modifier = Modifier.graphicsLayer { this.alpha = if (active) 1f else alpha })
+                modifier = Modifier)
         } else if (active && !words.isNullOrEmpty() && position != null) {
             ExperimentalWordLevelLyrics(
                 mainText = text.ifBlank { line?.words?.joinToString("") { it.word }.orEmpty() },
@@ -200,7 +210,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 isBackground = line?.isBackground == true,
                 focusedAlpha = .30f, alignment = TextAlign.Left)
         } else {
-            Text(text, color = Color.White.copy(alpha = alpha), fontSize = textSize.sp, lineHeight = lineHeight.sp,
+            Text(text, color = Color.White, fontSize = textSize.sp, lineHeight = lineHeight.sp,
                 fontWeight = FontWeight.Bold)
         }
     }
