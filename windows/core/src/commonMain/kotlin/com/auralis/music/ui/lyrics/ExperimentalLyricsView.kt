@@ -534,16 +534,13 @@ fun ExperimentalLyricsView(
     val baseLyricSize = 34f
     val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f) * 0.58f).dp
 
-    val mergedLyricsList = remember(effectiveLines) {
+    val mergedLyricsList = remember(effectiveLines, playbackDurationMs, lyrics?.durationMs) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
+        val breaks = instrumentalBreakWindows(effectiveLines, playbackDurationMs.takeIf { it > 0L } ?: lyrics?.durationMs)
         effectiveLines.forEachIndexed { index, line ->
             list.add(ExperimentalLyricsListItem.Line(index, line))
-            if (index < effectiveLines.size - 1) {
-                val nextStart = effectiveLines[index + 1].time
-                // Circle appears when the singing stops and fills the whole break.
-                instrumentalBreakWindow(line, nextStart)?.let { (start, end) ->
-                    list.add(ExperimentalLyricsListItem.Indicator(index, start, end))
-                }
+            breaks[index]?.let { (start, end) ->
+                list.add(ExperimentalLyricsListItem.Indicator(index, start, end))
             }
         }
         list
@@ -1175,7 +1172,7 @@ fun ExperimentalLyricsView(
                             }
                         }
                         is ExperimentalLyricsListItem.Indicator -> {
-                            val indicatorVisible = isAutoScrollEnabled &&
+                            val indicatorVisible = isSynced &&
                                 currentPositionState.longValue >= (listItem.gapStartMs - 300L) &&
                                 currentPositionState.longValue <= listItem.gapEndMs
                             LyricsIntervalIndicator(

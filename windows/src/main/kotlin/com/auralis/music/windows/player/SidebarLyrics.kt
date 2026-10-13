@@ -42,6 +42,8 @@ import com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
 import com.auralis.music.ui.lyrics.InstrumentalIntroIndicator
+import com.auralis.music.ui.lyrics.LyricsIntervalIndicator
+import com.auralis.music.ui.lyrics.instrumentalBreakWindows
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import kotlinx.coroutines.delay
@@ -49,17 +51,17 @@ import kotlinx.coroutines.delay
 /** Compact sidebar layout using the same genuine word timing and renderer as the full player. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit) {
+internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs) {
     val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
     CompositionLocalProvider(LocalAppearanceSettings provides settings) {
-    SidebarLyricsContent(lyrics, position, onSeek)
+    SidebarLyricsContent(lyrics, position, onSeek, durationMs)
     }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit) {
+private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?) {
     val mode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
     val lines = remember(lyrics) {
         lyrics?.lines?.takeIf { it.isNotEmpty() }
@@ -82,15 +84,25 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     val introDurationMs = if (synced) lines.first().time.takeIf { it >= 1500L } ?: 0L else 0L
     val introActive by remember(introDurationMs) { derivedStateOf { introDurationMs > 0L && position.value < introDurationMs } }
     val introTime = remember { derivedStateOf { position.value.coerceAtLeast(0L) } }
+    val breaks = remember(lines, synced, durationMs) {
+        if (synced) instrumentalBreakWindows(lines, durationMs) else emptyMap()
+    }
+    val activeBreak by remember(breaks) { derivedStateOf {
+        breaks.entries.firstOrNull { position.value >= it.value.first && position.value < it.value.second }?.key
+    } }
+    val scrollTarget by remember(lines, breaks, introDurationMs) { derivedStateOf {
+        val anchor = activeBreak ?: active
+        if (anchor < 0) 0 else anchor + breaks.keys.count { it < anchor } +
+            (if (introDurationMs > 0L) 1 else 0) + (if (activeBreak != null) 1 else 0)
+    } }
     val list = rememberLazyListState()
     var manualScroll by remember { mutableLongStateOf(0L) }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(active, manualScroll, lines, introDurationMs) {
-        if (active < 0) return@LaunchedEffect
+    LaunchedEffect(scrollTarget, manualScroll, lines, breaks) {
         val remaining = 3000L - (System.currentTimeMillis() - manualScroll)
         if (remaining > 0) delay(remaining)
-        list.animateScrollToItem(active + if (introDurationMs > 0L) 1 else 0, -(list.layoutInfo.viewportSize.height * .30f).toInt())
+        list.animateScrollToItem(scrollTarget, -(list.layoutInfo.viewportSize.height * .30f).toInt())
     }
     Box(Modifier.fillMaxSize().hoverable(hover)) {
         LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp),
@@ -110,16 +122,28 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                         onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
                 }
             }
-            itemsIndexed(lines) { index, line ->
+            lines.forEachIndexed { index, line ->
+              item(key = "line-$index") {
                 // Spicy Lyrics' soft focus: lines blur and fade a little more the further they are
                 // from the one being sung, so they blend into the background.
                 val focus = if (active >= 0) active else 0
                 val distance = if (mode == LyricsAnimationMode.METRO_LYRICS && synced && !hovered) kotlin.math.abs(index - focus) else 0
-                SidebarLyricLine(line.text, if (line.hasWordTiming) index in singing else active == index, synced,
+                SidebarLyricLine(line.text, activeBreak == null && (if (line.hasWordTiming) index in singing else active == index), synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
                     blur = (distance * 1.2f).coerceAtMost(3.5f).dp,
                     nextLineTime = lines.getOrNull(index + 1)?.time)
+              }
+              breaks[index]?.let { (start, end) ->
+                item(key = "break-$start-$end") {
+                    LyricsIntervalIndicator(start, end, position.value,
+                        visible = position.value >= start && position.value < end,
+                        isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS,
+                        dotsAlignment = Alignment.Start, dotSize = 16.dp,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        onSkip = { manualScroll = 0; onSeek(end) })
+                }
+              }
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
