@@ -81,6 +81,9 @@ class VlcAudioPlayer private constructor(
                 else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) _state.value = State.PLAYING
             }
             override fun playing(mediaPlayer: MediaPlayer) {
+                // A newly opened audio output can restore VLC's own volume; apply our saved
+                // value once it is ready, outside the native event thread.
+                mediaPlayer.submit { requestedVolume?.let { mediaPlayer.audio().setVolume((it * 100).toInt()) } }
                 if (roomStartHeld) {
                     // Readiness begins on the paused callback, after the native pause.
                     _state.value = State.BUFFERING
@@ -179,7 +182,10 @@ class VlcAudioPlayer private constructor(
     }
 
     /** 0..1 */
+    @Volatile private var requestedVolume: Float? = null
+    fun currentVolume(): Float = runCatching { player.audio().volume().takeIf { it in 0..100 }?.div(100f) }.getOrNull() ?: 1f
     fun setVolume(volume: Float) {
+        requestedVolume = volume.coerceIn(0f, 1f)
         player.audio().setVolume((volume.coerceIn(0f, 1f) * 100).toInt())
     }
 
