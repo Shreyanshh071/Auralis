@@ -113,10 +113,6 @@ internal fun DesktopHomeScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(34.dp)) {
             item("greeting") { HomeGreeting(greetingName) }
-            item("shortcuts") {
-                HomeShortcuts(content.shortcuts.filter { it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds },
-                    shortcutCandidates, onShortcut, onPinShortcut, onUnpinShortcut, onShortcutMenu, familiarActions, playlistCovers)
-            }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeHeading("Recents", null, trailing = {

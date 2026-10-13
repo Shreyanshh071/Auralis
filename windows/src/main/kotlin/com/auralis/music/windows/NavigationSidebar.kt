@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,7 +23,7 @@ internal enum class SidebarPage(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onToggle: () -> Unit, onSelect: (SidebarPage) -> Unit) {
+internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onToggle: () -> Unit, onSelect: (SidebarPage) -> Unit, shortcuts: @Composable () -> Unit = {}) {
     val colours = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize().background(colours.surface).padding(horizontal = 8.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -42,5 +44,7 @@ internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onTog
                 if (!collapsed) Text(page.label, color = if (selected == page) colours.onSurface else colours.onSurfaceVariant, fontSize = 14.sp)
             }
         }
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { shortcuts() }
     }
 }

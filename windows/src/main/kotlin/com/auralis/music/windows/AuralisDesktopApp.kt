@@ -603,6 +603,10 @@ fun AuralisDesktopApp(
                                         destination = DesktopDestination.LIBRARY
                                     }
                                 }
+                            }, shortcuts = {
+                                com.auralis.music.windows.home.SidebarShortcuts(homeViewModel, library, playback, browse, leftCollapsed,
+                                    onOpenPlaylist = { id -> showPlayer = false; browse.clear(); libraryViewModel.selectPlaylist(id); destination = DesktopDestination.LIBRARY },
+                                    onBrowse = { showPlayer = false })
                             })
                     }
                     if (!leftCollapsed) SidebarResizeHandle(

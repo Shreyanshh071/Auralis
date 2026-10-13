@@ -56,8 +56,18 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
     Crossfade(cover, modifier, animationSpec = tween(1000), label = "cover flow transition") { image ->
         if (image == null) {
             Canvas(Modifier.fillMaxSize()) {
-                drawRect(Brush.linearGradient(listOf(palette.primary, palette.secondary, palette.tertiary)
-                    .map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
+                val fallback = if (presentation == AuraPresentation.SHORTCUT)
+                    listOf(androidx.compose.ui.graphics.Color(0xFF4D246D), androidx.compose.ui.graphics.Color(0xFF156A78), androidx.compose.ui.graphics.Color(0xFF852755))
+                    else listOf(palette.primary, palette.secondary, palette.tertiary)
+                drawRect(Brush.linearGradient(fallback.map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
+                if (presentation == AuraPresentation.SHORTCUT) {
+                    val phase = time.floatValue * .32f
+                    val center = androidx.compose.ui.geometry.Offset(
+                        size.width * (.5f + .35f * kotlin.math.sin(phase)),
+                        size.height * (.5f + .35f * kotlin.math.cos(phase * .7f)))
+                    drawRect(Brush.radialGradient(listOf(fallback[1].copy(alpha = .7f), androidx.compose.ui.graphics.Color.Transparent),
+                        center = center, radius = size.width.coerceAtLeast(size.height) * .8f))
+                }
             }
         } else {
             val resources = remember(image, presentation) { AuraRenderer(image, presentation) }
