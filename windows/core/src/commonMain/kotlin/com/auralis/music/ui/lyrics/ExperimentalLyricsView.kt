@@ -3,6 +3,8 @@ package com.auralis.music.ui.lyrics
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -1374,7 +1376,8 @@ fun ExperimentalLyricsLine(
     val mouseHover = LocalLyricsUi.current.roundedMouseHover
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val hoverAlpha by animateFloatAsState(if (mouseHover && hovered) .16f else 0f, tween(140), label = "lyricMouseHover")
+    val hoverAlpha = animateFloatAsState(if (mouseHover && hovered) .10f else 0f,
+        tween(260, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "lyricMouseHover")
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
     // Appearance > Lyrics style: MetroLyrics, Auralis (Fluid) or Apple Music (Letter by Letter).
@@ -1400,9 +1403,10 @@ fun ExperimentalLyricsLine(
             onClick = onClick,
             onLongClick = onLongClick
         )
-        .background(
-            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = hoverAlpha)
-        )
+        .drawBehind {
+            drawRect(if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f)
+                else Color.White.copy(alpha = hoverAlpha.value))
+        }
         .then(
             if (speakerSide != null) {
                 // Keep the far side clear so a long line still visibly hugs its speaker's edge.
@@ -1506,7 +1510,7 @@ fun ExperimentalLyricsLine(
                 )
             }
 
-            val animatedBlur by animateFloatAsState(
+            val animatedBlur = animateFloatAsState(
                 targetValue = targetBlur,
                 animationSpec = if (!standardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
                 label = "expLineBlur"
@@ -1514,8 +1518,12 @@ fun ExperimentalLyricsLine(
 
             // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
-            val blurModifier = if (standardBlur && animatedBlur > 0.1f) {
-                Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
+            val blurModifier = if (standardBlur) {
+                Modifier.graphicsLayer {
+                    val radius = animatedBlur.value.dp.toPx()
+                    renderEffect = if (radius > .1f) androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Decal) else null
+                    clip = false
+                }
             } else Modifier
 
             Column(
