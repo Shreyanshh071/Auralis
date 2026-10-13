@@ -39,7 +39,7 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
         key(track.id) {
             if (state.lyrics == null && state.isLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White.copy(alpha = .7f), modifier = Modifier.size(24.dp))
-            } else SidebarLyricsView(state.lyrics, position, playback::seekTo, track.duration * 1000L)
+            } else SidebarLyricsView(state.lyrics, position, playback::seekTo, track.duration * 1000L, lineGap = 4.dp)
         }
     }
 }
