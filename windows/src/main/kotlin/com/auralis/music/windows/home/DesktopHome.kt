@@ -190,7 +190,7 @@ internal fun DesktopHome(
                 when {
                     a.id.isBlank() -> showMessage("Couldn't find ${a.name} on YouTube Music")
                     a.id in savedArtistIds -> { library.removeArtist(a.id); showMessage("Removed ${a.name} from your library") }
-                    else -> { library.saveArtist(com.auralis.music.domain.model.SavedArtist(a.id, a.name, a.photo)); showMessage("Saved ${a.name} to your library") }
+                    else -> { library.saveArtist(com.auralis.music.domain.model.SavedArtist(a.id, a.name, a.photo, a.subscribers)); showMessage("Saved ${a.name} to your library") }
                 }
             } },
             block = { a ->

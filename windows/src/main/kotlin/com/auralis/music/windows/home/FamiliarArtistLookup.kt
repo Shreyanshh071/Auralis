@@ -17,7 +17,7 @@ internal class FamiliarArtistLookup(
     private fun key(name: String) = "artist:" + SearchQueryMatcher.normalize(name)
     fun cached(name: String): Artist? = runCatching {
         val json = JSONObject(cache.getString(key(name), "").orEmpty())
-        Artist(json.optString("id"), name, json.optString("photo").ifBlank { null })
+        Artist(json.optString("id"), name, json.optString("photo").ifBlank { null }, json.optString("subscribers").ifBlank { null })
     }.getOrNull()
 
     suspend fun resolve(name: String, publish: (Artist) -> Unit) = coroutineScope {
@@ -25,9 +25,11 @@ internal class FamiliarArtistLookup(
         if (current.id.isNotBlank() || current.thumbnail != null) publish(current)
         fun update(found: Artist) {
             current = current.copy(id = found.id.ifBlank { current.id },
-                thumbnail = found.thumbnail?.takeIf { it.isNotBlank() } ?: current.thumbnail)
+                thumbnail = found.thumbnail?.takeIf { it.isNotBlank() } ?: current.thumbnail,
+                subscribers = found.subscribers?.takeIf { it.isNotBlank() } ?: current.subscribers)
             if (current.id.isBlank() && current.thumbnail == null) return
-            cache.putStrings(mapOf(key(name) to JSONObject().put("id", current.id).put("photo", current.thumbnail.orEmpty()).toString()))
+            cache.putStrings(mapOf(key(name) to JSONObject().put("id", current.id).put("photo", current.thumbnail.orEmpty())
+                .put("subscribers", current.subscribers.orEmpty()).toString()))
             publish(current)
         }
         if (current.thumbnail == null) launch {

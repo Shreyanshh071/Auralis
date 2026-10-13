@@ -842,6 +842,7 @@ fun LibraryScreen(
                     when (filter) {
                         LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
                         LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ARTISTS -> false
                         LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == filter else isSpotifyImport(playlist)
                         LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == filter else isYouTubeMusicImport(playlist)
                     }
@@ -850,6 +851,14 @@ fun LibraryScreen(
                 recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
             )
             val gridAnimate = !LocalReducedMotion.current
+            val displayedArtists = if (sourceFilter == null || sourceFilter == LibrarySourceFilter.ARTISTS)
+                uiState.savedArtists.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                    .distinctBy { it.id }.let { artists -> when (uiState.sortOrder) {
+                        "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
+                        "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
+                        else -> artists.sortedByDescending { it.savedAt }
+                    } }
+            else emptyList()
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
             
@@ -895,7 +904,7 @@ fun LibraryScreen(
                                     }) { browseHeader() }
                                 }
                             }
-                            if (displayedPlaylists.isEmpty() && emptyLibraryContent != null) {
+                            if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
                                 item(key = "empty_library", span = { GridItemSpan(maxLineSpan) }) {
                                     emptyLibraryContent(sourceFilter, searchQuery)
                                 }
@@ -922,6 +931,11 @@ fun LibraryScreen(
                                     }
                                 }
                             }
+                            items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
+                                SavedArtistCard(artist, onClick = {
+                                    onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+                                })
+                            }
                         }
                     } else {
                         // ============================================================
@@ -936,7 +950,7 @@ fun LibraryScreen(
                             if (headerGlass != null) {
                                 item(key = "library_glass_header") { browseHeader() }
                             }
-                            if (displayedPlaylists.isEmpty() && emptyLibraryContent != null) {
+                            if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
                                 item(key = "empty_library") { emptyLibraryContent(sourceFilter, searchQuery) }
                             }
                             items(
@@ -964,6 +978,11 @@ fun LibraryScreen(
                                         )
                                     }
                                 }
+                            }
+                            items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
+                                SavedArtistCard(artist, listMode = true, onClick = {
+                                    onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+                                })
                             }
                         }
                     }
@@ -2797,7 +2816,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
 }
 
 /** Library pill filters. No pill selected shows everything. */
-enum class LibrarySourceFilter { PLAYLISTS, ALBUMS, SPOTIFY, YOUTUBE }
+enum class LibrarySourceFilter { PLAYLISTS, ALBUMS, ARTISTS, SPOTIFY, YOUTUBE }
 
 
 
@@ -2818,6 +2837,7 @@ private fun LibrarySourcePills(
             val label = when (filter) {
                 LibrarySourceFilter.PLAYLISTS -> "Playlists"
                 LibrarySourceFilter.ALBUMS -> "Albums"
+                LibrarySourceFilter.ARTISTS -> "Artists"
                 LibrarySourceFilter.SPOTIFY -> str(Strings.spotify)
                 LibrarySourceFilter.YOUTUBE -> "YouTube Music"
             }
@@ -2874,6 +2894,7 @@ private fun LibrarySourcePills(
                         LibrarySourceFilter.ALBUMS -> Icon(
                             Icons.Rounded.Album, null, tint = content, modifier = Modifier.size(18.dp)
                         )
+                        LibrarySourceFilter.ARTISTS -> Icon(Icons.Default.AccountCircle, null, tint = content, modifier = Modifier.size(18.dp))
                         LibrarySourceFilter.SPOTIFY -> com.auralis.music.ui.profile.SpotifyLogoIcon(Modifier.size(18.dp))
                         LibrarySourceFilter.YOUTUBE -> YouTubeMusicMark(Modifier.size(18.dp))
                     }

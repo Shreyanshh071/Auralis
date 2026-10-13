@@ -113,6 +113,14 @@ fun main(args: Array<String>) {
                 onTrackClick = { _, _ -> }, onFavoriteToggle = {})
             }
         },
+        "library-artists" to {
+            com.auralis.music.ui.library.LibraryScreen(
+                currentTrackId = null, isPlaying = false,
+                uiState = com.auralis.music.ui.viewmodel.LibraryUiState(savedArtists = listOf(
+                    com.auralis.music.domain.model.SavedArtist("artist-preview", "Billy Idol", previewSongs.getOrNull(1)?.thumbnail, "1.23M subscribers"))),
+                onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
+                onTrackClick = { _, _ -> }, onFavoriteToggle = {})
+        },
         "youtube-library" to {
             Row(Modifier.fillMaxSize()) {
                 Box(Modifier.width(232.dp).fillMaxHeight()) {
