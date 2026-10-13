@@ -1,5 +1,9 @@
 package com.auralis.music.windows.together
 
+import com.auralis.music.ui.components.Button
+import com.auralis.music.ui.components.TextButton
+import com.auralis.music.ui.components.OutlinedButton
+
 import com.auralis.music.ui.components.Switch
 
 import androidx.compose.foundation.layout.*

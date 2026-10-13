@@ -34,7 +34,7 @@ class ShortcutHoverTest {
         try {
             var frame = 0L
             fun render(name: String): java.awt.image.BufferedImage {
-                repeat(6) { scene.render(frame++ * 16_666_667L).close() }
+                repeat(16) { scene.render(frame++ * 16_666_667L).close() }
                 val bytes = scene.render(frame++ * 16_666_667L).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes } }
                 val dir = File("build/screens/shortcut-hover").apply { mkdirs() }
                 File(dir, "$name.png").writeBytes(bytes)

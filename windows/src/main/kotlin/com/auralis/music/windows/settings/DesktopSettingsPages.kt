@@ -1,5 +1,13 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.components.Surface
+
+import com.auralis.music.ui.components.Slider
+
+import com.auralis.music.ui.components.TextButton
+import com.auralis.music.ui.components.OutlinedButton
+import com.auralis.music.ui.components.RadioButton
+
 import com.auralis.music.ui.components.Switch
 
 import androidx.compose.foundation.layout.*

@@ -1,5 +1,12 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.Surface
+
+import com.auralis.music.ui.components.Slider
+
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.TextButton
+
 import com.auralis.music.ui.components.Switch
 
 import com.auralis.music.ui.i18n.Strings
@@ -84,14 +91,10 @@ import androidx.compose.material.icons.filled.ViewCompact
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState

@@ -1,5 +1,8 @@
 package com.auralis.music.windows.home
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.TextButton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -101,7 +104,7 @@ internal fun ShortcutCandidateRow(item: SpeedDialItem, pinned: Boolean, onAdd: (
     val interaction = remember(item.id) { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && !pinned) .12f else 0f))
+        .background(com.auralis.music.ui.components.smoothHoverColor(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && !pinned) .12f else 0f)))
         .hoverable(interaction)
         .clickable(interactionSource = interaction, indication = null, enabled = !pinned, onClick = onAdd)
         .padding(start = 8.dp, end = 20.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -134,7 +134,7 @@ private fun LinkText(text: String, style: TextStyle, colour: androidx.compose.ui
     val hovered by hover.collectIsHoveredAsState()
     Text(
         text, style = style.copy(textDecoration = if (hovered && onClick != null) TextDecoration.Underline else null),
-        color = if (hovered && onClick != null) MaterialTheme.colorScheme.onSurface else colour,
+        color = com.auralis.music.ui.components.smoothHoverColor(if (hovered && onClick != null) MaterialTheme.colorScheme.onSurface else colour),
         maxLines = 1, overflow = TextOverflow.Ellipsis,
         modifier = modifier.hoverable(hover).then(if (onClick != null) Modifier.clickable(hover, indication = null, onClick = onClick) else Modifier)
     )

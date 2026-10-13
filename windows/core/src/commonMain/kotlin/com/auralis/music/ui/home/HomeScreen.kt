@@ -1,5 +1,7 @@
 package com.auralis.music.ui.home
 
+import com.auralis.music.ui.components.IconButton
+
 import com.auralis.music.ui.i18n.Strings
 
 import com.auralis.music.ui.components.contextMenuAnchor
@@ -55,7 +57,6 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text

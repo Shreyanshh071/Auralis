@@ -112,7 +112,11 @@ fun AuralisDesktopTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = scriptSafeTypography(DesktopTypography, Locale.getDefault()),
-            content = content
+            content = {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.foundation.LocalIndication provides com.auralis.music.ui.components.SmoothAppIndication
+            ) { content() }
+        }
         )
     }
 }

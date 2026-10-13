@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
@@ -122,8 +123,10 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
-        if (hovered) VerticalScrollbar(rememberScrollbarAdapter(list),
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 16.dp).width(5.dp))
+        val scrollbarAlpha by animateFloatAsState(if (hovered) 1f else 0f, tween(180), label = "lyricsScrollbarHover")
+        VerticalScrollbar(rememberScrollbarAdapter(list),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 16.dp).width(5.dp)
+                .graphicsLayer { alpha = scrollbarAlpha })
     }
 }
 

@@ -1,5 +1,10 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.Surface
+
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.OutlinedButton
+
 import com.auralis.music.ui.i18n.Strings
 
 import com.auralis.music.ui.i18n.str
