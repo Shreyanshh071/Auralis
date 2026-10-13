@@ -123,12 +123,13 @@ fun DesktopLibrary(
                         when {
                             query.isNotBlank() -> "No saved items match your search."
                             filter == com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS -> "No saved albums yet. Save an album from its menu to find it here."
+                            filter == com.auralis.music.ui.library.LibrarySourceFilter.ARTISTS -> "No saved artists yet. Save an artist from its menu to find it here."
                             filter == com.auralis.music.ui.library.LibrarySourceFilter.SPOTIFY -> "No Spotify playlists imported yet."
                             filter == com.auralis.music.ui.library.LibrarySourceFilter.YOUTUBE -> "No YouTube Music playlists imported yet."
                             else -> "No playlists here yet. Create or import a playlist."
                         }, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (query.isBlank() && filter != com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS) {
+                    if (query.isBlank() && filter !in listOf(com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS, com.auralis.music.ui.library.LibrarySourceFilter.ARTISTS)) {
                         androidx.compose.material3.TextButton(onClick = onOpenProfile) {
                             androidx.compose.material3.Text("Import playlists")
                         }

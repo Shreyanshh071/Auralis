@@ -42,7 +42,7 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
 /** An artist the listener plays, with their own play count and (once looked up) photo and channel. */
-internal data class FamiliarArtist(val name: String, val plays: Int, val id: String = "", val photo: String? = null)
+internal data class FamiliarArtist(val name: String, val plays: Int, val id: String = "", val photo: String? = null, val subscribers: String? = null)
 
 /**
  * What the poster's two buttons do, after Li Music's: subscribe (the YouTube account's own
