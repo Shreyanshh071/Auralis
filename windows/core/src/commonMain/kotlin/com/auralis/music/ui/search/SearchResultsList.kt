@@ -3,6 +3,7 @@ package com.auralis.music.ui.search
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.secondaryClick
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -617,6 +618,8 @@ fun TrackRowItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
+                // Right-click opens the song's options, as its ⋮ does.
+                .secondaryClick { onMenuClick(track) }
                 .clickable { onTrackClick(track, playlist) }
                 .padding(6.dp),
             verticalAlignment = Alignment.CenterVertically

@@ -1,5 +1,8 @@
 package com.auralis.music.windows.home
 
+
+import com.auralis.music.ui.components.secondaryClick
+
 import androidx.compose.ui.layout.layout
 
 import androidx.compose.animation.animateColorAsState
@@ -233,10 +236,8 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
     val background by animateColorAsState(if (hovered) colors.surfaceContainerHigh else colors.surfaceContainer, tween(150))
     val playAlpha by animateFloatAsState(if (active) 1f else 0f, tween(150))
     Box(modifier) {
-      ContextMenuArea(items = { buildList {
-          menu?.let { add(ContextMenuItem(if (item.type == SpeedDialType.ALBUM) "Album options" else "Song options", it)) }
-          unpin?.let { add(ContextMenuItem("Unpin from Home", it)) }
-      } }) {
+      // Right-click opens the song's or album's own options (they include unpinning from Home).
+      Box(Modifier.secondaryClick(menu ?: unpin)) {
         Row(Modifier.fillMaxWidth().height(78.dp).clip(RoundedCornerShape(12.dp))
             .background(background)
             .hoverable(interactions).clickable(onClick = click), verticalAlignment = Alignment.CenterVertically) {
@@ -294,7 +295,7 @@ private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlayi
                     chunk.forEachIndexed { row, track ->
                         val active = track.id == currentTrackId && isPlaying
                         val liked = track.id in favoriteIds
-                        ContextMenuArea(items = { listOf(ContextMenuItem("Song options") { onMenu(track) }) }) {
+                        Box(Modifier.secondaryClick { onMenu(track) }) {
                             Row(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(10.dp))
                                 .clickable { onPlay(track, tracks) }.padding(horizontal = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -333,7 +334,7 @@ internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu:
     val highlight by animateColorAsState(Color.White.copy(alpha = if (hovered) .08f else 0f),
         tween(180), label = "recentSongHighlight")
     Box(modifier) {
-      ContextMenuArea(items = { listOf(ContextMenuItem("Song options", menu)) }) {
+      Box(Modifier.secondaryClick(menu)) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(highlight).hoverable(hover)
             .clickable(interactionSource = hover, indication = null, onClick = click).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -351,13 +352,14 @@ internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu:
 }
 
 @Composable
-private fun ArtworkCard(title: String, subtitle: String, image: String?, active: Boolean, click: () -> Unit, menu: (() -> Unit)?, opensPage: Boolean = false) {
+private fun ArtworkCard(title: String, subtitle: String, image: String?, active: Boolean, click: () -> Unit, menu: (() -> Unit)?, opensPage: Boolean = false, playlistCover: Playlist? = null) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
-    ContextMenuArea(items = { menu?.let { listOf(ContextMenuItem(if (opensPage) "Album options" else "Song options", it)) }.orEmpty() }) {
+    Box(Modifier.secondaryClick(menu)) {
         Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
             Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp))) {
-                HomeArtwork(image, Modifier.fillMaxSize())
+                if (playlistCover != null) com.auralis.music.ui.library.PlaylistCoverArt(playlistCover, emptyList(), 12.dp)
+                else HomeArtwork(image, Modifier.fillMaxSize())
                 // No hover play/open button (the card itself is the click target); only the song
                 // that's playing keeps a small "playing" badge.
                 androidx.compose.animation.AnimatedVisibility(visible = active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),

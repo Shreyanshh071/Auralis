@@ -322,7 +322,7 @@ fun TrackOptionsMenu(
         }
     } else CoverSheetTheme {
 
-    ModalBottomSheet(
+    com.auralis.music.ui.components.OptionsModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = CoverSheetFloor,
@@ -340,8 +340,8 @@ fun TrackOptionsMenu(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            // ── DRAG HANDLE ──
-            Box(
+            // ── DRAG HANDLE ── (not in the Windows menu)
+            if (!com.auralis.music.ui.components.LocalOptionsSheetInMenu.current) Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 10.dp, bottom = 12.dp),
