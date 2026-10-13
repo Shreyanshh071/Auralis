@@ -87,13 +87,13 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
                 val identity = api.identity()
                 ensureActive()
                 if (generation != version) return@launch
-                val id = accounts.save(identity, cookie, api.scope, accounts.playlists(cachedId))
+                val id = accounts.save(identity, api.sessionCookie, api.scope, accounts.playlists(cachedId))
                 client = api
-                YouTubeSession.save(cookie, api.scope.visitor.orEmpty(), api.scope.authUser, identity.name, api.scope.dataSyncId.orEmpty())
+                YouTubeSession.save(api.sessionCookie, api.scope.visitor.orEmpty(), api.scope.authUser, identity.name, api.scope.dataSyncId.orEmpty())
                 mutable.value = mutable.value.copy(identity = identity, accounts = accounts.summaries(), activeId = id)
                 api.playlists { page ->
                     if (generation == version) {
-                        accounts.save(identity, cookie, api.scope, page)
+                        accounts.save(identity, api.sessionCookie, api.scope, page)
                         mutable.value = mutable.value.copy(playlists = page)
                     }
                 }
@@ -130,7 +130,7 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
         val playlists = listOf(created) + current.playlists.filterNot { it.id == created.id }
         val identity = current.identity
         val cookie = current.activeId?.let(accounts::session)?.optString("session")
-        if (identity != null && !cookie.isNullOrBlank()) accounts.save(identity, cookie, api.scope, playlists)
+        if (identity != null && !cookie.isNullOrBlank()) accounts.save(identity, api.sessionCookie, api.scope, playlists)
         mutable.value = current.copy(playlists = playlists)
         return created
     }

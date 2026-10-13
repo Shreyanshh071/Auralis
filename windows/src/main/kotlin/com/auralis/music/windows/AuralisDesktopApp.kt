@@ -139,7 +139,8 @@ fun AuralisDesktopApp(
     val youtubeLabel by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
     val youtubeLibrary = remember { com.auralis.music.windows.profile.DesktopYouTubeLibrary(scope) }
     val youtubeState by youtubeLibrary.state.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
+    val youtubeSessionRevision by com.auralis.music.data.network.YouTubeSession.revision.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(youtubeSessionRevision) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var showTogether by remember { mutableStateOf(false) }

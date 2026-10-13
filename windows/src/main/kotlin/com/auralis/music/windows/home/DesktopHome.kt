@@ -63,7 +63,8 @@ internal fun DesktopHome(
     val youtubeAccount by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
     val remote = remember { DesktopRemoteHome(scope) }
     val remoteState by remote.state.collectAsState()
-    LaunchedEffect(youtubeSignedIn, youtubeAccount) { remote.refresh() }
+    val youtubeSessionRevision by com.auralis.music.data.network.YouTubeSession.revision.collectAsState()
+    LaunchedEffect(youtubeSessionRevision) { remote.refresh() }
     LaunchedEffect(youtubeSignedIn, youtubeAccount, familiarArtists.map { it.id }) { subscriptions.load(familiarArtists.map { it.id }) }
     val platform = LocalPlatformActions.current
     val preferences = remember { com.auralis.music.util.PropertiesFileKeyValueStore(

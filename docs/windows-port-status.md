@@ -675,3 +675,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Windows opens Import playlists in the existing compact liquid glass dialog, keeping the current page behind it.
 - Accounts and By link tabs separate account imports from YouTube Music and Spotify link inputs; YouTube playlist selection, retry, select all, and progress stay inside the popup.
 - ImportPopupTest checks compact layout, tab switching, clipboard paste, import callback, and close; account and link renders inspected.
+
+### 2026-10-13: Retain YouTube session updates
+- Windows merges matching YouTube Set-Cookie responses into each account client and retains valid rotations in the DPAPI-protected session store; stale account responses cannot overwrite a newly connected session.
+- Library account snapshots use the refreshed client cookie, and Home observes a session revision so reconnecting the same account reloads its feed.
+- YouTubeSessionRefreshTest and YouTubeLibraryTest passed. Live reconnected session verified: 3 Home shelves, 40 recent tracks, 2 release shelves, and 26 library playlists. Session revocation by YouTube still requires reconnection.
