@@ -143,7 +143,13 @@ class DesktopDownloads(
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) { update(e.copy(status = "FAILED", error = error.message ?: "Download failed")) }
-                    finally { target?.delete() }
+                    finally {
+                        target?.delete()
+                        if (entries.value.none { it.key == e.key }) target?.parentFile?.let {
+                            val base = e.directory?.let(::File) ?: root
+                            pruneEmptyDownloadFolders(it, base, base.canonicalFile == File(System.getProperty("user.home"), "Downloads/Auralis").canonicalFile)
+                        }
+                    }
                 }
             }
         }
@@ -153,8 +159,13 @@ class DesktopDownloads(
     @Synchronized fun remove(key: String) {
         running.remove(key)?.cancel()
         val e = entries.value.firstOrNull { it.key == key } ?: return
-        e.file?.let { safeFile(it, e.directory?.let(::File) ?: root).delete() }
+        val base = e.directory?.let(::File) ?: root
+        val file = e.file?.let { safeFile(it, base) }
+        check(file == null || !file.exists() || file.delete()) { "Couldn't remove ${e.track.title}. Stop playing it and try again." }
         mutable.value = entries.value.filterNot { it.key == key }; persist()
+        val folder = file?.parentFile ?: safeFile(e.folder, base)
+        pruneEmptyDownloadFolders(folder, base,
+            base.canonicalFile == File(System.getProperty("user.home"), "Downloads/Auralis").canonicalFile)
     }
     fun removeTrack(id: String) = entries.value.filter { it.track.id == id }.forEach { remove(it.key) }
     fun removeGroup(id: String) = entries.value.filter { it.groupId == id }.forEach { remove(it.key) }

@@ -726,3 +726,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Both volume sliders and VLC now share a persisted desktop volume state. Startup restores the saved level; without a preference the native level is used.
 - Muting preserves the previous level across restart. VLC reapplies the requested level when a new audio output starts, outside the native event callback.
 - DesktopVolumeStateTest passed restart-at-half-volume, subsequent adjustment, muted restart/unmute, invalid input and native initial-level checks.
+
+### 2026-10-13: Clean up removed download folders
+- Removing downloads prunes empty folders inside their recorded destination, including the default Downloads/Auralis root when empty. Custom destination roots and folders containing other files are retained.
+- Cancelled transfers also clean up their empty folders. Failed file removal retains its index entry and shows an error rather than silently orphaning the file.
+- Removed Retry failed from the download folder page and folder options menu. Cleanup, location, transfer-validation and saved-volume tests passed.

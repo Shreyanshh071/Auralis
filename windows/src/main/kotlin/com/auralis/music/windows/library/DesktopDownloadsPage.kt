@@ -108,8 +108,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                             IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Folder options") }
                             DropdownMenu(menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Open folder") }, onClick = { menu = false; selected = id })
-                                DropdownMenuItem(text = { Text("Retry failed downloads") }, onClick = { menu = false; downloads.retry(id) })
-                                DropdownMenuItem(text = { Text("Remove downloads") }, onClick = { menu = false; downloads.removeGroup(id) })
+                                DropdownMenuItem(text = { Text("Remove downloads") }, onClick = { menu = false; runCatching { downloads.removeGroup(id) }.onFailure { directoryMessage = it.message } })
                             }
                         }
                     }
@@ -123,8 +122,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                     val tracks = values.filter(downloads::available).map { it.track }
                     tracks.firstOrNull()?.let { playback?.playFrom(it, tracks, automatic = false) }
                 }) { Text("Play downloaded") }
-                TextButton(onClick = { selected?.let(downloads::retry) }) { Text("Retry failed") }
-                TextButton(onClick = { selected?.let(downloads::removeGroup); selected = null }) { Text("Remove folder downloads") }
+                TextButton(onClick = { runCatching { selected?.let(downloads::removeGroup); selected = null }.onFailure { directoryMessage = it.message } }) { Text("Remove folder downloads") }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(values, key = { it.key }) { e ->
@@ -143,7 +141,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                                 Text(e.track.artist, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(if (available) "Saved · ${e.bytes / 1024} KB" else e.error ?: e.status.lowercase().replaceFirstChar { it.titlecase() })
                             }
-                            TextButton(onClick = { downloads.remove(e.key) }) { Text("Remove") }
+                            TextButton(onClick = { runCatching { downloads.remove(e.key) }.onFailure { directoryMessage = it.message } }) { Text("Remove") }
                         }
                         if (e.status == "DOWNLOADING") {
                             if (e.total > 0) LinearProgressIndicator(progress = { (e.bytes.toFloat() / e.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
