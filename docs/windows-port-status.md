@@ -621,3 +621,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Slim progress tracks now animate from 5.5dp to 8dp over 180ms on hover/drag and ease back on exit. Seeking remains immediate.
 - Seven focused checks passed: break windows/overlapping vocals, repeated sidebar breaks and outro, skip/backward seeking, dot motion/pause behavior, existing sidebar renderers and live settings, and Slim intermediate hover thickness/exit/immediate click. Inspected later-break and outro render previews; MSI package passed.
 - Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-interludes-20261013-112103; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and shortcut retained.
+
+## Thicker cover volume slider — 2026-10-13
+
+- Increased the fullscreen cover's vertical volume track from 8dp to 14dp normally, and from 14dp to 20dp on hover/drag. Retained the 180ms transition and 28dp interaction area.
+- MSI build passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-volume-width-20261013-112451; all 78 checked data files preserved, installed app jar verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
