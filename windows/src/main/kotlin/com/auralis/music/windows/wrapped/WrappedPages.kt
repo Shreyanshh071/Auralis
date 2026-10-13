@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -309,14 +311,14 @@ fun WrappedTopFivePage(
             if (rows.isEmpty()) {
                 Reveal(shown, 400) { Text(str("no_data"), color = Dim, fontSize = 16.sp) }
             }
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.widthIn(max = 560.dp).width(IntrinsicSize.Max)) {
                 rows.forEachIndexed { index, row ->
                     AnimatedVisibility(
                         visible = shown,
                         enter = fadeIn(tween(600, delayMillis = 400 + index * 200)) +
                             slideInVertically(tween(600, delayMillis = 400 + index * 200))
                     ) {
-                        Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 "${index + 1}",
                                 fontFamily = WrappedDisplayFont,
@@ -332,7 +334,7 @@ fun WrappedTopFivePage(
                                 modifier = Modifier.size(60.dp).clip(imageShape).background(Color.White.copy(alpha = 0.08f))
                             )
                             Spacer(Modifier.width(16.dp))
-                            Column {
+                            Column(Modifier.weight(1f)) {
                                 Text(row.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(row.subtitle, color = Faint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
