@@ -670,3 +670,8 @@ Compared the three supplied sidebar screenshots. Removed excess space in intro/i
 Verified compilation and visually inspected the rendered dot-to-text and between-row spacing. Font size and line-height preferences continue to control the text. This request changes sidebar layout spacing, with no timing logic change.
 
 Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files and the desktop shortcut preserved. Backup: C:/Users/shrey/Downloads/Auralis-checkpoints/before-lyrics-spacing-20261013-144835.
+
+### 2026-10-13: Import playlists popup
+- Windows opens Import playlists in the existing compact liquid glass dialog, keeping the current page behind it.
+- Accounts and By link tabs separate account imports from YouTube Music and Spotify link inputs; YouTube playlist selection, retry, select all, and progress stay inside the popup.
+- ImportPopupTest checks compact layout, tab switching, clipboard paste, import callback, and close; account and link renders inspected.
