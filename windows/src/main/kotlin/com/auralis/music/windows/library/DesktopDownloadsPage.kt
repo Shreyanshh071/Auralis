@@ -106,7 +106,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                         }
                         Box {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "Folder options") }
-                            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                            com.auralis.music.windows.GlassDropdownMenu(menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Open folder") }, onClick = { menu = false; selected = id })
                                 DropdownMenuItem(text = { Text("Remove downloads") }, onClick = { menu = false; runCatching { downloads.removeGroup(id) }.onFailure { directoryMessage = it.message } })
                             }

@@ -739,3 +739,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 ### 2026-10-13: Slightly space compact sidebar lyrics
 - Added a 4dp gap between entries in the compact Now Playing lyrics box. The full-height mini-player lyrics panel retains its 10dp gap.
 - Updated and inspected the lyrics-spacing render fixture; compilation and rendering passed.
+
+### 2026-10-13: Glass dropdowns for downloads and sound output
+- Download-folder options and sound-output selection now use the same live page-backed liquid glass surface as other popups, with rounded rims and readable foreground colours.
+- Shared dropdown positioning stays within the window and opens above bottom-bar controls when needed; Escape/outside dismissal releases capture.
+- GlassDropdownMenuTest passed positioning, real-background blur and dismissal checks; sound-output render inspected.
