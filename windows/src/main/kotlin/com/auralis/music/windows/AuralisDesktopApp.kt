@@ -430,7 +430,9 @@ fun AuralisDesktopApp(
             }
         }
     ) {
-        if (showTogether) com.auralis.music.windows.together.ListenTogetherDialog(together) { showTogether = false }
+        if (showTogether) com.auralis.music.windows.together.ListenTogetherDialog(together,
+            defaultName = (if (youtubeSignedIn) youtubeState.identity?.name?.takeIf { it.isNotBlank() } else null)
+                ?: accountState.profile?.displayName?.takeIf { it.isNotBlank() }) { showTogether = false }
         if (showCreatePlaylist) com.auralis.music.windows.library.CreatePlaylistDialog(
             youtubeAvailable = youtubeSignedIn && youtubeState.identity != null && !youtubeState.loading && youtubeState.error == null,
             accountName = youtubeState.identity?.name,

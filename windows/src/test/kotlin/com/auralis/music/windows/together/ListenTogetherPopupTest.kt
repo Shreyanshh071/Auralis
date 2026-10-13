@@ -39,7 +39,8 @@ class ListenTogetherPopupTest {
                             listOf(Color(0xFF164942), Color(0xFF582B45), Color(0xFF28213D)))))
                         LiquidPopupSurface(Modifier.width(488.dp).align(Alignment.Center)) {
                             Box(Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }) {
-                                ListenTogetherContent(state.value, { closes++ }, { created = it }, onLeave = { leaves++ })
+                                ListenTogetherContent(state.value, { closes++ }, { created = it }, onLeave = { leaves++ },
+                                    defaultName = "Shreyanshh")
                             }
                         }
                     }
@@ -69,7 +70,7 @@ class ListenTogetherPopupTest {
             render("host")
             assertTrue(bounds.height < joinHeight - 60f, "Host tab removes the room-code input")
             click(bounds.center.x, bounds.bottom - 44f)
-            assertEquals("Listener", created)
+            assertEquals("Shreyanshh", created)
             state.value = DesktopTogether.State(code = "ABC123", host = true, members = listOf("You", "Friend"), track = "A song")
             render("connected")
             click(bounds.center.x, bounds.bottom - 44f)

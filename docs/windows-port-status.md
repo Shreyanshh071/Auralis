@@ -633,3 +633,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - At the user's explicit request, reversed the broad app-wide hover-control update from 8c84886 after inspecting the corrected 10.6-second recording Auralis 2026.10.13 - 10.15.49.01.mp4. Removed its control wrappers and global indication overrides. Added direct 180ms background transitions to the shortcut candidates and compact recent-song rows shown in that recording instead.
 - Focused checks passed for old/new row cross-fades, immediate song clicks, menu clicks without playing the parent row, shortcut full-row/pinned behavior, compact popup dimensions, Host/Create/Leave/Close actions. Inspected Join/Host/connected glass renders. MSI package passed.
 - Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-together-popup-20261013-115433; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
+
+## Listen Together signed-in name autofill - 2026-10-13
+
+- Prefill the editable room display name from the active signed-in YouTube identity, falling back to the Auralis profile display name. Signed-out/unnamed users retain Listener. Late-loading profile names update the untouched field; manual edits are retained across tab switches and profile updates.
+- Existing compact popup check passed with Shreyanshh prefilled and received by Create room, together with Host/Leave/Close actions. MSI build passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-together-name-20261013-120523; all 78 checked data files preserved, installed app jar verified and Auralis reopened responding. Version 1.0.0 and shortcut retained.

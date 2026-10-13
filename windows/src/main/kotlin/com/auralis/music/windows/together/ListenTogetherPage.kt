@@ -16,16 +16,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun ListenTogetherDialog(controller: DesktopTogether, onDismiss: () -> Unit) {
-    com.auralis.music.windows.GlassDialog(onDismiss) { ListenTogetherPage(controller, onDismiss) }
+internal fun ListenTogetherDialog(controller: DesktopTogether, defaultName: String? = null, onDismiss: () -> Unit) {
+    com.auralis.music.windows.GlassDialog(onDismiss) { ListenTogetherPage(controller, onDismiss, defaultName) }
 }
 
 /** Compact content is also used by the development screen renderer. */
 @Composable
-fun ListenTogetherPage(controller: DesktopTogether, onBack: () -> Unit) {
+fun ListenTogetherPage(controller: DesktopTogether, onBack: () -> Unit, defaultName: String? = null) {
     val state by controller.state.collectAsState()
     ListenTogetherContent(state, onBack, controller::create, controller::join,
-        controller::allowGuestControls, controller::togglePlayback, controller::decide, controller::leave)
+        controller::allowGuestControls, controller::togglePlayback, controller::decide, controller::leave, defaultName)
 }
 
 @Composable
@@ -33,10 +33,14 @@ internal fun ListenTogetherContent(
     state: DesktopTogether.State, onDismiss: () -> Unit,
     onCreate: (String) -> Unit = {}, onJoin: (String, String) -> Unit = { _, _ -> },
     onGuestControls: (Boolean) -> Unit = {}, onPlayback: () -> Unit = {},
-    onDecide: (DesktopTogether.Recommendation, Boolean) -> Unit = { _, _ -> }, onLeave: () -> Unit = {}
+    onDecide: (DesktopTogether.Recommendation, Boolean) -> Unit = { _, _ -> }, onLeave: () -> Unit = {},
+    defaultName: String? = null
 ) {
     var host by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf("Listener") }
+    val suggestedName = defaultName?.trim()?.takeIf { it.isNotEmpty() }?.take(80) ?: "Listener"
+    var name by rememberSaveable { mutableStateOf(suggestedName) }
+    var nameEdited by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(suggestedName) { if (!nameEdited) name = suggestedName }
     var code by rememberSaveable { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
     val muted = LocalContentColor.current.copy(alpha = .65f)
@@ -67,7 +71,7 @@ internal fun ListenTogetherContent(
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Your name", style = MaterialTheme.typography.labelMedium, color = muted)
-                OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(),
+                OutlinedTextField(name, { name = it.take(80); nameEdited = true }, Modifier.fillMaxWidth(),
                     enabled = !state.busy, singleLine = true, shape = pill, placeholder = { Text("Your name") })
             }
             if (!host) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
