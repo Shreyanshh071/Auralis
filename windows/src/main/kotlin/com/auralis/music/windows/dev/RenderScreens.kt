@@ -306,7 +306,7 @@ fun main(args: Array<String>) {
                         com.auralis.music.ui.settings.LocalSettingsPlatform provides platform,
                         com.auralis.music.ui.theme.LocalAppearanceSettingsStore provides stores.appearance
                     ) {
-                        com.auralis.music.ui.components.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
+                        androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                             if (name.endsWith("-liquidify")) {
                                 com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail,
                                     com.auralis.music.ui.theme.ArtworkPalette(androidx.compose.ui.graphics.Color(0xFF7A3D92), androidx.compose.ui.graphics.Color(0xFF49315B), androidx.compose.ui.graphics.Color(0xFFAC5271))) { content() }

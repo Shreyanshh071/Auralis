@@ -1,12 +1,5 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.ui.components.Surface
-
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.TextButton
-import com.auralis.music.ui.components.Checkbox
-import com.auralis.music.ui.components.RadioButton
-
 import com.auralis.music.ui.components.Switch
 
 import com.auralis.music.ui.i18n.Strings
@@ -57,17 +50,22 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue

@@ -1,7 +1,5 @@
 package com.auralis.music.ui.components
 
-import com.auralis.music.ui.components.IconButton
-
 import com.auralis.music.ui.i18n.Strings
 
 import androidx.compose.foundation.Image
@@ -17,6 +15,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.Animatable

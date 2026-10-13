@@ -1,9 +1,5 @@
 package com.auralis.music.windows.profile
 
-import com.auralis.music.ui.components.Button
-import com.auralis.music.ui.components.TextButton
-import com.auralis.music.ui.components.OutlinedButton
-
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState

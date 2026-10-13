@@ -1,9 +1,5 @@
 package com.auralis.music.ui.screens
 
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.Button
-import com.auralis.music.ui.components.OutlinedButton
-
 import com.auralis.music.ui.i18n.Strings
 
 import com.auralis.music.ui.i18n.str
@@ -34,13 +30,16 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect

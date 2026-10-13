@@ -1,7 +1,5 @@
 package com.auralis.music.windows
 
-import com.auralis.music.ui.components.Surface
-
 import com.kyant.backdrop.backdrops.layerBackdrop
 
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +39,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -69,7 +68,6 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Explore),
     SEARCH("Search", Icons.Outlined.Search),
     LIBRARY("Library", Icons.Outlined.GridView),
-    TOGETHER("Listen Together", Icons.Outlined.Groups),
     HISTORY("History", Icons.Outlined.History),
     STATS("Stats", Icons.Outlined.BarChart),
     WRAPPED("Wrapped", Icons.Outlined.AutoAwesome),
@@ -144,6 +142,7 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(youtubeSignedIn, youtubeLabel) { youtubeLibrary.refresh() }
     var showSignIn by remember { mutableStateOf(false) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    var showTogether by remember { mutableStateOf(false) }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
@@ -431,6 +430,7 @@ fun AuralisDesktopApp(
             }
         }
     ) {
+        if (showTogether) com.auralis.music.windows.together.ListenTogetherDialog(together) { showTogether = false }
         if (showCreatePlaylist) com.auralis.music.windows.library.CreatePlaylistDialog(
             youtubeAvailable = youtubeSignedIn && youtubeState.identity != null && !youtubeState.loading && youtubeState.error == null,
             accountName = youtubeState.identity?.name,
@@ -490,7 +490,7 @@ fun AuralisDesktopApp(
                             onRefresh = { youtubeLibrary.refresh(force = true) }, onDismiss = { showYouTubeAccounts = false })
                     },
                     openAccount = { if (youtubeSignedIn) showYouTubeAccounts = true else showSignIn = true },
-                    openTogether = { showPlayer = false; browse.clear(); destination = DesktopDestination.TOGETHER },
+                    openTogether = { showTogether = true },
                     openSettings = { showPlayer = false; browse.clear(); destination = DesktopDestination.SETTINGS },
                     search = {
                         com.auralis.music.windows.search.FindMusicDropdown(
@@ -630,9 +630,6 @@ fun AuralisDesktopApp(
                                 focusRequests = searchFocusRequests,
                                 onTypingChange = { typing = it }
                             )
-                            DesktopDestination.TOGETHER -> com.auralis.music.windows.together.ListenTogetherPage(together) {
-                                destination = DesktopDestination.HOME
-                            }
                             DesktopDestination.HISTORY -> {
                                 val entries by history.getHistory().collectAsState(emptyList())
                                 com.auralis.music.windows.history.HistorySheet(
@@ -697,7 +694,7 @@ fun AuralisDesktopApp(
                                 browse = browse,
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 onOpenHistory = { destination = DesktopDestination.HISTORY },
-                                onOpenListenTogether = { destination = DesktopDestination.TOGETHER },
+                                onOpenListenTogether = { showTogether = true },
                                 showMessage = showUnavailable
                             )
                         }
@@ -724,7 +721,7 @@ fun AuralisDesktopApp(
                       Row(Modifier.width(rightDisplay).fillMaxHeight().clip(panelShape)
                           .then(if (rightIsCollapsed) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)) {
                         if (rightIsCollapsed) {
-                        com.auralis.music.ui.components.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
+                        androidx.compose.material3.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
                             Icon(if (rightIsCollapsed) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
                                 if (rightIsCollapsed) "Expand now playing" else "Collapse now playing")
                         }

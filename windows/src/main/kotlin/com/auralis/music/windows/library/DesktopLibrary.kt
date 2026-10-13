@@ -129,7 +129,7 @@ fun DesktopLibrary(
                         }, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (query.isBlank() && filter != com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS) {
-                        com.auralis.music.ui.components.TextButton(onClick = onOpenProfile) {
+                        androidx.compose.material3.TextButton(onClick = onOpenProfile) {
                             androidx.compose.material3.Text("Import playlists")
                         }
                     }
