@@ -217,6 +217,22 @@ fun main(args: Array<String>) {
                 }
             }
         },
+        "lyrics-spacing" to {
+            val position = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(1500L) }
+            val lyrics = com.auralis.music.domain.model.LyricsData(
+                syncType = com.auralis.music.domain.model.SyncType.LINE_SYNC,
+                provider = com.auralis.music.domain.model.LyricsProvider.LRCLIB,
+                lines = listOf(
+                    com.auralis.music.domain.model.LyricLine(14000, "You've been my muse for a long time"),
+                    com.auralis.music.domain.model.LyricLine(19000, "You get me through every dark night"),
+                    com.auralis.music.domain.model.LyricLine(24000, "I'm always gone, out on the go")))
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Column(Modifier.width(340.dp).height(300.dp).background(androidx.compose.ui.graphics.Color(0xFF684A48))) {
+                    Row(Modifier.height(48.dp).padding(horizontal = 18.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Lyrics") }
+                    Box(Modifier.weight(1f)) { com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}) }
+                }
+            }
+        },
         "home" to { homePreview(true) },
         "home-service" to {
             val albums = previewSongs.take(12).mapIndexed { i, song -> com.auralis.music.domain.model.PlaylistResult("preview-album-$i", song.title, song.thumbnail, "Album · ${song.artist}") }
