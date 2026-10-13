@@ -134,6 +134,7 @@ fun ImportPlaylistsScreen(
     if (compact) {
         var byLink by remember { mutableStateOf(false) }
         var spotifyLink by remember { mutableStateOf(false) }
+        CompositionLocalProvider(LocalImportGlass provides true) {
         Column(modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.PlaylistAdd, null, modifier = Modifier.size(20.dp))
@@ -152,8 +153,8 @@ fun ImportPlaylistsScreen(
             }
             if (byLink) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !spotifyLink, onClick = { spotifyLink = false }, label = { Text("YouTube Music") })
-                    FilterChip(selected = spotifyLink, onClick = { spotifyLink = true }, label = { Text("Spotify") })
+                    FilterChip(selected = !spotifyLink, onClick = { spotifyLink = false }, label = { Text("YouTube Music") }, colors = importChipColors())
+                    FilterChip(selected = spotifyLink, onClick = { spotifyLink = true }, label = { Text("Spotify") }, colors = importChipColors())
                 }
                 if (spotifyLink) SpotifyLinkCard(
                     isImporting = isImportingSpotify && !spotifyImportFromAccount,
@@ -202,6 +203,7 @@ fun ImportPlaylistsScreen(
                     { if (spotifySignIn != null) showSpotifySignIn = true else platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noWebSignIn) },
                     { SpotifySession.signOut() })
             }
+        }
         }
         return
     }
@@ -333,7 +335,7 @@ private fun YouTubeAccountCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(IMPORT_SURFACE)
             .border(1.dp, IMPORT_ACCENT.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .padding(16.dp)
     ) {
@@ -394,8 +396,10 @@ private fun YouTubeAccountCard(
                 Button(
                     onClick = onOpenPicker,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = IMPORT_ACCENT,
-                        contentColor = IMPORT_ON_ACCENT
+                        containerColor = IMPORT_BUTTON_SURFACE,
+                        contentColor = IMPORT_ON_ACCENT,
+                        disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE,
+                        disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = .55f)
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -458,8 +462,10 @@ private fun YouTubeAccountCard(
                 Button(
                     onClick = onNavigateToAccount,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = IMPORT_ACCENT,
-                        contentColor = IMPORT_ON_ACCENT
+                        containerColor = IMPORT_BUTTON_SURFACE,
+                        contentColor = IMPORT_ON_ACCENT,
+                        disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE,
+                        disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = .55f)
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -499,7 +505,7 @@ private fun YouTubeLinkCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(IMPORT_SURFACE)
             .border(1.dp, IMPORT_ACCENT.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .padding(14.dp)
     ) {
@@ -561,8 +567,8 @@ private fun YouTubeLinkCard(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    focusedContainerColor = IMPORT_FIELD_SURFACE,
+                    unfocusedContainerColor = IMPORT_FIELD_SURFACE,
                     cursorColor = IMPORT_ACCENT
                 ),
                 shape = RoundedCornerShape(12.dp),
@@ -608,8 +614,8 @@ private fun YouTubeLinkCard(
                 enabled = youtubeUrlInput.isNotBlank() && !isImporting,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = IMPORT_ACCENT,
-                    disabledContainerColor = IMPORT_ACCENT.copy(alpha = 0.30f),
+                    containerColor = IMPORT_BUTTON_SURFACE,
+                    disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE,
                     contentColor = IMPORT_ON_ACCENT,
                     disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = 0.70f)
                 ),
@@ -658,7 +664,7 @@ private fun YouTubeLinkCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(IMPORT_TIP_SURFACE)
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -706,7 +712,7 @@ private fun SpotifyLinkCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(IMPORT_SURFACE)
             .border(1.dp, IMPORT_ACCENT.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .padding(14.dp)
     ) {
@@ -763,8 +769,8 @@ private fun SpotifyLinkCard(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    focusedContainerColor = IMPORT_FIELD_SURFACE,
+                    unfocusedContainerColor = IMPORT_FIELD_SURFACE,
                     cursorColor = IMPORT_ACCENT
                 ),
                 shape = RoundedCornerShape(12.dp),
@@ -810,8 +816,8 @@ private fun SpotifyLinkCard(
                 enabled = spotifyUrlInput.isNotBlank() && !isImporting,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = IMPORT_ACCENT,
-                    disabledContainerColor = IMPORT_ACCENT.copy(alpha = 0.30f),
+                    containerColor = IMPORT_BUTTON_SURFACE,
+                    disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE,
                     contentColor = IMPORT_ON_ACCENT,
                     disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = 0.70f)
                 ),
@@ -860,7 +866,7 @@ private fun SpotifyLinkCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(IMPORT_TIP_SURFACE)
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -896,6 +902,20 @@ private fun SpotifyLinkCard(
 
 val SPOTIFY_GREEN = Color(0xFF1DB954)
 
+// Compact imports sit on the parent's captured, blurred artwork. Keep every inner surface
+// translucent so it remains visible through the cards, fields and controls.
+private val LocalImportGlass = staticCompositionLocalOf { false }
+private val IMPORT_SURFACE: Color
+    @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .045f) else MaterialTheme.colorScheme.surface
+private val IMPORT_FIELD_SURFACE: Color
+    @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .055f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f)
+private val IMPORT_TIP_SURFACE: Color
+    @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .04f) else MaterialTheme.colorScheme.surfaceVariant
+private val IMPORT_BUTTON_SURFACE: Color
+    @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .18f) else IMPORT_ACCENT
+private val IMPORT_DISABLED_BUTTON_SURFACE: Color
+    @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .075f) else IMPORT_ACCENT.copy(alpha = .30f)
+
 // One neutral accent from the current theme (Liquidify, colour themes, light or dark) instead of
 // brand red and green, so the page sits quietly on whatever background is showing.
 private val IMPORT_ACCENT: Color
@@ -909,7 +929,7 @@ private val SHEET_COLOR: Color
         return scheme.surface.compositeOver(base)
     }
 private val IMPORT_ON_ACCENT: Color
-    @Composable get() = if (MaterialTheme.colorScheme.onSurface.luminance() > 0.5f) Color.Black else Color.White
+    @Composable get() = if (LocalImportGlass.current) Color.White else if (MaterialTheme.colorScheme.onSurface.luminance() > 0.5f) Color.Black else Color.White
 
 @Composable
 private fun SpotifyAccountCard(
@@ -925,7 +945,7 @@ private fun SpotifyAccountCard(
     Column(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(IMPORT_SURFACE)
             .border(1.dp, IMPORT_ACCENT.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .padding(16.dp)
     ) {
@@ -954,7 +974,7 @@ private fun SpotifyAccountCard(
         Button(
             onClick = if (signedIn) onImportAll else onSignIn,
             enabled = !isImporting && !isLoadingPlaylists,
-            colors = ButtonDefaults.buttonColors(containerColor = IMPORT_ACCENT, contentColor = IMPORT_ON_ACCENT),
+            colors = ButtonDefaults.buttonColors(containerColor = IMPORT_BUTTON_SURFACE, contentColor = IMPORT_ON_ACCENT, disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE, disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = .55f)),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth().height(44.dp)
         ) {
@@ -1061,7 +1081,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                .background(IMPORT_TIP_SURFACE), contentAlignment = Alignment.Center) {
                                 if (item.isLikedSongs) Icon(Icons.Default.Favorite, null, tint = IMPORT_ACCENT)
                                 else if (item.thumbnail != null) com.auralis.music.ui.components.LocalArtworkRenderer.current.Image(
                                     url = item.thumbnail, contentDescription = null,
@@ -1088,7 +1108,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
             Button(
                 onClick = { onImport(playlists.orEmpty().filter { it.id in selected }) },
                 enabled = selected.isNotEmpty() && !isImporting,
-                colors = ButtonDefaults.buttonColors(containerColor = IMPORT_ACCENT, contentColor = IMPORT_ON_ACCENT,
+                colors = ButtonDefaults.buttonColors(containerColor = IMPORT_BUTTON_SURFACE, contentColor = IMPORT_ON_ACCENT,
                     disabledContainerColor = IMPORT_ACCENT.copy(alpha = 0.35f)),
                 modifier = Modifier.fillMaxWidth().height(46.dp)
             ) {
@@ -1280,7 +1300,7 @@ fun YouTubePlaylistPickerBottomSheet(
                                     modifier = Modifier
                                         .size(46.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        .background(IMPORT_TIP_SURFACE),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (item.isLikedMusic) {
@@ -1356,7 +1376,7 @@ fun YouTubePlaylistPickerBottomSheet(
                 },
                 enabled = selected.isNotEmpty() && !isImporting,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = IMPORT_ACCENT,
+                    containerColor = IMPORT_BUTTON_SURFACE,
                     disabledContainerColor = IMPORT_ACCENT.copy(alpha = 0.35f),
                     contentColor = IMPORT_ON_ACCENT,
                     disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = 0.7f)
@@ -1403,3 +1423,10 @@ fun YouTubePlaylistPickerBottomSheet(
         }
     }
 }
+
+@Composable
+private fun importChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = Color.White.copy(alpha = .04f),
+    selectedContainerColor = Color.White.copy(alpha = .18f),
+    labelColor = Color.White.copy(alpha = .75f), selectedLabelColor = Color.White
+)
