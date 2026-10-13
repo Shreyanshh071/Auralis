@@ -16,6 +16,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.SwingUtilities
 import com.auralis.music.desktop.library.DesktopDownloads
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 
@@ -23,6 +29,10 @@ import com.auralis.music.desktop.playback.DesktopPlaybackController
 internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: () -> Unit,
     downloads: DesktopDownloads = DesktopDownloads.instance, playlists: List<com.auralis.music.domain.model.Playlist> = emptyList()) {
     val entries by downloads.entries.collectAsState()
+    val directory by downloads.rootDirectory.collectAsState()
+    val scope = rememberCoroutineScope()
+    var choosingDirectory by remember { mutableStateOf(false) }
+    var directoryMessage by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<String?>(null) }
     val groups = entries.groupBy { it.groupId }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -33,7 +43,35 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
             Text(if (selected == null) "Downloads" else groups[selected]?.firstOrNull()?.groupName ?: "Downloads",
                 modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
         }
-        Text("Saved on this computer · ${downloads.root.absolutePath}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Save location · ${directory.absolutePath}", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(enabled = !choosingDirectory, onClick = {
+                choosingDirectory = true
+                scope.launch {
+                    try {
+                        val picked = withContext(Dispatchers.IO) {
+                            var result: File? = null
+                            SwingUtilities.invokeAndWait {
+                                val chooser = JFileChooser(directory).apply {
+                                    dialogTitle = "Choose download folder"
+                                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                                    isAcceptAllFileFilterUsed = false
+                                }
+                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) result = chooser.selectedFile
+                            }
+                            result
+                        }
+                        if (picked != null) {
+                            withContext(Dispatchers.IO) { downloads.changeDirectory(picked) }
+                            directoryMessage = "New downloads will use this folder. Existing downloads remain available in their original folders."
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { directoryMessage = e.message ?: "Couldn't change the download folder." }
+                    finally { choosingDirectory = false }
+                }
+            }) { Text("Change folder") }
+        }
+        directoryMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (entries.isEmpty()) {
             Text("No downloads yet", style = MaterialTheme.typography.titleLarge)
             Text("Download a song from its menu, or download a playlist from Playlist options.")

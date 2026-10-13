@@ -21,19 +21,24 @@ import java.security.MessageDigest
 
 /** Files are published only after complete transfer; the index survives restarts. */
 class DesktopDownloads(
-    val root: File,
+    root: File,
     private val scope: CoroutineScope,
     private val readTimeoutMs: Long = 60_000L,
     metadataFile: File = File(root, "index.json"),
+    private val onRootChanged: (File) -> Unit = {},
     private val stream: suspend (Track) -> String = { track ->
         val id = DesktopPlaybackMatch.videoId(track) ?: error("Could not match this song to playable audio")
         val url = DesktopStreamResolver.resolve(id) ?: error("Could not resolve audio")
         LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(id) })
     }
 ) {
+    private val mutableRoot = MutableStateFlow(root)
+    val rootDirectory = mutableRoot.asStateFlow()
+    val root: File get() = mutableRoot.value
+
     data class Entry(val key: String, val groupId: String, val groupName: String, val folder: String,
         val track: Track, val index: Int, val status: String = "QUEUED", val file: String? = null,
-        val bytes: Long = 0, val total: Long = 0, val error: String? = null, val coverUrl: String? = null)
+        val bytes: Long = 0, val total: Long = 0, val error: String? = null, val coverUrl: String? = null, val directory: String? = null)
     private val metadata = metadataFile
     private val mutable = MutableStateFlow<List<Entry>>(emptyList())
     val entries = mutable.asStateFlow()
@@ -53,20 +58,20 @@ class DesktopDownloads(
                 val o = array.getJSONObject(i)
                 val e = Entry(o.getString("key"), o.getString("group"), o.getString("name"), o.getString("folder"),
                     TrackJson.decode(o.getJSONObject("track")), o.optInt("index"), o.getString("status"),
-                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null }, o.optString("cover").ifBlank { null })
+                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null }, o.optString("cover").ifBlank { null }, o.optString("directory").ifBlank { null })
                 if (e.status != "COMPLETED" || !available(e)) e.copy(status = "FAILED", error = "Download interrupted or file missing. Retry.") else e
             }
         }
     }
-    private fun safeFile(relative: String): File {
-        val target = File(root, relative).canonicalFile
-        require(target.toPath().startsWith(root.canonicalFile.toPath()) && target != root.canonicalFile) { "Invalid download path" }
+    private fun safeFile(relative: String, directory: File = root): File {
+        val target = File(directory, relative).canonicalFile
+        require(target.toPath().startsWith(directory.canonicalFile.toPath()) && target != directory.canonicalFile) { "Invalid download path" }
         return target
     }
     fun available(e: Entry): Boolean = e.status == "COMPLETED" && e.file?.let { runCatching {
-        safeFile(it).let { file -> file.isFile && file.length() == e.bytes && e.bytes > 1024 }
+        safeFile(it, e.directory?.let(::File) ?: root).let { file -> file.isFile && file.length() == e.bytes && e.bytes > 1024 }
     }.getOrDefault(false) } == true
-    fun localFile(id: String): File? = entries.value.firstOrNull { it.track.id == id && available(it) }?.file?.let(::safeFile)
+    fun localFile(id: String): File? = entries.value.firstOrNull { it.track.id == id && available(it) }?.let { e -> e.file?.let { safeFile(it, e.directory?.let(::File) ?: root) } }
     fun isDownloading(id: String) = entries.value.any { it.track.id == id && it.status in setOf("QUEUED", "DOWNLOADING") }
     fun groupTracks(id: String, complete: Boolean = false) = entries.value.filter { it.groupId == id && (!complete || available(it)) }.sortedBy { it.index }.map { it.track }
 
@@ -79,7 +84,7 @@ class DesktopDownloads(
         val array = JSONArray().apply { entries.value.forEach { e -> put(JSONObject()
             .put("key", e.key).put("group", e.groupId).put("name", e.groupName).put("folder", e.folder)
             .put("track", TrackJson.encode(e.track)).put("index", e.index).put("status", e.status)
-            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty()).put("cover", e.coverUrl.orEmpty())) } }
+            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty()).put("cover", e.coverUrl.orEmpty()).put("directory", e.directory.orEmpty())) } }
         metadata.parentFile.mkdirs()
         val tmp = File(metadata.parentFile, metadata.name + ".new")
         tmp.writeText(array.toString())
@@ -94,7 +99,7 @@ class DesktopDownloads(
             val key = hash("$groupId|${track.id}")
             val old = entries.value.firstOrNull { it.key == key }
             if (old != null && (available(old) || running[key]?.isActive == true)) return@forEachIndexed
-            val e = old?.copy(status = "QUEUED", error = null) ?: Entry(key, groupId, groupName, folder, track, index, coverUrl = coverUrl)
+            val e = old?.copy(status = "QUEUED", error = null, directory = root.absolutePath) ?: Entry(key, groupId, groupName, folder, track, index, coverUrl = coverUrl, directory = root.absolutePath)
             update(e, false)
             running[key] = scope.launch(Dispatchers.IO) {
                 transfers.withLock {
@@ -111,7 +116,7 @@ class DesktopDownloads(
                             val extension = if (mime.contains("webm")) "webm" else if (mime.contains("ogg")) "ogg" else "m4a"
                             val name = "${sanitize(track.title, "Song")} (${hash(track.id)}).$extension"
                             val relative = "${e.folder}/" + if (groupId == "individual") name else "%02d - %s".format(e.index + 1, name)
-                            val dest = safeFile(relative); dest.parentFile.mkdirs()
+                            val dest = safeFile(relative, e.directory?.let(::File) ?: root); dest.parentFile.mkdirs()
                             val partial = File(dest.parentFile, dest.name + ".partial"); target = partial
                             val total = body.contentLength()
                             var count = 0L; var lastUpdate = 0L
@@ -148,7 +153,7 @@ class DesktopDownloads(
     @Synchronized fun remove(key: String) {
         running.remove(key)?.cancel()
         val e = entries.value.firstOrNull { it.key == key } ?: return
-        e.file?.let { safeFile(it).delete() }
+        e.file?.let { safeFile(it, e.directory?.let(::File) ?: root).delete() }
         mutable.value = entries.value.filterNot { it.key == key }; persist()
     }
     fun removeTrack(id: String) = entries.value.filter { it.track.id == id }.forEach { remove(it.key) }
@@ -158,8 +163,29 @@ class DesktopDownloads(
         val group = entries.value.filter { it.groupId == id }
         if (group.isNotEmpty()) enqueue(group.map { it.track }, id, group.first().groupName, group.first().coverUrl)
     }
+    /** Existing files keep their recorded directory; the chosen location applies to new downloads. */
+    @Synchronized fun changeDirectory(chosen: File) {
+        val directory = chosen.canonicalFile
+        require(directory.isDirectory || directory.mkdirs()) { "Couldn't create this folder." }
+        val probe = File.createTempFile(".auralis-write-", ".tmp", directory)
+        probe.delete()
+        val previous = root.absolutePath
+        if (directory == root.canonicalFile) return
+        mutable.value = entries.value.map { if (it.directory == null) it.copy(directory = previous) else it }
+        persist()
+        onRootChanged(directory)
+        mutableRoot.value = directory
+    }
+
     companion object {
-        val instance by lazy { DesktopDownloads(File(System.getProperty("user.home"), "Downloads/Auralis"), CoroutineScope(SupervisorJob() + Dispatchers.IO), metadataFile = File(desktopAppDataDir(), "download-index.json")) }
+        val instance by lazy {
+            val preferences = com.auralis.music.util.PropertiesFileKeyValueStore(File(desktopAppDataDir(), "download-location.properties"))
+            val root = preferences.getString("directory", "")?.takeIf { it.isNotBlank() }?.let(::File)
+                ?: File(System.getProperty("user.home"), "Downloads/Auralis")
+            DesktopDownloads(root, CoroutineScope(SupervisorJob() + Dispatchers.IO),
+                metadataFile = File(desktopAppDataDir(), "download-index.json"),
+                onRootChanged = { preferences.putStrings(mapOf("directory" to it.absolutePath)) })
+        }
         fun hash(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(6).joinToString("") { "%02x".format(it) }
         fun sanitize(value: String, fallback: String = "Playlist"): String {
             val clean = value.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\.{2,}"), " ").trim().trimEnd('.', ' ').take(80).ifBlank { fallback }

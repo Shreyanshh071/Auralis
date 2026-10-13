@@ -716,3 +716,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 
 ### 2026-10-13: Download folder song artwork
 - Songs inside download folders now display their cover beside title, artist and download status. The Downloads/folder back arrow is on the left of the heading.
+
+### 2026-10-13: Configurable download folder
+- Downloads now offers Change folder beside the save location and remembers the selected directory for future downloads.
+- Each indexed download records its directory; legacy entries retain the previous root on a folder change, so old files remain playable and removable without moving them.
+- DownloadDirectoryTest verifies old-file preservation, new saves in the chosen folder, restart and removal; existing transfer validation test also passed.
