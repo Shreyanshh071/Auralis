@@ -1,10 +1,5 @@
 package com.auralis.music.windows.profile
 
-import com.auralis.music.ui.components.Surface
-
-import com.auralis.music.ui.components.Button
-import com.auralis.music.ui.components.TextButton
-
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.foundation.layout.Box
@@ -76,7 +71,7 @@ internal fun GlassRow(label: String, enabled: Boolean, icon: androidx.compose.ui
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
-        .background(com.auralis.music.ui.components.smoothHoverColor(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && enabled) .08f else 0f)))
+        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && enabled) .08f else 0f))
         .hoverable(hover).clickable(enabled = enabled, interactionSource = hover, indication = null, onClick = onClick)
         .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {

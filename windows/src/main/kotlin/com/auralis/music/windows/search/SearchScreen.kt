@@ -1,10 +1,5 @@
 package com.auralis.music.windows.search
 
-import com.auralis.music.ui.components.Surface
-
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.TextButton
-
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.border
@@ -38,8 +33,11 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -128,7 +126,7 @@ fun FindMusicDropdown(
             val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             val hovered by hover.collectIsHoveredAsState()
             Row(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
-                .background(com.auralis.music.ui.components.smoothHoverColor(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f)))
+                .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f))
                 .hoverable(hover)
                 .clickable(interactionSource = hover, indication = null) { focus.requestFocus(); open() }
                 .padding(horizontal = 12.dp),
@@ -164,11 +162,11 @@ fun FindMusicDropdown(
                     .clickable { state.clear(); focus.requestFocus() }, tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
             }
         } else
-        if (compact) com.auralis.music.ui.components.IconButton(onClick = {
+        if (compact) androidx.compose.material3.IconButton(onClick = {
             if (expanded) dismiss() else { mounted = true; expanded = true }
         }) { Icon(Icons.Default.Search, "Find music", Modifier.size(20.dp)) }
         else
-        com.auralis.music.ui.components.FilledTonalButton(
+        androidx.compose.material3.FilledTonalButton(
             onClick = {
                 if (expanded) dismiss() else {
                     mounted = true

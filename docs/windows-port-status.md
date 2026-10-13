@@ -626,3 +626,10 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Increased the fullscreen cover's vertical volume track from 8dp to 14dp normally, and from 14dp to 20dp on hover/drag. Retained the 180ms transition and 28dp interaction area.
 - MSI build passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-volume-width-20261013-112451; all 78 checked data files preserved, installed app jar verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
+
+## Compact Listen Together popup and corrected hover scope - 2026-10-13
+
+- Listen Together now opens a centered 488dp glass dialog over the current view from both title-bar and library entry points, using the same LiquidPopupSurface capture/blur as search recommendations. Removed the page destination. Kept the existing theme and room backend; compact Join/Host tabs, code/name fields, room members, guest controls, recommendations and leaving/ending rooms remain available. Closing the popup keeps the room connected.
+- At the user's explicit request, reversed the broad app-wide hover-control update from 8c84886 after inspecting the corrected 10.6-second recording Auralis 2026.10.13 - 10.15.49.01.mp4. Removed its control wrappers and global indication overrides. Added direct 180ms background transitions to the shortcut candidates and compact recent-song rows shown in that recording instead.
+- Focused checks passed for old/new row cross-fades, immediate song clicks, menu clicks without playing the parent row, shortcut full-row/pinned behavior, compact popup dimensions, Host/Create/Leave/Close actions. Inspected Join/Host/connected glass renders. MSI package passed.
+- Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-together-popup-20261013-115433; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.

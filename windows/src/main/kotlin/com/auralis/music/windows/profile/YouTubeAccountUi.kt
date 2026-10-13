@@ -1,8 +1,5 @@
 package com.auralis.music.windows.profile
 
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.TextButton
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -106,7 +103,7 @@ internal fun AccountMenuAction(label: String, icon: ImageVector, onClick: () -> 
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     Row(Modifier.fillMaxWidth().height(52.dp)
-        .background(com.auralis.music.ui.components.smoothHoverColor(if (hovered) Color.White.copy(alpha = .10f) else Color.Transparent))
+        .background(if (hovered) Color.White.copy(alpha = .10f) else Color.Transparent)
         .clickable(interactionSource = interactions, indication = null, onClick = onClick).padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)

@@ -43,7 +43,7 @@ class AccountMenuHoverTest {
             frame(16)
             assertEquals(1, clicks)
             scene.sendPointerEvent(PointerEventType.Move, Offset(300f, 80f))
-            val exited = (17..31).map(::frame).last()
+            val exited = (17..25).map(::frame).last()
             assertEquals(idle.getRGB(300, 25), exited.getRGB(300, 25), "Highlight must clear on exit")
         } finally { scene.close() }
     }

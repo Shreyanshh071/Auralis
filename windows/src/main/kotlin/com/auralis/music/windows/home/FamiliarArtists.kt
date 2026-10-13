@@ -1,7 +1,5 @@
 package com.auralis.music.windows.home
 
-import com.auralis.music.ui.components.DropdownMenuItem
-
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -89,12 +88,12 @@ internal fun FamiliarArtistsRow(artists: List<FamiliarArtist>, onOpen: (Familiar
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    com.auralis.music.ui.components.IconButton(onClick = {
+                    androidx.compose.material3.IconButton(onClick = {
                         scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
                     }, enabled = list.canScrollBackward) {
                         Icon(Icons.Outlined.ChevronLeft, "Previous artists")
                     }
-                    com.auralis.music.ui.components.IconButton(onClick = {
+                    androidx.compose.material3.IconButton(onClick = {
                         scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex + 3).coerceAtMost(artists.take(10).lastIndex)) }
                     }, enabled = list.canScrollForward) {
                         Icon(Icons.Outlined.ChevronRight, "More artists")
@@ -175,9 +174,9 @@ private fun GlassButton(photo: String?, posterWidth: Dp, posterHeight: Dp, left:
         if (photo != null) AsyncImage(photo, null, contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment,
             modifier = Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
                 .requiredSize(posterWidth, posterHeight).offset(-left, -top).blur(6.dp))
-        Box(Modifier.matchParentSize().background(com.auralis.music.ui.components.smoothHoverColor(Color.Black.copy(alpha = if (hovered) .6f else .4f)))
+        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (hovered) .6f else .4f))
             .border(0.5.dp, Color.White.copy(alpha = .08f), CircleShape))
-        Icon(icon, label, Modifier.size(18.dp), tint = com.auralis.music.ui.components.smoothHoverColor(if (hovered && tint != Color.White) tint.copy(alpha = 1f) else tint))
+        Icon(icon, label, Modifier.size(18.dp), tint = if (hovered && tint != Color.White) tint.copy(alpha = 1f) else tint)
     }
 }
 

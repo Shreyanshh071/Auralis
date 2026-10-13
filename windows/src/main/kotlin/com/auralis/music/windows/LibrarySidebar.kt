@@ -1,7 +1,5 @@
 package com.auralis.music.windows
 
-import com.auralis.music.ui.components.IconButton
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -17,6 +15,7 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,7 +78,7 @@ private fun LibraryRow(entry: LibraryEntry, selected: Boolean, collapsed: Boolea
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-        .background(com.auralis.music.ui.components.smoothHoverColor(when { selected -> colors.surfaceContainerHigh; hovered -> colors.surfaceContainer; else -> Color.Transparent }))
+        .background(when { selected -> colors.surfaceContainerHigh; hovered -> colors.surfaceContainer; else -> Color.Transparent })
         .hoverable(hover).clickable(interactionSource = hover, indication = null, onClick = entry.open)
         .padding(if (collapsed) 4.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -1,9 +1,5 @@
 package com.auralis.music.windows.player
 
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.FilledIconButton
-import com.auralis.music.ui.components.DropdownMenuItem
-
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Repeat
@@ -37,8 +33,11 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text

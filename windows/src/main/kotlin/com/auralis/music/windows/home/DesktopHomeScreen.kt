@@ -1,9 +1,5 @@
 package com.auralis.music.windows.home
 
-import com.auralis.music.ui.components.IconButton
-import com.auralis.music.ui.components.FilledIconButton
-import com.auralis.music.ui.components.TextButton
-
 import androidx.compose.ui.layout.layout
 
 import androidx.compose.animation.animateColorAsState
@@ -331,10 +327,15 @@ private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlayi
 }
 
 @Composable
-private fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu: () -> Unit, modifier: Modifier) {
+internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu: () -> Unit, modifier: Modifier) {
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    val highlight by animateColorAsState(Color.White.copy(alpha = if (hovered) .08f else 0f),
+        tween(180), label = "recentSongHighlight")
     Box(modifier) {
       ContextMenuArea(items = { listOf(ContextMenuItem("Song options", menu)) }) {
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = click).padding(vertical = 4.dp),
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(highlight).hoverable(hover)
+            .clickable(interactionSource = hover, indication = null, onClick = click).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HomeArtwork(track.thumbnail, Modifier.size(48.dp).clip(RoundedCornerShape(7.dp)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
