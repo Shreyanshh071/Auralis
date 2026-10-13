@@ -29,13 +29,14 @@ fun Switch(
     val accent = scheme.primary
     val onAccent = if (accent.luminance() > 0.5f) Color(0xFF141414) else Color.White
     val neutral = scheme.onSurface
+    SmoothControl(modifier, interactionSource, rememberThumbHoverShape(if (checked) .7f else .3f), neutral, enabled) { draw, source ->
     androidx.compose.material3.Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
-        modifier = modifier,
+        modifier = draw,
         thumbContent = thumbContent,
         enabled = enabled,
-        interactionSource = interactionSource,
+        interactionSource = source,
         colors = SwitchDefaults.colors(
             checkedThumbColor = onAccent,
             checkedTrackColor = accent,
@@ -52,4 +53,5 @@ fun Switch(
             disabledUncheckedBorderColor = neutral.copy(alpha = 0.12f),
         )
     )
+    }
 }

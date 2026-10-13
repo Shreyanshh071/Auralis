@@ -1,5 +1,9 @@
 package com.auralis.music.windows.home
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.FilledIconButton
+import com.auralis.music.ui.components.TextButton
+
 import androidx.compose.ui.layout.layout
 
 import androidx.compose.animation.animateColorAsState

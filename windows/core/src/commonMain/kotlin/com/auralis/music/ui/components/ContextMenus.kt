@@ -106,7 +106,11 @@ fun CoverSheetTheme(content: @Composable () -> Unit) {
         ),
         typography = MaterialTheme.typography,
         shapes = MaterialTheme.shapes,
-        content = content
+        content = {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.foundation.LocalIndication provides com.auralis.music.ui.components.SmoothAppIndication
+            ) { content() }
+        }
     )
 }
 

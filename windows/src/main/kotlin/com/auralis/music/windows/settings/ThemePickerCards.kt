@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.components.Surface
+
 import com.auralis.music.ui.components.Switch
 
 import androidx.compose.foundation.background

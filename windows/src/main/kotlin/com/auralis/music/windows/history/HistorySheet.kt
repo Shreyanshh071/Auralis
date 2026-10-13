@@ -1,5 +1,11 @@
 package com.auralis.music.windows.history
 
+import com.auralis.music.ui.components.Surface
+
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.Button
+import com.auralis.music.ui.components.TextButton
+
 import com.auralis.music.ui.i18n.Strings
 import com.auralis.music.ui.i18n.str
 
@@ -32,16 +38,12 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Surface
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.filled.PauseCircle
 import com.auralis.music.data.datastore.LocalSettingsStores
