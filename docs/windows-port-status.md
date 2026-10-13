@@ -696,3 +696,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 
 ### 2026-10-13: Import picker playlist artwork
 - Compact YouTube import selection now displays each available 46dp playlist cover and subtitle beside the checkbox and name. Liked Music and missing covers have fallback icons.
+
+### 2026-10-13: Shortcuts in the sidebar
+- Persisted shortcuts now appear below New playlist on every Windows page, with a scrollable compact layout and collapsed cover view. Home no longer duplicates the shortcut strip.
+- Sidebar retains Add, open, options and unpin actions; local playlist collages feed the artwork aura, which flows continuously even without hover or playback. Missing artwork gets an animated colour fallback.
+- SidebarShortcutsTest checks placement, opening, options, expanded/collapsed renders and animation without hover.
