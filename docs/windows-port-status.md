@@ -744,3 +744,7 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Download-folder options and sound-output selection now use the same live page-backed liquid glass surface as other popups, with rounded rims and readable foreground colours.
 - Shared dropdown positioning stays within the window and opens above bottom-bar controls when needed; Escape/outside dismissal releases capture.
 - GlassDropdownMenuTest passed positioning, real-background blur and dismissal checks; sound-output render inspected.
+
+### Windows scroll boundaries (2026-10-13)
+- Removed pull-to-refresh interception, page displacement and the morphing indicator from Windows page wrappers. Wheel scrolling at page boundaries no longer opens a refresh gap.
+- Added coverage for both refresh APIs, including a loading state and repeated wheel input at both boundaries.
