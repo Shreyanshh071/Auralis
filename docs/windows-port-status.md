@@ -608,3 +608,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Custom shortcut, account, sign-in, library sidebar, search and artist controls now interpolate their highlight/tint colours. Sidebar lyrics scrollbar fades instead of popping in. Existing player, dock and lyric hover transitions remain active.
 - Focused checks passed for intermediate hover colours on entry and exit, immediate row/icon/menu clicks, full shortcut highlighting and pinned-row guards, account row edge coverage/exit cleanup, and one settings persistence write after dragging.
 - Final row/icon/menu/surface fade and immediate-click checks passed alongside shortcut, account and slider gesture checks; MSI package passed. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-smooth-hover-20261013-105303; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
+
+## Lower Squiggly wave height — 2026-10-13
+
+- Reduced Squiggly amplitude from 6px to 3px, keeping the 48dp wavelength, stroke and animation unchanged. The playhead height follows the smaller amplitude.
+- Existing Squiggly preview render passed and was visually inspected; MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-wave-height-20261013-110242. All 78 checked data files preserved, installed main/core jars verified, and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
