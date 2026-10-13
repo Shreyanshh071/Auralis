@@ -579,3 +579,10 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Centered the shared songs/albums/artists ranking block under its heading. The block fits its content up to 560dp; rows align consistently and long labels ellipsize within the available window width.
 - Rendered and inspected the ranking preview: numbering, covers and labels form a compact centered list rather than beginning at the window's left edge.
 - Wrapped render check and MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-wrapped-centering-20261013-095554; all 74 checked data files preserved, installed main/core jars match the build, and Auralis reopened with a responding main window. Version 1.0.0 and existing shortcut retained.
+
+## Retain unplayed songs when jumping through the queue — 2026-10-13
+
+- Reviewed the owner's phone video and corrected the local queue transition: unheard songs between the current position and a tapped song move behind the selection in their existing order. They remain visible in Continue Playing and can be played next, while only occurrences that reached PLAYING contribute to history.
+- Preserved heard-song ordering for Previous/Next and repeat navigation. Clear history now removes heard occurrences while retaining unheard tracks and the current song's listening state. Active room queues retain the host's shared positions.
+- Added regressions for jumping 1 to 3, subsequent playback of retained song 2, partly heard/skipped history, duplicate recordings, skipping before playback starts, clearing history and repeated backward navigation.
+- All 13 focused queue/repeat/radio checks passed and MSI package succeeded. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-queue-retention-20261013-100934; all 74 checked data files preserved, main/core jars verified against the build, and Auralis reopened responding. Version 1.0.0 and the existing shortcut retained.
