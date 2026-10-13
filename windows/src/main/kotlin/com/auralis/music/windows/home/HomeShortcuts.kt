@@ -83,7 +83,7 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
     }
     if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text("Add a shortcut") },
         confirmButton = { TextButton(onClick = { picking = false }) { Text("Done") } }, text = {
-            Column(Modifier.width(420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Filter playlists and artists") })
                 val matches = candidates.filter { it.name.contains(query, true) }.distinctBy { it.id }
                 if (matches.isEmpty()) Text("No matching playlists or artists.")
@@ -104,7 +104,7 @@ internal fun ShortcutCandidateRow(item: SpeedDialItem, pinned: Boolean, onAdd: (
         .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && !pinned) .12f else 0f))
         .hoverable(interaction)
         .clickable(interactionSource = interaction, indication = null, enabled = !pinned, onClick = onAdd)
-        .padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        .padding(start = 8.dp, end = 20.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         ShortcutPhoto(item)
         Text(item.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(if (pinned) "Added" else "Add", color = MaterialTheme.colorScheme.primary)
