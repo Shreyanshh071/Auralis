@@ -61,6 +61,29 @@ fun estimatedSungLengthMs(text: String): Long {
     return (words * 450L + 800L).coerceIn(2_500L, 7_000L)
 }
 
+/** Shared break rows for compact and fullscreen lyrics, including a timed instrumental outro.
+ * Keep overlapping lead/background vocals out of the break; never change provider timestamps.
+ */
+fun instrumentalBreakWindows(
+    lines: List<com.auralis.music.domain.model.LyricLine>,
+    durationMs: Long? = null
+): Map<Int, Pair<Long, Long>> {
+    val windows = linkedMapOf<Int, Pair<Long, Long>>()
+    var latestVocalEnd = 0L
+    val vocalIndices = lines.indices.filter { !lines[it].isInstrumental && lines[it].text.isNotBlank() }
+    vocalIndices.forEachIndexed { vocalIndex, index ->
+        val line = lines[index]
+        latestVocalEnd = maxOf(latestVocalEnd, line.effectiveEndTime ?: (line.time + estimatedSungLengthMs(line.text)))
+        val nextStart = vocalIndices.getOrNull(vocalIndex + 1)?.let { lines[it].time } ?: durationMs ?: return@forEachIndexed
+        instrumentalBreakWindow(line, nextStart)?.let { (start, end) ->
+            val safeStart = maxOf(start, latestVocalEnd)
+            val minimumRest = if (safeStart > start) 5_000L else 1_000L
+            if (end - safeStart >= minimumRest) windows[index] = safeStart to end
+        }
+    }
+    return windows
+}
+
 /** Alias providing clear semantic naming while maintaining backwards compatibility */
 @Composable
 fun CircularIntervalIndicator(

@@ -11,6 +11,9 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -82,6 +85,12 @@ fun AuralisSlider(
 ) {
     val density = LocalDensity.current
     var isDragging by remember { mutableStateOf(false) }
+    val hoverInteraction = remember { MutableInteractionSource() }
+    val isHovered by hoverInteraction.collectIsHoveredAsState()
+    val slimThickness by animateDpAsState(
+        if (isHovered || isDragging) 8.dp else 5.5.dp,
+        tween(180), label = "slimHoverThickness"
+    )
     var dragProgress by remember { mutableFloatStateOf(value) }
     val changeValue by rememberUpdatedState(onValueChange)
     val finishChange by rememberUpdatedState(onValueChangeFinished)
@@ -149,6 +158,7 @@ fun AuralisSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(44.dp)
+                .hoverable(hoverInteraction)
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -388,7 +398,7 @@ fun AuralisSlider(
 
                     "Slim" -> {
                         // ── 3. SLIM STYLE (Continuous thin rounded bar without protruding thumb) ──
-                        val strokePx = with(density) { 5.5.dp.toPx() }
+                        val strokePx = with(density) { slimThickness.toPx() }
                         val r = strokePx / 2f
                         val startX = r
                         val endX = width - r

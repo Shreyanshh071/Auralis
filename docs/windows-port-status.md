@@ -613,3 +613,11 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 - Reduced Squiggly amplitude from 6px to 3px, keeping the 48dp wavelength, stroke and animation unchanged. The playhead height follows the smaller amplitude.
 - Existing Squiggly preview render passed and was visually inspected; MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-wave-height-20261013-110242. All 78 checked data files preserved, installed main/core jars verified, and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
+
+## Instrumental dots throughout songs and Slim hover thickness — 2026-10-13
+
+- The compact sidebar now inserts the same timed instrumental break rows as fullscreen lyrics, scrolls to active dots, dims the completed vocal during a break and supports tapping the dots to skip ahead. Added timed outros using the current track duration. Seeking back removes stale indicators.
+- Shared break generation respects overlapping lead/background vocal ends. Existing thresholds remain: at least 5 seconds after a supplied vocal end, or at least 10 seconds between line starts when only line timing is available. The latter uses a display-only sung-length estimate. Fullscreen dots no longer disappear solely because automatic scrolling is disabled.
+- Slim progress tracks now animate from 5.5dp to 8dp over 180ms on hover/drag and ease back on exit. Seeking remains immediate.
+- Seven focused checks passed: break windows/overlapping vocals, repeated sidebar breaks and outro, skip/backward seeking, dot motion/pause behavior, existing sidebar renderers and live settings, and Slim intermediate hover thickness/exit/immediate click. Inspected later-break and outro render previews; MSI package passed.
+- Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-interludes-20261013-112103; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and shortcut retained.

@@ -56,6 +56,6 @@ internal fun SideLyricsPanel(playback: DesktopPlaybackController, lyrics: Deskto
     key(queue.current?.id) {
         if (state.lyrics == null && state.isLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(28.dp))
-        } else SidebarLyricsView(state.lyrics, position, playback::seekTo)
+        } else SidebarLyricsView(state.lyrics, position, playback::seekTo, queue.current?.duration?.times(1000L))
     }
 }
