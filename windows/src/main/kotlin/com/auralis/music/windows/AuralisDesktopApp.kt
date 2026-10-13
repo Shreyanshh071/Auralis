@@ -143,6 +143,7 @@ fun AuralisDesktopApp(
     var showSignIn by remember { mutableStateOf(false) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var showTogether by remember { mutableStateOf(false) }
+    var showImport by remember { mutableStateOf(false) }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
@@ -430,6 +431,23 @@ fun AuralisDesktopApp(
             }
         }
     ) {
+        if (showImport) GlassDialog({ showImport = false }) {
+            val libraryState by libraryViewModel.uiState.collectAsState()
+            com.auralis.music.ui.screens.ImportPlaylistsScreen(
+                onDismiss = { showImport = false },
+                onNavigateToYouTubeAccount = { showSignIn = true },
+                onImportYouTubeLibraryPlaylists = libraryViewModel::importYouTubeLibraryPlaylists,
+                isImportingYouTube = libraryState.isImporting,
+                youtubeImportMessage = libraryState.importMessage,
+                onClearYouTubeImportMessage = libraryViewModel::clearYouTubeImportMessage,
+                onImportYouTubePlaylist = libraryViewModel::importYouTubePlaylist,
+                onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
+                onImportSpotifyLibraryPlaylists = libraryViewModel::importSpotifyLibraryPlaylists,
+                isImportingSpotify = libraryState.isImportingSpotify,
+                spotifyImportMessage = libraryState.spotifyImportMessage,
+                onClearSpotifyImportMessage = libraryViewModel::clearSpotifyImportMessage,
+                compact = true)
+        }
         if (showTogether) com.auralis.music.windows.together.ListenTogetherDialog(together,
             defaultName = (if (youtubeSignedIn) youtubeState.identity?.name?.takeIf { it.isNotBlank() } else null)
                 ?: accountState.profile?.displayName?.takeIf { it.isNotBlank() }) { showTogether = false }
@@ -511,7 +529,7 @@ fun AuralisDesktopApp(
                             artwork = queue?.current?.thumbnail
                         )
                     },
-                    openImport = { showPlayer = false; browse.clear(); destination = DesktopDestination.IMPORT },
+                    openImport = { showImport = true },
                     openDiscord = { showPlayer = false; browse.clear(); destination = DesktopDestination.DISCORD },
                     openStats = { showPlayer = false; browse.clear(); destination = DesktopDestination.STATS },
                     home = { showPlayer = false; browse.clear(); destination = DesktopDestination.HOME },
@@ -670,21 +688,9 @@ fun AuralisDesktopApp(
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
                                 onDismiss = { destination = DesktopDestination.HOME }
                             )
-                            DesktopDestination.IMPORT -> {
-                                val libraryState by libraryViewModel.uiState.collectAsState()
-                                com.auralis.music.ui.screens.ImportPlaylistsScreen(
-                                    onDismiss = { navigation.back()?.let(::restoreRoute) ?: run { destination = DesktopDestination.HOME } },
-                                    onNavigateToYouTubeAccount = { showSignIn = true },
-                                    onImportYouTubeLibraryPlaylists = libraryViewModel::importYouTubeLibraryPlaylists,
-                                    isImportingYouTube = libraryState.isImporting,
-                                    youtubeImportMessage = libraryState.importMessage,
-                                    onClearYouTubeImportMessage = libraryViewModel::clearYouTubeImportMessage,
-                                    onImportYouTubePlaylist = libraryViewModel::importYouTubePlaylist,
-                                    onImportSpotifyPlaylist = { libraryViewModel.importSpotifyPlaylist(it) },
-                                    onImportSpotifyLibraryPlaylists = libraryViewModel::importSpotifyLibraryPlaylists,
-                                    isImportingSpotify = libraryState.isImportingSpotify,
-                                    spotifyImportMessage = libraryState.spotifyImportMessage,
-                                    onClearSpotifyImportMessage = libraryViewModel::clearSpotifyImportMessage)
+                            DesktopDestination.IMPORT -> androidx.compose.runtime.LaunchedEffect(Unit) {
+                                destination = DesktopDestination.HOME
+                                showImport = true
                             }
                             DesktopDestination.DISCORD -> com.auralis.music.ui.screens.DiscordIntegrationScreen(
                                 onDismiss = { navigation.back()?.let(::restoreRoute) ?: run { destination = DesktopDestination.HOME } })

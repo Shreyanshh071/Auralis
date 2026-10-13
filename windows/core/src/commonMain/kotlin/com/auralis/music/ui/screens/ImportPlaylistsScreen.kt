@@ -62,7 +62,8 @@ fun ImportPlaylistsScreen(
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
@@ -127,6 +128,81 @@ fun ImportPlaylistsScreen(
             },
             { showSpotifySignIn = false }
         )
+        if (!compact) return
+    }
+
+    if (compact) {
+        var byLink by remember { mutableStateOf(false) }
+        var spotifyLink by remember { mutableStateOf(false) }
+        Column(modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PlaylistAdd, null, modifier = Modifier.size(20.dp))
+                Text("Import playlists", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.Bold)
+                IconButton(onDismiss, Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Close") }
+            }
+            Text("Bring your music into Auralis.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .08f)).padding(4.dp)) {
+                listOf("Accounts", "By link").forEachIndexed { index, label ->
+                    val active = byLink == (index == 1)
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (active) Color.White.copy(alpha = .22f) else Color.Transparent)
+                        .clickable { byLink = index == 1; showPlaylistPickerPopup = false }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                        Text(label, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+            }
+            if (byLink) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !spotifyLink, onClick = { spotifyLink = false }, label = { Text("YouTube Music") })
+                    FilterChip(selected = spotifyLink, onClick = { spotifyLink = true }, label = { Text("Spotify") })
+                }
+                if (spotifyLink) SpotifyLinkCard(
+                    isImporting = isImportingSpotify && !spotifyImportFromAccount,
+                    importMessage = if (!spotifyImportFromAccount) spotifyImportMessage else null,
+                    onImport = { spotifyImportFromAccount = false; onImportSpotifyPlaylist(it) },
+                    onClearMessage = onClearSpotifyImportMessage
+                ) else YouTubeLinkCard(isImportingYouTube, youtubeImportMessage, onImportYouTubePlaylist, onClearYouTubeImportMessage)
+            } else if (showPlaylistPickerPopup) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Your YouTube Music playlists", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    TextButton({ showPlaylistPickerPopup = false }) { Text("Back") }
+                }
+                when {
+                    isLoadingPlaylists -> CircularProgressIndicator(Modifier.size(24.dp))
+                    loadFailed -> {
+                        Text("Couldn't load your playlists.")
+                        TextButton({ reloadKey++ }) { Text("Try again") }
+                    }
+                    playlists.isNullOrEmpty() -> Text("No playlists found in this account.")
+                    else -> {
+                        val all = playlists.orEmpty()
+                        TextButton({ if (selectedPlaylists.size == all.size) selectedPlaylists.clear() else { selectedPlaylists.clear(); selectedPlaylists.addAll(all.map { it.id }) } }) {
+                            Text(if (selectedPlaylists.size == all.size) "Clear selection" else "Select all")
+                        }
+                        all.forEach { playlist ->
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = !isImportingYouTube) {
+                                if (playlist.id in selectedPlaylists) selectedPlaylists.remove(playlist.id) else selectedPlaylists.add(playlist.id)
+                            }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(playlist.id in selectedPlaylists, null)
+                                Text(playlist.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        Button({ onImportYouTubeLibraryPlaylists(all.filter { it.id in selectedPlaylists }) }, Modifier.fillMaxWidth(), enabled = selectedPlaylists.isNotEmpty() && !isImportingYouTube) {
+                            Text(if (isImportingYouTube) "Importing…" else "Import selected (${selectedPlaylists.size})")
+                        }
+                    }
+                }
+                youtubeImportMessage?.let { Text(it, fontSize = 13.sp) }
+            } else {
+                YouTubeAccountCard(youTubeSignedIn, accountLabel, isLoadingPlaylists, playlists, isImportingYouTube, youtubeImportMessage,
+                    { showPlaylistPickerPopup = true }, onNavigateToYouTubeAccount)
+                SpotifyAccountCard(spotifySignedIn, spotifyAccountLabel, isLoadingSpotifyPlaylists,
+                    isImportingSpotify && spotifyImportFromAccount,
+                    if (spotifyPlaylistLoadFailed) "Couldn't load Spotify playlists. Try again." else if (spotifyImportFromAccount) spotifyImportMessage else null,
+                    { spotifyImportFromAccount = true; importAllAfterSpotifySignIn = true; spotifyReloadKey++ },
+                    { if (spotifySignIn != null) showSpotifySignIn = true else platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noWebSignIn) },
+                    { SpotifySession.signOut() })
+            }
+        }
         return
     }
 
