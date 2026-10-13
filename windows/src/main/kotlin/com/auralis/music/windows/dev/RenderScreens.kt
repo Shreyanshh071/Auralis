@@ -245,7 +245,7 @@ fun main(args: Array<String>) {
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Column(Modifier.width(340.dp).height(300.dp).background(androidx.compose.ui.graphics.Color(0xFF684A48))) {
                     Row(Modifier.height(48.dp).padding(horizontal = 18.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Lyrics") }
-                    Box(Modifier.weight(1f)) { com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}) }
+                    Box(Modifier.weight(1f)) { com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}, lineGap = 4.dp) }
                 }
             }
         },

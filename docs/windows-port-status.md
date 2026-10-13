@@ -735,3 +735,7 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 ### 2026-10-13: Space full-height side-panel lyrics
 - The lyrics panel opened from the mini player uses a 10dp gap between lyric entries. The compact Now Playing lyrics card retains its existing spacing.
 - Added and inspected the lyrics-panel-spacing render fixture; compilation and rendering passed.
+
+### 2026-10-13: Slightly space compact sidebar lyrics
+- Added a 4dp gap between entries in the compact Now Playing lyrics box. The full-height mini-player lyrics panel retains its 10dp gap.
+- Updated and inspected the lyrics-spacing render fixture; compilation and rendering passed.
