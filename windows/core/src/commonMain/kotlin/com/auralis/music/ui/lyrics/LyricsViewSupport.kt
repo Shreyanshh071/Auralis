@@ -122,7 +122,8 @@ fun InstrumentalIntroIndicator(
     gapSize: Dp = if (isMetroLyrics) com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.MetroTrackGapSize else com.auralis.music.ui.lyrics.wavy.WavyProgressIndicatorDefaults.StandardTrackGapSize,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     dotSize: Dp = if (isMetroLyrics) 18.dp else 16.dp,
-    onSkipIntro: (() -> Unit)? = null
+    onSkipIntro: (() -> Unit)? = null,
+    compact: Boolean = false
 ) {
     val currentTimeMs = currentTimeMsState.value
 
@@ -131,7 +132,7 @@ fun InstrumentalIntroIndicator(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 12.dp),
+            .padding(top = if (compact) 0.dp else 4.dp, bottom = if (compact) 1.dp else 12.dp),
         horizontalAlignment = horizontalAlignment
     ) {
         // Spicy Lyrics' interlude dots in place of the ring; tap to skip the intro.
@@ -148,7 +149,8 @@ fun InstrumentalIntroIndicator(
                 progress = (currentTimeMs.toFloat() / introDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f),
                 elapsedMs = currentTimeMs,
                 remainingMs = introDurationMs - currentTimeMs,
-                dotSize = dotSize
+                dotSize = dotSize,
+                compact = compact
             )
         }
     }

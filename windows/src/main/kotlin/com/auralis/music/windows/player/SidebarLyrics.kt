@@ -107,20 +107,20 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         list.animateScrollToItem(scrollTarget, -(list.layoutInfo.viewportSize.height * .30f).toInt())
     }
     Box(Modifier.fillMaxSize().hoverable(hover)) {
-        LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp),
+        LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
             modifier = Modifier.fillMaxSize()
                 .onPointerEvent(PointerEventType.Scroll) { manualScroll = System.currentTimeMillis() }
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
-                    drawRect(Brush.verticalGradient(0f to Color.Transparent, .08f to Color.Black,
+                    drawRect(Brush.verticalGradient(0f to Color.Transparent, .04f to Color.Black,
                         .80f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
                 }) {
             if (introDurationMs > 0L) item(key = "intro") {
                 AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                     // Left, with the lyric text, as Spicy Lyrics places its dots.
                     InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS, horizontalAlignment = Alignment.Start,
-                        dotSize = 16.dp,
+                        dotSize = 12.dp, compact = true,
                         onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
                 }
             }
@@ -141,7 +141,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                     LyricsIntervalIndicator(start, end, position.value,
                         visible = position.value >= start && position.value < end,
                         isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS,
-                        dotsAlignment = Alignment.Start, dotSize = 16.dp,
+                        dotsAlignment = Alignment.Start, dotSize = 12.dp, compact = true,
                         modifier = Modifier.padding(horizontal = 10.dp),
                         onSkip = { manualScroll = 0; onSeek(end) })
                 }
@@ -171,11 +171,11 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
         line?.let { resolveExperimentalWordTimestamps(it, syncType) }?.let(::presentationWordTimestamps)
     }
     Box(Modifier.fillMaxWidth()
-            .padding(vertical = 2.dp).clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .drawBehind { drawRect(Color.White.copy(alpha = background.value)) }
             .hoverable(interaction)
             .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
             .graphicsLayer {
                 // Hover changes drawing properties, keeping text layout and the layer stable.
                 this.alpha = alpha.value

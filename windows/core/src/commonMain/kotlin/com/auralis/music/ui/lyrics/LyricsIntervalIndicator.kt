@@ -162,7 +162,8 @@ fun LyricsIntervalIndicator(
     gapSize: Dp = if (isMetroLyrics) WavyProgressIndicatorDefaults.MetroTrackGapSize else WavyProgressIndicatorDefaults.StandardTrackGapSize,
     dotsAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     dotSize: Dp = if (isMetroLyrics) 18.dp else 16.dp,
-    onSkip: (() -> Unit)? = null
+    onSkip: (() -> Unit)? = null,
+    compact: Boolean = false
 ) {
     val alphaAnim = remember { Animatable(if (visible) 1f else 0f) }
     val heightAnim = remember { Animatable(if (visible) 1f else 0f) }
@@ -181,7 +182,7 @@ fun LyricsIntervalIndicator(
         ((currentPositionMs - gapStartMs).toFloat() / (gapEndMs - gapStartMs).toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    val targetHeight = maxOf(if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp, dotSize * 3) * heightAnim.value
+    val targetHeight = (if (compact) dotSize * 1.5f + 4.dp else maxOf(if (isMetroLyrics || indicatorSize.value >= 40f) 48.dp else 44.dp, dotSize * 3)) * heightAnim.value
     val clickableSize = if (isMetroLyrics || indicatorSize.value >= 40f) 44.dp else 40.dp
 
     if (heightAnim.value > 0.01f) {
@@ -193,7 +194,7 @@ fun LyricsIntervalIndicator(
             modifier = modifier
                 .fillMaxWidth()
                 .height(targetHeight)
-                .padding(vertical = (3 * heightAnim.value).dp)
+                .padding(vertical = if (compact) 0.dp else (3 * heightAnim.value).dp)
                 .graphicsLayer {
                     alpha = alphaAnim.value
                     clip = true
@@ -219,7 +220,8 @@ fun LyricsIntervalIndicator(
                     elapsedMs = currentPositionMs - gapStartMs,
                     remainingMs = gapEndMs - currentPositionMs,
                     color = color,
-                    dotSize = dotSize
+                    dotSize = dotSize,
+                    compact = compact
                 )
             }
         }

@@ -87,11 +87,12 @@ fun LyricsDots(
     remainingMs: Long,
     modifier: Modifier = Modifier,
     dotSize: Dp = 18.dp,
-    color: Color = Color.White
+    color: Color = Color.White,
+    compact: Boolean = false
 ) {
     val motion = remember { DotMotion() }
     val gap = dotSize * .75f
-    Canvas(modifier.size(width = dotSize * 3 + gap * 2 + 8.dp, height = dotSize * 2.5f)) {
+    Canvas(modifier.size(width = dotSize * 3 + gap * 2 + 8.dp, height = dotSize * if (compact) 1.5f else 2.5f)) {
         motion.update(progress, elapsedMs, remainingMs)
         val d = dotSize.toPx()
         val g = gap.toPx()
@@ -99,7 +100,8 @@ fun LyricsDots(
         val groupAlpha = (elapsedMs / 500f).coerceIn(0f, 1f) * (remainingMs / 75f).coerceIn(0f, 1f)
         scale(motion.group.value.coerceAtLeast(0f)) {
             for (i in 0 until 3) {
-                val centre = Offset(startX + i * (d + g), size.height / 2f + motion.lifts[i].value * d * 2.5f)
+                // Compact rows remove space below the dots while retaining their lift room above.
+                val centre = Offset(startX + i * (d + g), (if (compact) d else size.height / 2f) + motion.lifts[i].value * d * 2.5f)
                 drawCircle(color.copy(alpha = color.alpha * groupAlpha * motion.opacities[i].value.coerceIn(0f, 1f)),
                     radius = d / 2f * motion.scales[i].value.coerceAtLeast(0f), center = centre)
             }
