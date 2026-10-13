@@ -1,6 +1,5 @@
 package com.auralis.music.windows
 
-import com.kyant.backdrop.backdrops.layerBackdrop
 
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -602,9 +601,8 @@ fun AuralisDesktopApp(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
-                    val dockBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
                     Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface)) {
-                        Box(Modifier.fillMaxSize().layerBackdrop(dockBackdrop)) {
+                        DesktopPageSurface(Modifier.fillMaxSize()) {
                         androidx.compose.runtime.key(refreshTick) {
                         if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
                         else when (destination) {

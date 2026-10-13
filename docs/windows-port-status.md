@@ -684,3 +684,7 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 ### 2026-10-13: Translucent import cards
 - Compact import account/link cards, inputs, tips, buttons and provider chips use transparent white tints so the existing parent liquid glass blur shows through.
 - ImportPopupTest passed; account and Spotify link renders checked for readable controls.
+
+### 2026-10-13: Single-pass page scrolling
+- Removed the unused dock backdrop from the main page: its capture traversed scrolling content twice despite no dock using it. The main page now draws directly; popup capture remains active only for real glass overlays.
+- ScrollRenderingTest confirms the old two-pass capture, a single updated content pass, wheel motion over multiple frames, direction reversal, and stable settled text pixels. Render inspected.
