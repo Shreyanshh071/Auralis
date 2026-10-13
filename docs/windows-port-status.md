@@ -586,3 +586,8 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Preserved heard-song ordering for Previous/Next and repeat navigation. Clear history now removes heard occurrences while retaining unheard tracks and the current song's listening state. Active room queues retain the host's shared positions.
 - Added regressions for jumping 1 to 3, subsequent playback of retained song 2, partly heard/skipped history, duplicate recordings, skipping before playback starts, clearing history and repeated backward navigation.
 - All 13 focused queue/repeat/radio checks passed and MSI package succeeded. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-queue-retention-20261013-100934; all 74 checked data files preserved, main/core jars verified against the build, and Auralis reopened responding. Version 1.0.0 and the existing shortcut retained.
+
+## Extend Add-shortcut hover to the right — 2026-10-13
+
+- Shortcut candidates now fill the dialog's available content width instead of stopping at a fixed 420dp, extending the highlight toward the right edge. Increased the row's right padding from 8dp to 20dp so Add has more highlighted space after it.
+- Existing hover/click-guard render check and MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-hover-width-20261013-101422; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
