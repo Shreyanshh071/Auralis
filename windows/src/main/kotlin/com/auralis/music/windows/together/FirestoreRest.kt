@@ -144,6 +144,15 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
 
     fun delete(path: String) { authenticate(); request("$endpoint/$path", "DELETE") }
 
+    /** Toggle only our own vote atomically, preserving other participants' concurrent votes. */
+    fun transformArray(path: String, field: String, value: String, remove: Boolean) {
+        authenticate()
+        val transform = JSONObject().put("document", "$root/$path").put("fieldTransforms", JSONArray().put(
+            JSONObject().put("fieldPath", field).put(if (remove) "removeAllFromArray" else "appendMissingElements",
+                JSONObject().put("values", JSONArray().put(encode(value))))))
+        request("$endpoint:commit", "POST", JSONObject().put("writes", JSONArray().put(JSONObject().put("transform", transform))))
+    }
+
     fun deleteAnonymousAccount() {
         if (token.isEmpty() || !anonymous) return
         authenticate()

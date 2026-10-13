@@ -40,7 +40,10 @@ fun main(args: Array<String>) {
     val host = DesktopTogether(hostPlayer, FirestoreRest.fromResource(), scope)
     val guest = DesktopTogether(guestPlayer, FirestoreRest.fromResource(), scope)
     suspend fun await(label: String, condition: () -> Boolean) {
-        withTimeout(35_000) { while (!condition()) delay(100) }
+        try { withTimeout(35_000) { while (!condition()) delay(100) } }
+        catch (e: TimeoutCancellationException) {
+            error("Failed $label; host=${host.state.value.message}, guest=${guest.state.value.message}; players=${hostPlayer.state.value}/${guestPlayer.state.value}; lengths=${hostPlayer.lengthMs.value}/${guestPlayer.lengthMs.value}")
+        }
         println("PASS $label")
     }
     try {
@@ -48,7 +51,9 @@ fun main(args: Array<String>) {
         await("host creates test room") { host.state.value.code.isNotEmpty() }
         guest.join(host.state.value.code, "Temporary playback guest")
         await("guest joins test room") { guest.state.value.code.isNotEmpty() }
-        val track = Track(id = "room-playback-check", title = "Muted test audio", artist = "Auralis", duration = 180)
+        host.updateHostSettings(com.auralis.music.data.sync.RoomSettings(requireApproval = true))
+        await("all Android room rules reach guest") { guest.state.value.settings.requireApproval }
+        val track = Track(id = "roomtest001", title = "Muted test audio", artist = "Auralis", duration = 180)
         hostPlayer.playFrom(track, listOf(track))
         await("guest follows host recording and starts audio") { guestPlayer.queue.value.current?.id == track.id && guestPlayer.state.value == VlcAudioPlayer.State.PLAYING }
         host.allowGuestControls(true)
@@ -61,10 +66,31 @@ fun main(args: Array<String>) {
         await("host seek reaches guest") { guestPlayer.clock.rawPositionMs() in 9500..10_500 }
         hostPlayer.setRate(1.5f)
         await("playback speed follows host") { guestPlayer.clock.speed() == 1.5f }
-        guestPlayer.addToQueue(track.copy(id = "second-check", title = "Recommended test audio"))
-        await("guest song reaches recommendations") { host.state.value.recommendations.any { it.track.id == "second-check" } }
-        host.decide(host.state.value.recommendations.first { it.track.id == "second-check" }, true)
-        await("host accepts song into queue") { hostPlayer.queue.value.tracks.any { it.id == "second-check" } }
+        guestPlayer.addToQueue(track.copy(id = "roomtest002", title = "Recommended test audio"))
+        await("guest song reaches recommendations") { host.state.value.recommendations.any { it.track.id == "roomtest002" } }
+        check(hostPlayer.queue.value.tracks.none { it.id == "roomtest002" })
+        println("PASS approval prevents unapproved songs entering the queue")
+        await("guest receives its recommendation") { guest.state.value.recommendations.any { it.track.id == "roomtest002" } }
+        guest.upvote(guest.state.value.recommendations.first { it.track.id == "roomtest002" })
+        await("guest can remove only its own vote") { host.state.value.recommendations.first { it.track.id == "roomtest002" }.upvotes.isEmpty() }
+        host.upvote(host.state.value.recommendations.first { it.track.id == "roomtest002" })
+        await("host vote preserves shared recommendation") { guest.state.value.recommendations.first { it.track.id == "roomtest002" }.upvotes.size == 1 }
+        host.decide(host.state.value.recommendations.first { it.track.id == "roomtest002" }, true)
+        await("host accepts song into queue") { hostPlayer.queue.value.tracks.any { it.id == "roomtest002" } }
+        host.updateHostSettings(host.state.value.settings.copy(requireApproval = false, guestsCanPlaySongs = true))
+        await("changing rules preserves playback permission") { guest.state.value.settings.guestsCanPlaySongs && guest.state.value.guestControls && !guest.state.value.settings.requireApproval }
+        guestPlayer.addToQueue(track.copy(id = "roomtest003", title = "Automatically accepted song"))
+        await("song adds without approval when Android rules allow") { hostPlayer.queue.value.tracks.any { it.id == "roomtest003" } }
+        await("shared queue reaches guest before editing") { guestPlayer.queue.value.tracks.any { it.id == "roomtest003" } }
+        guestPlayer.removeAt(guestPlayer.queue.value.tracks.indexOfFirst { it.id == "roomtest003" })
+        await("guest queue removal reaches host") { hostPlayer.queue.value.tracks.none { it.id == "roomtest003" } }
+        host.updateHostSettings(host.state.value.settings.copy(requireApproval = true, guestsCanPlaySongs = false))
+        await("approval allows song requests with direct song control off") { guest.state.value.settings.requireApproval && !guest.state.value.settings.guestsCanPlaySongs }
+        guestPlayer.next()
+        await("guest skip reaches host as an approval request") { host.state.value.requests.any { it.command != null } }
+        check(hostPlayer.queue.value.current?.id == track.id)
+        host.decideRequest(host.state.value.requests.first { it.command != null }, true)
+        await("approved song loads for host and guest") { hostPlayer.queue.value.current?.id == "roomtest002" && guestPlayer.queue.value.current?.id == "roomtest002" && guestPlayer.state.value == VlcAudioPlayer.State.PLAYING }
         host.close()
         await("guest sees room end") { guest.state.value.code.isEmpty() }
     } finally {

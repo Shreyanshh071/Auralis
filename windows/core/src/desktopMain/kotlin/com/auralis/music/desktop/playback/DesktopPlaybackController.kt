@@ -87,6 +87,10 @@ class DesktopPlaybackController(
             else autoRadio.queueChanged()
         }
     private val applyingRoom = ThreadLocal.withInitial { false }
+    var roomQueueEdit: ((Int, Int?) -> Boolean)? = null
+    var roomTrackWillLoad: ((Track) -> Unit)? = null
+    fun holdStartForRoom() = player.holdStartForRoom()
+    fun releaseRoomStart() = player.releaseRoomStart()
     fun <T> fromRoom(block: () -> T): T {
         val before = applyingRoom.get()
         applyingRoom.set(true)
@@ -274,6 +278,7 @@ class DesktopPlaybackController(
 
     /** Removes a song that isn't the one playing. */
     fun removeAt(index: Int) {
+        if (!applyingRoom.get() && roomQueueEdit?.invoke(index, null) == true) return
         if (intercepted("edit_queue")) return
         val q = _queue.value
         if (index !in q.tracks.indices || index == q.index) return
@@ -281,6 +286,16 @@ class DesktopPlaybackController(
         _queue.value = q.copy(tracks = tracks, index = if (index < q.index) q.index - 1 else q.index,
             listenedIndices = q.listenedIndices.filter { it != index }.map { if (it > index) it - 1 else it }.toSet())
         autoRadio.queueChanged()
+    }
+
+    fun moveAt(from: Int, to: Int) {
+        if (!applyingRoom.get() && roomQueueEdit?.invoke(from, to) == true) return
+        if (intercepted("edit_queue")) return
+        val q = _queue.value
+        if (from !in q.tracks.indices || to !in q.tracks.indices || from == to) return
+        val order = q.tracks.indices.toMutableList().apply { add(to, removeAt(from)) }
+        _queue.value = q.copy(tracks = order.map { q.tracks[it] }, index = order.indexOf(q.index),
+            listenedIndices = order.indices.filter { order[it] in q.listenedIndices }.toSet())
     }
 
     /** Audio outputs for the player bar's device picker (id to name), and the chosen one. */
@@ -320,6 +335,7 @@ class DesktopPlaybackController(
         loadJob?.cancel()
         preloadJob?.cancel()
         player.stop()
+        if (!isRetry) roomTrackWillLoad?.invoke(track)
         loadJob = scope.launch {
             _resolving.value = true
             val localAudio = offlineFile(track.id)

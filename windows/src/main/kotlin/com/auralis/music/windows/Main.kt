@@ -105,6 +105,7 @@ fun main(args: Array<String>) {
         }
     }
     val together = com.auralis.music.windows.together.DesktopTogether(playback, com.auralis.music.windows.together.FirestoreRest.fromResource(), recorderScope)
+    together.searchSongs = searchRepository::searchSongs
     val listenRecorder = playback?.let { com.auralis.music.windows.history.DesktopListenRecorder(it, listeningStats, privacyState, recorderScope) }
     if (playback != null) {
         val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
