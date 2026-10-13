@@ -710,3 +710,6 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 - Windows playlist menus now include Pin to shortcuts / Unpin from shortcuts in both glass menu paths, bound to HomeViewModel's persisted sidebar pins.
 - Saved album entries preserve their canonical album identity; local playlists use their local page ID. Existing album page menus retain their pin action.
 - PlaylistShortcutMenuTest passed identity checks and rendered pin/unpin click checks.
+
+### 2026-10-13: Simplify the Library header
+- Removed the History, Listen Together and Profile icon buttons from the Windows Library heading.
