@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.auralis.music.data.sync.RoomSettings
+import com.auralis.music.domain.model.Track
 
 @Composable
 internal fun ListenTogetherDialog(controller: DesktopTogether, defaultName: String? = null, onDismiss: () -> Unit) {
@@ -25,7 +27,11 @@ internal fun ListenTogetherDialog(controller: DesktopTogether, defaultName: Stri
 fun ListenTogetherPage(controller: DesktopTogether, onBack: () -> Unit, defaultName: String? = null) {
     val state by controller.state.collectAsState()
     ListenTogetherContent(state, onBack, controller::create, controller::join,
-        controller::allowGuestControls, controller::togglePlayback, controller::decide, controller::leave, defaultName)
+        controller::allowGuestControls, controller::togglePlayback, controller::decide, controller::leave, defaultName,
+        onSettings = controller::updateHostSettings, onSearch = controller::searchRecommendations,
+        onRecommend = controller::recommend, onUpvote = { controller.upvote(it) },
+        onPlayNow = controller::playNow, onRemove = controller::dismissRecommendation,
+        onRequest = controller::decideRequest)
 }
 
 @Composable
@@ -34,7 +40,13 @@ internal fun ListenTogetherContent(
     onCreate: (String) -> Unit = {}, onJoin: (String, String) -> Unit = { _, _ -> },
     onGuestControls: (Boolean) -> Unit = {}, onPlayback: () -> Unit = {},
     onDecide: (DesktopTogether.Recommendation, Boolean) -> Unit = { _, _ -> }, onLeave: () -> Unit = {},
-    defaultName: String? = null
+    defaultName: String? = null,
+    onSettings: (RoomSettings) -> Unit = {}, onSearch: (String) -> Unit = {},
+    onRecommend: (Track, String) -> Unit = { _, _ -> },
+    onUpvote: (DesktopTogether.Recommendation) -> Unit = {},
+    onPlayNow: (DesktopTogether.Recommendation) -> Unit = {},
+    onRemove: (DesktopTogether.Recommendation) -> Unit = {},
+    onRequest: (DesktopTogether.SongRequest, Boolean) -> Unit = { _, _ -> }
 ) {
     var host by rememberSaveable { mutableStateOf(false) }
     val suggestedName = defaultName?.trim()?.takeIf { it.isNotEmpty() }?.take(80) ?: "Listener"
@@ -42,6 +54,8 @@ internal fun ListenTogetherContent(
     var nameEdited by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(suggestedName) { if (!nameEdited) name = suggestedName }
     var code by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
     val muted = LocalContentColor.current.copy(alpha = .65f)
     val pill = RoundedCornerShape(50)
@@ -80,7 +94,10 @@ internal fun ListenTogetherContent(
                     Modifier.fillMaxWidth(), enabled = !state.busy, singleLine = true, shape = pill,
                     placeholder = { Text("Enter the six-character code") })
                 Text("Ask your friend for their room code.", style = MaterialTheme.typography.bodySmall, color = muted)
-            } else Text("Create a room and share its code with your friends.", style = MaterialTheme.typography.bodySmall, color = muted)
+            } else {
+                Text("Create a room and share its code with your friends.", style = MaterialTheme.typography.bodySmall, color = muted)
+                RoomRuleControls(state.settings, !state.busy, onSettings)
+            }
             Button(onClick = { if (host) onCreate(name) else onJoin(code, name) },
                 enabled = !state.busy && (host || code.length == 6),
                 modifier = Modifier.fillMaxWidth().height(40.dp), shape = pill) {
@@ -101,24 +118,101 @@ internal fun ListenTogetherContent(
             if (state.track.isNotEmpty()) Text("Now playing: ${state.track}", style = MaterialTheme.typography.titleSmall)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("In this room", style = MaterialTheme.typography.titleSmall)
-                state.members.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                if (state.memberDetails.isEmpty()) state.members.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                else state.memberDetails.forEach {
+                    Text(it.name + if (it.isHost) " · Host" else " · Guest", style = MaterialTheme.typography.bodyMedium)
+                    if (it.hasSlowConnection) Text("Slow connection", color = muted, style = MaterialTheme.typography.bodySmall)
+                }
             }
-            if (state.host) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Let guests control playback", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                Switch(state.guestControls, onGuestControls)
+            if (state.waitingForGuests) Text("Waiting for listeners to load the song…", style = MaterialTheme.typography.bodySmall)
+            if (state.poorConnection) Text("Your connection is slow. Playback may take longer to catch up.", style = MaterialTheme.typography.bodySmall)
+            if (state.closingAtMs != null) Text("This room will close soon because " +
+                if (state.closingReason == "empty") "no guests are connected." else "playback has been idle.", style = MaterialTheme.typography.bodySmall)
+            if (state.host) RoomRuleControls(state.settings, !state.busy, onSettings)
+            else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Room permissions", style = MaterialTheme.typography.titleSmall)
+                Text(buildList {
+                    if (state.settings.guestsCanControlPlayback) add("Play, pause and seek")
+                    if (state.settings.guestsCanAddSongs) add("Manage the queue")
+                    if (state.settings.guestsCanPlaySongs) add("Choose songs and skip")
+                    if (state.settings.requireApproval) add("Song requests need host approval")
+                }.joinToString(" · ").ifEmpty { "Only the host can change playback and the queue." },
+                    style = MaterialTheme.typography.bodySmall, color = muted)
             }
             if (state.host || state.guestControls) Button(onPlayback, Modifier.fillMaxWidth()) { Text("Play / pause for everyone") }
+            state.requests.filter { it.command != null }.forEach { request ->
+                Text("${request.name} wants to play ${request.track.title}", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button({ onRequest(request, true) }) { Text("Allow") }
+                    OutlinedButton({ onRequest(request, false) }) { Text("Decline") }
+                }
+            }
+            if (state.host || state.settings.guestsMayAddSongs) {
+                Text("Add a song", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(query, { query = it; onSearch(it) }, Modifier.fillMaxWidth(),
+                    singleLine = true, shape = pill, placeholder = { Text("Search songs") })
+                if (query.isNotBlank()) {
+                    OutlinedTextField(note, { note = it.take(500) }, Modifier.fillMaxWidth(),
+                        shape = pill, placeholder = { Text("Add a note (optional)") })
+                    if (state.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    state.searchResults.forEach { track ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(track.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                                Text(track.artist, style = MaterialTheme.typography.bodySmall, color = muted)
+                            }
+                            TextButton({ onRecommend(track, note); query = ""; note = ""; onSearch("") }) {
+                                Text(if (!state.host && state.settings.requireApproval) "Request" else "Add")
+                            }
+                        }
+                    }
+                    if (!state.searching && state.searchResults.isEmpty()) Text("No songs found", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             state.recommendations.filter { it.status == "pending" }.forEach { recommendation ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("${recommendation.track.title} — ${recommendation.track.artist}")
                     Text("Recommended by ${recommendation.name}", style = MaterialTheme.typography.bodySmall, color = muted)
+                    if (recommendation.note.isNotBlank()) Text(recommendation.note, style = MaterialTheme.typography.bodySmall)
                     if (state.host) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button({ onDecide(recommendation, true) }) { Text("Add to queue") }
+                        TextButton({ onPlayNow(recommendation) }) { Text("Play now") }
                         OutlinedButton({ onDecide(recommendation, false) }) { Text("Decline") }
                     } else Text("Waiting for the host", color = muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton({ onUpvote(recommendation) }) { Text("${if (state.uid in recommendation.upvotes) "Voted" else "Vote"} · ${recommendation.upvotes.size}") }
+                        if (state.host || recommendation.uid == state.uid) TextButton({ onRemove(recommendation) }) { Text("Remove") }
+                    }
                 }
             }
+            state.activity.takeLast(3).forEach { Text(it.message, style = MaterialTheme.typography.bodySmall, color = muted) }
             OutlinedButton(onLeave, Modifier.fillMaxWidth(), enabled = !state.busy) { Text(if (state.host) "End room" else "Leave room") }
+        }
+    }
+}
+
+@Composable
+private fun RoomRuleControls(settings: RoomSettings, enabled: Boolean, onChange: (RoomSettings) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Room rules", style = MaterialTheme.typography.titleSmall)
+        val rules = listOf(
+            Triple("Guests can add songs", "Manage the room queue", settings.guestsCanAddSongs),
+            Triple("Guests can control playback", "Play, pause and seek for everyone", settings.guestsCanControlPlayback),
+            Triple("Guests can play songs", "Pick any song or skip next/previous", settings.guestsCanPlaySongs),
+            Triple("Require approval", "Ask the host to approve adding or playing songs", settings.requireApproval))
+        rules.forEachIndexed { index, (title, description, checked) ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium)
+                    Text(description, style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current.copy(alpha = .65f))
+                }
+                Switch(checked, { value -> onChange(when(index) {
+                    0 -> settings.copy(guestsCanAddSongs = value)
+                    1 -> settings.copy(guestsCanControlPlayback = value)
+                    2 -> settings.copy(guestsCanPlaySongs = value)
+                    else -> settings.copy(requireApproval = value)
+                }) }, enabled = enabled)
+            }
         }
     }
 }

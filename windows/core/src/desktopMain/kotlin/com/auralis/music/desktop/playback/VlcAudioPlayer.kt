@@ -81,6 +81,16 @@ class VlcAudioPlayer private constructor(
                 else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) _state.value = State.PLAYING
             }
             override fun playing(mediaPlayer: MediaPlayer) {
+                if (roomStartHeld) {
+                    // Readiness begins on the paused callback, after the native pause.
+                    _state.value = State.BUFFERING
+                    // Native controls must run outside the libVLC event thread.
+                    mediaPlayer.submit {
+                        if (roomStartHeld) mediaPlayer.controls().setPause(true)
+                        else { anchorNanos = System.nanoTime(); _state.value = State.PLAYING }
+                    }
+                    return
+                }
                 // libVLC opens a fresh audio output per song; keep the device the user picked.
                 preferredDevice?.let { runCatching { mediaPlayer.audio().setOutputDevice(null, it) } }
                 anchorNanos = System.nanoTime()
@@ -135,6 +145,13 @@ class VlcAudioPlayer private constructor(
 
     fun pause() = player.controls().setPause(true)
     fun resume() = player.controls().setPause(false)
+    @Volatile private var roomStartHeld = false
+    fun holdStartForRoom() { roomStartHeld = true }
+    fun releaseRoomStart() {
+        val held = roomStartHeld
+        roomStartHeld = false
+        if (held && _state.value == State.PAUSED) resume()
+    }
 
     fun seekTo(ms: Long) {
         player.controls().setTime(ms.coerceAtLeast(0L))
