@@ -187,7 +187,7 @@ fun ImportPlaylistsScreen(
                                 Text(playlist.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
-                        Button({ onImportYouTubeLibraryPlaylists(all.filter { it.id in selectedPlaylists }) }, Modifier.fillMaxWidth(), enabled = selectedPlaylists.isNotEmpty() && !isImportingYouTube) {
+                        ImportActionButton({ onImportYouTubeLibraryPlaylists(all.filter { it.id in selectedPlaylists }) }, Modifier.fillMaxWidth(), enabled = selectedPlaylists.isNotEmpty() && !isImportingYouTube) {
                             Text(if (isImportingYouTube) "Importing…" else "Import selected (${selectedPlaylists.size})")
                         }
                     }
@@ -393,7 +393,7 @@ private fun YouTubeAccountCard(
 
                 Spacer(Modifier.height(12.dp))
 
-                Button(
+                ImportActionButton(
                     onClick = onOpenPicker,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = IMPORT_BUTTON_SURFACE,
@@ -459,7 +459,7 @@ private fun YouTubeAccountCard(
 
                 Spacer(Modifier.height(12.dp))
 
-                Button(
+                ImportActionButton(
                     onClick = onNavigateToAccount,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = IMPORT_BUTTON_SURFACE,
@@ -605,7 +605,7 @@ private fun YouTubeLinkCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
+            ImportActionButton(
                 onClick = {
                     if (youtubeUrlInput.isNotBlank() && !isImporting) {
                         onImport(youtubeUrlInput.trim())
@@ -807,7 +807,7 @@ private fun SpotifyLinkCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
+            ImportActionButton(
                 onClick = {
                     if (spotifyUrlInput.isNotBlank() && !isImporting) {
                         onImport(spotifyUrlInput.trim())
@@ -971,7 +971,7 @@ private fun SpotifyAccountCard(
         Text(str(Strings.spotify_account_description),
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 16.sp)
         Spacer(Modifier.height(12.dp))
-        Button(
+        ImportActionButton(
             onClick = if (signedIn) onImportAll else onSignIn,
             enabled = !isImporting && !isLoadingPlaylists,
             colors = ButtonDefaults.buttonColors(containerColor = IMPORT_BUTTON_SURFACE, contentColor = IMPORT_ON_ACCENT, disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE, disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = .55f)),
@@ -1105,7 +1105,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Button(
+            ImportActionButton(
                 onClick = { onImport(playlists.orEmpty().filter { it.id in selected }) },
                 enabled = selected.isNotEmpty() && !isImporting,
                 colors = ButtonDefaults.buttonColors(containerColor = IMPORT_BUTTON_SURFACE, contentColor = IMPORT_ON_ACCENT,
@@ -1367,7 +1367,7 @@ fun YouTubePlaylistPickerBottomSheet(
             Spacer(Modifier.height(12.dp))
 
             // Action button
-            Button(
+            ImportActionButton(
                 onClick = {
                     val toImport = playlists?.filter { it.id in selected }.orEmpty()
                     if (toImport.isNotEmpty()) {
@@ -1430,3 +1430,16 @@ private fun importChipColors() = FilterChipDefaults.filterChipColors(
     selectedContainerColor = Color.White.copy(alpha = .18f),
     labelColor = Color.White.copy(alpha = .75f), selectedLabelColor = Color.White
 )
+
+@Composable
+private fun ImportActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    shape: androidx.compose.ui.graphics.Shape = ButtonDefaults.shape,
+    colors: ButtonColors = ButtonDefaults.buttonColors(),
+    content: @Composable RowScope.() -> Unit
+) {
+    if (LocalImportGlass.current) com.auralis.music.ui.components.GlassActionButton(onClick, modifier, enabled, shape, colors, content)
+    else Button(onClick = onClick, modifier = modifier, enabled = enabled, shape = shape, colors = colors, content = content)
+}

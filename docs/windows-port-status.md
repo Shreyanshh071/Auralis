@@ -688,3 +688,8 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 ### 2026-10-13: Single-pass page scrolling
 - Removed the unused dock backdrop from the main page: its capture traversed scrolling content twice despite no dock using it. The main page now draws directly; popup capture remains active only for real glass overlays.
 - ScrollRenderingTest confirms the old two-pass capture, a single updated content pass, wheel motion over multiple frames, direction reversal, and stable settled text pixels. Render inspected.
+
+### 2026-10-13: Full import button highlights and Spotify glass
+- Compact import action buttons paint an animated hover/focus/press state over their full clipped bounds, including padding. Clicks, keyboard semantics and disabled states remain functional.
+- Spotify sign-in now uses the shared glass popup, translucent profile/action buttons and paste field, a close control, and parent scrolling.
+- ImportPopupTest, GlassButtonHoverTest and SpotifyGlassRenderTest passed; full-width hover pixels and captured Spotify backdrop rendered and inspected.
