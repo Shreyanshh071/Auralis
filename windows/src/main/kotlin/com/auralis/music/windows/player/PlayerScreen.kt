@@ -318,7 +318,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(size * .42f),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     HoverSlider(value = volume, onValueChange = playback::setVolume, vertical = true,
-                        thin = 8.dp, thick = 14.dp, hitSize = 28.dp, modifier = Modifier.weight(1f))
+                        thin = 14.dp, thick = 20.dp, hitSize = 28.dp, modifier = Modifier.weight(1f))
                     IconButton(onClick = playback::toggleMute, modifier = Modifier.size(30.dp)) {
                         Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
                             if (volume > 0f) "Mute" else "Unmute", tint = Color.White, modifier = Modifier.size(18.dp))
