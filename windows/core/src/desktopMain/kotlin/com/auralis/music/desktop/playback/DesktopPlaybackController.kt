@@ -28,6 +28,23 @@ class DesktopPlaybackController(
         val history: List<IndexedValue<Track>> get() = tracks.withIndex().take(index.coerceAtLeast(0)).filter { it.index in listenedIndices }
         val current: Track? get() = tracks.getOrNull(index)
         val hasNext: Boolean get() = index in 0 until tracks.lastIndex
+        /** Move unheard songs skipped over to after the selection, preserving heard-song order. */
+        fun retainUnplayed(): Queue {
+            if (current == null) return this
+            val heard = (0 until index).filter { it in listenedIndices }
+            val pending = (0 until index).filter { it !in listenedIndices }
+            val order = heard + index + pending + (index + 1 until tracks.size)
+            val heardPositions = order.withIndex().filter { it.value in listenedIndices }.map { it.index }.toSet()
+            return copy(tracks = order.map { tracks[it] }, index = heard.size, listenedIndices = heardPositions)
+        }
+
+        fun withoutHistory(): Queue {
+            if (current == null) return this
+            val keep = tracks.indices.filter { it == index || it !in listenedIndices }
+            val nextIndex = keep.indexOf(index)
+            return copy(tracks = keep.map { tracks[it] }, index = nextIndex,
+                listenedIndices = if (index in listenedIndices) setOf(nextIndex) else emptySet())
+        }
         fun afterFinished(repeat: RepeatMode): Queue? = when {
             current == null -> null
             repeat == RepeatMode.ONE -> this
@@ -275,8 +292,7 @@ class DesktopPlaybackController(
     fun clearHistory() {
         if (intercepted("edit_queue")) return
         val q = _queue.value
-        if (q.index <= 0) return
-        _queue.value = q.copy(tracks = q.tracks.drop(q.index), index = 0, listenedIndices = emptySet())
+        _queue.value = q.withoutHistory()
     }
 
     fun setVolume(volume: Float) {
@@ -291,7 +307,10 @@ class DesktopPlaybackController(
         player.release()
     }
 
-    private fun load(q: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
+    private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
+        // Room queues retain the host's shared positions. Local selections keep every unheard
+        // song available after the selection instead of hiding the skipped-over range.
+        val q = if (roomControl == null) requested.retainUnplayed() else requested
         val track = q.current ?: return
         if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
