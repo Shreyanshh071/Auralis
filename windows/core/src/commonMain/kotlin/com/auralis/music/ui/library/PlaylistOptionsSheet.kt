@@ -24,7 +24,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import com.auralis.music.ui.components.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -281,7 +281,7 @@ fun PlaylistOptionsBottomSheet(
         }
         com.auralis.music.ui.components.GlassContextMenu(anchor = glassAnchor, items = items, onDismiss = onDismiss)
     } else if (activeDialog == null) com.auralis.music.ui.components.CoverSheetTheme {
-        ModalBottomSheet(
+        com.auralis.music.ui.components.OptionsModalBottomSheet(
             onDismissRequest = onDismiss,
             containerColor = com.auralis.music.ui.components.CoverSheetFloor,
             contentColor = Color.White,
@@ -299,8 +299,8 @@ fun PlaylistOptionsBottomSheet(
                     .navigationBarsPadding()
                     .padding(horizontal = 20.dp)
             ) {
-                // ── DRAG HANDLE ──
-                Box(
+                // ── DRAG HANDLE ── (not in the Windows menu)
+                if (!com.auralis.music.ui.components.LocalOptionsSheetInMenu.current) Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 10.dp, bottom = 12.dp),

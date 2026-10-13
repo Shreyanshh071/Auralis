@@ -263,6 +263,10 @@ fun main(args: Array<String>) {
         "player-mesh" to { com.auralis.music.windows.player.PlayerBackdrop("Live Mesh", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
         "player-glow" to { com.auralis.music.windows.player.PlayerBackdrop("Glow motion", null, coverPalette) },
         "player-dynamic" to { com.auralis.music.windows.player.PlayerBackdrop("Dynamic", previewSongs.firstOrNull()?.thumbnail, coverPalette) },
+        "menu-playlist" to { MenuPreview { com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
+            com.auralis.music.domain.model.Playlist("p1", "gili gili", "Imported from Spotify", previewSongs.firstOrNull()?.thumbnail, tracks = previewSongs.take(5)), onDismiss = {}) } },
+        "menu-song" to { MenuPreview { @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) com.auralis.music.ui.components.TrackOptionsMenu(track = previewSongs.first(), isFavorite = true,
+            userPlaylists = emptyList(), onToggleFavorite = {}, onPlayNext = {}, onAddToQueue = {}, onAddToPlaylist = {}, onCreatePlaylistAndAdd = {}, onDismiss = {}) } },
         "lyrics-fluid" to { LyricRendererPreview(fluid = true) },
         "lyrics-letters" to { LyricRendererPreview(fluid = false) },
         "lyrics-dots" to {
@@ -323,7 +327,7 @@ fun main(args: Array<String>) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
             val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
+                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "menu-playlist", "menu-song" -> 860; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
@@ -380,3 +384,14 @@ private fun previewLibraryEntries(songs: List<com.auralis.music.domain.model.Tra
     listOf("Late night drive", "Gym", "Hindi hits", "Indie mix", "Lo-fi").mapIndexed { i, name ->
         com.auralis.music.windows.LibraryEntry("local:$i", name, "Playlist · ${12 + i * 7} songs", songs.getOrNull(i)?.thumbnail) {}
     }
+
+/** An options sheet as the Windows menu shows it, over a busy page so the glass shows. */
+@Composable
+private fun MenuPreview(sheet: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(
+        listOf(androidx.compose.ui.graphics.Color(0xFF3A2440), androidx.compose.ui.graphics.Color(0xFF14202E)))).padding(24.dp)) {
+        androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.components.LocalOptionsSheetHost provides { _, content ->
+            com.auralis.music.windows.library.OptionsMenuSurface(800.dp, content)
+        }) { sheet() }
+    }
+}

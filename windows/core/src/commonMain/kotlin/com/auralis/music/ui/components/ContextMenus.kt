@@ -90,6 +90,8 @@ val CoverSheetFloor = Color(0xFF121212)
  */
 @Composable
 fun CoverSheetBackground(artworkUrl: String?) {
+    // The Windows menu is translucent glass of its own, not the item's cover.
+    if (LocalOptionsSheetInMenu.current) return
     LocalCoverSheetBackground.current(artworkUrl)
 }
 

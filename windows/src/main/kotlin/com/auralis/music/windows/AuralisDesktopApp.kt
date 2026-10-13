@@ -424,11 +424,9 @@ fun AuralisDesktopApp(
             openArtist = { name -> showPlayer = false; browse.openArtist(com.auralis.music.domain.model.Artist(id = "", name = name)) },
             openAlbum = { track -> showPlayer = false; browse.openTrackAlbum(track) { showUnavailable("Couldn't find that album") } }
         ),
-        // Song menus frost the app's own backdrop (like the search dropdown), not the clicked song's cover.
-        com.auralis.music.ui.components.LocalTrackContextMenu provides { items, _, dismiss ->
-            com.auralis.music.windows.library.DesktopSongContextMenu(items, dismiss) {
-                com.auralis.music.windows.library.SongMenuFrost(if (liquidify) queue?.current?.thumbnail else null)
-            }
+        // Song, album and playlist options: the phone's sheets, as a glass menu at the right-click or ⋮.
+        com.auralis.music.ui.components.LocalOptionsSheetHost provides { dismiss, content ->
+            com.auralis.music.windows.library.OptionsMenuPopup(dismiss, content)
         }
     ) {
         if (showImport) GlassDialog({ showImport = false }) {
@@ -566,13 +564,23 @@ fun AuralisDesktopApp(
                               com.auralis.music.ui.library.LibrarySourceFilter.YOUTUBE -> "YouTube Music"
                               else -> "Playlist"
                           }
-                          add(LibraryEntry("local:${p.id}", p.title, "$source · ${p.tracks.size} songs", p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail) {
+                          add(LibraryEntry("local:${p.id}", p.title, "$source · ${p.tracks.size} songs", p.coverUrl ?: p.tracks.firstOrNull()?.thumbnail,
+                              menu = { playlistMenu = p }) {
                               openLibrary("local:${p.id}") { libraryViewModel.selectPlaylist(p.id, p) }
                           })
                       }
                   }.distinctBy { it.key }
                   Row(Modifier.fillMaxSize().padding(8.dp)) {
                     Box(Modifier.width(leftDisplay).fillMaxHeight().clip(panelShape)) {
+                        playlistMenu?.let { p ->
+                            com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
+                                playlist = p,
+                                onDismiss = { playlistMenu = null },
+                                onEditPlaylist = libraryViewModel::editPlaylist,
+                                onAddToQueue = { tracks -> tracks.forEach { playback?.addToQueue(it) } },
+                                onDeletePlaylist = { libraryViewModel.deletePlaylist(p.id); playlistMenu = null }
+                            )
+                        }
                         NavigationSidebar(
                             selected = if (browse.top != null) null else when (destination) {
                                 DesktopDestination.HOME -> SidebarPage.HOME

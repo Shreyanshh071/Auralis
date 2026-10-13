@@ -14,7 +14,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import com.auralis.music.ui.components.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -425,7 +425,7 @@ fun ArtistScreen(
             // ================================================================
             // 3. ABOUT SECTION (Subscribers, Monthly Audience, Bio)
             // ================================================================
-            // Settings â†’ Content â†’ Artist page decides which of the three show.
+            // Settings → Content → Artist page decides which of the three show.
             val shownSubscribers = artistPage.subscribers.takeIf { contentSettings.showArtistSubscriberCount }
             val shownMonthly = artistPage.monthlyAudience.takeIf { contentSettings.showMonthlyListeners }
             val shownDescription = artistPage.description.takeIf { contentSettings.showArtistDescription }
@@ -640,7 +640,7 @@ fun ArtistScreen(
                                 val durationStr = if (track.duration > 0) {
                                     val mins = track.duration / 60
                                     val secs = track.duration % 60
-                                    " â€¢ %d:%02d".format(mins, secs)
+                                    " • %d:%02d".format(mins, secs)
                                 } else ""
 
                                 Text(
