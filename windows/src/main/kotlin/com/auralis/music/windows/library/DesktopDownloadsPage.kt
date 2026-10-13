@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.Alignment
@@ -25,9 +26,12 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
     var selected by remember { mutableStateOf<String?>(null) }
     val groups = entries.groupBy { it.groupId }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(if (selected == null) "Downloads" else groups[selected]?.firstOrNull()?.groupName ?: "Downloads", style = MaterialTheme.typography.headlineLarge)
-            TextButton(onClick = { if (selected == null) back() else selected = null }) { Text("Back") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(onClick = { if (selected == null) back() else selected = null }) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+            }
+            Text(if (selected == null) "Downloads" else groups[selected]?.firstOrNull()?.groupName ?: "Downloads",
+                modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
         }
         Text("Saved on this computer · ${downloads.root.absolutePath}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (entries.isEmpty()) {
@@ -90,7 +94,12 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                     Column(Modifier.fillMaxWidth().clickable(enabled = available) {
                         playback?.playFrom(e.track, values.filter(downloads::available).map { it.track }, automatic = false)
                     }.padding(12.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.auralis.music.ui.components.ArtworkCard(
+                                url = e.track.thumbnail.takeIf { it.isNotBlank() } ?: e.coverUrl,
+                                fallbackTrack = e.track, modifier = Modifier.size(56.dp),
+                                cornerRadius = 8.dp, contentDescription = "Cover for ${e.track.title}")
                             Column(Modifier.weight(1f)) {
                                 Text(e.track.title, style = MaterialTheme.typography.titleMedium)
                                 Text(e.track.artist, color = MaterialTheme.colorScheme.onSurfaceVariant)

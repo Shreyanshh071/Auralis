@@ -713,3 +713,6 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 
 ### 2026-10-13: Simplify the Library header
 - Removed the History, Listen Together and Profile icon buttons from the Windows Library heading.
+
+### 2026-10-13: Download folder song artwork
+- Songs inside download folders now display their cover beside title, artist and download status. The Downloads/folder back arrow is on the left of the heading.
