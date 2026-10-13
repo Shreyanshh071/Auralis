@@ -652,29 +652,6 @@ fun LibraryScreen(
                                 )
                             }
 
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = onOpenHistory,
-                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                                ) {
-                                    Icon(Icons.Default.History, contentDescription = str(Strings.history), tint = themeOnBackground.copy(alpha = 0.85f))
-                                }
-                                IconButton(
-                                    onClick = onOpenListenTogether,
-                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                                ) {
-                                    Icon(Icons.Default.Groups, contentDescription = str(Strings.listen_together), tint = themeOnBackground.copy(alpha = 0.85f))
-                                }
-                                IconButton(
-                                    onClick = onOpenProfile,
-                                    modifier = Modifier.tactileBounce(scaleDown = 0.90f)
-                                ) {
-                                    Icon(Icons.Default.AccountCircle, contentDescription = str(Strings.profile), tint = themeOnBackground.copy(alpha = 0.85f))
-                                }
-                            }
                         }
 
                     }
