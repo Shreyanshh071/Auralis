@@ -23,16 +23,27 @@ internal data class YouTubeScope(val version: String = "1.20250101.01.00", val a
 
 /** YouTube Music requests scoped to a snapshot of the selected browser session; writes use the selected account. */
 internal class YouTubeMusicClient(
-    private val cookie: String = YouTubeSession.authHeaders(ORIGIN)["Cookie"].orEmpty(),
+    cookie: String = YouTubeSession.authHeaders(ORIGIN)["Cookie"].orEmpty(),
     authUser: String = "0",
-    private val transport: (String, JSONObject?, Map<String, String>) -> String = ::youtubeHttp
+    private val transport: ((String, JSONObject?, Map<String, String>) -> String)? = null
 ) {
+    @Volatile private var cookie: String = cookie
+    val sessionCookie: String get() = cookie
+    private fun send(url: String, body: JSONObject?, headers: Map<String, String>): String =
+        transport?.invoke(url, body, headers) ?: youtubeHttp(url, body, headers) { updates ->
+            synchronized(this) {
+                val previous = cookie
+                cookie = mergeYouTubeCookies(previous, updates)
+                YouTubeSession.refreshCookies(previous, cookie)
+            }
+        }
+
     companion object { const val ORIGIN = "https://music.youtube.com" }
     var scope = YouTubeScope(authUser = authUser); private set
 
     suspend fun resolveScope() = withContext(Dispatchers.IO) {
         check(YouTubeSession.hasAuthCookies(cookie)) { "Sign in to YouTube Music to load your library." }
-        val html = transport("$ORIGIN/?authuser=${scope.authUser}", null, headers())
+        val html = send("$ORIGIN/?authuser=${scope.authUser}", null, headers())
         check(!Regex("\"LOGGED_IN\"\\s*:\\s*false").containsMatchIn(html)) {
             "Your YouTube session has expired. Please reconnect your browser profile."
         }
@@ -68,7 +79,7 @@ internal class YouTubeMusicClient(
         scope.dataSyncId?.let { user.put("onBehalfOfUser", it) }
         extras.put("context", JSONObject().put("client", client).put("user", user)
             .put("request", JSONObject().put("useSsl", true)))
-        val result = JSONObject(transport("$ORIGIN/youtubei/v1/$endpoint?prettyPrint=false", extras, headers()))
+        val result = JSONObject(send("$ORIGIN/youtubei/v1/$endpoint?prettyPrint=false", extras, headers()))
         check(!result.has("error")) { "YouTube couldn't load this account. Please reconnect or try again." }
         result
     }
@@ -139,8 +150,20 @@ internal class YouTubeMusicClient(
     }
 }
 
+/** Only cookies returned by YouTube itself are merged; browser profiles are not reread. */
+internal fun mergeYouTubeCookies(current: String, updates: List<okhttp3.Cookie>): String {
+    val merged = YouTubeSession.parseCookies(current).toMutableMap()
+    updates.forEach { cookie ->
+        if (cookie.domain == "youtube.com" || cookie.domain == "music.youtube.com") {
+            if (cookie.expiresAt <= System.currentTimeMillis()) merged.remove(cookie.name)
+            else merged[cookie.name] = cookie.value
+        }
+    }
+    return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
+}
+
 private val youtubeHttpClient by lazy { NetworkClientProvider.okHttpClient.newBuilder().callTimeout(25, TimeUnit.SECONDS).build() }
-private fun youtubeHttp(url: String, body: JSONObject?, headers: Map<String, String>): String {
+private fun youtubeHttp(url: String, body: JSONObject?, headers: Map<String, String>, onCookies: (List<okhttp3.Cookie>) -> Unit): String {
     val request = Request.Builder().url(url)
     headers.forEach { (key, value) -> request.header(key, value) }
     if (body != null) request.post(body.toString().toRequestBody("application/json".toMediaType()))
@@ -148,6 +171,11 @@ private fun youtubeHttp(url: String, body: JSONObject?, headers: Map<String, Str
         check(response.isSuccessful) { if (response.code in listOf(401, 403))
             "Your YouTube session needs reconnecting. Select your browser profile again."
             else "YouTube couldn't load your library. Please try again." }
+        if (response.request.url.host == "music.youtube.com") {
+            val updates = okhttp3.Cookie.parseAll(response.request.url, response.headers)
+                .filter { it.matches(response.request.url) }
+            if (updates.isNotEmpty()) onCookies(updates)
+        }
         response.body?.string() ?: error("YouTube returned an empty response. Please try again.")
     }
 }

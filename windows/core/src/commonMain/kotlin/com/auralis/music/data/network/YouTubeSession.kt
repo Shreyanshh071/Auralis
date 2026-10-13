@@ -54,9 +54,14 @@ object YouTubeSession {
         _signedIn.value = hasAuthCookies(cookie)
     }
 
+    private val _revision = MutableStateFlow(0L)
+    /** Reconnection changes even when the account label and signed-in flag stay the same. */
+    val revision: StateFlow<Long> = _revision.asStateFlow()
+
     val isSignedIn: Boolean get() = _signedIn.value
 
-    fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "") {
+    @Synchronized fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "") {
+        val changed = this.cookie != cookie || this.authUser != authUser.filter(Char::isDigit).ifBlank { "0" }
         this.cookie = cookie
         this.visitorData = visitorData
         this.authUser = authUser.filter(Char::isDigit).ifBlank { "0" }
@@ -70,9 +75,20 @@ object YouTubeSession {
         ))
         _accountLabel.value = accountLabel
         _signedIn.value = hasAuthCookies(cookie)
+        if (changed) _revision.value++
     }
 
-    fun signOut() {
+    /** A response from an older account must never replace a newly connected session. */
+    @Synchronized fun refreshCookies(expected: String, updated: String): Boolean {
+        if (cookie != expected || !hasAuthCookies(updated)) return false
+        if (updated != cookie) {
+            cookie = updated
+            prefs?.putStrings(mapOf(KEY_COOKIE to updated))
+        }
+        return true
+    }
+
+    @Synchronized fun signOut() {
         cookie = ""
         visitorData = ""
         authUser = "0"
@@ -80,6 +96,7 @@ object YouTubeSession {
         prefs?.clear()
         _accountLabel.value = ""
         _signedIn.value = false
+        _revision.value++
     }
 
     /** "12345||" or "12345||67890" -> "12345": the part YouTube binds tokens to. */
