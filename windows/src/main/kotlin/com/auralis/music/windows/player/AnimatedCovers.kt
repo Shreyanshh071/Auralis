@@ -65,7 +65,8 @@ internal object CanvasLookup {
 
     suspend fun find(track: Track, source: CanvasSource): String? = withContext(Dispatchers.IO) {
         if (track.title.isBlank() || track.artist.isBlank()) return@withContext null
-        val key = "${source.name}|${norm(track.title)}|${norm(track.artist)}"
+        // v2: full-size Tidal links (v1 stored 640x640 ones).
+        val key = "v2|${source.name}|${norm(track.title)}|${norm(track.artist)}"
         found[key]?.let { return@withContext it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
@@ -163,8 +164,8 @@ internal object CanvasLookup {
             if (!titleMatch(track.title, item.optString("title")) || !artistMatch(track.artist, names)) continue
             val cover = item.optJSONObject("album")?.optString("videoCover")?.takeIf { it.isNotBlank() && it != "null" } ?: continue
             val parts = cover.split("-")
-            // 640x640 is plenty for the player and far lighter to decode than 1280x1280.
-            if (parts.size == 5) return "https://resources.tidal.com/videos/${parts.joinToString("/")}/640x640.mp4"
+            // The full 1280x1280: the player's cover is large, and 640 looked soft on it.
+            if (parts.size == 5) return "https://resources.tidal.com/videos/${parts.joinToString("/")}/1280x1280.mp4"
         }
         return null
     }
@@ -203,7 +204,8 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier, artwork
                 onDispose { stop?.invoke() }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
-            frame?.let { Image(it, null, Modifier.matchParentSize().alpha(shown), contentScale = ContentScale.Crop) }
+            frame?.let { Image(it, null, Modifier.matchParentSize().alpha(shown), contentScale = ContentScale.Crop,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High) }
         }
     }
 }
