@@ -181,6 +181,7 @@ tasks.register<JavaExec>("probeStream") {
 tasks.register<JavaExec>("probeHome") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeHomeKt")
+    args = listOfNotNull(findProperty("args")?.toString())
 }
 
 // Development check: ./gradlew :windows:probeCanvas -Pargs="Title::Artist" (animated covers; no window or sound)

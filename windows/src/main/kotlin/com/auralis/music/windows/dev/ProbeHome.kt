@@ -12,7 +12,12 @@ import java.io.File
  * browser is read) and prints each shelf's first covers with whether they load. Read only.
  * usage: probeHome
  */
-fun main() = runBlocking {
+fun main(args: Array<String>) = runBlocking {
+    // probeHome -Pargs=signin: the sign-in window's browser pipe, unseen (no window, no account).
+    if (args.firstOrNull() == "signin") {
+        println("SIGNIN " + com.auralis.music.windows.profile.YouTubeBrowserSignIn.devtoolsCheck())
+        return@runBlocking
+    }
     YouTubeSession.init(com.auralis.music.windows.profile.ProtectedYouTubeStore(File(desktopAppDataDir(), "youtube-session.properties")))
     check(YouTubeSession.isSignedIn) { "No YouTube session saved in the app" }
     val headers = YouTubeSession.authHeaders(YouTubeMusicClient.ORIGIN)
