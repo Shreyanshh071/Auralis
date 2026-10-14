@@ -34,7 +34,8 @@ import com.auralis.music.windows.search.DesktopArtwork
 
 /** The card's height; it floats this far plus [UpNextPeekGap] above the bar. */
 internal val UpNextPeekHeight = 56.dp
-internal val UpNextPeekGap = 6.dp
+/** The panels' own 8dp gap above the bar, so the card's bottom sits on their bottom edge. */
+internal val UpNextPeekGap = 8.dp
 
 /**
  * The next song in its own small card just above the mini player (Spotify's): its cover, then

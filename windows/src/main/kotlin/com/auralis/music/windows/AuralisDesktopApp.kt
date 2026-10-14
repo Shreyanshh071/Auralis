@@ -842,7 +842,8 @@ fun AuralisDesktopApp(
                 // The next song in its own card just above the bar, lined up with the bar's cover.
                 Box {
                 com.auralis.music.windows.player.UpNextPeek(playback,
-                    Modifier.align(Alignment.TopStart).padding(start = 12.dp)
+                    // Lined up with the Library panel: same 8dp left edge, bottom on the panels' bottom edge.
+                    Modifier.align(Alignment.TopStart).padding(start = 8.dp)
                         .offset(y = -(com.auralis.music.windows.player.UpNextPeekHeight + com.auralis.music.windows.player.UpNextPeekGap)))
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
