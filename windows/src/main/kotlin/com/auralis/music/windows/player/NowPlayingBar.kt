@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -117,7 +118,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         // Controls and seek bar (centre)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.weight(1.4f).widthIn(max = 640.dp)
+            // A little below centre: the controls and the seek bar's touch area are taller than the
+            // bar, so centred the buttons touched (and were cut by) its top edge.
+            modifier = Modifier.weight(1.4f).widthIn(max = 640.dp).offset(y = 7.dp)
         ) {
             val enabled = track != null
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
