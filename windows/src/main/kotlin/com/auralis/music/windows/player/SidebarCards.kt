@@ -2,6 +2,7 @@ package com.auralis.music.windows.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -124,9 +125,16 @@ internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpe
         (if (showAll) people else people.take(3)).forEach { person ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    // A link: underlined while hovered, no grey box (the default highlight hugged the text).
+                    val nameHover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    val nameHovered by nameHover.collectIsHoveredAsState()
+                    val linked = person.channelId != null
                     Text(person.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = if (person.channelId != null) Modifier.clickable { onOpenArtist(Artist(person.channelId, person.name)) } else Modifier)
+                        textDecoration = if (linked && nameHovered) androidx.compose.ui.text.style.TextDecoration.Underline else null,
+                        modifier = if (linked) Modifier.clickable(interactionSource = nameHover, indication = null) {
+                            onOpenArtist(Artist(person.channelId!!, person.name))
+                        } else Modifier)
                     Text(person.roles.joinToString(" • "), fontSize = 12.sp, color = Color.White.copy(alpha = .65f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis)
                 }

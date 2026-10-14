@@ -10,7 +10,9 @@ object CanvasVideoEngine {
     private val factory by lazy {
         runCatching {
             uk.co.caprica.vlcj.factory.MediaPlayerFactory("--quiet", "--intf=dummy", "--no-audio", "--no-osd", "--no-video-title-show",
-                "--no-snapshot-preview", "--adaptive-maxwidth=720", "--adaptive-maxheight=720")
+                // The best version of the stream (Apple's HLS starts low and a 720 cap kept it there:
+                // ~500px video stretched over the cover), up to 1440 square.
+                "--no-snapshot-preview", "--adaptive-logic=highest", "--adaptive-maxwidth=1440", "--adaptive-maxheight=1440")
         }.onFailure { Log.w("AnimatedCovers", "No video playback available: ${it.message}") }.getOrNull()
     }
     val available: Boolean get() = factory != null
