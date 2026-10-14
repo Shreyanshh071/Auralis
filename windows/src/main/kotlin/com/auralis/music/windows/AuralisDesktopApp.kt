@@ -834,11 +834,11 @@ fun AuralisDesktopApp(
                     }
                   }
                 }
-                // The next song peeks out above the bar (drawn first, so the bar covers its lower edge).
+                // The next song in its own card just above the bar, lined up with the bar's cover.
                 Box {
                 com.auralis.music.windows.player.UpNextPeek(playback,
-                    Modifier.align(Alignment.TopStart).padding(start = 16.dp)
-                        .offset(y = -com.auralis.music.windows.player.UpNextPeekHeight))
+                    Modifier.align(Alignment.TopStart).padding(start = 12.dp)
+                        .offset(y = -(com.auralis.music.windows.player.UpNextPeekHeight + com.auralis.music.windows.player.UpNextPeekGap)))
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
                     onOpenPlayer = { if (canShowPlayer) showPlayer = true },
