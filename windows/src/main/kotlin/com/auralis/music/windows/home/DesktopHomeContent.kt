@@ -18,15 +18,20 @@ internal data class DesktopHomeContent(
 )
 
 /** Keep starter content out of personal rotation and avoid repeating the same song on every shelf. */
-internal fun desktopHomeContent(state: HomeUiState, moreSections: List<HomeSection> = emptyList()): DesktopHomeContent {
+internal fun desktopHomeContent(
+    state: HomeUiState,
+    moreSections: List<HomeSection> = emptyList(),
+    tasteShelf: DesktopHomeShelf? = null
+): DesktopHomeContent {
     val personalized = state.recentTracks.isNotEmpty() || state.topPlayedTracks.isNotEmpty()
     val filtered = state.selectedChip != null
     val dial = state.speedDialPages.flatten().filter {
         it.type in setOf(SpeedDialType.TRACK, SpeedDialType.ALBUM, SpeedDialType.PLAYLIST, SpeedDialType.ARTIST)
     }
-    val pins = dial.filter { it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds }
-    val recents = if (filtered) emptyList() else state.recentTracks.map { it.track }
-        .filter { it.id.isNotBlank() }.distinctBy { it.id }.take(24)
+    val pins = (state.pinnedItems + dial).filter { it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds }
+    val recents = if (filtered) emptyList() else com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(
+        state.recentTracks.map { it.track }.filter { it.id.isNotBlank() }
+    ).take(24)
     val shortcuts = (if (filtered) emptyList() else if (personalized) pins else dial).distinctBy {
         when (it.type) {
             SpeedDialType.TRACK -> "track:${it.track?.id ?: it.id}"
@@ -41,7 +46,18 @@ internal fun desktopHomeContent(state: HomeUiState, moreSections: List<HomeSecti
     val picks = fresh(if (filtered) emptyList() else state.quickPicks, 9)
     val shelves = mutableListOf<DesktopHomeShelf>()
     val usedAlbums = shortcuts.mapNotNull { it.album?.id }.toMutableSet()
+    var tasteInserted = false
     fun feed(values: List<HomeSection>, prefix: String) = values.forEachIndexed { index, section ->
+        val isReleases = section.title.equals("Albums & singles", ignoreCase = true) ||
+            section.title.equals("New releases", ignoreCase = true) ||
+            section.title.equals("New albums & singles", ignoreCase = true)
+        if (isReleases && tasteShelf != null && tasteShelf.albums.isNotEmpty()) {
+            if (!tasteInserted) {
+                shelves += tasteShelf
+                tasteInserted = true
+            }
+            return@forEachIndexed
+        }
         val tracks = fresh(section.items, 24)
         val albums = section.albums.filter { it.id.isNotBlank() && it.id !in usedAlbums }.distinctBy { it.id }.take(24)
         usedAlbums.addAll(albums.map { it.id })
@@ -49,6 +65,10 @@ internal fun desktopHomeContent(state: HomeUiState, moreSections: List<HomeSecti
             "$prefix-$index", section.title, section.subtitle, tracks, albums)
     }
     feed(state.dynamicSections, "feed")
+    if (!tasteInserted && tasteShelf != null && tasteShelf.albums.isNotEmpty() && !filtered) {
+        shelves.add(0, tasteShelf)
+        tasteInserted = true
+    }
     fun songs(id: String, title: String, tracks: List<Track>, subtitle: String? = null) {
         fresh(tracks, 12).takeIf { it.isNotEmpty() }?.let { shelves += DesktopHomeShelf(id, title, subtitle, tracks = it) }
     }

@@ -29,6 +29,23 @@ class AccountFlowTest {
         assertTrue(failure?.message?.contains("cancelled or denied") == true)
     }
 
+    @Test fun googleLoginUriContainsSelectAccountPromptAndPkce() = runBlocking {
+        var capturedUri: URI? = null
+        val failure = runCatching {
+            DesktopGoogleLogin.idToken { uri ->
+                capturedUri = uri
+                val params = DesktopGoogleLogin.parseQuery(uri.rawQuery)
+                assertEquals("select_account", params["prompt"])
+                assertEquals("code", params["response_type"])
+                assertEquals("S256", params["code_challenge_method"])
+                val redirect = params.getValue("redirect_uri")
+                URI("${redirect}?state=${params.getValue("state")}&error=access_denied").toURL().openStream().use { it.readBytes() }
+            }
+        }.exceptionOrNull()
+        assertNotNull(capturedUri)
+        assertTrue(failure?.message?.contains("cancelled or denied") == true)
+    }
+
     @Test fun firebaseEmailGoogleAndRefreshUseExistingAccountRatherThanAnonymousSignup() {
         val calls = mutableListOf<String>()
         val api = FirestoreRest("test", "test-key") { url, _, body, _ ->

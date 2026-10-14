@@ -77,9 +77,16 @@ object LocalStreamRelay {
     /** A local URL for libVLC that serves [upstreamUrl]; [refresh] fetches a new URL for the same song. */
     fun register(upstreamUrl: String, refresh: (() -> String?)? = null): String {
         val token = UUID.randomUUID().toString()
-        streams[token] = Stream(upstreamUrl, refresh, length = clenOf(upstreamUrl))
+        val stream = Stream(upstreamUrl, refresh, length = clenOf(upstreamUrl))
+        streams[token] = stream
         registrationOrder.add(token)
         while (streams.size > 4) registrationOrder.poll()?.let { streams.remove(it)?.generation?.incrementAndGet() }
+        // Pre-warm the first block immediately so it's ready in memory when libVLC connects
+        prefetcher.execute {
+            runCatching {
+                cachedBlock(stream, 0L, minOf(CHUNK_BYTES - 1, if (stream.length > 0) stream.length - 1 else CHUNK_BYTES - 1))
+            }
+        }
         return "http://127.0.0.1:${server.address.port}/s/$token"
     }
 
@@ -221,6 +228,10 @@ object LocalStreamRelay {
                         }
                     } else {
                         Log.w(TAG, "HTTP ${response.code} for bytes $from-$to (attempt ${attempt + 1})")
+                        if (response.code == 403) {
+                            DesktopStreamResolver.markHostFailed(stream.url)
+                            return null
+                        }
                     }
                 }
             } catch (e: IOException) {

@@ -25,11 +25,44 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
         collages = updated
     }
     val candidates = playlists.map { p ->
-        val album = PlaylistResult("local:${p.id}", p.title, p.coverUrl ?: collages[p.id] ?: p.tracks.firstOrNull()?.thumbnail,
-            "Playlist · ${p.tracks.size} songs")
+        val thumb = p.coverUrl?.takeIf { it.isNotBlank() } ?: collages[p.id] ?: p.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+        val album = PlaylistResult("local:${p.id}", p.title, thumb, "Playlist · ${p.tracks.size} songs")
         SpeedDialItem("album-${album.id}", p.title, SpeedDialType.ALBUM, album.thumbnail, album = album)
     } + artists.map { a -> SpeedDialItem(a.id, a.name, SpeedDialType.ARTIST, a.thumbnail, artistQuery = a.query ?: a.name) }
-    val pins = state.speedDialPages.flatten().filter { it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds }.distinctBy { it.id }
+    val pinnedCandidateMatches = candidates.filter { candidate ->
+        val candAlbum = candidate.album
+        val candAlbumId = candAlbum?.id
+        candidate.id in state.pinnedSpeedDialIds ||
+        (candAlbumId != null && (candAlbumId in state.pinnedSpeedDialIds || "album-$candAlbumId" in state.pinnedSpeedDialIds)) ||
+        state.pinnedItems.any { pin ->
+            val pinAlbum = pin.album
+            pin.id == candidate.id ||
+            (pinAlbum != null && candAlbum != null && (pinAlbum.id == candAlbum.id || pinAlbum.id.removePrefix("local:") == candAlbum.id.removePrefix("local:"))) ||
+            (pin.type == SpeedDialType.ARTIST && candidate.type == SpeedDialType.ARTIST && (pin.id == candidate.id || pin.name.equals(candidate.name, true)))
+        }
+    }
+    val pagePins = state.speedDialPages.flatten().filter {
+        it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds
+    }
+    val pins = (state.pinnedItems + pinnedCandidateMatches + pagePins).filter { item ->
+        val itemAlbum = item.album
+        item.isPinned ||
+        item.id in state.pinnedSpeedDialIds ||
+        itemAlbum?.id in state.pinnedSpeedDialIds ||
+        item.track?.id in state.pinnedSpeedDialIds ||
+        state.pinnedItems.any { p ->
+            val pAlbum = p.album
+            p.id == item.id ||
+            (pAlbum != null && itemAlbum != null && (pAlbum.id == itemAlbum.id || pAlbum.id.removePrefix("local:") == itemAlbum.id.removePrefix("local:")))
+        }
+    }.distinctBy { item ->
+        when (item.type) {
+            SpeedDialType.TRACK -> item.track?.id ?: item.id
+            SpeedDialType.ALBUM -> item.album?.id?.removePrefix("local:") ?: item.id.removePrefix("album-").removePrefix("VL")
+            SpeedDialType.ARTIST -> item.id
+            else -> item.id
+        }
+    }
     var menu by remember { mutableStateOf<SpeedDialItem?>(null) }
     val open: (SpeedDialItem) -> Unit = { item ->
         when (item.type) {
@@ -38,12 +71,21 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
             SpeedDialType.ALBUM -> {
                 val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image)
                 if (album.id.startsWith("local:")) onOpenPlaylist(album.id.removePrefix("local:"))
+                else if (item.id.removePrefix("album-").startsWith("local:")) onOpenPlaylist(item.id.removePrefix("album-").removePrefix("local:"))
                 else { onBrowse(); browse.openAlbum(album) }
             }
             SpeedDialType.ARTIST -> {
                 onBrowse(); browse.openArtist(Artist(item.id.takeIf { it.startsWith("UC") }.orEmpty(), item.artistQuery ?: item.name, item.image))
             }
             else -> Unit
+        }
+    }
+    val allCovers = remember(playlists) {
+        buildMap {
+            playlists.forEach {
+                put("local:${it.id}", it)
+                put(it.id, it)
+            }
         }
     }
     HomeShortcuts(pins, candidates, open, { item ->
@@ -53,7 +95,7 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
             else -> Unit
         }
     }, { viewModel.unpinFromSpeedDial(it.id) }, onMenu = { menu = it },
-        playlistCovers = playlists.associateBy { "local:${it.id}" }, sidebar = true, collapsed = collapsed)
+        playlistCovers = allCovers, sidebar = true, collapsed = collapsed)
     menu?.let { item ->
         val track = item.track
         if (item.type == SpeedDialType.TRACK && track != null) {

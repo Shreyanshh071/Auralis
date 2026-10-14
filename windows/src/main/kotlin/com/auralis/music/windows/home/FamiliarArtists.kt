@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -39,10 +40,103 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.auralis.music.desktop.library.DesktopListeningStats
+import com.auralis.music.domain.model.Track
+import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.launch
 
-/** An artist the listener plays, with their own play count and (once looked up) photo and channel. */
-internal data class FamiliarArtist(val name: String, val plays: Int, val id: String = "", val photo: String? = null, val subscribers: String? = null)
+/** An artist the listener plays, with their own play count, recent pattern stats, and photo. */
+internal data class FamiliarArtist(
+    val name: String,
+    val plays: Int,
+    val id: String = "",
+    val photo: String? = null,
+    val subscribers: String? = null,
+    val recentPlays: Int = plays,
+    val weekPlays: Int = 0,
+    val totalPlays: Int = plays,
+    val patternScore: Double = plays.toDouble()
+)
+
+internal enum class FamiliarArtistTimeRange { RECENT, WEEK, ALL_TIME }
+
+internal data class FamiliarArtistStats(
+    val name: String,
+    val totalPlays: Int,
+    val weekPlays: Int,
+    val recentPlays: Int,
+    val patternScore: Double
+)
+
+private val ArtistSplitRegex = Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)
+
+internal fun cleanFamiliarArtistName(raw: String): String {
+    return raw.split(ArtistSplitRegex)
+        .firstOrNull()?.trim()?.removeSuffix(" - Topic") ?: raw.trim()
+}
+
+/**
+ * Computes artist stats weighted by the listener's active listening pattern.
+ * Recent listens (especially within the last 3 to 7 days) receive strong recency multipliers,
+ * ensuring that current rotations dynamically lead while preserving historical anchors.
+ */
+internal fun computeFamiliarArtistStats(
+    listens: List<DesktopListeningStats.Listen>,
+    blockedTracks: (Track) -> Boolean = { false },
+    now: Long = System.currentTimeMillis()
+): List<FamiliarArtistStats> {
+    val qualifying = listens.filter {
+        (it.countsAsPlay || it.timeMs >= 15_000L) && !blockedTracks(it.track)
+    }
+
+    val grouped = qualifying.groupBy {
+        SearchQueryMatcher.normalize(cleanFamiliarArtistName(it.track.artist))
+    }.filterKeys {
+        it.isNotBlank() && it != "unknown artist" && it != "various artists"
+    }
+
+    return grouped.map { (_, groupListens) ->
+        val displayName = cleanFamiliarArtistName(groupListens.first().track.artist)
+        var total = 0
+        var week = 0
+        var recent = 0
+        var score = 0.0
+
+        for (l in groupListens) {
+            val isPlay = l.countsAsPlay
+            val isIntentional = isPlay || l.timeMs >= 15_000L
+            if (isPlay) total++
+
+            val ageMs = (now - l.startedAt).coerceAtLeast(0L)
+            val ageDays = ageMs / 86_400_000.0
+
+            if (isIntentional) {
+                if (ageDays <= 7.0) week++
+                if (ageDays <= 30.0) recent++
+
+                val recencyMultiplier = when {
+                    ageDays <= 3.0 -> 5.0
+                    ageDays <= 7.0 -> 3.5
+                    ageDays <= 30.0 -> 2.0
+                    ageDays <= 90.0 -> 1.0
+                    else -> 0.35
+                }
+                val durationMultiplier = (l.timeMs / 60_000.0).coerceIn(0.5, 2.0)
+                score += (recencyMultiplier * durationMultiplier)
+            }
+        }
+
+        val finalTotal = if (total > 0) total else groupListens.size
+
+        FamiliarArtistStats(
+            name = displayName,
+            totalPlays = finalTotal,
+            weekPlays = week,
+            recentPlays = recent,
+            patternScore = score
+        )
+    }
+}
 
 /**
  * What the poster's two buttons do, after Li Music's: subscribe (the YouTube account's own
@@ -63,41 +157,94 @@ internal class FamiliarArtistActions(
 )
 
 /**
- * Familiar Artists, after Li Music's: the listener's top artists by their own play count, as
- * 4:5 posters in rank order with the rank ("01") and the count on the photo. Hovering shows the
- * subscribe and ⋯ buttons. Hidden with fewer than three artists.
+ * Familiar Artists: the listener's top artists dynamically reflecting their active listening
+ * pattern, with time-range filtering (Recent Pattern, This Week, All Time).
  */
 @Composable
-internal fun FamiliarArtistsRow(artists: List<FamiliarArtist>, onOpen: (FamiliarArtist) -> Unit, actions: FamiliarArtistActions,
+internal fun FamiliarArtistsRow(
+    artists: List<FamiliarArtist>,
+    onOpen: (FamiliarArtist) -> Unit,
+    actions: FamiliarArtistActions,
     /** Offscreen renders only: show the buttons without hovering. */
-    showControls: Boolean = false) {
+    showControls: Boolean = false
+) {
     if (artists.size < 3) return
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Outlined.Person, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Familiar Artists", style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
+    var timeRange by remember { mutableStateOf(FamiliarArtistTimeRange.RECENT) }
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val sortedArtists = remember(artists, timeRange) {
+        when (timeRange) {
+            FamiliarArtistTimeRange.RECENT -> artists.sortedByDescending { it.patternScore }
+            FamiliarArtistTimeRange.WEEK -> artists.sortedByDescending { it.weekPlays.toDouble() * 10.0 + it.patternScore }
+            FamiliarArtistTimeRange.ALL_TIME -> artists.sortedByDescending { it.totalPlays }
         }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val list = rememberLazyListState()
-            val scope = rememberCoroutineScope()
-            val cardWidth = ((maxWidth - 60.dp) / 6).coerceIn(180.dp, 252.dp)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LazyRow(state = list, modifier = Modifier.fillMaxWidth().mouseDragScroll(list), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    itemsIndexed(artists.take(10)) { index, artist ->
-                        ArtistPoster(artist, index + 1, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Outlined.Person, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                Text("Familiar Artists", style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
+            }
+
+            // Sleek filter pills for Listening Pattern
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.White.copy(alpha = 0.06f))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    FamiliarArtistTimeRange.RECENT to "Recent Pattern",
+                    FamiliarArtistTimeRange.WEEK to "This Week",
+                    FamiliarArtistTimeRange.ALL_TIME to "All Time"
+                ).forEach { (range, label) ->
+                    val isSelected = timeRange == range
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent)
+                            .then(if (isSelected) Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(16.dp)) else Modifier)
+                            .clickable { timeRange = range }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f),
+                            fontSize = 11.sp
+                        )
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    androidx.compose.material3.IconButton(onClick = {
-                        scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
-                    }, enabled = list.canScrollBackward) {
-                        Icon(Icons.Outlined.ChevronLeft, "Previous artists")
-                    }
-                    androidx.compose.material3.IconButton(onClick = {
-                        scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex + 3).coerceAtMost(artists.take(10).lastIndex)) }
-                    }, enabled = list.canScrollForward) {
-                        Icon(Icons.Outlined.ChevronRight, "More artists")
-                    }
+            }
+
+            Spacer(Modifier.width(8.dp))
+            if (list.canScrollBackward) {
+                IconButton(onClick = {
+                    scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
+                }) {
+                    Icon(Icons.Outlined.ChevronLeft, "Previous artists")
+                }
+            }
+            if (list.canScrollForward) {
+                IconButton(onClick = {
+                    scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex + 3).coerceAtMost(sortedArtists.take(10).lastIndex)) }
+                }) {
+                    Icon(Icons.Outlined.ChevronRight, "More artists")
+                }
+            }
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val cardWidth = ((maxWidth - 60.dp) / 6).coerceIn(180.dp, 252.dp)
+            LazyRow(state = list, modifier = Modifier.fillMaxWidth().mouseDragScroll(list), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                itemsIndexed(sortedArtists.take(10)) { index, artist ->
+                    ArtistPoster(artist, index + 1, timeRange, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
                 }
             }
         }
@@ -110,8 +257,15 @@ private val GlassInset = 8.dp
 private val GlassGap = 4.dp
 
 @Composable
-private fun ArtistPoster(artist: FamiliarArtist, rank: Int, onOpen: () -> Unit, actions: FamiliarArtistActions, modifier: Modifier,
-    showControls: Boolean = false) {
+private fun ArtistPoster(
+    artist: FamiliarArtist,
+    rank: Int,
+    timeRange: FamiliarArtistTimeRange = FamiliarArtistTimeRange.RECENT,
+    onOpen: () -> Unit,
+    actions: FamiliarArtistActions,
+    modifier: Modifier,
+    showControls: Boolean = false
+) {
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     var menuOpen by remember { mutableStateOf(false) }
@@ -132,7 +286,21 @@ private fun ArtistPoster(artist: FamiliarArtist, rank: Int, onOpen: () -> Unit, 
                 fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
             Text(artist.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2,
                 overflow = TextOverflow.Ellipsis, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp))
-            Text(if (artist.plays == 1) "1 play" else "${artist.plays} plays", color = Color.White.copy(alpha = .65f), fontSize = 12.sp,
+
+            val displayPlays = when (timeRange) {
+                FamiliarArtistTimeRange.RECENT -> if (artist.recentPlays > 0) artist.recentPlays else artist.totalPlays
+                FamiliarArtistTimeRange.WEEK -> if (artist.weekPlays > 0) artist.weekPlays else (artist.recentPlays.takeIf { it > 0 } ?: artist.totalPlays)
+                FamiliarArtistTimeRange.ALL_TIME -> artist.totalPlays
+            }
+            val playText = when {
+                timeRange == FamiliarArtistTimeRange.RECENT && artist.recentPlays > 0 ->
+                    if (displayPlays == 1) "1 recent play" else "$displayPlays recent plays"
+                timeRange == FamiliarArtistTimeRange.WEEK && artist.weekPlays > 0 ->
+                    if (displayPlays == 1) "1 play this week" else "$displayPlays plays this week"
+                else ->
+                    if (displayPlays == 1) "1 play" else "$displayPlays plays"
+            }
+            Text(playText, color = Color.White.copy(alpha = .65f), fontSize = 12.sp,
                 maxLines = 1, modifier = Modifier.padding(top = 2.dp))
         }
         if (controls > 0.01f) Row(Modifier.align(Alignment.TopEnd).padding(top = GlassInset, end = GlassInset).alpha(controls),

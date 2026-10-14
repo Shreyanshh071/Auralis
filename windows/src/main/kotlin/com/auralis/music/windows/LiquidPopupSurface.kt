@@ -57,7 +57,7 @@ internal fun Modifier.recordPopupGlass(source: PopupGlassSource): Modifier = thi
 internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
     tint: Color = Color(0xFF101010).copy(alpha = .38f), content: @Composable () -> Unit) {
     val source = LocalPopupGlassSource.current
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(18.dp)
     val layer = rememberGraphicsLayer()
     val effect = remember { DockGlassEffect() }
     var localOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -71,7 +71,7 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
         .drawWithCache {
             val padding = 54.dp.toPx()
             val copiedDensity = Density(density, fontScale)
-            layer.renderEffect = effect.create(size.width, size.height, padding, density, 16.dp.toPx())
+            layer.renderEffect = effect.create(size.width, size.height, padding, density, 18.dp.toPx())
             onDrawWithContent {
                 // Observing the capture frame repaints the popup scene when the page changes.
                 source?.frame?.longValue
@@ -88,12 +88,26 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
                     drawLayer(layer)
                     drawContext.canvas.translate(padding, padding)
                 }
-                drawRect(tint.copy(alpha = if (captured) tint.alpha else .96f))
-                drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = .07f), .4f to Color.Transparent))
+                drawRect(tint.copy(alpha = if (captured) tint.alpha else .68f))
+                drawRect(Brush.verticalGradient(
+                    0f to Color.White.copy(alpha = .18f),
+                    0.35f to Color.White.copy(alpha = .04f),
+                    1f to Color.Transparent
+                ))
+                drawRect(Brush.linearGradient(
+                    0f to Color.White.copy(alpha = .10f),
+                    0.45f to Color.Transparent,
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height)
+                ))
                 drawContent()
             }
         }
-        .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .30f), Color.White.copy(alpha = .08f))), shape)) {
+        .border(1.dp, Brush.verticalGradient(listOf(
+            Color.White.copy(alpha = .38f),
+            Color.White.copy(alpha = .08f),
+            Color.White.copy(alpha = .18f)
+        )), shape)) {
         content()
     }
 }

@@ -22,7 +22,8 @@ internal class TaskbarPlaybackControls(
     private val user = NativeLibrary.getInstance("user32")
     private val hwnd = Pointer(handle)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
-    private val initialized = Ole32.INSTANCE.CoInitializeEx(null, 0).toInt() >= 0
+    // ITaskbarList requires STA (COINIT_APARTMENTTHREADED = 2)
+    private val initialized = Ole32.INSTANCE.CoInitializeEx(null, 2).toInt() >= 0
     private val taskbar = PointerByReference().also {
         val result = Ole32.INSTANCE.CoCreateInstance(Guid.CLSID("{56FDF344-FD6D-11D0-958A-006097C9A090}"), null, 1,
             Guid.IID("{EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF}"), it)
@@ -37,7 +38,9 @@ internal class TaskbarPlaybackControls(
     private var hasNext = false
 
     init {
-        check(call(3) >= 0) { "Taskbar HrInit failed" }
+        val hr = call(3)
+        // HrInit returns S_OK (0) on Win10 or E_NOTIMPL (0x80004001) on Win11 XAML taskbar
+        check(hr >= 0 || hr == 0x80004001.toInt()) { "Taskbar HrInit failed: 0x${hr.toUInt().toString(16)}" }
         frame.onTaskbarMessage = { message, w ->
             when {
                 message == createdMessage -> { scope.launch { added = false; refresh() }; false }

@@ -77,4 +77,38 @@ class DesktopHomeContentTest {
         assertEquals(before.shelves, after.shelves.take(before.shelves.size))
         assertEquals("More for you", after.shelves.last().title)
     }
+
+    @Test fun tasteShelfReplacesGenericReleasesInGuestHome() {
+        val genericAlbum = PlaylistResult("generic-1", "Generic Album", author = "Random Artist")
+        val personalAlbum = PlaylistResult("personal-1", "Currents", author = "Tame Impala")
+        val tasteShelf = DesktopHomeShelf("taste-releases", "Albums & singles", albums = listOf(personalAlbum))
+        val state = HomeUiState(
+            speedDialPages = emptyList(),
+            dynamicSections = listOf(
+                HomeSection("feed-0", "Quick picks", items = listOf(song("pick-1"))),
+                HomeSection("feed-1", "Albums & singles", albums = listOf(genericAlbum))
+            )
+        )
+        val content = desktopHomeContent(state, tasteShelf = tasteShelf)
+        val albumsShelf = content.shelves.firstOrNull { it.title == "Albums & singles" }
+        assertNotNull(albumsShelf)
+        assertEquals(listOf("personal-1"), albumsShelf.albums.map { it.id })
+        assertEquals("taste-releases", albumsShelf.id)
+    }
+
+    @Test fun tasteShelfPrependedWhenGenericReleasesAbsent() {
+        val personalAlbum = PlaylistResult("personal-1", "Currents", author = "Tame Impala")
+        val tasteShelf = DesktopHomeShelf("taste-releases", "Albums & singles", albums = listOf(personalAlbum))
+        val state = HomeUiState(
+            speedDialPages = emptyList(),
+            dynamicSections = listOf(
+                HomeSection("feed-0", "Quick picks", items = listOf(song("pick-1")))
+            )
+        )
+        val content = desktopHomeContent(state, tasteShelf = tasteShelf)
+        assertEquals("taste-releases", content.shelves.first().id)
+        assertEquals("Albums & singles", content.shelves.first().title)
+        assertEquals(listOf("personal-1"), content.shelves.first().albums.map { it.id })
+    }
 }
+

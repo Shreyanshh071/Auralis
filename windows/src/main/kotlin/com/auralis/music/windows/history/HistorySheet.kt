@@ -50,6 +50,14 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import com.auralis.music.ui.components.SwipeableTrackContainer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import com.auralis.music.ui.components.secondaryClick
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +104,7 @@ fun HistorySheet(
     onDismiss: () -> Unit,
     onPlayNext: ((Track) -> Unit)? = null,
     onAddToQueue: ((Track) -> Unit)? = null,
+    onTrackMenu: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
@@ -257,70 +266,14 @@ fun HistorySheet(
                             onPlayNext = onPlayNext?.let { { it(track) } },
                             onAddToQueue = onAddToQueue?.let { { it(track) } }
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
-                                    .border(
-                                        1.dp,
-                                        if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .clickable { onTrackClick(track, listOf(track)) }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    sizeToConstraints = true,
-                                    url = track.thumbnail,
-                                    modifier = Modifier.size(52.dp),
-                                    cornerRadius = 10.dp,
-                                    contentDescription = track.title
-                                )
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                        color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                if (isCurrent) {
-                                    EqualizerBars(
-                                        isPlaying = isPlaying,
-                                        modifier = Modifier.size(18.dp),
-                                        color = HISTORY_LIME
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                }
-
-                                IconButton(
-                                    onClick = { onRemoveFromHistory(track.id) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = str(Strings.remove),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                            HistorySongCard(
+                                track = track,
+                                isCurrent = isCurrent,
+                                isPlaying = isPlaying,
+                                onPlay = { onTrackClick(track, trackList) },
+                                onMenu = onTrackMenu?.let { menu -> { menu(track) } },
+                                onRemove = { onRemoveFromHistory(track.id) }
+                            )
                         }
                     }
                 }
@@ -375,5 +328,205 @@ fun HistorySheet(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun HistorySongCard(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onPlay: () -> Unit,
+    onMenu: (() -> Unit)?,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interaction = remember(track.id) { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val hoverProgress by animateFloatAsState(
+        targetValue = if (hovered) 1f else 0f,
+        animationSpec = tween(160),
+        label = "historyCardHover"
+    )
+
+    val shape = RoundedCornerShape(14.dp)
+    val accentColor = MaterialTheme.colorScheme.primary
+
+    // Specular liquid glass border: crisp top highlight tapering down to subtle bottom
+    val borderBrush = if (isCurrent) {
+        Brush.verticalGradient(
+            listOf(
+                accentColor.copy(alpha = 0.90f),
+                accentColor.copy(alpha = 0.50f),
+                accentColor.copy(alpha = 0.25f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.16f + 0.14f * hoverProgress),
+                Color.White.copy(alpha = 0.07f + 0.05f * hoverProgress),
+                Color.White.copy(alpha = 0.03f + 0.02f * hoverProgress)
+            )
+        )
+    }
+
+    // Liquid glass background: deep translucent dark glass with subtle gradient depth
+    val glassBg = Brush.verticalGradient(
+        listOf(
+            Color.White.copy(alpha = if (isCurrent) 0.10f + 0.04f * hoverProgress else 0.06f + 0.04f * hoverProgress),
+            Color(0xFF14131A).copy(alpha = if (isCurrent) 0.65f else 0.55f),
+            Color(0xFF0F0E14).copy(alpha = if (isCurrent) 0.80f else 0.70f)
+        )
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clip(shape)
+            .background(glassBg)
+            .border(
+                width = if (isCurrent) 1.5.dp else 1.dp,
+                brush = borderBrush,
+                shape = shape
+            )
+            .hoverable(interaction)
+            .secondaryClick(onMenu)
+            .clickable(onClick = onPlay)
+    ) {
+        // Liquid glass top specular sheen (gloss reflection line)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.25f + 0.15f * hoverProgress),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        // Active song liquid glass accent glow
+        if (isCurrent) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                accentColor.copy(alpha = 0.14f),
+                                accentColor.copy(alpha = 0.04f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+
+        // Hover sheen
+        if (hoverProgress > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.White.copy(alpha = 0.04f * hoverProgress))
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Clean artwork card with its own subtle liquid glass border
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+            ) {
+                ArtworkCard(
+                    sizeToConstraints = true,
+                    url = track.thumbnail,
+                    fallbackTrack = track,
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 8.dp,
+                    contentDescription = track.title
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                    color = if (isCurrent) accentColor else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = accentColor
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            if (onMenu != null) {
+                val menuInteraction = remember { MutableInteractionSource() }
+                val menuHovered by menuInteraction.collectIsHoveredAsState()
+                IconButton(
+                    onClick = onMenu,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .hoverable(menuInteraction)
+                        .clip(CircleShape)
+                        .background(if (menuHovered) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options for ${track.title}",
+                        tint = Color.White.copy(alpha = if (menuHovered) 1f else 0.75f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            val removeInteraction = remember { MutableInteractionSource() }
+            val removeHovered by removeInteraction.collectIsHoveredAsState()
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .size(32.dp)
+                    .hoverable(removeInteraction)
+                    .clip(CircleShape)
+                    .background(if (removeHovered) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = str(Strings.remove),
+                    tint = Color.White.copy(alpha = if (removeHovered) 1f else 0.65f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }

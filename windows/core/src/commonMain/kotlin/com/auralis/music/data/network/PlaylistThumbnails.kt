@@ -15,9 +15,8 @@ object PlaylistThumbnails {
             }
             url.contains("i.ytimg.com") || url.contains("img.youtube.com") -> {
                 val noQuery = url.substringBefore('?')
-                noQuery.replace("default.jpg", "hqdefault.jpg")
-                    .replace("mqdefault.jpg", "hqdefault.jpg")
-                    .replace("hq720.jpg", "hqdefault.jpg")
+                noQuery.replace(Regex("""(?:hq720|mqdefault|hqdefault|sddefault|default)\.jpg"""), "hqdefault.jpg")
+                    .replace(Regex("""(?:hq)+default\.jpg"""), "hqdefault.jpg")
             }
             else -> url
         }

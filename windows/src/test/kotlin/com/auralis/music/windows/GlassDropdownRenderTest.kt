@@ -42,7 +42,7 @@ class GlassDropdownRenderTest {
             val image = ImageIO.read(bytes.inputStream())
             fun variation(y: Int) = (70 until 150).sumOf { x -> kotlin.math.abs((image.getRGB(x, y) shr 16 and 255) - (image.getRGB(x + 1, y) shr 16 and 255)) }
             assertTrue(variation(145) < variation(30) / 3)
-            assertTrue((image.getRGB(111, 115) shr 16 and 255) > 245, "Menu foreground stays sharp")
+            assertTrue((image.getRGB(79, 115) shr 16 and 255) > 245, "Menu foreground stays sharp")
         } finally { scene.close() }
     }
 }

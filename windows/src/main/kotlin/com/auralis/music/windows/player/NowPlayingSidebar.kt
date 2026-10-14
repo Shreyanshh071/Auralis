@@ -1,7 +1,12 @@
 package com.auralis.music.windows.player
 
 import androidx.compose.foundation.background
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import com.auralis.music.desktop.lyrics.DesktopLyricsController
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
@@ -78,32 +83,73 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title, highRes = true)
         Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
         Text(track.artist, Modifier.width(coverSize), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
-        Column(Modifier.weight(1f, fill = false).animateContentSize().heightIn(max = if (lyricsCollapsed) 48.dp else 320.dp)
-            .width(coverSize).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .07f))) {
-            Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
-                LyricsCardButton({ lyricsWindow = true }, Icons.Outlined.PictureInPictureAlt, "Open lyrics window")
-                LyricsCardButton(onExpand, Icons.Rounded.OpenInFull, "Expand lyrics")
-                LyricsCardButton({ lyricsCollapsed = !lyricsCollapsed },
-                    if (lyricsCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                    if (lyricsCollapsed) "Show lyrics" else "Collapse lyrics")
-            }
-            androidx.compose.animation.AnimatedVisibility(!lyricsCollapsed, modifier = Modifier.weight(1f)) {
-                Box(Modifier.fillMaxSize()) { lyricContent() }
-            }
-        }
+        SidebarLyricsCard(
+            collapsed = lyricsCollapsed,
+            onToggle = { lyricsCollapsed = !lyricsCollapsed },
+            onOpenWindow = { lyricsWindow = true },
+            onExpand = onExpand,
+            modifier = Modifier.weight(1f, fill = false).width(coverSize),
+            lyricContent = lyricContent
+        )
     }
     }
     }
 }
 
+
 @Composable
-private fun LyricsCardButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+internal fun SidebarLyricsCard(
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    onOpenWindow: () -> Unit,
+    onExpand: () -> Unit,
+    modifier: Modifier = Modifier,
+    lyricContent: @Composable () -> Unit
+) {
+    BoxWithConstraints(modifier) {
+        val expandedHeight = if (maxHeight.isSpecified && maxHeight > 48.dp) minOf(320.dp, maxHeight) else 320.dp
+        val targetHeight = if (collapsed) 48.dp else expandedHeight
+        val height by animateDpAsState(
+            targetValue = targetHeight,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "lyricsCardHeight"
+        )
+        val opacity by animateFloatAsState(
+            targetValue = if (collapsed) 0f else 1f,
+            animationSpec = tween(if (collapsed) 200 else 240, easing = FastOutSlowInEasing),
+            label = "lyricsCardOpacity"
+        )
+        val arrowRotation by animateFloatAsState(
+            targetValue = if (collapsed) 180f else 0f,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "lyricsCardArrow"
+        )
+        val contentHeight = maxOf(0.dp, expandedHeight - 48.dp)
+        Column(Modifier.width(maxWidth).height(height).clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = .07f))) {
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
+                LyricsCardButton(onOpenWindow, Icons.Outlined.PictureInPictureAlt, "Open lyrics window")
+                LyricsCardButton(onExpand, Icons.Rounded.OpenInFull, "Expand lyrics")
+                LyricsCardButton(onToggle, Icons.Default.KeyboardArrowUp,
+                    if (collapsed) "Show lyrics" else "Collapse lyrics", arrowRotation)
+            }
+            if (!collapsed || height > 48.dp) {
+                Box(Modifier.fillMaxWidth().height(contentHeight).clipToBounds().graphicsLayer { alpha = opacity }) {
+                    lyricContent()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsCardButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, rotation: Float = 0f) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
     IconButton(onClick = onClick, modifier = Modifier.size(32.dp)
         .border(1.dp, Color.White.copy(alpha = .25f), androidx.compose.foundation.shape.CircleShape)) {
-        Icon(icon, label, tint = Color.White, modifier = Modifier.size(16.dp))
+        Icon(icon, label, tint = Color.White, modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation })
     }
     }
 }

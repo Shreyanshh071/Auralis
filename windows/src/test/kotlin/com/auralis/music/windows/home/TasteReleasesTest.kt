@@ -19,4 +19,23 @@ class TasteReleasesTest {
         ), now = now)
         assertEquals(listOf("Tame Impala", "Ravyn Lenae", "Old Favourite"), top)
     }
+
+    @Test fun localAlbumsExtractsAlbumsAndSinglesForArtist() {
+        val listens = listOf(
+            Listen("1", Track(id = "s1", title = "The Less I Know The Better", artist = "Tame Impala", album = "Currents", albumId = "MPREb_1"), now, 180_000),
+            Listen("2", Track(id = "s2", title = "Let It Happen", artist = "Tame Impala", album = "Currents", albumId = "MPREb_1"), now, 180_000),
+            Listen("3", Track(id = "s3", title = "Borderline", artist = "Tame Impala", album = "The Slow Rush"), now, 180_000),
+            Listen("4", Track(id = "s4", title = "Patience", artist = "Tame Impala"), now, 180_000)
+        )
+        val albums = TasteReleases.localAlbumsForArtist(listens, "Tame Impala")
+        val titles = albums.map { it.title }
+        kotlin.test.assertTrue("Currents" in titles)
+        kotlin.test.assertTrue("The Slow Rush" in titles)
+        kotlin.test.assertTrue("Patience" in titles)
+        val currents = albums.first { it.title == "Currents" }
+        assertEquals("MPREb_1", currents.id)
+        val patience = albums.first { it.title == "Patience" }
+        assertEquals("album:s4", patience.id)
+    }
 }
+

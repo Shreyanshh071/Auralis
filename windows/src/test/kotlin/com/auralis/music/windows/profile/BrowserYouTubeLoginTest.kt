@@ -39,4 +39,18 @@ class BrowserYouTubeLoginTest {
         assertNull(BrowserYouTubeLogin.decrypt(blob, key, host))
         assertNull(BrowserYouTubeLogin.decrypt("v20protected".toByteArray(), key, host))
     }
+
+    @Test fun disconnectClearsSessionAndLeavesStateDisconnected() {
+        try {
+            com.auralis.music.data.network.YouTubeSession.save("LOGIN_INFO=login; SAPISID=first", "", "0", "Shreyanshh")
+            assertTrue(com.auralis.music.data.network.YouTubeSession.isSignedIn)
+            assertEquals("Shreyanshh", com.auralis.music.data.network.YouTubeSession.accountLabel.value)
+
+            com.auralis.music.data.network.YouTubeSession.signOut()
+            assertFalse(com.auralis.music.data.network.YouTubeSession.isSignedIn)
+            assertEquals("", com.auralis.music.data.network.YouTubeSession.accountLabel.value)
+        } finally {
+            com.auralis.music.data.network.YouTubeSession.signOut()
+        }
+    }
 }

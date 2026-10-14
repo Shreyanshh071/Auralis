@@ -13,27 +13,75 @@ import okhttp3.Request
 
 private val paletteFlow = MutableStateFlow(DefaultArtworkPalette)
 
+object DesktopArtworkPaletteStore {
+    private val memoryCache = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, ArtworkPalette>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ArtworkPalette>?): Boolean = size > 128
+        }
+    )
+
+    fun get(url: String): ArtworkPalette? {
+        val inMem = memoryCache[url]
+        if (inMem != null) return inMem
+        val session = com.auralis.music.windows.player.DesktopPlaybackSessionStore.currentSession()
+        if (session != null && (session.artworkUrl == url || session.track.thumbnail == url) && session.palette != null && !session.palette.isDefault) {
+            memoryCache[url] = session.palette
+            return session.palette
+        }
+        return null
+    }
+
+    fun put(url: String, palette: ArtworkPalette) {
+        if (!palette.isDefault) {
+            memoryCache[url] = palette
+        }
+    }
+
+    fun lastPalette(): ArtworkPalette? = com.auralis.music.windows.player.DesktopPlaybackSessionStore.currentSession()?.palette?.takeIf { !it.isDefault }
+}
+
 @Composable
 fun rememberArtworkPalette(url: String?): ArtworkPalette {
-    var palette by remember { mutableStateOf(DefaultArtworkPalette) }
+    val initial = remember(url) {
+        if (!url.isNullOrBlank()) {
+            DesktopArtworkPaletteStore.get(url) ?: DesktopArtworkPaletteStore.lastPalette() ?: DefaultArtworkPalette
+        } else {
+            DesktopArtworkPaletteStore.lastPalette() ?: DefaultArtworkPalette
+        }
+    }
+    var palette by remember(url) { mutableStateOf(initial) }
+
     LaunchedEffect(url) {
         com.auralis.music.ui.theme.ArtworkPaletteSource.current = paletteFlow
-        palette = DefaultArtworkPalette
-        paletteFlow.value = palette
+        if (initial != DefaultArtworkPalette) {
+            palette = initial
+            paletteFlow.value = initial
+        }
         if (!url.isNullOrBlank()) {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val thumbnail = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url) ?: url
-                    com.auralis.music.data.network.NetworkClientProvider.okHttpClient
-                        .newCall(Request.Builder().url(thumbnail).build()).execute().use { response ->
-                            check(response.isSuccessful)
-                            val image = response.body?.byteStream()?.use(ImageIO::read)
-                            image?.let(::extractArtworkPalette) ?: DefaultArtworkPalette
-                        }
-                }.getOrDefault(DefaultArtworkPalette)
+            val cached = DesktopArtworkPaletteStore.get(url)
+            if (cached != null && !cached.isDefault) {
+                palette = cached
+                paletteFlow.value = cached
+                com.auralis.music.windows.player.DesktopPlaybackSessionStore.updatePalette(cached)
+            } else {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val thumbnail = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url) ?: url
+                        com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+                            .newCall(Request.Builder().url(thumbnail).build()).execute().use { response ->
+                                check(response.isSuccessful)
+                                val image = response.body?.byteStream()?.use(ImageIO::read)
+                                image?.let(::extractArtworkPalette) ?: DefaultArtworkPalette
+                            }
+                    }.getOrDefault(DefaultArtworkPalette)
+                }
+                if (!result.isDefault) {
+                    DesktopArtworkPaletteStore.put(url, result)
+                    com.auralis.music.windows.player.DesktopPlaybackSessionStore.updatePalette(result)
+                    palette = result
+                    paletteFlow.value = result
+                }
             }
-            palette = result
-            paletteFlow.value = result
         }
     }
     return palette

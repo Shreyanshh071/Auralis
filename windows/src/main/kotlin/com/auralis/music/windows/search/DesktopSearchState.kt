@@ -147,6 +147,10 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         hasSubmitted = false
     }
 
+    fun clearCache() {
+        liveSongCache.clear()
+    }
+
     fun removeRecent(query: String) {
         scope.launch { repository.removeSearchQuery(query) }
     }

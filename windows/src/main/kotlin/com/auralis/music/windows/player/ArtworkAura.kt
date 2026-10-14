@@ -24,12 +24,27 @@ internal enum class AuraPresentation(val brightness: Float, val saturation: Floa
     FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f), SHORTCUT(.78f, 1.7f)
 }
 
+private val auraTextureCache = java.util.Collections.synchronizedMap(
+    object : java.util.LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean {
+            return size > 160
+        }
+    }
+)
+
 @Composable
 internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null,
-    presentation: AuraPresentation = AuraPresentation.SIDEBAR) {
-    var cover by remember { mutableStateOf<ImageBitmap?>(null) }
+    presentation: AuraPresentation = AuraPresentation.SIDEBAR,
+    brightness: Float = presentation.brightness,
+    saturation: Float = presentation.saturation) {
+    var cover by remember(artwork) { mutableStateOf<ImageBitmap?>(artwork?.let { auraTextureCache[it] }) }
     LaunchedEffect(artwork) {
         if (artwork == null) { cover = null; return@LaunchedEffect }
+        val cached = auraTextureCache[artwork]
+        if (cached != null) {
+            cover = cached
+            return@LaunchedEffect
+        }
         val decoded = withContext(Dispatchers.IO) {
             runCatching {
                 val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(artwork) ?: artwork
@@ -43,7 +58,10 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
             }.getOrNull()
         }
         // Retain the previous cover while the next one loads; crossfade only decoded images.
-        if (decoded != null) cover = decoded
+        if (decoded != null) {
+            auraTextureCache[artwork] = decoded
+            cover = decoded
+        }
     }
     val time = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
@@ -70,7 +88,9 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
                 }
             }
         } else {
-            val resources = remember(image, presentation) { AuraRenderer(image, presentation) }
+            val resources = remember(image, presentation, brightness, saturation) {
+                AuraRenderer(image, presentation, brightness, saturation)
+            }
             DisposableEffect(resources) { onDispose { resources.close() } }
             Canvas(Modifier.fillMaxSize()) {
                 drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
@@ -117,7 +137,9 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
 // Domain-warp noise and octave mixing adapted from Better Lyrics/Kawarp (MIT).
 // License is bundled at third-party/kawarp-LICENSE.txt.
 internal class AuraRenderer(image: ImageBitmap,
-    private val presentation: AuraPresentation = AuraPresentation.SIDEBAR) : AutoCloseable {
+    private val presentation: AuraPresentation = AuraPresentation.SIDEBAR,
+    private val brightness: Float = presentation.brightness,
+    private val saturation: Float = presentation.saturation) : AutoCloseable {
     private val texture = Image.makeFromBitmap(image.asSkiaBitmap())
     private val child = texture.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR)
     private val effect = RuntimeEffect.makeForShader("""
@@ -206,7 +228,7 @@ internal class AuraRenderer(image: ImageBitmap,
     }
     private fun drawWarp(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, seconds: Float) {
         builder.uniform("resolution", width, height); builder.uniform("time", seconds)
-        builder.uniform("brightness", presentation.brightness); builder.uniform("saturation", presentation.saturation)
+        builder.uniform("brightness", brightness); builder.uniform("saturation", saturation)
         builder.makeShader().use { shader ->
             paint.shader = shader
             canvas.drawRect(Rect.makeWH(width, height), paint)

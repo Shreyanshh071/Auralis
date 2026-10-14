@@ -58,7 +58,10 @@ fun DesktopProfile(
         youtubeImportMessage = library.importMessage,
         onOpenPlaylistSelector = {},
         onSyncLikedMusic = {},
-        onDisconnect = { account?.signOut() },
+        onDisconnect = {
+            account?.signOut()
+            com.auralis.music.data.network.YouTubeSession.signOut()
+        },
         onClosePlaylistSelector = {},
         onTogglePlaylistSelection = {},
         onSelectAllPlaylists = {},

@@ -106,6 +106,13 @@ fun AuralisDesktopApp(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
+    val languageChanges by com.auralis.music.data.network.ContentSettingsSource.languageChanges.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(languageChanges) {
+        if (languageChanges > 0) {
+            browse.clearCache()
+            searchState.clearCache()
+        }
+    }
     val navigation = remember { DesktopNavigation() }
     val browsePages = browse.stack.toList()
     androidx.compose.runtime.LaunchedEffect(destination, browsePages, searchState.submittedQuery) {
@@ -169,13 +176,16 @@ fun AuralisDesktopApp(
     // and channel. Portraits load independently of YouTube and successful lookups survive restarts.
     val artistLookups = remember { androidx.compose.runtime.mutableStateMapOf<String, com.auralis.music.domain.model.Artist?>() }
     val blockedArtists by com.auralis.music.desktop.library.DesktopBlockedArtists.artists.collectAsState()
-    val topArtistPlays = remember(allListens, blockedArtists) {
-        allListens.filter { it.countsAsPlay && !com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it.track, blockedArtists) }
-            .groupBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(
-                it.track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().removeSuffix(" - Topic")) }
-            .filterKeys { it.isNotBlank() && it != "unknown artist" }
-            .map { (_, l) -> l.first().track.artist.split(Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)).first().trim().removeSuffix(" - Topic") to l.size }
-            .sortedByDescending { it.second }.take(10)
+    val topArtistCandidates = remember(allListens, blockedArtists) {
+        val stats = com.auralis.music.windows.home.computeFamiliarArtistStats(
+            listens = allListens,
+            blockedTracks = { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blockedArtists) }
+        )
+        val byRecent = stats.sortedByDescending { it.patternScore }.take(15)
+        val byAllTime = stats.sortedByDescending { it.totalPlays }.take(10)
+        (byRecent + byAllTime)
+            .distinctBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) }
+            .take(20)
     }
     val artistLookup = remember {
         val portraitClient = com.auralis.music.data.network.InnerTubeClient()
@@ -183,8 +193,9 @@ fun AuralisDesktopApp(
             com.auralis.music.util.PropertiesFileKeyValueStore(java.io.File(com.auralis.music.util.desktopAppDataDir(), "cache/artist-portraits.properties")),
             backgroundSearch::searchArtists, portraitClient::fetchWikipediaArtistPortrait)
     }
-    androidx.compose.runtime.LaunchedEffect(topArtistPlays.map { it.first }) {
-        topArtistPlays.forEach { (name, _) ->
+    androidx.compose.runtime.LaunchedEffect(topArtistCandidates.map { it.name }) {
+        topArtistCandidates.forEach { stat ->
+            val name = stat.name
             artistLookup.cached(name)?.let { artistLookups[name] = it }
             launch {
                 while (true) {
@@ -196,10 +207,20 @@ fun AuralisDesktopApp(
             }
         }
     }
-    val familiarArtists = topArtistPlays.map { (name, plays) ->
-        val found = artistLookups[name]
-        com.auralis.music.windows.home.FamiliarArtist(found?.name ?: name, plays, found?.id.orEmpty(), found?.thumbnail, found?.subscribers)
-    }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }.take(10)
+    val familiarArtists = topArtistCandidates.map { stat ->
+        val found = artistLookups[stat.name]
+        com.auralis.music.windows.home.FamiliarArtist(
+            name = found?.name ?: stat.name,
+            plays = stat.totalPlays,
+            id = found?.id.orEmpty(),
+            photo = found?.thumbnail,
+            subscribers = found?.subscribers,
+            recentPlays = stat.recentPlays,
+            weekPlays = stat.weekPlays,
+            totalPlays = stat.totalPlays,
+            patternScore = stat.patternScore
+        )
+    }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
             historyRepository = history,
@@ -378,7 +399,10 @@ fun AuralisDesktopApp(
         else -> null
     }
     // Artwork backgrounds are always active, independent of the selected theme mode.
-    val backgroundArtwork = queue?.current?.thumbnail?.takeIf { it.isNotBlank() } ?: playlistCover
+    val lastSession = remember { com.auralis.music.windows.player.DesktopPlaybackSessionStore.currentSession() }
+    val backgroundArtwork = queue?.current?.thumbnail?.takeIf { it.isNotBlank() }
+        ?: playlistCover
+        ?: lastSession?.artworkUrl
     val artworkPalette = com.auralis.music.windows.settings.rememberArtworkPalette(backgroundArtwork ?: queue?.current?.thumbnail)
     val initialSidebars = remember { SidebarLayoutPreferences.load() }
     var leftSidebarWidth by remember { mutableStateOf(initialSidebars.left) }
@@ -474,7 +498,7 @@ fun AuralisDesktopApp(
             })
         if (showSignIn) com.auralis.music.windows.profile.DesktopSignInDialog(account,
             onConnected = { youtubeLibrary.refresh(force = true) },
-            onDisconnected = { youtubeState.activeId?.let(youtubeLibrary::removeAccount); youtubeLibrary.refresh(force = true) }) { showSignIn = false }
+            onDisconnected = { youtubeLibrary.signOut() }) { showSignIn = false }
         // Blur the actual page beneath sign-in, rather than letting crisp rows show through
         // its translucent surface. No screenshot/readback is needed to open the dialog.
         Surface(modifier = Modifier.fillMaxSize().then(
@@ -676,7 +700,8 @@ fun AuralisDesktopApp(
                                     onRemoveFromHistory = { id -> scope.launch { history.removeFromHistory(id) } },
                                     onClearHistory = { scope.launch { history.clearHistory() } },
                                     onDismiss = { destination = DesktopDestination.HOME },
-                                    onPlayNext = { playback?.playNext(it) }, onAddToQueue = { playback?.addToQueue(it) }
+                                    onPlayNext = { playback?.playNext(it) }, onAddToQueue = { playback?.addToQueue(it) },
+                                    onTrackMenu = { menuTrack = it }
                                 )
                             }
                             DesktopDestination.WRAPPED -> Box(Modifier.fillMaxSize())

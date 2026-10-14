@@ -104,6 +104,10 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun clear() = stack.clear()
 
+    fun clearCache() {
+        artistPages.clear()
+    }
+
     private fun replace(match: (BrowsePage) -> Boolean, update: (BrowsePage) -> BrowsePage) {
         val i = stack.indexOfLast(match)
         if (i >= 0) stack[i] = update(stack[i])

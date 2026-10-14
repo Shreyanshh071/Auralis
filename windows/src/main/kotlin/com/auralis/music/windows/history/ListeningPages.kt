@@ -163,9 +163,12 @@ fun ListeningStatsPage(
                     Box {
                         IconButton(onClick = { statsMenu = true }) { Icon(Icons.Default.MoreVert, "Stats options") }
                         com.auralis.music.windows.GlassDropdownMenu(statsMenu, onDismissRequest = { statsMenu = false }) {
-                            DropdownMenuItem(text = { Text("Clear listening stats") }, enabled = events.isNotEmpty(),
+                            com.auralis.music.windows.GlassDropdownMenuItem(
+                                text = { Text("Clear listening stats") },
+                                enabled = events.isNotEmpty(),
                                 leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
-                                onClick = { statsMenu = false; confirmClear = true })
+                                onClick = { statsMenu = false; confirmClear = true }
+                            )
                         }
                     }
                 }
@@ -179,7 +182,11 @@ fun ListeningStatsPage(
                             }
                             com.auralis.music.windows.GlassDropdownMenu(optionMenu, onDismissRequest = { optionMenu = false }) {
                                 StatsOption.entries.forEach { entry ->
-                                    DropdownMenuItem(text = { Text(entry.label) }, onClick = { option = entry; chip = 0; optionMenu = false })
+                                    com.auralis.music.windows.GlassDropdownMenuItem(
+                                        text = { Text(entry.label) },
+                                        selected = option == entry,
+                                        onClick = { option = entry; chip = 0; optionMenu = false }
+                                    )
                                 }
                             }
                         }

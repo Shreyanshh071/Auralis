@@ -22,7 +22,8 @@ class ArtworkAuraTest {
                     val channels = listOf(pixel ushr 16 and 255, pixel ushr 8 and 255, pixel and 255)
                     assertEquals(255, pixel ushr 24, "Background must remain opaque")
                     when (name) {
-                        "white" -> assertTrue(channels.all { it in 150..168 }, "Bright cover must be dimmed behind white lyrics: $channels")
+                        "white" -> if (presentation == AuraPresentation.SHORTCUT) assertTrue(channels.all { it in 150..205 }, "Shortcut cards use higher brightness: $channels")
+                            else assertTrue(channels.all { it in 150..168 }, "Bright cover must be dimmed behind white lyrics: $channels")
                         "pastel" -> assertTrue(channels[0] - channels[1] > 80, "Pink artwork must retain its colour instead of washing out: $channels")
                         "blue" -> assertTrue(channels[2] - channels[0] > 100, "Blue artwork must retain its colour: $channels")
                         "black" -> assertTrue(channels.max() < 10, "Dark artwork must stay dark")

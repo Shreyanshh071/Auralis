@@ -4,7 +4,7 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 
 ## Owner's development and update preferences
 
-- The mini-player button after Next is now Repeat rather than Lyrics: cycles Off → All → One. Active repeat uses the selected theme accent and a status dot; inactive repeat uses the theme's neutral icon colour. Repeat is disabled during Listen Together rooms to preserve host queue control. Automatic playback repeats a recording or wraps the queue as selected; three transition tests cover Off/All/One, singleton and empty queues. Android code is unchanged.
+- The mini-player button after Next is now Repeat rather than Lyrics: cycles Off â†’ All â†’ One. Active repeat uses the selected theme accent and a status dot; inactive repeat uses the theme's neutral icon colour. Repeat is disabled during Listen Together rooms to preserve host queue control. Automatic playback repeats a recording or wraps the queue as selected; three transition tests cover Off/All/One, singleton and empty queues. Android code is unchanged.
 - Installed and reopened the Repeat update at 13:16 on 11 October, version 1.0.0. All 21 Windows tests passed; installed code verified, existing shortcut and 21 checked non-cache data files preserved. Backup: `Downloads/Auralis-checkpoints/before-repeat-20261011-131617`.
 
 - Mini-player correction: the song-info block must have no hover highlight (owner clarified after the first hover styling). Only the cover opens the player; title/artist and the rest of the block are not interactive.
@@ -26,13 +26,13 @@ Updated 11 October 2026. Windows project version is 1.0.0; Android keeps its exi
 
 ## Desktop Home redesign
 
-- Playing-song artwork now supplies a blurred app backdrop and animated tinted browsing surfaces, including the existing sidebar and mini-player. Existing top bar and sidebar destinations are retained. Wide windows (at least 1180 dp) show a 290–340 dp right-hand now-playing panel with cover, title/artist and compact Metro lyrics using the same smooth clock. Narrow windows retain the full-player lyrics entry. Artwork size adapts to height to leave space for lyrics; expand opens the full player. Verified Windows tests and an isolated layout render. Android code is unchanged.
+- Playing-song artwork now supplies a blurred app backdrop and animated tinted browsing surfaces, including the existing sidebar and mini-player. Existing top bar and sidebar destinations are retained. Wide windows (at least 1180 dp) show a 290â€“340 dp right-hand now-playing panel with cover, title/artist and compact Metro lyrics using the same smooth clock. Narrow windows retain the full-player lyrics entry. Artwork size adapts to height to leave space for lyrics; expand opens the full player. Verified Windows tests and an isolated layout render. Android code is unchanged.
 - Installed and reopened this update at 12:53 on 11 October, version 1.0.0. Installed code matches release output; existing shortcut and all 20 checked non-cache data files are unchanged. Full data backup: `Downloads/Auralis-checkpoints/before-artwork-sidebar-20261011-125303`.
 
 - Mini-player: the song-info block now has a 150 ms hover highlight, with only its cover clickable to open the player. Transport layout is shuffle-upcoming, previous, white circular play/pause, next and lyrics; queue and volume sit on the right. Enabled transport icons stay white independent of artwork/theme colours. Shuffle preserves current/past songs and is unavailable in active rooms. Windows build/tests passed; Android code is unchanged.
 - Installed the mini-player update at 12:42 on 11 October, still version 1.0.0, and reopened it. Installed code matches release output. Backup: `Downloads/Auralis-checkpoints/before-playerbar-20261011-124215`. Library/history/settings/account files stayed unchanged; search lookup cache, artwork journal and two Home recommendation caches changed during the update. These cache changes were checked before reopening.
 
-- Search is removed from the sidebar. Home's larger 176 × 54 dp Find music button opens an anchored dropdown using the existing recent-query and live-song suggestion logic. Song clicks play directly; submitting a query opens full search results. Outside click dismisses the dropdown. Existing Ctrl+F and search result navigation remain available. Windows tests and a narrow Home render passed; Android code is unchanged.
+- Search is removed from the sidebar. Home's larger 176 Ã— 54 dp Find music button opens an anchored dropdown using the existing recent-query and live-song suggestion logic. Song clicks play directly; submitting a query opens full search results. Outside click dismisses the dropdown. Existing Ctrl+F and search result navigation remain available. Windows tests and a narrow Home render passed; Android code is unchanged.
 - Installed this change at 12:35 on 11 October, version 1.0.0. Existing shortcut and all 289 checked data files preserved; backup: `Downloads/Auralis-checkpoints/before-find-music-20261011-123525`. Installed code matches release output and the app was reopened.
 
 - Windows has its own desktop layout over the existing Home recommendation engine: greeting, eight compact shortcuts, multi-column Quick picks, horizontally browsable discovery/music shelves and a vertical scrollbar. Removed duplicate Stats, History, Listen Together and Profile buttons from the Home header; their sidebar entries remain.
@@ -116,7 +116,7 @@ Release packaging passed and installed copy updated/reopened at 14:23 on 11 Octo
 
 ### Resizable and collapsible sidebars (Windows 1.0.0)
 
-Both sidebar edges can be dragged. Left navigation ranges from 180–320 dp and collapses to a 64 dp icon rail. Now playing ranges from 280–460 dp (including its toggle rail) and collapses to a 40 dp reopen rail. Width limits reserve space for the main page; narrow windows temporarily fold the right panel. Chevron buttons collapse/expand with 280 ms width and text/content fade transitions; dragging tracks directly. Preferences are saved in `desktop-sidebars.properties`, separately from phone settings. Windows tests: 26 passed, including width bounds; expanded/collapsed previews and final compilation passed. Android is unchanged.
+Both sidebar edges can be dragged. Left navigation ranges from 180â€“320 dp and collapses to a 64 dp icon rail. Now playing ranges from 280â€“460 dp (including its toggle rail) and collapses to a 40 dp reopen rail. Width limits reserve space for the main page; narrow windows temporarily fold the right panel. Chevron buttons collapse/expand with 280 ms width and text/content fade transitions; dragging tracks directly. Preferences are saved in `desktop-sidebars.properties`, separately from phone settings. Windows tests: 26 passed, including width bounds; expanded/collapsed previews and final compilation passed. Android is unchanged.
 
 Release packaging passed. Installed copy updated at 13:58 on 11 October, then reopened successfully. Installed archive matches the packaged code; shortcut and all 23 checked non-cache user files were preserved. Full data backup: `Downloads/Auralis-checkpoints/before-sidebars-20261011-135817`. Version remains 1.0.0.
 
@@ -228,67 +228,67 @@ Home now shows the labelled Find music button at 210dp minimum width and 60dp he
 
 Windows compilation and standard MSI packaging passed. Installed on 11 October at 17:48 after a normal close; all 32 checked data files and shortcut were preserved, and installed code matches the build. Backup: Downloads/Auralis-checkpoints/before-find-music-button-20261011-174716. Version remains 1.0.0.
 
-### Home scrollbar hover visibility — 11 October 2026
+### Home scrollbar hover visibility â€” 11 October 2026
 Home's vertical scrollbar now fades in over 160 ms while the pointer is over the Home scroll area and fades out when it leaves. Scroll position, wheel scrolling, and scrollbar dragging are preserved. The Windows MSI packaged successfully in 54 seconds; version remains 1.0.0.
 Installed and launched after a full app-data backup at Downloads/Auralis-checkpoints/before-hover-scrollbar-20261011-175117. All 32 checked non-cache data files were preserved, the installed code matches the release, and the shortcut target is unchanged.
 
-### Account menu rows and title-bar cleanup — 11 October 2026
+### Account menu rows and title-bar cleanup â€” 11 October 2026
 Account menu actions now use left-aligned 52 dp rows with a full-width rectangular hover highlight matching the reference. Removed the Settings gear from the window title bar. Find music retains the larger neutral button and no adjacent refresh control. Version remains 1.0.0.
 Windows packaging passed in 1m31s. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-account-hover-20261011-175528. All 32 checked non-cache user files and the shortcut target were preserved; installed code matches the release.
 
-### Find music proportions correction — 11 October 2026
+### Find music proportions correction â€” 11 October 2026
 Changed the Find music button from 60 dp tall with a 210 dp minimum width to 64 dp tall with a 176 dp minimum width and narrower horizontal padding. Adjusted popup offset to keep its 8 dp gap. Neutral colours and larger text are retained. Version remains 1.0.0.
 Windows packaging passed in 58 seconds. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-find-music-proportions-20261011-175743. All 32 checked non-cache data files and the shortcut target were preserved; installed code matches the release.
 
-### Account hover interaction correction — 11 October 2026
+### Account hover interaction correction â€” 11 October 2026
 The action rows now observe the clickable row's own interaction source, with no separate hover handler or rounded indication. A focused mouse-input render check verifies all four rectangle edges highlight, exit clears the highlight, and clicks dispatch once. AccountMenuHoverTest passed. Version remains 1.0.0.
 Packaging passed in 54 seconds. Installed and launched with full backup at Downloads/Auralis-checkpoints/before-account-hover-fix-20261011-180138. All 32 checked non-cache user files and shortcut target were preserved; installed code matches the release.
 
-### Imported Spotify playback repair — 12 October 2026
+### Imported Spotify playback repair â€” 12 October 2026
 Diagnosis from the app log: imported sp_ IDs were handed directly to NewPipe's YouTube watch extractor before background matching finished. Three failed IDs triggered a misleading network-block message based on an unrelated search cooldown. BitChord's DesktopStreamClient resolves YouTube recording IDs before audio extraction; its current source was inspected for comparison.
 Added foreground title/artist/duration matching, valid YouTube ID checks, shared recording/duration caching, and a bounded Music search that can use the connected session independently of the background import cooldown, with one video-search fallback. Unmatched imports are not preloaded or sent to the video extractor. The queue's generic failure message no longer labels Spotify-ID failures as a YouTube network block.
 Verification: PlaybackMatchTest (3 cases) and RepeatPlaybackTest passed. Live Tere Liye import sp_0d28khcov6AiegSCpG5TuT matched 5U5Ru0nTiUM; four 524288-byte ranges returned HTTP 206. Muted playback through DesktopPlaybackController, LocalStreamRelay and bundled libVLC advanced from 0 to 3782 ms over four seconds. The probe uses no app data. Version stays 1.0.0.
 All 53 Windows tests passed; packaging passed in 1m54s. Installed after full backup at Downloads/Auralis-checkpoints/before-playback-import-20261012-122557. The updater initially matched both windows-core-desktop and windows jars; refined its main-jar filter and independently verified hashes of both modules before reopening. Shortcut target preserved.
 The installer completed its user-data comparison successfully before the jar-name check: all 62 checked non-cache files were preserved before launch. Auralis reopened with a visible window; normal startup account sync and saved-state writes occur after launch.
 
-### Playlist header layout — 12 October 2026
+### Playlist header layout â€” 12 October 2026
 Wide Windows playlist pages now use an artwork banner with a dark blurred cover background, a 156 dp cover beside bottom-aligned playlist metadata and Play/options/shuffle controls, playlist search in the upper right, and sort/order controls aligned right below. Auralis theme typography is retained. The track table, order/reordering, filtering, and menu actions retain their existing implementation. Compact windows retain the existing stacked header. Added a disposable playlist-header preview fixture. Version remains 1.0.0.
 Rendered and visually inspected windows/build/screens/playlist-header.png. Compilation, preview rendering and packaging passed (5m11s). Installed and launched after full backup at Downloads/Auralis-checkpoints/before-playlist-header-20261012-124253. All 64 checked non-cache user files and shortcut target were preserved. Both main and core installed modules match the release.
 
-### Fluid lyrics rendering performance — 12 October 2026
+### Fluid lyrics rendering performance â€” 12 October 2026
 The active Fluid line repeatedly repainted complete text layers for individual words and applied a live blur/offscreen sweep. Cached the measured word geometry, white glyph image and held-note glow once per layout. Animation now clips and translates those images in the draw phase, preserving the feathered word sweep, lift, wrapped lines and glow without per-frame text rasterization or blur.
 
-The same 900×250 wrapped-line render test improved from 38.52 ms median / 115.45 ms p95 to 9.46 ms median / 11.26 ms p95 across 180 frames after warmup. These are focused renderer measurements, not whole-app frame-rate guarantees. The test also verifies seeking updates the sweep and completed words remain bright. Visually inspected the wrapped-line image. Version remains 1.0.0.
+The same 900Ã—250 wrapped-line render test improved from 38.52 ms median / 115.45 ms p95 to 9.46 ms median / 11.26 ms p95 across 180 frames after warmup. These are focused renderer measurements, not whole-app frame-rate guarantees. The test also verifies seeking updates the sweep and completed words remain bright. Visually inspected the wrapped-line image. Version remains 1.0.0.
 
 All 54 Windows tests passed; MSI packaging succeeded in 2m49s. Installed after a normal app close and full backup at Downloads/Auralis-checkpoints/before-fluid-lyrics-20261012-125823. All 64 checked non-cache user files and the shortcut were preserved; main and core installed modules match the release. Auralis was relaunched.
 
-### Dynamic lyrics background colour correction — 12 October 2026
+### Dynamic lyrics background colour correction â€” 12 October 2026
 Compared the current Spicy Lyrics dynamic-background CSS with our Kawarp output. The Windows full player used brightness=1 and omitted the subsequent CSS saturate(2.5) brightness(.65) filter; its sidebar also used a different dimming curve. This left bright artwork pale behind white lyrics. Added explicit full-player and sidebar presentation settings matching the final filters (.65/2.5 and .6/2.65), corrected Kawarp luminance weights and output order, and preserved the intermediate canvas clamp before the final filter. Both passes are combined in the existing GPU shader, without another blur or offscreen layer. Source: https://github.com/Spikerko/spicy-lyrics/blob/main/src/css/DynamicBG/spicy-dynamic-bg.css
 
 ArtworkAuraTest checks opaque output, white-cover dimming, pink/blue colour separation, dark-cover preservation in both presentations, and animation over time. Focused checks passed; generated colour previews were inspected. Version remains 1.0.0.
 
 All 55 Windows tests passed and MSI packaging succeeded in 3m1s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-aura-colour-20261012-130814. All 65 checked non-cache user files and the shortcut were preserved, both installed modules match the release, and Auralis was relaunched.
 
-### Selected lyrics style in side panels — 12 October 2026
+### Selected lyrics style in side panels â€” 12 October 2026
 The shared compact lyrics view previously always used ExperimentalWordLevelLyrics (Metro). Active sidebar lines now read the live appearance selection and call the same FluidLyricLine or AppleMusicLyricsLine renderer used by the full player for Auralis Fluid and Apple Music Letter by Letter. Other selections retain the full player's existing word-renderer fallback. This covers the dedicated Lyrics panel, Now playing card and its detached lyrics window. Compact sizing, hover, scrolling and click-to-seek remain. Line-synced Apple lyrics use the explicit line end or next line start when available.
 
 Focused sidebar word/hover checks passed. Added a render check that switches Metro, Fluid and Apple within one open scene, verifies distinct output, advances playback and seeks back for each style; all three previews were inspected. Version remains 1.0.0.
 
 MSI packaging passed in 2m7s. Installed after a normal app close and full backup at Downloads/Auralis-checkpoints/before-sidebar-styles-20261012-131502. All 65 checked non-cache data files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.
 
-### Interlude dot motion and size — 12 October 2026
+### Interlude dot motion and size â€” 12 October 2026
 Inspected both supplied 240 fps recordings and sampled consecutive dot frames. The reference uses larger dots, curved lift/scale changes and spring settling; our dots used straight-line interpolation, a radial aura, smaller sizes and an intro clock quantized to 50 ms. Replaced the curves with natural cubic splines and independent playback-driven springs, increased the full-player dot diameter from 0.42 to 0.70 times the base lyric size, and increased compact intro dots to 16 dp. Removed the radial aura and click hover/ripple pill. Intro and interlude progress now follow the smooth clock without the redundant progress tween. Pause freezes the springs; seeking resets them. Android sources are unchanged.
 
 LyricsDotsMotionTest verifies more than 50 distinct frames in a 60-frame sequence, no alpha outside the solid dot edges, pause stability and seek reset. Focused dot/sidebar checks passed and rendered frames were inspected. Version remains 1.0.0.
 
 All 57 Windows tests passed; MSI packaging succeeded in 2m6s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-dots-motion-20261012-132752. All 65 checked non-cache user files and the shortcut were preserved; main and core installed modules match the release. Auralis was relaunched.
 
-### Larger full-screen player — 12 October 2026
+### Larger full-screen player â€” 12 October 2026
 Increased the cover cap from 560 to 640 dp, widened its column to 44%, reduced outer gutters and retained width/height bounds for smaller windows. Full-screen lyrics use a 1.35 presentation multiplier on the selected text-size preference (about 46 sp at the default), with the selected renderer retained. Title/artist text increased to 34/22 sp, seek times to 17 sp, tabs to 16 sp and hover transport glyphs were enlarged. Saved settings and compact sidebar sizing are unchanged. Version remains 1.0.0.
 
 Compilation and MSI packaging passed in 1m32s. Installed after a normal close and full backup at Downloads/Auralis-checkpoints/before-player-size-20261012-133225. All 65 checked non-cache user files and shortcut were preserved; both installed modules match the release. Auralis was relaunched.
 
-## Windows dock live liquid glass — 2026-10-12
+## Windows dock live liquid glass â€” 2026-10-12
 
 - Replaced the dock's 86% dark painted fill with a live recording of the page behind it. The dock is excluded from that recording, so icons/text stay sharp and there is no recursive glass capture.
 - Uses the phone's 18 dp blur, 1.5 saturation, rounded-rectangle refraction shader (20 dp height / 28 dp amount), depth and chromatic dispersion on Skia. Tint remains 38% dark; the existing spring swell, pointer light and selected pill remain.
@@ -296,7 +296,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Verified with an ImageComposeScene render over alternating 8 px stripes: significantly reduced stripe variation within the dock, and changing the page from orange to blue updates the glass. Inspected both PNGs under windows/build/screens/dock-glass. Focused DockGlassRenderTest and MSI packaging passed (1m33s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-dock-glass-20261012-134357.
 
-## Familiar Artists missing portraits — 2026-10-12
+## Familiar Artists missing portraits â€” 2026-10-12
 
 - Root cause: artist cards depended entirely on paced YouTube artist searches. A YouTube network cooldown delayed those lookups, and a failed lookup was stored as null for the remainder of the session.
 - Portrait lookup now runs independently through the existing Wikipedia artist image source while YouTube resolves the channel. Successful channel/photo results are saved to cache/artist-portraits.properties and immediately reused on startup; channel-only replies preserve an existing portrait. Missing results retry after a minute rather than being permanently cached.
@@ -306,63 +306,63 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Final app startup check caught the imported uppercase credit PAWAN SINGH. Independent portrait queries now title-case all-uppercase credits for Wikipedia without changing the displayed artist name. The live check uses that exact uppercase input.
 - Final installation backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-artist-photos-20261012-140025.
 
-## Playlist cover background while idle — 2026-10-12
+## Playlist cover background while idle â€” 2026-10-12
 
 - When the player has no current track, the open playlist supplies the app's existing blurred artwork backdrop and palette. Reads the selected playlist live, so opening another playlist updates the background and leaving its page returns to the normal idle background.
 - Uses the playlist cover first, then a track thumbnail when the cover is absent. Browse playlist/album pages also supply their own cover. A loaded song retains the existing song-background behaviour.
 - Rendered and visually inspected the real playlist detail screen with its blurred cover behind the header and track table: windows/build/screens/playlist-header.png. Compilation, preview rendering and MSI packaging passed. No new tests for this reversible presentation change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-idle-20261012-140715.
 
-## Automatic artwork backgrounds in every theme — 2026-10-12
+## Automatic artwork backgrounds in every theme â€” 2026-10-12
 
 - Removed the Liquidify gate from the app artwork backdrop: current-song artwork now supplies the changing blurred background in every theme mode. An open playlist/album cover remains the fallback when no current artwork is available.
 - Removed the obsolete Liquidify background switch from Themes and colours and described the automatic behaviour there. Search surfaces also use their artwork treatment independently of the old preference.
 - Compilation and MSI packaging passed (1m44s). Existing artwork renderer and light/dark foreground handling are reused; no new test for this small presentation setting change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-always-artwork-20261012-141241.
 
-## Remove Windows artwork toggles — 2026-10-12
+## Remove Windows artwork toggles â€” 2026-10-12
 
 - Removed Hide player artwork, Crop player artwork and Black mini-player from Windows Appearance settings.
 - Windows full-screen player always displays its standard cover, and the bottom player bar uses its normal theme surface. Removed the hidden-cover-only transport row and black-bar theme override, so old saved values cannot activate the removed features.
 - No remaining references to these three preference fields in windows/src/main. Compilation and MSI packaging passed (1m43s). Android and the shared backup preference format were kept intact.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-remove-artwork-options-20261012-141657.
 
-## Compact card follows selected lyric style — 2026-10-12
+## Compact card follows selected lyric style â€” 2026-10-12
 
 - The compact sidebar now observes the live appearance store directly, including detached lyric windows. Fluid and Apple render surrounding lines through their own renderers; the distance blur and Metro intro flag are now limited to MetroLyrics.
 - The selected style changes in the open card without reopening it. Inactive Fluid uses the lightweight text path, preserving its glyph-cache performance.
 - All three SidebarWordLyricsTest checks passed: renderer switching, pause/seek/rest timing, and the whole compact card switching from the live store even when its parent supplies Metro defaults. Inspected Fluid/Apple card renders under windows/build/screens/compact-card-styles. MSI packaging passed (2m11s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-card-style-20261012-145935.
 
-## Replace library sidebar with navigation — 2026-10-12
+## Replace library sidebar with navigation â€” 2026-10-12
 
 - Replaced the left playlist list with Home, Library, History and Downloads rows, using Auralis typography and the existing translucent artwork surface. Selected row has a rounded highlight; the panel remains collapsible.
 - Library clears the selected playlist/smart collection and opens the overview. History opens listening history. Downloads opens the existing downloaded smart collection. Home and History clear any browse overlay. Playlists remain available through Library.
 - Compilation and MSI packaging passed (2m45s). No new tests for this reversible navigation UI change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-navigation-sidebar-20261012-150441.
 
-## Continuous playlist backdrop — 2026-10-12
+## Continuous playlist backdrop â€” 2026-10-12
 
 - Removed the playlist hero's separately enlarged/blurred cover and heavy black gradient. The header now exposes the same app-owned blurred artwork as the song list, eliminating the duplicated cover crops and hard split at the header boundary.
 - Current-song artwork therefore flows through the header during playback; when the player is empty, the playlist cover fills the existing single app backdrop. The foreground playlist cover and controls remain intact.
 - Visually inspected windows/build/screens/playlist-header.png: continuous colours behind header and track list with readable text. Preview rendering, compilation and MSI packaging passed (5m44s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-continuous-playlist-20261012-151226.
 
-## Restore pointer input after Alt+Tab — 2026-10-12
+## Restore pointer input after Alt+Tab â€” 2026-10-12
 
 - Replaced the previous windowActivated-only, null-focus-owner recovery (which walked only first children) with activation and windowGainedFocus listeners. They run after AWT activation, verify the app is active/focused, locate the actual Skia surface across all component branches, and request focus if the window/container owns it.
 - Refreshes the current pointer position by dispatching a mouse-move event to the component beneath it. Does not move the cursor, synthesize a click, or activate an unfocused app; owned popups keep focus. Listeners are removed on disposal.
 - Compilation and MSI packaging passed. WindowInputRestoreTest passed on the AWT event thread and verifies Skia targeting past unrelated first children. Actual user Alt+Tab interaction was not automated in this session.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-input-restore-20261012-151817.
 
-## Ten Familiar Artists in horizontal carousel — 2026-10-12
+## Ten Familiar Artists in horizontal carousel â€” 2026-10-12
 
 - Raised the Familiar Artists output limit from six to ten (ranked by the listener's play counts).
-- Replaced the responsive multi-row grid with a LazyRow of 4:5 posters. Width adapts to the panel (180–252 dp), keeps cards readable, and scrolls horizontally. Previous/More artists arrow controls sit at the right below the posters and move three positions, with availability based on actual scroll bounds.
+- Replaced the responsive multi-row grid with a LazyRow of 4:5 posters. Width adapts to the panel (180â€“252 dp), keeps cards readable, and scrolls horizontally. Previous/More artists arrow controls sit at the right below the posters and move three positions, with availability based on actual scroll bounds.
 - Compilation and MSI packaging passed (2m39s). No new tests for this reversible layout change.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-ten-artists-20261012-152311.
 
-## Home Shortcuts section — 2026-10-12
+## Home Shortcuts section â€” 2026-10-12
 
 - Inspected LiMusic's Shortcuts.svelte and ShortcutPicker.svelte in the existing local reference: wide curated tiles, visible empty section, library filter picker and fresh library metadata. Implemented an Auralis Compose section, without copying Svelte code.
 - Added Shortcuts below the Home greeting, with 64 dp wide tiles, circular artist artwork, horizontal scrolling, Add picker with filtering and duplicate prevention, and remove controls. Uses HomeViewModel's existing persisted pinned-item storage.
@@ -370,7 +370,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Compiled, rendered and visually inspected windows/build/screens/shortcuts.png. MSI packaging passed (2m46s).
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcuts-20261012-153146.
 
-## Sidebar local and YouTube Music playlist creation — 2026-10-12
+## Sidebar local and YouTube Music playlist creation â€” 2026-10-12
 
 - Added New playlist below Downloads. It opens an Auralis dialog with a name field and side-by-side YouTube Music / This device destinations, rather than LiMusic's stacked radio rows.
 - Inspected LiMusic commands.rs and innertube endpoints.rs: remote creation uses authenticated playlist/create with title and PRIVATE privacyStatus, reading the returned playlistId. Auralis uses its existing selected-account scoped YouTubeMusicClient; publishes/caches the new playlist in that account and opens it after confirmation. Account changes during the request are detected.
@@ -379,7 +379,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Initial normal shutdown did not close Auralis; user explicitly authorized stopping its processes before installation.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-create-playlist-20261012-154107.
 
-## Real Windows downloads and grouped offline library — 2026-10-12
+## Real Windows downloads and grouped offline library â€” 2026-10-12
 
 - Root cause: DesktopPlatformActions download actions were placeholders and DesktopLibraryPlatform exposed empty flows. Downloads routed to LibraryScreen's phone-only hub slot without a Windows implementation, producing a blank page.
 - Added DesktopDownloads: serialized actual audio transfers through the existing ranged stream relay, complete byte-length/container validation, temporary files published only on success, persistent metadata, live status/progress/errors, retry and owned-file removal. Download queues are persisted once per enqueue batch to avoid UI stalls on large playlists.
@@ -390,7 +390,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Previous placeholder clicks cannot be recovered as audio downloads; the user must queue those songs again.
 - Full app-data backup before installation: C:\Users\shrey\Downloads\Auralis-checkpoints\before-downloads-20261012-161116.
 
-## Liquid glass options and search popups — 2026-10-12
+## Liquid glass options and search popups â€” 2026-10-12
 
 - Root cause: options menus used a translucent fill; search used a separate blurred song cover. Neither sampled the app beneath the popup, so crisp background imagery showed through.
 - Added one app-only display-list source, recorded only while popups are open. Options and search draw the correctly positioned region through the same 18 dp blur, 1.5 saturation and Kyant refraction/chromatic glass shader used by the phone/dock. Text and controls render afterward, sharp; menu layout is retained.
@@ -398,14 +398,14 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - No GPU screenshot readback; capture uses Compose graphics layers. MSI is installed only after a full app-data backup and data/hash checks.
 - Full app-data backup: C:\Users\shrey\Downloads\Auralis-checkpoints\before-popup-glass-20261012-163348. Installed main/core jars match the release; all 68 checked data files preserved.
 
-## Playlist header sizing — 2026-10-12
+## Playlist header sizing â€” 2026-10-12
 
 - Increased Windows playlist covers from 156 to 184 dp and names from 26 to 32 sp, retaining Auralis typography.
 - Reduced the header content's bottom inset from 24 to 8 dp, shifting cover/details down 16 dp and reducing the gap above track headings.
 - Visually inspected the rendered playlist-header.png; build and installer verification recorded below.
 - Render/MSI build passed (5m39s). Installed with full backup at C:\Users\shrey\Downloads\Auralis-checkpoints\before-playlist-size-20261012-164305; all 68 checked data files preserved.
 
-## Artwork colour fidelity — 2026-10-12
+## Artwork colour fidelity â€” 2026-10-12
 
 - Root cause: browsing used a 70%-bright, 48 dp blurred, 1.10x zoomed cover under palette-coloured panels. Sparse coloured details (e.g. No Dogs Allowed's red signature) could select a red accent and tint the whole neutral background pink.
 - Matched Liquify's static-cover pipeline: centred cover, 7 dp blur, 45% brightness; neutral dark/light glass overlays instead of blending the accent palette into page surfaces. Accent colours and full-player blur defaults are retained. Applies automatically to song and idle-playlist covers across Windows modes.
@@ -413,7 +413,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Two ArtworkPageThemeTest checks passed, including rendered white-with-red-detail and blue covers, neutral panels, 45% pixel brightness and song-switch hue preservation. Inspected neutral-page.png and blue-page.png under windows/build/screens/artwork-colours.
 - Installed successfully; full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-artwork-colours-20261012-172801; all 69 checked data files preserved.
 
-## Queued Windows navigation, Home, Library and downloads refinements — 2026-10-12
+## Queued Windows navigation, Home, Library and downloads refinements â€” 2026-10-12
 
 - Removed the floating dock and lowered snackbar spacing. Home horizontal shelves, recents, Familiar Artists and Shortcuts now support primary mouse drag after a horizontal threshold; card clicks, vertical scrolling and touch behavior remain available.
 - Reduced full-player interlude dots from 0.70 to 0.58 of the lyric-size factor. Windows pin/unpin labels now say Shortcuts.
@@ -426,7 +426,7 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Final MSI build passed (1m38s). Installed after normal app shutdown with full backup at C:\Users\shrey\Downloads\Auralis-checkpoints\before-queued-ui-20261012-174924; all 69 checked data files preserved. Installed main/core jars match the release, desktop shortcut retained, and reopened Auralis window responds.
 - Startup verification encountered external YouTube HTTP 403/network backoff and account-sync database write-bandwidth limits. Live remote sync could not be confirmed during this run; account-playlist merge, cache persistence and creation behavior were verified with focused tests. Cached account playlists remain available in Library.
 
-## Explicit YouTube playlist selection correction — 2026-10-12
+## Explicit YouTube playlist selection correction â€” 2026-10-12
 
 - Corrected the preceding change: loading a YouTube account must not populate Auralis Library or Home's From your library shelf with every account playlist. Removed the account-wide merge and unselected-playlist artwork prefetch. The import page remains the explicit path for choosing existing YouTube playlists.
 - After a successful YouTube playlist creation through Auralis, retain just that confirmed playlist using the same stable imported:youtube_music:<remote ID> repository identity as selected imports. It survives restart and repeat retention does not duplicate it.
@@ -434,26 +434,26 @@ Compilation and MSI packaging passed in 1m32s. Installed after a normal close an
 - Four LibraryFiltersTest checks passed, including persistence after the repository's asynchronous write, no duplicate on repeat creation retention, explicit import preservation and exclusion of an unselected account playlist. Build/install verification follows.
 - MSI build passed (2m23s); installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-explicit-playlists-20261012-184842. All 69 checked data files matched before the intentional one-playlist recovery. Recovery verified that all existing Library content was unchanged and added only the selected empty aaaaa entry. Installed app jar matches the release.
 
-## Stronger Shortcut glow — 2026-10-12
+## Stronger Shortcut glow â€” 2026-10-12
 
 - User clarified that the moving glow should increase, rather than card dimensions. Increased only Shortcut aura brightness from 0.45 to 0.78 and saturation from 1.4 to 1.7. Existing animation, card dimensions, text, artwork, full player and sidebar rendering retain their settings.
 - This is a visual parameter adjustment; package compilation and installed-code/data verification follow.
 - MSI build passed (2m36s); installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-glow-20261012-185525. All 69 checked data files preserved and installed app code matches release.
 
-## Search Back navigation — 2026-10-12
+## Search Back navigation â€” 2026-10-12
 
 - Focusing title-bar search via Ctrl+F or Home's search action no longer navigates to an empty Search page before a query is submitted.
 - Navigation entries now retain the committed search query, independently of edits/clearing in the title bar. Back/Forward restores that submitted query/results when necessary, without adding a recent-history entry. Distinct submitted queries retain their own route identity; album/artist pages keep the query they came from.
 - Three DesktopNavigationTest checks passed, covering multiple queries, result-to-album Back/Forward, Home return, forward-history truncation and metadata loading without extra navigation steps.
 - MSI build passed (2m40s). Installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-search-navigation-20261012-190102; all 69 checked data files preserved and installed app code matches the release.
 
-## Restore soft song-synced browsing blur — 2026-10-12
+## Restore soft song-synced browsing blur â€” 2026-10-12
 
 - The colour-fidelity adjustment reduced browsing blur too far to 7 dp, leaving enlarged cover details visible. Restored the previous 48 dp blur and 1.10x image overscan for the app background. It continues following the current song (or idle playlist) across modes; neutral overlays and 45% brightness preserve the colour correction.
 - Both ArtworkPageThemeTest checks passed (47s build/test), verifying neutral glass locals, no red/pink tint from sparse artwork accents, expected brightness and hue after switching covers. Inspected the rendered blue-page.png and confirmed its soft blurred field.
 - MSI build passed (2m32s); installed after normal shutdown with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-background-blur-20261012-190609. All 70 checked data files preserved; installed code matches release.
 
-## Windows taskbar preview playback controls — 2026-10-12
+## Windows taskbar preview playback controls â€” 2026-10-12
 
 - Added an ITaskbarList3 thumbnail toolbar to the Auralis taskbar preview: Previous, Play/Pause and Next, with native icons/tooltips. The middle icon follows playback; buttons disable when no track is loaded and Next disables at the queue end. Existing lock-screen/media-key controls remain a separate Windows integration.
 - Routes THBN_CLICKED through the existing root-window procedure, dispatching playback to Swing. Registers on taskbar readiness and recreates after Explorer's TaskbarButtonCreated notification; delayed readiness falls back to updating an existing toolbar. Disposal hides buttons, detaches the listener and releases COM/icon resources.
@@ -511,13 +511,13 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 
 ### Native NVIDIA investigation after the owner finished gaming
 
-- SOFTWARE_FAST basic animation: 324 frames in five seconds, NVIDIA capture module absent. Artwork/glass checks: 3–14 frames in five seconds; SOFTWARE_COMPAT also failed the ten-fps minimum. Tests isolated the slowdown to artwork drawing/compositing, rather than the basic software renderer. Native redraw performance remained poor after clipping, lower-resolution filters, preblurred/pre-sized opaque covers and cached panel filtering. No software renderer was installed or enabled.
+- SOFTWARE_FAST basic animation: 324 frames in five seconds, NVIDIA capture module absent. Artwork/glass checks: 3â€“14 frames in five seconds; SOFTWARE_COMPAT also failed the ten-fps minimum. Tests isolated the slowdown to artwork drawing/compositing, rather than the basic software renderer. Native redraw performance remained poor after clipping, lower-resolution filters, preblurred/pre-sized opaque covers and cached panel filtering. No software renderer was installed or enabled.
 - Restored production PlayerScreen and LiquidPopupSurface after unsuccessful experiments; experimental blur/cache code is preserved under windows/build/nvidia-render-experiments. Existing installed UI and NVIDIA settings remain unchanged.
 - NVIDIA staff document disabling only the overlay notification as a global workaround, independent of app recognition: https://forums.developer.nvidia.com/t/how-to-prevent-in-game-overlay-from-triggering/256026/10 . This is distinct from disabling the overlay, recording or game tools, but still needs owner agreement because the hint would also be hidden in games.
 - Windows computer-use skill loaded; node_repl + @oai/sky initialization failed twice (with a kernel reset between attempts): "failed to write kernel assets: The system cannot find the path specified. (os error 3)". No NVIDIA UI automation or preference changes were performed.
 
 
-## Glass playlist and shortcut dialogs � 2026-10-12
+## Glass playlist and shortcut dialogs — 2026-10-12
 
 - Routed desktop New playlist, the Library New Playlist dialog and Home Add a shortcut through a shared glass dialog host, using the account popup's live page capture and lens/blur effect. Text, controls and artwork thumbnails draw above the blur.
 - The centered modal uses a separate popup scene, excludes its scrim/panel from page capture, dismisses on Escape or background click, and scrolls in small windows. Playlist creation's busy/error and destination behaviour remain intact.
@@ -525,37 +525,37 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - NVIDIA's global hint/overlay settings remain unchanged at the user's request. The Auralis-only overlay issue is unresolved; the slow software-rendering experiment was not installed.
 - MSI package passed (1m10s), SHA256 80E7B8853F035CA698F6470DA53051F0D919C3E562E7478E5BF7468A452EC9C4. Installed after normal shutdown with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-glass-dialogs-20261012-234957. All 70 checked data files preserved; installed main/core jars match the build; desktop shortcut retained and Auralis reopened.
 
-## Tighten Squiggly seekbar waves � 2026-10-12
+## Tighten Squiggly seekbar waves — 2026-10-12
 
 - Replaced the Windows Squiggly slider's 80 raw-pixel wavelength with 28 dp spacing, bringing the widely spaced desktop peaks closer to the phone's appearance. The shared player/style-preview slider uses the same spacing at each desktop density. Preserved wave height, playhead and the original 3 1/3 second animation cycle.
 - Existing seekbar checks passed for both animated styles: movement during playback, flattening after pause, and seeking with the loaded song's duration. Inspected the Squiggly preview; MSI package passed (2m22s combined verification/build).
 - Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-squiggly-spacing-20261012-235516. All 73 checked data files preserved, desktop shortcut retained, installed main/core jars match the build and Auralis reopened.
 
-## Muted inactive lyric hover � 2026-10-13
+## Muted inactive lyric hover — 2026-10-13
 
 - Full-player and sidebar inactive lyric hover now uses 55% text opacity instead of full singing white, retaining the existing rounded highlight and removing blur only from the hovered row. Active lyrics remain bright. Sidebar word hover no longer lights future unsung words.
 - Hover render checks passed for both full player and sidebar: muted but readable text, row highlight, click-to-seek callback and active-line brightness. Existing sidebar word/style checks also passed; inspected the full-player hover PNG.
 - MSI build passed (2m29s) and installed after normal shutdown with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-lyric-hover-20261013-000437. All 73 checked data files preserved; installed main/core jars match the build; desktop shortcut retained and Auralis relaunched.
 
-## Blend sidebar lyrics card into artwork � 2026-10-13
+## Blend sidebar lyrics card into artwork — 2026-10-13
 
 - Reduced the Now playing sidebar lyrics card's white overlay from 14% to 7%, preserving more of the underlying song artwork colours and reducing the milky appearance. Text, hover and word highlighting are unchanged.
 - Rendered and inspected the existing Now playing sidebar preview: the softer card retains the underlying red/purple colour transition and sharp foreground controls.
 
-## Responsive lyrics settings sliders � 2026-10-13
+## Responsive lyrics settings sliders — 2026-10-13
 
 - Lyrics text size and line spacing now keep pointer changes in local slider state and persist once on release, avoiding per-move storage writes and app-wide appearance recomposition. Labels update with the pointer immediately. Appearance writes are serialized and use the latest stored settings to avoid stale copies overwriting other choices.
 - Sidebar lyrics now apply the selected text size and line spacing for plain, MetroLyrics, Fluid and letter renderers, preserving the existing 24sp default scale.
 - Pointer gesture check passed with delayed persistence: no commits while dragging, one final commit, and final value follows the pointer. Existing sidebar word/style and lyric hover checks also passed (five checks total). Includes the previously reviewed 7% lyrics-card tint update.
 - MSI build passed (2m25s); installed the combined slider/tint update with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-settings-sliders-20261013-001507. All 73 checked data files preserved; main/core jars match the build and the desktop shortcut is retained.
 
-## Brighter song-synced app background � 2026-10-13
+## Brighter song-synced app background — 2026-10-13
 
 - Raised browsing artwork brightness from 45% to 68%, keeping the 48dp blur, 1.10x overscan, current-song switching and neutral translucent page surfaces.
 - Both artwork theme render checks passed: expected brighter white/blue cover pixels, preserved blue hue after song change and neutral panels without accent tint contamination.
 - MSI package passed (1m58s); installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-background-brightness-20261013-001949. All 73 checked data files preserved; installed app jar matches the build, desktop shortcut retained and Auralis relaunched.
 
-## Progressive artist overview and complete-page recovery � 2026-10-13
+## Progressive artist overview and complete-page recovery — 2026-10-13
 
 - Compared the local LiMusic artist route and InnerTube parser: it displays the overview with five top songs and opens full lists separately. Auralis previously waited for sequential catalogue calls, rendered up to 100 songs before albums, and cached search-only recovery as a complete page. The user's Sidney Gish log also contained a YouTube HTTP 403 during artist resolution.
 - Artist loading now publishes overview shelves before expanding catalogues concurrently. The overview displays five top songs; its More button uses the artist's actual top-songs playlist target when supplied. Resolved channel IDs are retained to avoid repeating name lookup.
@@ -563,7 +563,7 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Catalogue requests now have an eight-second background deadline; overview loading does not wait for it. Initial live checks returned Tame Impala/TV Girl/Sidney Gish overviews in 1070/793/664ms with 7/8/2 albums; Sidney's original four-second catalogue request timed out while its overview remained usable.
 - Final four artist checks passed, including concurrent expansion, overview-first delivery and incomplete fallback recovery. Live overviews arrived in 1093/741/649ms for Tame Impala/TV Girl/Sidney Gish; complete catalogues in 1519/1056/918ms. MSI installed successfully with backup before-artist-progress-20261013-003900; 73 checked user data files preserved, installed main/core jars match the build, and Auralis reopened with a responding main window.
 
-## Remaining queued UI/playback fixes — 2026-10-13
+## Remaining queued UI/playback fixes â€” 2026-10-13
 
 - Fullscreen lyrics now collect the live appearance store like the sidebar. The text-size range no longer plateaus at the previous clamp; line spacing affects wrapped text, plain lyrics and the gaps between short lyric rows.
 - Queue history contains only individual queue positions that reached actual PLAYING state, excluding jumped-over and failed songs and distinguishing duplicate recordings. Insert/remove operations preserve the mapping. The queue opens at Continue Playing, with history above it; extra trailing room handles a short remaining queue.
@@ -574,25 +574,25 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - NVIDIA overlay remains unresolved under the requested Auralis-only constraint. GPU backends inject the capture module; native software artwork/glass rendering was too slow in prior checks. NVIDIA staff document a global hint-notification workaround (https://forums.developer.nvidia.com/t/how-to-prevent-in-game-overlay-from-triggering/256026/10), which the owner explicitly declined. No game or global overlay settings changed.
 - Final single-line spacing, live settings, shortcut hover/click guard and revised seekbar preview checks passed; MSI package succeeded. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-queued-fixes-20261013-011043. All 73 checked data files preserved; main/core jars match the build, shortcut retained, and Auralis reopened with a responding main window. Version remains 1.0.0.
 
-## Center Wrapped rankings — 2026-10-13
+## Center Wrapped rankings â€” 2026-10-13
 
 - Centered the shared songs/albums/artists ranking block under its heading. The block fits its content up to 560dp; rows align consistently and long labels ellipsize within the available window width.
 - Rendered and inspected the ranking preview: numbering, covers and labels form a compact centered list rather than beginning at the window's left edge.
 - Wrapped render check and MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-wrapped-centering-20261013-095554; all 74 checked data files preserved, installed main/core jars match the build, and Auralis reopened with a responding main window. Version 1.0.0 and existing shortcut retained.
 
-## Retain unplayed songs when jumping through the queue — 2026-10-13
+## Retain unplayed songs when jumping through the queue â€” 2026-10-13
 
 - Reviewed the owner's phone video and corrected the local queue transition: unheard songs between the current position and a tapped song move behind the selection in their existing order. They remain visible in Continue Playing and can be played next, while only occurrences that reached PLAYING contribute to history.
 - Preserved heard-song ordering for Previous/Next and repeat navigation. Clear history now removes heard occurrences while retaining unheard tracks and the current song's listening state. Active room queues retain the host's shared positions.
 - Added regressions for jumping 1 to 3, subsequent playback of retained song 2, partly heard/skipped history, duplicate recordings, skipping before playback starts, clearing history and repeated backward navigation.
 - All 13 focused queue/repeat/radio checks passed and MSI package succeeded. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-queue-retention-20261013-100934; all 74 checked data files preserved, main/core jars verified against the build, and Auralis reopened responding. Version 1.0.0 and the existing shortcut retained.
 
-## Extend Add-shortcut hover to the right — 2026-10-13
+## Extend Add-shortcut hover to the right â€” 2026-10-13
 
 - Shortcut candidates now fill the dialog's available content width instead of stopping at a fixed 420dp, extending the highlight toward the right edge. Increased the row's right padding from 8dp to 20dp so Add has more highlighted space after it.
 - Existing hover/click-guard render check and MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-shortcut-hover-width-20261013-101422; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
 
-## Faster timestamp seeking — 2026-10-13
+## Faster timestamp seeking â€” 2026-10-13
 
 - Replaced the relay's uncached 512 KiB downloads with aligned 32 KiB blocks, a bounded 8 MiB LRU per retained stream (four-stream limit), shared in-flight block fetches and generation-cancelled prefetch up to 2 MiB ahead. Cached audio can be reused across overlapping/backward seeks; fresh seeks need a much smaller first transfer. Foreground requests run independently of the background queue.
 - Retained refusal retries/fresh-URL recovery and same-file length checks. Validate upstream range offsets and block sizes; a whole-file 200 response can no longer be mistaken for a nonzero range. Refreshing URLs is serialized; prefetch never triggers expensive URL refreshes.
@@ -601,7 +601,7 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Native muted VLC playback check passed using a generated 180-second WebM/Opus fixture served at 160 KiB/s. Seeking to 30/140/60/20 seconds and waiting for audio position to advance another 250ms took 815/1045/858/839ms. These are controlled local-source timings, not a guarantee for an uncached YouTube server. MSI package passed.
 - Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-seek-cache-20261013-102735; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
 
-## Smooth hover feedback throughout the desktop UI — 2026-10-13
+## Smooth hover feedback throughout the desktop UI â€” 2026-10-13
 
 - Added a shared 180ms hover fade for foundation clickable rows and Material buttons, icon controls, menu items, checkboxes, radios, sliders and clickable surfaces. Material controls retain their native press/focus interactions while their hover layer uses the shared transition. Click callbacks remain immediate.
 - Standard controls animate in draw nodes rather than recomposing surrounding pages each frame. Slider/switch hover follows the thumb; slider shape state remains stable while dragging. Existing responsive slider persistence is retained.
@@ -609,12 +609,12 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Focused checks passed for intermediate hover colours on entry and exit, immediate row/icon/menu clicks, full shortcut highlighting and pinned-row guards, account row edge coverage/exit cleanup, and one settings persistence write after dragging.
 - Final row/icon/menu/surface fade and immediate-click checks passed alongside shortcut, account and slider gesture checks; MSI package passed. Installed with full backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-smooth-hover-20261013-105303; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
 
-## Lower Squiggly wave height — 2026-10-13
+## Lower Squiggly wave height â€” 2026-10-13
 
 - Reduced Squiggly amplitude from 6px to 3px, keeping the 48dp wavelength, stroke and animation unchanged. The playhead height follows the smaller amplitude.
 - Existing Squiggly preview render passed and was visually inspected; MSI package passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-wave-height-20261013-110242. All 78 checked data files preserved, installed main/core jars verified, and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
 
-## Instrumental dots throughout songs and Slim hover thickness — 2026-10-13
+## Instrumental dots throughout songs and Slim hover thickness â€” 2026-10-13
 
 - The compact sidebar now inserts the same timed instrumental break rows as fullscreen lyrics, scrolls to active dots, dims the completed vocal during a break and supports tapping the dots to skip ahead. Added timed outros using the current track duration. Seeking back removes stale indicators.
 - Shared break generation respects overlapping lead/background vocal ends. Existing thresholds remain: at least 5 seconds after a supplied vocal end, or at least 10 seconds between line starts when only line timing is available. The latter uses a display-only sung-length estimate. Fullscreen dots no longer disappear solely because automatic scrolling is disabled.
@@ -622,7 +622,7 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Seven focused checks passed: break windows/overlapping vocals, repeated sidebar breaks and outro, skip/backward seeking, dot motion/pause behavior, existing sidebar renderers and live settings, and Slim intermediate hover thickness/exit/immediate click. Inspected later-break and outro render previews; MSI package passed.
 - Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-interludes-20261013-112103; all 78 checked data files preserved, installed main/core jars verified and Auralis reopened responding. Version 1.0.0 and shortcut retained.
 
-## Thicker cover volume slider — 2026-10-13
+## Thicker cover volume slider â€” 2026-10-13
 
 - Increased the fullscreen cover's vertical volume track from 8dp to 14dp normally, and from 14dp to 20dp on hover/drag. Retained the 180ms transition and 28dp interaction area.
 - MSI build passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-volume-width-20261013-112451; all 78 checked data files preserved, installed app jar verified and Auralis reopened responding. Version 1.0.0 and existing shortcut retained.
@@ -639,7 +639,7 @@ Installed the MSI on 2026-10-12. Backup: before-auto-radio-20261012-201222. All 
 - Prefill the editable room display name from the active signed-in YouTube identity, falling back to the Auralis profile display name. Signed-out/unnamed users retain Listener. Late-loading profile names update the untouched field; manual edits are retained across tab switches and profile updates.
 - Existing compact popup check passed with Shreyanshh prefilled and received by Create room, together with Host/Leave/Close actions. MSI build passed. Installed with backup C:\Users\shrey\Downloads\Auralis-checkpoints\before-together-name-20261013-120523; all 78 checked data files preserved, installed app jar verified and Auralis reopened responding. Version 1.0.0 and shortcut retained.
 
-## 2026-10-13 — Windows Listen Together Android parity
+## 2026-10-13 â€” Windows Listen Together Android parity
 
 Implemented Android's four room rules in the compact glass popup, both before creation and while hosting: queue additions/edits, play/pause/seek, choosing/skipping songs, and approval. Changing a single rule preserves the others. Guest permission summaries, song search, notes, votes, owner removal, host song approval, play-now, participant roles, slow-connection indicators, activity, and inactivity warnings are available.
 
@@ -651,19 +651,19 @@ Pixies remaster 6VG6gIvcjU8 remains pending: the initial stored YouTube session 
 
 Installation verified: Auralis 1.0.0 MSI installed; main jar hash matches the packaged source. Backup: C:/Users/shrey/Downloads/Auralis-checkpoints/before-together-parity-20261013-140805. All 78 checked non-cache data files and the existing desktop shortcut were preserved.
 
-## 2026-10-13 — Saved artists appear in Library
+## 2026-10-13 â€” Saved artists appear in Library
 
 The artist menu already persisted saved artists, but Library rendered only playlists/albums. Added saved artists to the unfiltered Library and an Artists pill, with circular cropped portraits, centered names and stored subscriber counts (Artist fallback when unknown). List view, local search and Library sorting also apply; clicking opens the saved artist's page. Existing saves become visible without resaving. Familiar-artist lookup and save actions now retain subscriber metadata when supplied by the provider. The Artists empty state explains how to save an artist.
 
 Verified compilation, headless Library rendering (windows/build/screens/library-artists.png), the existing LibraryFiltersTest (4 passing) and FamiliarArtistLookupTest (2 passing, 1 previously ignored). Installed Auralis 1.0.0; 78 checked data files and the desktop shortcut preserved. Backup: C:/Users/shrey/Downloads/Auralis-checkpoints/before-library-artists-20261013-141647. Only this task's changes are staged in files with pre-existing unrelated modifications.
 
-## 2026-10-13 — Smoother lyric hover from the supplied video
+## 2026-10-13 â€” Smoother lyric hover from the supplied video
 
 Reviewed Desktop 2026.10.13 - 14.04.40.02.mp4, comparing the first app and Auralis after Alt+Tab. The sidebar previously used a stronger 16% highlight over 140ms, and hovering anywhere in its viewport removed blur from every inactive line. Highlights now use 10% white over a 260ms eased fade (sidebar and fullscreen); sidebar text fades over 260ms and its selected row sharpens over 320ms. Only the hovered line comes into focus. Background/opacity/blur animation values are read during drawing or by a stable graphics layer rather than rebuilding the lyric text layout for each hover frame. Fullscreen progressive blur also keeps its graphics layer present throughout the transition.
 
 Verification: rendered LyricHoverRenderTest passed for inactive readability, active brightness and seek clicks in both layouts; SidebarLyricHoverTest passed intermediate fade-in/fade-out shade, rounded corners, hover without seeking and one seek per click; SidebarWordLyricsTest passed for the supported word-timed styles. This is renderer verification, not a measured comparison of GPU frame rates with the reference app. Installed 1.0.0 MSI, matching main/core jars, responding app window, 78 data files and desktop shortcut preserved. Backup: C:/Users/shrey/Downloads/Auralis-checkpoints/before-lyric-hover-motion-20261013-143047.
 
-## 2026-10-13 — Compact sidebar lyric spacing
+## 2026-10-13 â€” Compact sidebar lyric spacing
 
 Compared the three supplied sidebar screenshots. Removed excess space in intro/interlude dot rows and reduced lyric row padding to match the denser reference. Sidebar dots are 12dp, their compact canvas reserves 18dp with the centers kept at 12dp to retain room for the upward motion; the intro occupies 23dp rather than 60dp and later break rows occupy 22dp. Lyric row vertical padding is 6dp total rather than 18dp, and viewport vertical padding is 8dp. The top fade reaches full opacity sooner so compact dots remain visible. Added an opt-in compact layout to the shared dot indicators and a headless preview using the supplied lyric lines (windows/build/screens/lyrics-spacing.png).
 
@@ -748,3 +748,19 @@ Installed Auralis 1.0.0 with matching main/core jars; all 78 checked data files 
 ### Windows scroll boundaries (2026-10-13)
 - Removed pull-to-refresh interception, page displacement and the morphing indicator from Windows page wrappers. Wheel scrolling at page boundaries no longer opens a refresh gap.
 - Added coverage for both refresh APIs, including a loading state and repeated wheel input at both boundaries.
+
+### Lyrics card collapse (2026-10-13)
+- Animate the compact lyrics card height over 300 ms, fade its contents, and rotate the chevron. Reopening and reversing mid-animation remain smooth.
+- Verified intermediate frame heights, settled dimensions and reversal continuity.
+
+### Familiar Artists gap reduction (2026-10-13)
+- Relocated shelf chevrons next to the "Familiar Artists" header title and eliminated the bottom trailing controls row, removing ~56 dp of empty vertical space.
+- Decreased vertical spacing between Home shelves from 34 dp to 24 dp.
+- Verified all home shelf unit and layout tests pass. Installed and launched in the local Windows app (`C:\Users\shrey\AppData\Local\Auralis\Auralis.exe`) with user data backed up and verified.
+
+### Home cover resolution and song deduplication (2026-10-13)
+- Fixed YouTube thumbnail filename replacement across InnerTubeClient, PlaylistThumbnails, and ArtworkUrls to prevent `replace("default.jpg", "hqdefault.jpg")` from generating 404 `hqhqdefault.jpg` URLs.
+- Added automatic repair of `(hq)+default.jpg` and fallback to `https://i.ytimg.com/vi/$trackId/hqdefault.jpg` in `HomeArtwork` and `DesktopArtwork`.
+- Applied `TrackDeduplicator.deduplicateTracks` to Home recents and remote history, removing duplicate music video entries in favor of official studio tracks with high-res album covers.
+- Filtered non-music YouTube items (tutorials, reviews, tips & tricks) from Home history.
+- Tested via `CoverResolutionAndDeduplicationTest`; installed and relaunched in local Windows app with user data backed up.

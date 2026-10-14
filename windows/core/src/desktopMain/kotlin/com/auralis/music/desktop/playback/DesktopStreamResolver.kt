@@ -20,7 +20,7 @@ object DesktopStreamResolver {
     @Volatile var quality = com.auralis.music.domain.model.AudioQuality.HIGH
         set(value) { if (field != value) { field = value; clearCache() } }
     private const val TAG = "DesktopStreamResolver"
-    private const val EXTRACTION_BUDGET_MS = 8000L
+    private const val EXTRACTION_BUDGET_MS = 15000L
     private const val MAX_ATTEMPTS = 3
     // libVLC sends this user agent too (VlcAudioPlayer).
     private const val PROBE_USER_AGENT =
@@ -75,18 +75,41 @@ object DesktopStreamResolver {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
         if (!DesktopPlaybackMatch.isVideoId(target)) return@withContext null
         cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return@withContext it.url }
-        // Not held back by a search block: YouTube still serves the player (checked 2026-10-12 while
-        // search was blocked), and refusing here is what stopped every song from playing.
         val started = System.currentTimeMillis()
-        // YouTube now and then refuses a freshly issued stream URL (HTTP 403) that a new lookup
-        // replaces with a working one. Check each URL with a two-byte request before libVLC gets
-        // it, and look again (up to MAX_ATTEMPTS) when it's refused.
+        val testedUrls = mutableSetOf<String>()
+
         for (attempt in 1..MAX_ATTEMPTS) {
-            val url = extract(target) ?: break
-            when (val status = probe(url)) {
-                403 -> Log.w(TAG, "Stream for $target refused (HTTP 403) on attempt $attempt; looking again")
-                else -> {
-                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (attempt $attempt, check $status)")
+            val streams = extractStreams(target)
+            if (streams.isNullOrEmpty()) {
+                if (attempt < MAX_ATTEMPTS) {
+                    kotlinx.coroutines.delay(400L * attempt)
+                    continue
+                }
+                break
+            }
+            val candidates = rankStreams(streams, testedUrls)
+            if (candidates.isEmpty()) {
+                if (attempt < MAX_ATTEMPTS) {
+                    kotlinx.coroutines.delay(400L * attempt)
+                    continue
+                }
+                break
+            }
+
+            for (stream in candidates) {
+                val url = stream.content ?: continue
+                if (testedUrls.contains(url)) continue
+                testedUrls.add(url)
+
+                val status = probe(url)
+                if (status == 403) {
+                    val host = hostOf(url)
+                    Log.w(TAG, "Stream for $target refused (HTTP 403) from $host on attempt $attempt; trying alternate stream")
+                    markHostFailed(url)
+                } else {
+                    val host = hostOf(url)
+                    val client = Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1)
+                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (attempt $attempt, check $status, itag ${stream.itag} ${stream.format?.mimeType} from $host client $client)")
                     cache[target] = Cached(url, expiryOf(url))
                     return@withContext url
                 }
@@ -96,16 +119,12 @@ object DesktopStreamResolver {
         null
     }
 
-    private fun extract(target: String): String? = try {
+    private fun extractStreams(target: String): List<AudioStream>? = try {
         ensureInitialized()
         NewPipeDownloader.withRequestBudget(EXTRACTION_BUDGET_MS) {
             val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$target")
             extractor.fetchPage()
-            selectStream(extractor.audioStreams ?: emptyList())?.also {
-                val content = it.content.orEmpty()
-                val client = Regex("[?&]c=([^&]+)").find(content)?.groupValues?.get(1)
-                Log.d(TAG, "Picked itag ${it.itag} ${it.format?.mimeType} ${kbps(it)}kbps for $target from ${hostOf(content)} (client $client)")
-            }?.content
+            extractor.audioStreams ?: emptyList()
         }
     } catch (e: Throwable) {
         // Throwable, not Exception: a missing class (NoClassDefFoundError) must not kill playback.
@@ -129,7 +148,9 @@ object DesktopStreamResolver {
 
     private val probeClient by lazy {
         com.auralis.music.data.network.NetworkClientProvider.okHttpClient.newBuilder()
-            .callTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(3000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(3000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .callTimeout(4000, java.util.concurrent.TimeUnit.MILLISECONDS)
             .build()
     }
 
@@ -146,16 +167,28 @@ object DesktopStreamResolver {
         cache.remove(RecordingMatches.getMatchedVideoId(videoId) ?: videoId)
     }
 
-    private fun selectStream(streams: List<AudioStream>): AudioStream? {
-        val usable = streams.filter { !it.content.isNullOrBlank() }
-        // Prefer servers that haven't failed lately; a video often has only one, so fall back to it.
-        val playable = usable.filter { !hostBlocked(it.content) }.ifEmpty { usable }
-        // Auto-dubbed and audio-description tracks reuse the original's itags; keep the original.
-        val original = playable.filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
-        val candidates = original.ifEmpty { playable }
-        return if (quality == com.auralis.music.domain.model.AudioQuality.AUTO) candidates.maxByOrNull { kbps(it) }
-        else candidates.minByOrNull { kotlin.math.abs(kbps(it) - quality.targetBitrate / 1000) }
+    private fun rankStreams(streams: List<AudioStream>, excludedUrls: Set<String> = emptySet()): List<AudioStream> {
+        val usable = streams.filter { !it.content.isNullOrBlank() && !excludedUrls.contains(it.content) }
+        val unblocked = usable.filter { !hostBlocked(it.content) }
+        val pool = unblocked.ifEmpty { usable }
+
+        val original = pool.filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
+        val candidates = original.ifEmpty { pool }
+
+        return candidates.sortedWith(
+            compareByDescending<AudioStream> { !hostBlocked(it.content) }
+                .thenByDescending { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
+                .thenByDescending {
+                    if (quality == com.auralis.music.domain.model.AudioQuality.AUTO || quality == com.auralis.music.domain.model.AudioQuality.HIGH) {
+                        kbps(it)
+                    } else {
+                        -kotlin.math.abs(kbps(it) - quality.targetBitrate / 1000)
+                    }
+                }
+        )
     }
+
+    private fun selectStream(streams: List<AudioStream>): AudioStream? = rankStreams(streams).firstOrNull()
 
     private fun kbps(stream: AudioStream): Int = stream.averageBitrate.takeIf { it > 0 } ?: (stream.bitrate / 1000)
 

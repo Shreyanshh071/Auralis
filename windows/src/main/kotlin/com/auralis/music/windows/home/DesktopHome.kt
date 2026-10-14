@@ -64,7 +64,9 @@ internal fun DesktopHome(
     val remote = remember { DesktopRemoteHome(scope) }
     val remoteState by remote.state.collectAsState()
     val youtubeSessionRevision by com.auralis.music.data.network.YouTubeSession.revision.collectAsState()
+    val languageChanges by com.auralis.music.data.network.ContentSettingsSource.languageChanges.collectAsState()
     LaunchedEffect(youtubeSessionRevision) { remote.refresh() }
+    LaunchedEffect(languageChanges) { if (languageChanges > 0) remote.refresh() }
     LaunchedEffect(youtubeSignedIn, youtubeAccount, familiarArtists.map { it.id }) { subscriptions.load(familiarArtists.map { it.id }) }
     val platform = LocalPlatformActions.current
     val preferences = remember { com.auralis.music.util.PropertiesFileKeyValueStore(
@@ -92,6 +94,14 @@ internal fun DesktopHome(
                 }
             }.getOrDefault(emptyList())
             if (tracks.isNotEmpty()) action(tracks) else showMessage("Couldn't load this album. Please try again.")
+        }
+    }
+    val cleanTasteShelf = remember(tasteShelf, blocked) {
+        tasteShelf?.let { shelf ->
+            if (blocked.isEmpty()) shelf else shelf.copy(
+                tracks = shelf.tracks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
+                albums = shelf.albums.filterNot { it.id.startsWith("UC") && com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) }
+            )
         }
     }
     DesktopHomeScreen(
@@ -133,7 +143,7 @@ internal fun DesktopHome(
             val local = playlists.firstOrNull { "local:${it.id}" == album.id }
             if (local != null) menuPlaylist = local else menuAlbum = album
         },
-        playlistCovers = playlists.associateBy { "local:${it.id}" },
+        playlistCovers = buildMap { playlists.forEach { put("local:${it.id}", it); put(it.id, it) } },
         onShortcutMenu = { item ->
             when (item.type) {
                 SpeedDialType.TRACK -> menuTrack = item.track
@@ -148,7 +158,8 @@ internal fun DesktopHome(
         },
         onUnpinShortcut = { viewModel.unpinFromSpeedDial(it.id) },
         shortcutCandidates = playlists.map { p ->
-            val album = PlaylistResult("local:${p.id}", p.title, p.coverUrl ?: collageUrls[p.id] ?: p.tracks.firstOrNull()?.thumbnail,
+            val thumb = p.coverUrl?.takeIf { it.isNotBlank() } ?: collageUrls[p.id] ?: p.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+            val album = PlaylistResult("local:${p.id}", p.title, thumb,
                 "Playlist · ${p.tracks.size} songs")
             SpeedDialItem(id = "album-${album.id}", name = p.title, type = SpeedDialType.ALBUM, image = album.thumbnail, album = album)
         } + savedArtists.map { a -> SpeedDialItem(id = a.id, name = a.name, type = SpeedDialType.ARTIST,
@@ -201,12 +212,19 @@ internal fun DesktopHome(
         ),
         favoriteIds = favoriteIds,
         onToggleFavorite = { track -> scope.launch { library.toggleFavorite(track) } },
-        serviceShelves = if (youtubeSignedIn) (listOfNotNull(tasteShelf ?: remoteState.releases) + remoteState.shelves).map { shelf ->
-            // Blocked artists are left out of recommendations (Li Music's block list).
-            if (blocked.isEmpty()) shelf else shelf.copy(tracks = shelf.tracks.filterNot {
-                com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
-                albums = shelf.albums.filterNot { it.id.startsWith("UC") &&
-                    com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) })
+        tasteShelf = cleanTasteShelf,
+        serviceShelves = if (youtubeSignedIn) {
+            val base = listOfNotNull(cleanTasteShelf ?: remoteState.releases) + remoteState.shelves.filterNot {
+                it.title.equals("Albums & singles", ignoreCase = true) ||
+                it.title.equals("New releases", ignoreCase = true) ||
+                it.title.equals("New albums & singles", ignoreCase = true)
+            }
+            if (blocked.isEmpty()) base else base.map { shelf ->
+                shelf.copy(tracks = shelf.tracks.filterNot {
+                    com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
+                    albums = shelf.albums.filterNot { it.id.startsWith("UC") &&
+                        com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) })
+            }
         } else null,
         serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
         serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,

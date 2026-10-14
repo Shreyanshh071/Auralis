@@ -87,6 +87,7 @@ data class HomeUiState(
     val topPlayedTracks: List<PlayCountEntry> = emptyList(),
     val speedDialPages: List<List<SpeedDialItem>> = buildInitialSeedSpeedDial(),
     val pinnedSpeedDialIds: Set<String> = emptySet(),
+    val pinnedItems: List<SpeedDialItem> = emptyList(),
     val forgottenFavorites: List<Track> = emptyList(),
     val keepListening: List<Track> = emptyList(),
     val quickPicks: List<Track> = emptyList(),
@@ -199,12 +200,16 @@ class HomeViewModel(
                     }
                     _uiState.update { current ->
                         val pinned = inMemoryPinnedItems
-                        current.copy(speedDialPages = buildSpeedDialPages(
-                            current.topPlayedTracks.map { it.track },
-                            current.recentTracks.map { it.track },
-                            current.speedDialPages.flatten().mapNotNull { it.track },
-                            pinned
-                        ))
+                        current.copy(
+                            pinnedItems = pinned,
+                            pinnedSpeedDialIds = computePinnedIds(pinned),
+                            speedDialPages = buildSpeedDialPages(
+                                current.topPlayedTracks.map { it.track },
+                                current.recentTracks.map { it.track },
+                                current.speedDialPages.flatten().mapNotNull { it.track },
+                                pinned
+                            )
+                        )
                     }
                     platform.saveSpeedDial(_uiState.value.speedDialPages)
                 }
@@ -233,6 +238,7 @@ class HomeViewModel(
                         }
                         it.copy(
                             pinnedSpeedDialIds = pinnedIds,
+                            pinnedItems = inMemoryPinnedItems,
                             speedDialPages = effectivePages,
                             similarRecommendations = if (it.similarRecommendations.isEmpty()) cachedRecs else it.similarRecommendations,
                             dailyDiscover = if (it.dailyDiscover.isEmpty()) cachedDiscover else it.dailyDiscover
@@ -306,6 +312,7 @@ class HomeViewModel(
                             tasteProfile = profile,
                             speedDialPages = speedDial,
                             pinnedSpeedDialIds = pinnedIds,
+                            pinnedItems = currentPinned,
                             isLoading = false
                         )
                     }
@@ -323,6 +330,7 @@ class HomeViewModel(
                             tasteProfile = profile,
                             speedDialPages = speedDial,
                             pinnedSpeedDialIds = pinnedIds,
+                            pinnedItems = currentPinned,
                             isLoading = false
                         )
                     }
@@ -385,6 +393,7 @@ class HomeViewModel(
                         topPlayedTracks = topPlayed,
                         speedDialPages = speedDial,
                         pinnedSpeedDialIds = pinnedIds,
+                        pinnedItems = currentPinned,
                         forgottenFavorites = forgotten,
                         keepListening = heavy.distinctBy { trk -> trk.id }.take(15),
                         tasteProfile = profile,
@@ -1273,6 +1282,7 @@ class HomeViewModel(
         _uiState.update { current ->
             current.copy(
                 pinnedSpeedDialIds = updatedPinnedIds,
+                pinnedItems = inMemoryPinnedItems,
                 speedDialPages = optimisticPages
             )
         }
@@ -1292,6 +1302,7 @@ class HomeViewModel(
                     if (currentSeq == pinSequence.get()) {
                         current.copy(
                             pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            pinnedItems = inMemoryPinnedItems,
                             speedDialPages = fullRebuiltPages
                         )
                     } else {
@@ -1374,6 +1385,7 @@ class HomeViewModel(
         _uiState.update { current ->
             current.copy(
                 pinnedSpeedDialIds = updatedPinnedIds,
+                pinnedItems = inMemoryPinnedItems,
                 speedDialPages = optimisticPages
             )
         }
@@ -1393,6 +1405,7 @@ class HomeViewModel(
                     if (currentSeq == pinSequence.get()) {
                         current.copy(
                             pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            pinnedItems = inMemoryPinnedItems,
                             speedDialPages = fullRebuiltPages
                         )
                     } else {
@@ -1445,6 +1458,7 @@ class HomeViewModel(
         _uiState.update { current ->
             current.copy(
                 pinnedSpeedDialIds = computePinnedIds(updatedList),
+                pinnedItems = inMemoryPinnedItems,
                 speedDialPages = buildOptimisticSpeedDialPages(current.speedDialPages, updatedList)
             )
         }
@@ -1466,6 +1480,7 @@ class HomeViewModel(
             _uiState.update { current ->
                 current.copy(
                     pinnedSpeedDialIds = computePinnedIds(updatedList),
+                    pinnedItems = inMemoryPinnedItems,
                     speedDialPages = buildOptimisticSpeedDialPages(current.speedDialPages, updatedList)
                 )
             }
@@ -1480,6 +1495,8 @@ class HomeViewModel(
         }
         val isAlbum = SpeedDialIdHelper.isAlbumId(itemId) || inMemoryPinnedItems.any { it.id == itemId && it.type == SpeedDialType.ALBUM }
         val cleanAlbumId = itemId.removePrefix("album-").removePrefix("VL")
+        val isPlaylist = itemId.startsWith("playlist-") || inMemoryPinnedItems.any { it.id == itemId && it.type == SpeedDialType.PLAYLIST }
+        val cleanPlaylistId = itemId.removePrefix("playlist-")
         val canonicalTrackId = SpeedDialIdHelper.getCanonicalTrackId(itemId)
 
         // 1. Immediately update in-memory pinned items & UI state (0ms latency, lightweight optimistic update)
@@ -1487,7 +1504,13 @@ class HomeViewModel(
             if (isAlbum) {
                 item.type == SpeedDialType.ALBUM && (
                     item.id == itemId ||
-                    item.id.removePrefix("album-").removePrefix("VL") == cleanAlbumId
+                    item.id.removePrefix("album-").removePrefix("VL") == cleanAlbumId ||
+                    (item.album != null && (item.album.id == cleanAlbumId || item.album.id == itemId || "album-${item.album.id}" == itemId))
+                )
+            } else if (isPlaylist) {
+                item.type == SpeedDialType.PLAYLIST && (
+                    item.id == itemId ||
+                    item.id.removePrefix("playlist-") == cleanPlaylistId
                 )
             } else {
                 item.type == SpeedDialType.TRACK && (
@@ -1505,6 +1528,7 @@ class HomeViewModel(
         _uiState.update { current ->
             current.copy(
                 pinnedSpeedDialIds = updatedPinnedIds,
+                pinnedItems = inMemoryPinnedItems,
                 speedDialPages = optimisticPages
             )
         }
@@ -1524,6 +1548,7 @@ class HomeViewModel(
                     if (currentSeq == pinSequence.get()) {
                         current.copy(
                             pinnedSpeedDialIds = computePinnedIds(inMemoryPinnedItems),
+                            pinnedItems = inMemoryPinnedItems,
                             speedDialPages = fullRebuiltPages
                         )
                     } else {
@@ -1538,6 +1563,11 @@ class HomeViewModel(
                         if (isAlbum) {
                             ctx.unpinSpeedDialItem(cleanAlbumId)
                             ctx.unpinSpeedDialItem(itemId)
+                            if (!cleanAlbumId.startsWith("album-")) ctx.unpinSpeedDialItem("album-$cleanAlbumId")
+                        } else if (isPlaylist) {
+                            ctx.unpinSpeedDialItem(cleanPlaylistId)
+                            ctx.unpinSpeedDialItem(itemId)
+                            if (!cleanPlaylistId.startsWith("playlist-")) ctx.unpinSpeedDialItem("playlist-$cleanPlaylistId")
                         } else {
                             ctx.unpinSpeedDialItem(itemId)
                             if (canonicalTrackId != null) {
