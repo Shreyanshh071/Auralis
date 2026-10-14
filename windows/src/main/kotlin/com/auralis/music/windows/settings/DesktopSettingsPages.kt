@@ -80,6 +80,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
                 }
             }
         }
+        item { AnimatedCoversSettings() }
         item { Text("Lyrics", style = MaterialTheme.typography.titleLarge) }
         item {
             val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,
@@ -147,6 +148,28 @@ private fun BlockedArtistsSection() {
                 TextButton(onClick = { com.auralis.music.desktop.library.DesktopBlockedArtists.unblock(artist.key) }) { Text("Unblock") }
             }
         }
+    }
+}
+
+/** Animated covers: on or off, and where they come from. */
+@Composable
+private fun AnimatedCoversSettings() {
+    val prefs by com.auralis.music.windows.player.CanvasSettings.prefs.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Animated covers", style = MaterialTheme.typography.titleLarge)
+        Text("Some songs have a short looping video in place of their cover. It plays in the player and the Now Playing panel.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Toggle("Show animated covers", prefs.enabled) {
+            com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(enabled = it))
+        }
+        if (prefs.enabled) Choice("Find them on", prefs.source.label, com.auralis.music.windows.player.CanvasSource.entries.map { it.label }) { label ->
+            com.auralis.music.windows.player.CanvasSource.entries.firstOrNull { it.label == label }?.let {
+                com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(source = it))
+            }
+        }
+        if (prefs.enabled && prefs.source == com.auralis.music.windows.player.CanvasSource.AUTO) Text(
+            "Auto looks on Apple Music first, then Tidal, then the Vivi Music library.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

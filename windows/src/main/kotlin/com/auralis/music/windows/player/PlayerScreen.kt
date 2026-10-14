@@ -285,8 +285,11 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
-        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-            contentDescription = title, contentScale = scale)
+        // Animated when the song has an animated cover (Appearance > Animated covers).
+        AnimatedCover(queue.current, Modifier.fillMaxSize()) {
+            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+                contentDescription = title, contentScale = scale)
+        }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
