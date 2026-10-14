@@ -842,7 +842,7 @@ internal fun BrowserYouTubePicker(
                         Text("${workingCandidate.label} is signed in with ${workingCandidate.email}, the same Google account as Auralis.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
                     }
                     Button(
-                        onClick = { import { BrowserYouTubeLogin.read(workingCandidate) to workingCandidate.label } },
+                        onClick = { import { BrowserYouTubeLogin.read(workingCandidate).also { YouTubeSessionSource.remember(workingCandidate) } to workingCandidate.label } },
                         enabled = !busy && !accountState.busy
                     ) {
                         if (busy) {
@@ -943,7 +943,7 @@ internal fun BrowserYouTubePicker(
                         message = "Chrome & Edge cookies are protected by Windows App-Bound encryption. Please copy your cookie from Chrome DevTools (F12) and paste it below."
                         isErrorMessage = false
                     } else {
-                        import { BrowserYouTubeLogin.read(profile) to profile.label }
+                        import { BrowserYouTubeLogin.read(profile).also { YouTubeSessionSource.remember(profile) } to profile.label }
                     }
                 }
             }
@@ -1025,6 +1025,8 @@ internal fun BrowserYouTubePicker(
                             onClick = {
                                 import {
                                     val cleaned = cookie.trim().removePrefix("Cookie:").removePrefix("cookie:").trim()
+                                    // A pasted cookie has no browser profile to renew from.
+                                    YouTubeSessionSource.forget()
                                     cleaned to "YouTube Music (Cookie)"
                                 }
                             },

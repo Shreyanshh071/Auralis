@@ -230,8 +230,8 @@ fun ListeningStatsPage(
                             }
                             Spacer(Modifier.width(18.dp))
                             Column {
-                                Text("Total Time Listened", style = MaterialTheme.typography.labelLarge, color = colours.onSurfaceVariant)
-                                Text(clock(selected.sumOf { it.timeMs }), fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                                Text("Total time listened", style = StatLabel, color = colours.onSurfaceVariant)
+                                Text(clock(selected.sumOf { it.timeMs }), style = StatHero)
                             }
                         }
                     }
@@ -287,7 +287,7 @@ private fun StatsPill(selected: Boolean, onClick: () -> Unit, content: @Composab
 private fun SectionTitle(text: String, icon: ImageVector? = null) {
     Row(Modifier.padding(top = 14.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) { Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)) }
-        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = StatSection, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -300,9 +300,9 @@ private fun HighlightCard(label: String, title: String, subtitle: String, image:
             StatImage(image, round, 60)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = colours.onSurfaceVariant)
-                Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colours.onSurfaceVariant)
+                Text(label, style = StatLabel, color = colours.onSurfaceVariant)
+                Text(title, style = StatTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = StatSmall, color = colours.onSurfaceVariant)
             }
             val onAccent = if (colours.primary.luminance() > .5f) Color.Black else Color.White
             FilledIconButton(onClick = onAction, colors = IconButtonDefaults.filledIconButtonColors(
@@ -321,8 +321,8 @@ private fun MetricCard(icon: ImageVector, value: Int, label: String, modifier: M
             }
             Spacer(Modifier.width(12.dp))
             Column {
-                Text("$value", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("$value", style = StatValue)
+                Text(label, style = StatSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -335,8 +335,8 @@ private fun StatLine(rank: Int, title: String, subtitle: String, image: String?,
         StatImage(image, round, 52)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text("$rank. $title", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("$rank. $title", style = StatTitle.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = StatSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Default.MoreVert, "Options") }
     }
@@ -348,3 +348,19 @@ private fun StatImage(url: String?, round: Boolean, size: Int) {
         if (!url.isNullOrBlank()) AsyncImage(url, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     } else DesktopArtwork(url, Modifier.size(size.dp), 10.dp, null)
 }
+
+// Stats type: Outfit for figures and headings (even-width digits, so times don't jiggle), Plus
+// Jakarta Sans for the quiet labels. The page used to mix default bold text at small sizes.
+private val StatFigures = "tnum"
+private val StatHero = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
+    fontWeight = FontWeight.SemiBold, fontSize = 46.sp, lineHeight = 52.sp, letterSpacing = (-1).sp, fontFeatureSettings = StatFigures)
+private val StatValue = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
+    fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 28.sp, letterSpacing = (-0.3).sp, fontFeatureSettings = StatFigures)
+private val StatSection = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
+    fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.2).sp)
+private val StatTitle = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
+    fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 21.sp)
+private val StatLabel = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.PlusJakartaSansFontFamily,
+    fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp)
+private val StatSmall = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.PlusJakartaSansFontFamily,
+    fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp)

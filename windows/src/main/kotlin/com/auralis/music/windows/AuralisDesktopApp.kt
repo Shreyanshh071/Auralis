@@ -184,8 +184,10 @@ fun AuralisDesktopApp(
             listens = allListens,
             blockedTracks = { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blockedArtists) }
         )
-        // The artists played most recently (the row shows them newest first).
-        stats.sortedByDescending { it.lastPlayedAt }
+        // The artists listened to most, by plays and time listened (the row ranks the top 10 the same way).
+        val maxPlays = stats.maxOfOrNull { it.totalPlays }?.coerceAtLeast(1) ?: 1
+        val maxTime = stats.maxOfOrNull { it.listenedMs }?.coerceAtLeast(1L) ?: 1L
+        stats.sortedByDescending { it.totalPlays.toDouble() / maxPlays + it.listenedMs.toDouble() / maxTime }
             .distinctBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) }
             .take(20)
     }
@@ -221,7 +223,8 @@ fun AuralisDesktopApp(
             weekPlays = stat.weekPlays,
             totalPlays = stat.totalPlays,
             patternScore = stat.patternScore,
-            lastPlayedAt = stat.lastPlayedAt
+            lastPlayedAt = stat.lastPlayedAt,
+            listenedMs = stat.listenedMs
         )
     }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }
     val homeViewModel = remember {
