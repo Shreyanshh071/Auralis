@@ -51,6 +51,10 @@ internal class YouTubeAccountsStore(private val store: KeyValueStore) {
         (0 until entries.length()).firstOrNull { entries.optJSONObject(it)?.optString("id") == id }?.let(entries::remove)
         store.putStrings(mapOf("cookie" to entries.toString()))
     }
+    @Synchronized fun clear() {
+        while (entries.length() > 0) entries.remove(0)
+        store.putStrings(mapOf("cookie" to "[]"))
+    }
 }
 
 internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
@@ -120,6 +124,12 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
         accounts.remove(id)
         if (state.value.activeId == id) { YouTubeSession.signOut(); refresh(force = true) }
         else mutable.value = mutable.value.copy(accounts = accounts.summaries())
+    }
+    fun signOut() {
+        state.value.activeId?.let(accounts::remove)
+        accounts.clear()
+        YouTubeSession.signOut()
+        refresh(force = true)
     }
     suspend fun createPlaylist(title: String): PlaylistResult {
         val api = client ?: error("Connect YouTube Music and wait for your account to load.")

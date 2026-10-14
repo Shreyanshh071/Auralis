@@ -43,6 +43,30 @@ class WindowsSettingsTest {
         } finally { ContentSettingsSource.current = oldSource }
     }
 
+    @Test fun desktopAppLanguageChangesLocaleAndNotifiesSource() = runBlocking {
+        val root = kotlin.io.path.createTempDirectory("auralis-lang-test").toFile()
+        val previous = System.getProperty("auralis.dataDir")
+        val previousLocale = java.util.Locale.getDefault()
+        try {
+            System.setProperty("auralis.dataDir", root.absolutePath)
+            DesktopAppLanguage.install()
+            val initialChanges = ContentSettingsSource.languageChanges.value
+            DesktopAppLanguage.apply("fr")
+            assertEquals("fr", DesktopAppLanguage.currentTag())
+            assertEquals("fr", java.util.Locale.getDefault().language)
+            assertEquals(initialChanges + 1, ContentSettingsSource.languageChanges.value)
+            assertEquals("fr", ContentLocale.hl())
+
+            // Re-apply system default (blank)
+            DesktopAppLanguage.apply("")
+            assertEquals("", DesktopAppLanguage.currentTag())
+            assertEquals(initialChanges + 2, ContentSettingsSource.languageChanges.value)
+        } finally {
+            if (previous == null) System.clearProperty("auralis.dataDir") else System.setProperty("auralis.dataDir", previous)
+            java.util.Locale.setDefault(previousLocale)
+        }
+    }
+
     @Test fun pausingSearchHistoryDoesNotPreventSearchResults() = runBlocking {
         val repository = FakeSearch()
         var paused = true

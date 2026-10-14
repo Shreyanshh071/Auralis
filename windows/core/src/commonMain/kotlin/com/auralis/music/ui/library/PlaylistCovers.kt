@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -120,17 +123,19 @@ fun PlaylistCoverArt(
             contentDescription = playlist.title
         )
     } else {
+        val isFavorites = playlist.id == "favorites" || playlist.title.equals("Favorites", ignoreCase = true) || playlist.title.equals("Liked Songs", ignoreCase = true)
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clip(RoundedCornerShape(cornerRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Favorite,
+                imageVector = if (isFavorites) Icons.Default.Favorite else Icons.Default.MusicNote,
                 contentDescription = null,
                 tint = LIME_TEXT,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }

@@ -74,6 +74,7 @@ internal fun DesktopHomeScreen(
     moreSections: List<HomeSection> = emptyList(),
     serviceShelves: List<DesktopHomeShelf>? = null, serviceRecents: List<Track>? = null,
     serviceLoading: Boolean = false, serviceError: String? = null, libraryShelf: List<PlaylistResult> = emptyList(),
+    tasteShelf: DesktopHomeShelf? = null,
     /** The listener's most-played songs, shown as Quick picks above Albums & singles. */
     quickPicks: List<Track> = emptyList(),
     /** The listener's most-played artists (Familiar Artists, in place of Quick picks). */
@@ -84,7 +85,7 @@ internal fun DesktopHomeScreen(
     favoriteIds: Set<String> = emptySet(),
     onToggleFavorite: (Track) -> Unit = {}
 ) {
-    val content = remember(state, moreSections) { desktopHomeContent(state, moreSections) }
+    val content = remember(state, moreSections, tasteShelf) { desktopHomeContent(state, moreSections, tasteShelf) }
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
     val recentsScroll = rememberLazyListState()
@@ -92,7 +93,10 @@ internal fun DesktopHomeScreen(
     val scrollHover = remember { MutableInteractionSource() }
     val scrollHovered by scrollHover.collectIsHoveredAsState()
     val scrollbarAlpha by animateFloatAsState(if (scrollHovered) 1f else 0f, tween(160))
-    val recents = serviceRecents?.takeIf { it.isNotEmpty() } ?: content.recents
+    val recents = remember(serviceRecents, content.recents) {
+        val raw = serviceRecents?.takeIf { it.isNotEmpty() } ?: content.recents
+        com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(raw)
+    }
     val shelves = serviceShelves ?: buildList {
         addAll(content.shelves)
         if (content.picks.isNotEmpty()) add(DesktopHomeShelf("quick-picks", "Quick picks", tracks = content.picks))
@@ -111,7 +115,7 @@ internal fun DesktopHomeScreen(
             .coerceIn(260.dp, 410.dp)
         LazyColumn(Modifier.fillMaxSize(), state = scroll,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(34.dp)) {
+            verticalArrangement = Arrangement.spacedBy(24.dp)) {
             item("greeting") { HomeGreeting(greetingName) }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -129,7 +133,7 @@ internal fun DesktopHomeScreen(
                     } else LazyRow(state = recentsScroll, modifier = Modifier.mouseDragScroll(recentsScroll), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (recentsGrid) items(recents, key = { it.id }) { track ->
                             ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && isPlaying,
-                                { onPlay(track, recents) }, { onMenu(track) })
+                                { onPlay(track, recents) }, { onMenu(track) }, trackId = track.id)
                         } else items(recents.chunked(4), key = { it.first().id }) { tracks ->
                             Column(Modifier.width(columnWidth)) {
                                 tracks.forEach { track -> CompactSong(track, currentTrackId == track.id && isPlaying,
@@ -199,7 +203,7 @@ private fun HomeCarousel(shelf: DesktopHomeShelf, currentTrackId: String?, playi
             items(order, key = { it }) { key ->
                 if (key.startsWith("track:")) tracks[key.removePrefix("track:")]?.let { track ->
                     ArtworkCard(track.title, track.artist, track.thumbnail, currentTrackId == track.id && playing,
-                        { onPlay(track, shelf.tracks) }, { onMenu(track) })
+                        { onPlay(track, shelf.tracks) }, { onMenu(track) }, trackId = track.id)
                 } else albums[key.removePrefix("album:")]?.let { album ->
                     ArtworkCard(album.title, album.author.orEmpty(), album.thumbnail, false,
                         { onAlbum(album) }, { onAlbumMenu(album) }, opensPage = true, playlistCover = playlistCovers[album.id])
@@ -297,7 +301,7 @@ private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlayi
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("${column * 4 + row + 1}", Modifier.width(18.dp), style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant)
-                                HomeArtwork(track.thumbnail, Modifier.size(42.dp).clip(RoundedCornerShape(6.dp)))
+                                HomeArtwork(track.thumbnail, Modifier.size(42.dp).clip(RoundedCornerShape(6.dp)), track.id)
                                 Column(Modifier.weight(1f)) {
                                     Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
                                         color = if (active) colors.primary else colors.onSurface)
@@ -334,7 +338,7 @@ internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu:
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(highlight).hoverable(hover)
             .clickable(interactionSource = hover, indication = null, onClick = click).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HomeArtwork(track.thumbnail, Modifier.size(48.dp).clip(RoundedCornerShape(7.dp)))
+            HomeArtwork(track.thumbnail, Modifier.size(48.dp).clip(RoundedCornerShape(7.dp)), track.id)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
                     color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
@@ -348,14 +352,14 @@ internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu:
 }
 
 @Composable
-private fun ArtworkCard(title: String, subtitle: String, image: String?, active: Boolean, click: () -> Unit, menu: (() -> Unit)?, opensPage: Boolean = false, playlistCover: Playlist? = null) {
+private fun ArtworkCard(title: String, subtitle: String, image: String?, active: Boolean, click: () -> Unit, menu: (() -> Unit)?, opensPage: Boolean = false, playlistCover: Playlist? = null, trackId: String? = null) {
     val interactions = remember { MutableInteractionSource() }
     val hovered by interactions.collectIsHoveredAsState()
     Box(Modifier.secondaryClick(menu)) {
         Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp)).hoverable(interactions).clickable(onClick = click)) {
             Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp))) {
                 if (playlistCover != null) com.auralis.music.ui.library.PlaylistCoverArt(playlistCover, emptyList(), 12.dp)
-                else HomeArtwork(image, Modifier.fillMaxSize())
+                else HomeArtwork(image, Modifier.fillMaxSize(), trackId)
                 // No hover play/open button (the card itself is the click target); only the song
                 // that's playing keeps a small "playing" badge.
                 androidx.compose.animation.AnimatedVisibility(visible = active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
@@ -374,9 +378,36 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
 }
 
 @Composable
-private fun HomeArtwork(url: String?, modifier: Modifier) {
+private fun HomeArtwork(url: String?, modifier: Modifier, trackId: String? = null) {
+    val context = coil3.compose.LocalPlatformContext.current
+    val resolvedUrl = remember(url, trackId) {
+        val raw = url?.trim().orEmpty()
+        val cleaned = when {
+            raw.contains("hqhqdefault.jpg") -> raw.replace(Regex("""(?:hq)+default\.jpg"""), "hqdefault.jpg")
+            raw.isNotBlank() -> raw
+            !trackId.isNullOrBlank() && !trackId.startsWith("local:") && !trackId.startsWith("sp_") ->
+                "https://i.ytimg.com/vi/$trackId/hq720.jpg"
+            else -> ""
+        }
+        if (cleaned.isNotBlank()) com.auralis.music.ui.components.getOptimizedThumbnailUrl(cleaned) ?: cleaned else null
+    }
+    val request = remember(resolvedUrl) {
+        if (!resolvedUrl.isNullOrBlank()) {
+            coil3.request.ImageRequest.Builder(context)
+                .data(resolvedUrl)
+                .size(600)
+                .build()
+        } else null
+    }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
         Icon(Icons.Outlined.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f))
-        if (!url.isNullOrBlank()) AsyncImage(url, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (request != null) {
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
     }
 }

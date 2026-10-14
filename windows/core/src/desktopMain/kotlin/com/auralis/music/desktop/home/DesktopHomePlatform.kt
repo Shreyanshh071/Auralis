@@ -41,7 +41,8 @@ class DesktopHomePlatform(private val dir: File, private val stats: com.auralis.
             File(dir, name).takeIf { it.isFile }?.readText()?.takeIf { it.isNotBlank() }
                 ?.let { json.decodeFromString(serializer, it) }
         } catch (e: Exception) {
-            Log.w(TAG, "Unreadable $name: ${e.message}")
+            Log.w(TAG, "Unreadable $name (removing corrupted file): ${e.message}")
+            runCatching { File(dir, name).delete() }
             null
         }
     }

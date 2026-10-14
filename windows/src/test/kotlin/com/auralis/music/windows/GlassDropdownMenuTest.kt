@@ -58,4 +58,71 @@ class GlassDropdownMenuTest {
             assertEquals(0,source.users.intValue)
         } finally { scene.close() }
     }
+
+    @Test fun liquidGlassOptionItemsRenderCrispWithPillStylingAndIcons() {
+        lateinit var source: PopupGlassSource
+        val scene = ImageComposeScene(900, 650, coroutineContext = Dispatchers.Unconfined) {
+            source = rememberPopupGlassSource()
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                CompositionLocalProvider(LocalPopupGlassSource provides source) {
+                    Box(Modifier.fillMaxSize()) {
+                        Canvas(Modifier.fillMaxSize().recordPopupGlass(source)) {
+                            for (x in 0..900 step 8) drawRect(if (x / 8 % 2 == 0) Color(0xFF1B263B) else Color(0xFF0D1B2A), Offset(x.toFloat(), 0f), Size(8f, size.height))
+                        }
+                        Box(Modifier.align(Alignment.Center).size(280.dp, 240.dp)) {
+                            GlassDropdownMenu(true, {}) {
+                                GlassDropdownMenuHeader("Sound output")
+                                GlassDropdownMenuItem(
+                                    text = { Text("Windows default") },
+                                    leadingIcon = { Text("🔊") },
+                                    trailingIcon = { Text("✓") },
+                                    selected = true,
+                                    onClick = {}
+                                )
+                                GlassDropdownMenuItem(
+                                    text = { Text("Speakers (Realtek Audio)") },
+                                    leadingIcon = { Text("🔈") },
+                                    onClick = {}
+                                )
+                                GlassDropdownMenuItem(
+                                    text = { Text("Headphones (OnePlus Buds)") },
+                                    leadingIcon = { Text("🎧") },
+                                    onClick = {}
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            var frame = 0L
+            repeat(6) { scene.render(frame++ * 16_666_667L).close() }
+            val bytes = scene.render(frame++ * 16_666_667L).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes } }
+            File("build/screens/glass-dropdowns").apply { mkdirs() }.resolve("liquid-options.png").writeBytes(bytes)
+            val image = ImageIO.read(bytes.inputStream())
+            assertNotNull(image)
+            assertTrue(image.width == 900 && image.height == 650)
+        } finally { scene.close() }
+    }
+
+    @Test fun dropdownMenuItemAppliesCompactTypographyMatchingUI() {
+        var observedStyle: androidx.compose.ui.text.TextStyle? = null
+        val scene = ImageComposeScene(300, 200, coroutineContext = Dispatchers.Unconfined) {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                GlassDropdownMenuItem(
+                    text = {
+                        observedStyle = LocalTextStyle.current
+                        Text("Open folder")
+                    },
+                    onClick = {}
+                )
+            }
+        }
+        try {
+            scene.render(0L).close()
+            assertNotNull(observedStyle)
+            assertEquals(13.sp, observedStyle?.fontSize)
+        } finally { scene.close() }
+    }
 }

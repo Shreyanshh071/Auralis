@@ -137,17 +137,17 @@ open class InnerTubeClient(
     }
 
     /** One foreground playback lookup; a background search cooldown must not reject it locally. */
-    suspend fun searchForPlayback(query: String): List<Track> = withContext(Dispatchers.IO) {
-        cachedSearch(query.trim(), FILTER_SONGS)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
+    suspend fun searchForPlayback(query: String, params: String = FILTER_SONGS): List<Track> = withContext(Dispatchers.IO) {
+        cachedSearch(query.trim(), params)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
         val builder = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
-            .post(createWebRemixContext(query.trim(), FILTER_SONGS).toString().toRequestBody(JSON_MEDIA_TYPE))
+            .post(createWebRemixContext(query.trim(), params).toString().toRequestBody(JSON_MEDIA_TYPE))
             .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com")
         YouTubeSession.authHeaders("https://music.youtube.com").forEach { (name, value) -> builder.header(name, value) }
         client.newBuilder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
             .newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) throw java.io.IOException("Playback search HTTP ${response.code}")
                 val body = response.body?.string() ?: return@use emptyList()
-                rememberSearch(query.trim(), FILTER_SONGS, parseYtMusicSearchResults(JSONObject(body))).songs
+                rememberSearch(query.trim(), params, parseYtMusicSearchResults(JSONObject(body))).songs
             }
     }
 
@@ -2026,9 +2026,8 @@ open class InnerTubeClient(
                         .replace(Regex("""=s\d+.*"""), "=s1200-c")
                 } else if (url.contains("i.ytimg.com") || url.contains("img.youtube.com")) {
                     val noQuery = url.substringBefore('?')
-                    url = noQuery.replace("default.jpg", "hqdefault.jpg")
-                        .replace("mqdefault.jpg", "hqdefault.jpg")
-                        .replace("hq720.jpg", "hqdefault.jpg")
+                    url = noQuery.replace(Regex("""(?:hq720|mqdefault|hqdefault|sddefault|default)\.jpg"""), "hqdefault.jpg")
+                        .replace(Regex("""(?:hq)+default\.jpg"""), "hqdefault.jpg")
                 }
                 return url
             }

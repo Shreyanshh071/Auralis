@@ -110,7 +110,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         point.read()
                         finishMaximizeClick(hitTest(point.x, point.y) == 9)
                     }
-                    root && (message == 0x0215 || message == 0x001F) -> {
+                    root && (message == 0x0215 || message == 0x001F || (message == 0x0006 && (w.toInt() and 0xffff) == 0)) -> {
                         maximizePressed = false
                         hoverMaximize(false)
                         user.CallWindowProc(previous, current, message, w, l)

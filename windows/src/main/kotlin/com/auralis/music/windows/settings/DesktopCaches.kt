@@ -9,7 +9,7 @@ import java.io.File
 
 object DesktopCaches {
     private var loader: ImageLoader? = null
-    fun install(maxImageMb: Int) {
+    fun install(maxImageMb: Int = 512) {
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context).diskCache {
                 DiskCache.Builder().directory(File(desktopAppDataDir(), "artwork-cache").toOkioPath())

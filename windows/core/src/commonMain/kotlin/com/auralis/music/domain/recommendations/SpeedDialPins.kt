@@ -38,6 +38,10 @@ object SpeedDialPins {
             val cleanId = itemId.removePrefix("album-").removePrefix("VL")
             val existingClean = existing.id.removePrefix("album-").removePrefix("VL")
             existingClean == cleanId || existing.id == itemId || existing.id == "album-$itemId"
+        } else if (existing.type == SpeedDialType.PLAYLIST) {
+            val cleanId = itemId.removePrefix("playlist-")
+            val existingClean = existing.id.removePrefix("playlist-")
+            existingClean == cleanId || existing.id == itemId || existing.id == "playlist-$itemId"
         } else {
             existing.id == itemId
         }

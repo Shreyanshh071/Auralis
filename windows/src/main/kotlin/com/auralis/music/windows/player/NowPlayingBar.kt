@@ -186,18 +186,27 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                     Icon(Icons.Rounded.Headphones, "Sound output", tint = iconTint, modifier = Modifier.size(20.dp))
                 }
                 com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
-                    Text("Sound output", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    com.auralis.music.windows.GlassDropdownMenuHeader("Sound output")
                     val chosen = controller.outputDevice
                     // libVLC lists Windows' default as an empty id; show it as "Windows default".
                     devices.orEmpty().forEach { (id, name) ->
                         val selected = if (chosen == null) id.isEmpty() else id == chosen
-                        DropdownMenuItem(
+                        com.auralis.music.windows.GlassDropdownMenuItem(
                             text = { Text(if (id.isEmpty()) "Windows default" else name, maxLines = 1) },
+                            leadingIcon = {
+                                val isHeadphones = name.contains("headphone", ignoreCase = true) || name.contains("buds", ignoreCase = true) || name.contains("airpod", ignoreCase = true)
+                                Icon(
+                                    if (isHeadphones) Icons.Rounded.Headphones else Icons.AutoMirrored.Rounded.VolumeUp,
+                                    null,
+                                    Modifier.size(18.dp)
+                                )
+                            },
                             trailingIcon = { if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) },
-                            onClick = { controller.setOutputDevice(id.ifEmpty { null }); devices = null })
+                            selected = selected,
+                            onClick = { controller.setOutputDevice(id.ifEmpty { null }); devices = null }
+                        )
                     }
-                    if (devices.isNullOrEmpty()) DropdownMenuItem(text = { Text("No outputs found") }, onClick = { devices = null }, enabled = false)
+                    if (devices.isNullOrEmpty()) com.auralis.music.windows.GlassDropdownMenuItem(text = { Text("No outputs found") }, onClick = { devices = null }, enabled = false)
                 }
             }
             IconButton(onClick = onOpenLyrics, enabled = track != null, modifier = Modifier.size(34.dp)) {

@@ -16,6 +16,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.LibraryMusic
 import com.auralis.music.ui.components.secondaryClick
 import com.auralis.music.windows.player.ArtworkAura
 import com.auralis.music.windows.player.AuraPresentation
@@ -38,7 +40,15 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
     onMenu: (SpeedDialItem) -> Unit = {}, artistActions: FamiliarArtistActions? = null,
     playlistCovers: Map<String, com.auralis.music.domain.model.Playlist> = emptyMap(),
     sidebar: Boolean = false, collapsed: Boolean = false) {
-    val freshPins = pins.map { pin -> candidates.firstOrNull { it.id == pin.id } ?: pin }
+    val freshPins = pins.map { pin ->
+        candidates.firstOrNull { cand ->
+            val candAlbum = cand.album
+            val pinAlbum = pin.album
+            cand.id == pin.id ||
+            (candAlbum != null && pinAlbum != null && (candAlbum.id == pinAlbum.id || candAlbum.id.removePrefix("local:") == pinAlbum.id.removePrefix("local:"))) ||
+            (cand.type == SpeedDialType.ARTIST && pin.type == SpeedDialType.ARTIST && (cand.id == pin.id || cand.name.equals(pin.name, true)))
+        } ?: pin
+    }
     val row = androidx.compose.foundation.lazy.rememberLazyListState()
     var picking by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -60,11 +70,19 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                     .secondaryClick(menu).clickable { open(item) }) {
                     ArtworkAura(com.auralis.music.ui.theme.DefaultArtworkPalette, Modifier.matchParentSize(),
                         item.image ?: item.track?.thumbnail, AuraPresentation.SHORTCUT)
-                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    val photoSize = if (sidebar) 44.dp else 48.dp
+                    val startPad = if (collapsed) 0.dp else (if (sidebar) 6.dp else 8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(start = startPad, end = if (collapsed) 0.dp else 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.Start
+                    ) {
                         val playlist = playlistCovers[item.album?.id ?: item.id.removePrefix("playlist-")]
-                        if (playlist != null) Box(Modifier.size(if (sidebar) 48.dp else 64.dp)) {
-                            com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 0.dp)
-                        } else ShortcutPhoto(item, if (sidebar) 48 else 64)
+                            ?: playlistCovers["local:${item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")}"]
+                            ?: playlistCovers[item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")]
+                        if (playlist != null) Box(Modifier.size(photoSize).clip(RoundedCornerShape(8.dp))) {
+                            com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 8.dp)
+                        } else ShortcutPhoto(item, photoSize.value.toInt())
                         if (!collapsed) Column(Modifier.weight(1f).padding(horizontal = if (sidebar) 8.dp else 12.dp)) {
                             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
                             Text(item.album?.author ?: when (item.type) { SpeedDialType.ARTIST -> "Artist"; SpeedDialType.TRACK -> item.track?.artist ?: "Song"; else -> "Playlist" },
@@ -97,7 +115,14 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                 if (matches.isEmpty()) Text("No matching playlists or artists.")
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     items(matches, key = { it.id }) { item ->
-                        ShortcutCandidateRow(item, pins.any { it.id == item.id }) { add(item) }
+                        val isPinned = pins.any { pin ->
+                            val pinAlbum = pin.album
+                            val itemAlbum = item.album
+                            pin.id == item.id ||
+                            (pinAlbum != null && itemAlbum != null && (pinAlbum.id == itemAlbum.id || pinAlbum.id.removePrefix("local:") == itemAlbum.id.removePrefix("local:"))) ||
+                            (pin.type == SpeedDialType.ARTIST && item.type == SpeedDialType.ARTIST && (pin.id == item.id || pin.name.equals(item.name, true)))
+                        }
+                        ShortcutCandidateRow(item, isPinned, playlistCovers, onRemove = { remove(item) }, onAdd = { add(item) })
                     }
                 }
             }
@@ -105,28 +130,93 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
 }
 
 @Composable
-internal fun ShortcutCandidateRow(item: SpeedDialItem, pinned: Boolean, onAdd: () -> Unit) {
+internal fun ShortcutCandidateRow(
+    item: SpeedDialItem,
+    pinned: Boolean,
+    playlistCovers: Map<String, com.auralis.music.domain.model.Playlist> = emptyMap(),
+    onRemove: () -> Unit = {},
+    onAdd: () -> Unit = {}
+) {
     val interaction = remember(item.id) { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val highlight by androidx.compose.animation.animateColorAsState(
-        androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered && !pinned) .12f else 0f),
+        androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered) .12f else 0f),
         androidx.compose.animation.core.tween(180), label = "shortcutRowHighlight")
+
+    val actionInteraction = remember(item.id, pinned) { MutableInteractionSource() }
+    val actionHovered by actionInteraction.collectIsHoveredAsState()
+    val actionColor = if (pinned) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val actionBackground by androidx.compose.animation.animateColorAsState(
+        if (actionHovered) actionColor.copy(alpha = 0.22f) else androidx.compose.ui.graphics.Color.Transparent,
+        androidx.compose.animation.core.tween(150), label = "shortcutActionBg")
+
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
         .background(highlight)
         .hoverable(interaction)
-        .clickable(interactionSource = interaction, indication = null, enabled = !pinned, onClick = onAdd)
-        .padding(start = 8.dp, end = 20.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        ShortcutPhoto(item)
+        .clickable(interactionSource = interaction, indication = null, onClick = if (pinned) onRemove else onAdd)
+        .padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        val playlist = playlistCovers[item.album?.id ?: item.id.removePrefix("playlist-")]
+            ?: playlistCovers["local:${item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")}"]
+            ?: playlistCovers[item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")]
+        if (playlist != null) {
+            Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))) {
+                com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 8.dp)
+            }
+        } else {
+            ShortcutPhoto(item, side = 48)
+        }
         Text(item.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(if (pinned) "Added" else "Add", color = MaterialTheme.colorScheme.primary)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(actionBackground)
+                .hoverable(actionInteraction)
+                .clickable(
+                    interactionSource = actionInteraction,
+                    indication = null,
+                    onClick = if (pinned) onRemove else onAdd
+                )
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (pinned) "Remove" else "Add",
+                color = if (actionHovered) actionColor else actionColor.copy(alpha = 0.95f),
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
     }
 }
 
 @Composable
-private fun ShortcutPhoto(item: SpeedDialItem, side: Int = 64) {
-    Box(Modifier.size(side.dp).then(if (item.type == SpeedDialType.ARTIST) Modifier.padding(8.dp).clip(CircleShape) else Modifier),
+private fun ShortcutPhoto(item: SpeedDialItem, side: Int = 48) {
+    val isArtist = item.type == SpeedDialType.ARTIST
+    val shape = if (isArtist) CircleShape else RoundedCornerShape(8.dp)
+    val rawUrl = item.image?.takeIf { it.isNotBlank() } ?: item.track?.thumbnail?.takeIf { it.isNotBlank() }
+    val imageUrl = remember(rawUrl) {
+        if (!rawUrl.isNullOrBlank()) com.auralis.music.ui.components.getOptimizedThumbnailUrl(rawUrl) ?: rawUrl else null
+    }
+    val context = coil3.compose.LocalPlatformContext.current
+    val request = remember(imageUrl) {
+        if (!imageUrl.isNullOrBlank()) {
+            coil3.request.ImageRequest.Builder(context)
+                .data(imageUrl)
+                .size(400)
+                .build()
+        } else null
+    }
+    Box(Modifier.size(side.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center) {
-        if (item.image.isNullOrBlank()) Icon(Icons.Outlined.GridView, item.name, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        else AsyncImage(item.image, item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (request != null) {
+            AsyncImage(request, item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            val icon = when (item.type) {
+                SpeedDialType.ARTIST -> Icons.Outlined.Person
+                SpeedDialType.ALBUM, SpeedDialType.PLAYLIST -> Icons.Outlined.LibraryMusic
+                else -> Icons.Outlined.GridView
+            }
+            Icon(icon, item.name, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size((side / 2).dp))
+        }
     }
 }

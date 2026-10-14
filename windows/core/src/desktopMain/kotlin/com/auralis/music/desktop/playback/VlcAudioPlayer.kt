@@ -135,9 +135,9 @@ class VlcAudioPlayer private constructor(
         _state.value = State.BUFFERING
         val options = buildList {
             add(":http-user-agent=$USER_AGENT")
-            // The loopback relay caches and prefetches audio; do not add a 1.5s wait
-            // every time libVLC reopens it for a seek. Keep the larger buffer for remote URLs.
-            add(":network-caching=${if (url.startsWith("http://127.0.0.1:")) 300 else 1500}")
+            // The loopback relay caches and prefetches audio; keep a smooth 800ms buffer
+            // to avoid underruns on small IO fluctuations while keeping seeks responsive.
+            add(":network-caching=${if (url.startsWith("http://127.0.0.1:")) 800 else 1500}")
             if (startMs > 0) add(":start-time=${startMs / 1000.0}")
         }
         if (!player.media().play(url, *options.toTypedArray())) {

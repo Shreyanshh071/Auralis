@@ -32,8 +32,9 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
         if (url.isNullOrBlank()) {
             Icon(Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            val source = (if (highRes) com.auralis.music.ui.components.getHighResArtworkUrl(url)
-                else com.auralis.music.ui.components.getOptimizedThumbnailUrl(url)) ?: url
+            val raw = url.trim().replace(Regex("""(?:hq)+default\.jpg"""), "hqdefault.jpg")
+            val source = (if (highRes) com.auralis.music.ui.components.getHighResArtworkUrl(raw)
+                else com.auralis.music.ui.components.getOptimizedThumbnailUrl(raw)) ?: raw
             // A fixed decode size: sizing to the first layout decoded covers that start tiny (the
             // Now playing panel animating open) at a few pixels, and they stayed pixelated.
             val context = coil3.compose.LocalPlatformContext.current

@@ -101,7 +101,9 @@ internal fun parseRemoteHistory(root: JSONObject): List<Track> {
     youtubeNodes(root, "musicResponsiveListItemRenderer").forEach {
         InnerTubeClient().parseMusicListItem(it, tracks, mutableListOf(), mutableListOf(), mutableListOf())
     }
-    return tracks.distinctBy { it.id }.take(40)
+    return com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(
+        tracks.filterNot { com.auralis.music.domain.recommendations.TrackDeduplicator.isJunkOrNoiseTrack(it) }
+    ).take(40)
 }
 private fun homeRenderers(root: Any?): List<JSONObject> = buildList {
     fun visit(node: Any?) {

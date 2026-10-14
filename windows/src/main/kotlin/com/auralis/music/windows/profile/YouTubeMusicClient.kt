@@ -1,5 +1,6 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.data.network.ContentLocale
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.domain.model.PlaylistResult
@@ -68,12 +69,16 @@ internal class YouTubeMusicClient(
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0.0.0 Safari/537.36")
             scope.pageId?.let { put("X-Goog-PageId", it) }
             scope.visitor?.let { put("X-Goog-Visitor-Id", it) }
+            val hl = ContentLocale.hl()
+            put("Accept-Language", if (hl == "en") "en-US,en;q=0.9" else "$hl,en;q=0.5")
         }
     }
 
     private suspend fun post(endpoint: String, extras: JSONObject = JSONObject()): JSONObject = withContext(Dispatchers.IO) {
+        val hl = ContentLocale.hl()
+        val gl = ContentLocale.gl()
         val client = JSONObject().put("clientName", "WEB_REMIX").put("clientVersion", scope.version)
-            .put("hl", "en").put("gl", "IN")
+            .put("hl", hl).put("gl", gl)
         scope.visitor?.let { client.put("visitorData", it) }
         val user = JSONObject().put("lockedSafetyMode", false)
         scope.dataSyncId?.let { user.put("onBehalfOfUser", it) }

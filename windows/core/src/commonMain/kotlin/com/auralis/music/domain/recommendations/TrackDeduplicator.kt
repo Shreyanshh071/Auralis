@@ -51,7 +51,8 @@ object TrackDeduplicator {
             "rain and thunder", "rain & thunder", "sleep therapy", "sound therapy", "white noise",
             "binaural beats", "deep sleep", "nature sounds", "nature sound", "relaxing rain",
             "calming rain", "10 hours of rain", "8 hours of rain", "3 hours of rain",
-            "hours of rain", "sleep sounds", "sleep sound", "noise for sleep"
+            "hours of rain", "sleep sounds", "sleep sound", "noise for sleep",
+            "tips & tricks", "tips and tricks", "unboxing", "gameplay walkthrough", "full tutorial"
         )
         return junkTitlePhrases.any { lowerTitle.contains(it) }
     }

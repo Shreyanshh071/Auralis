@@ -16,7 +16,7 @@ object YouTubeBackoff {
 
     /** Whether [body] is YouTube's unusual-traffic block page. */
     fun isBlockPage(body: String): Boolean =
-        body.contains("<title>Sorry...</title>") || body.contains("Got HTML document, expected JSON")
+        body.contains("<title>Sorry...</title>") || (body.contains("Got HTML document, expected JSON") && !body.contains("visitor_id"))
 
     fun trip() {
         if (!active) com.auralis.music.util.Log.w("YouTubeBackoff", "YouTube is blocking this network; pausing its requests for ${PAUSE_MS / 60_000} min")

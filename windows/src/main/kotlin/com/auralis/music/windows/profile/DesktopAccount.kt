@@ -52,8 +52,22 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
     private fun refreshProfile() {
         val profile = api.accountProfile()
         val email = profile.optString("email")
-        mutable.value = State(profile = UserProfile(uid = api.uid, displayName = profile.optString("displayName").ifBlank { email.substringBefore('@') },
-            email = email, avatarUrl = profile.optString("photoUrl").takeIf { it.isNotBlank() }, isGoogleConnected = false))
+        val providers = profile.optJSONArray("providerUserInfo")
+        val isGoogle = (0 until (providers?.length() ?: 0)).any {
+            providers?.optJSONObject(it)?.optString("providerId") == "google.com"
+        } || mutable.value.browser
+        mutable.value = State(
+            profile = UserProfile(
+                uid = api.uid,
+                displayName = profile.optString("displayName").ifBlank { email.substringBefore('@') },
+                email = email,
+                avatarUrl = profile.optString("photoUrl").takeIf { it.isNotBlank() },
+                isGoogleConnected = isGoogle
+            ),
+            busy = false,
+            browser = false,
+            message = "Signed in as ${profile.optString("displayName").ifBlank { email }}."
+        )
     }
     private fun save() {
         val protected = Crypt32Util.cryptProtectData(api.accountRefreshToken().toByteArray(Charsets.UTF_8))

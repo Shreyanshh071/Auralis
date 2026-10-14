@@ -106,6 +106,43 @@ class DesktopDownloadsTest {
         } finally { playback?.release(); scope.cancel() }
     }
 
+    @Test fun downloadRetriesTransientErrorAndSucceeds() {
+        runBlocking {
+            val bytes = ByteArray(4096) { (it % 255).toByte() }.apply { "ftyp".toByteArray().copyInto(this, 4) }
+            val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            var callCount = 0
+            server.createContext("/flaky") { e ->
+                callCount++
+                if (callCount == 1) {
+                    e.sendResponseHeaders(500, -1)
+                    e.close()
+                } else {
+                    e.responseHeaders.add("Content-Type", "audio/mp4")
+                    e.sendResponseHeaders(200, bytes.size.toLong())
+                    e.responseBody.use { it.write(bytes) }
+                    e.close()
+                }
+            }
+            server.start()
+            val root = Files.createTempDirectory("auralis-retry-test").toFile()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val manager = DesktopDownloads(root, scope, readTimeoutMs = 3000L) { "http://127.0.0.1:${server.address.port}/flaky" }
+            try {
+                val song = Track("flaky-song", "Flaky Test", "Artist")
+                manager.enqueue(listOf(song))
+                withTimeout(10000) {
+                    while (manager.entries.value.isEmpty() || manager.entries.value.any { it.status in setOf("QUEUED", "DOWNLOADING") }) delay(50)
+                }
+                val entry = manager.entries.value.first()
+                assertEquals("COMPLETED", entry.status)
+                assertTrue(callCount >= 2, "Expected at least 2 attempts for flaky download")
+                assertNotNull(manager.localFile(song.id))
+            } finally {
+                scope.cancel(); server.stop(0); root.deleteRecursively()
+            }
+        }
+    }
+
     @Test fun folderNamesCannotEscapeRootOrUseWindowsDevices() {
         assertEquals("_CON", DesktopDownloads.sanitize("CON"))
         assertFalse(DesktopDownloads.sanitize("../../outside").contains('/'))

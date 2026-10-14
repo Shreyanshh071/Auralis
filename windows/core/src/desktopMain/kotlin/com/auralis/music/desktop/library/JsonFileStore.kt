@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * A JSON file written in the background: changes are batched for half a second, then written to a
  * temporary file and renamed over the old one, so a crash never leaves a half-written file.
  */
-internal class JsonFileStore(private val file: File) {
+class JsonFileStore(private val file: File) {
     private val writer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "store-${file.name}").apply { isDaemon = true } }
     @Volatile private var pending: ScheduledFuture<*>? = null
 
@@ -48,7 +48,7 @@ internal class JsonFileStore(private val file: File) {
 }
 
 /** Track <-> JSON, every field. */
-internal object TrackJson {
+object TrackJson {
     fun encode(t: Track): JSONObject = JSONObject().apply {
         put("id", t.id)
         put("title", t.title)

@@ -54,8 +54,21 @@ fun AuralisDesktopTheme(
             else -> desktopWhiteColorScheme(isDark, isAmoled, appearanceSettings.appTheme)
         }
     }
+    val initialScheme = remember(baseScheme, hasArtwork, artworkPalette, appearanceSettings.dynamicTheme) {
+        if (hasArtwork && appearanceSettings.dynamicTheme && !isCurated && artworkPalette != null) {
+            dynamicColorSchemeFromSeed(
+                seedColor = artworkPalette.seedColor,
+                isDark = isDark,
+                isAmoled = isAmoled,
+                appTheme = appearanceSettings.appTheme,
+                secondaryColor = artworkPalette.secondary,
+                tertiaryColor = artworkPalette.tertiary,
+                isMonochrome = artworkPalette.isMonochrome
+            )
+        } else baseScheme
+    }
     // Like the phone: an artwork scheme is computed off the UI thread and swapped in one step.
-    var colorScheme by remember(baseScheme) { mutableStateOf(baseScheme) }
+    var colorScheme by remember(baseScheme) { mutableStateOf(initialScheme) }
     LaunchedEffect(baseScheme, hasArtwork, artworkPalette, appearanceSettings.dynamicTheme) {
         colorScheme = if (hasArtwork && appearanceSettings.dynamicTheme && !isCurated && artworkPalette != null) {
             withContext(Dispatchers.Default) {

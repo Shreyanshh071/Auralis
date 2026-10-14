@@ -26,12 +26,65 @@ internal object DesktopGoogleLogin {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val redirect = "http://127.0.0.1:${server.address.port}/"
         server.createContext("/") { exchange ->
+            if (exchange.requestURI.path == "/favicon.ico") {
+                exchange.sendResponseHeaders(404, -1)
+                return@createContext
+            }
             val parameters = parseQuery(exchange.requestURI.rawQuery.orEmpty())
             val valid = exchange.requestMethod == "GET" && exchange.requestURI.path == "/" && parameters["state"] == state
             val code = parameters["code"]
             val success = valid && !code.isNullOrBlank() && !callback.isCompleted
-            val page = (if (success) "Sign-in received. You can close this tab and return to Auralis." else "Sign-in could not be completed. Return to Auralis and try again.").toByteArray()
-            exchange.responseHeaders.set("Content-Type", "text/plain; charset=utf-8")
+            val page = if (success) {
+                """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Auralis Sign-in</title>
+                  <style>
+                    body { background: #121216; color: #ffffff; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                    .card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 40px; text-align: center; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+                    .icon { font-size: 44px; margin-bottom: 16px; color: #4ade80; }
+                    h1 { font-size: 22px; margin: 0 0 10px; font-weight: 600; }
+                    p { font-size: 14px; color: #a1a1aa; line-height: 1.5; margin: 0; }
+                  </style>
+                </head>
+                <body>
+                  <div class="card">
+                    <div class="icon">&#10003;</div>
+                    <h1>Sign-in received</h1>
+                    <p>You can close this tab and return to Auralis.</p>
+                  </div>
+                  <script>setTimeout(function(){ window.close(); }, 2500);</script>
+                </body>
+                </html>
+                """.trimIndent().toByteArray(Charsets.UTF_8)
+            } else {
+                """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Auralis Sign-in</title>
+                  <style>
+                    body { background: #121216; color: #ffffff; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                    .card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 20px; padding: 40px; text-align: center; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+                    .icon { font-size: 44px; margin-bottom: 16px; color: #f87171; }
+                    h1 { font-size: 22px; margin: 0 0 10px; font-weight: 600; }
+                    p { font-size: 14px; color: #a1a1aa; line-height: 1.5; margin: 0; }
+                  </style>
+                </head>
+                <body>
+                  <div class="card">
+                    <div class="icon">&#10007;</div>
+                    <h1>Sign-in could not be completed</h1>
+                    <p>Return to Auralis and try again.</p>
+                  </div>
+                </body>
+                </html>
+                """.trimIndent().toByteArray(Charsets.UTF_8)
+            }
+            exchange.responseHeaders.set("Content-Type", "text/html; charset=utf-8")
             exchange.responseHeaders.set("Cache-Control", "no-store")
             exchange.sendResponseHeaders(if (valid) 200 else 400, page.size.toLong())
             exchange.responseBody.use { it.write(page) }

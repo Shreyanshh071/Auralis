@@ -773,7 +773,7 @@ object SearchQueryMatcher {
         return versionMarkers(track.title) + versionMarkers(singleAlbum.orEmpty())
     }
 
-    private fun featuredArtists(track: Track): List<String> =
+    fun featuredArtists(track: Track): List<String> =
         (FEATURE_REGEX.findAll(tagSegments(track.title)) +
             FEATURE_REGEX.findAll(tagSegments(track.album.orEmpty())))
             .map { it.groupValues[1] }.toList()
@@ -863,9 +863,16 @@ object SearchQueryMatcher {
         }
         // Equal duration does not prove the same recording. A requested feature must
         // also be credited somewhere on the candidate, even if its title is shortened.
+        // Exception: when both target and candidate share the exact album release identity,
+        // it is the official album cut (e.g. tracks where features are not repeated in YTM titles).
         val candidateCredits = normalize("${candidate.artist} ${candidate.title} ${candidate.album.orEmpty()}")
         if (featuredArtists(target).any { hasUncreditedArtist(candidateCredits, it) }) {
-            return "missing requested featured artist"
+            val targetAlbum = albumIdentity(target.album)
+            val candAlbum = albumIdentity(candidate.album)
+            val sameAlbum = targetAlbum.isNotBlank() && targetAlbum == candAlbum
+            if (!sameAlbum) {
+                return "missing requested featured artist"
+            }
         }
         return null
     }
@@ -949,7 +956,7 @@ object SearchQueryMatcher {
     }
 
     /** The title with its bracketed and " - " suffix segments removed, normalized. */
-    private fun baseTitle(title: String): String {
+    fun baseTitle(title: String): String {
         val noBrackets = title.replace(Regex("""[\(\[\{][^)\]\}]*[\)\]\}]"""), " ")
         return normalize(noBrackets.split(Regex("""\s[-–—]\s""")).first())
     }

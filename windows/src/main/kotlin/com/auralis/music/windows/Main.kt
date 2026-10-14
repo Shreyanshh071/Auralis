@@ -24,79 +24,188 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private const val TAG = "AuralisWindows"
+
+private data class ReadyComponents(
+    val searchRepository: SearchRepositoryImpl,
+    val library: com.auralis.music.desktop.library.DesktopLibraryRepository,
+    val history: com.auralis.music.desktop.library.DesktopHistoryRepository,
+    val listeningStats: com.auralis.music.desktop.library.DesktopListeningStats,
+    val playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
+    val lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
+    val account: com.auralis.music.windows.profile.DesktopAccount,
+    val libraryFlags: PropertiesFileKeyValueStore,
+    val icon: BitmapPainter?
+)
 
 fun main(args: Array<String>) {
     val dev = System.getProperty("jpackage.app-version") == null
     if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
     }
-    // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
-    Log.logToFile(java.io.File(desktopAppDataDir(), "auralis.log"))
-    // UI text: the phone's strings.xml files, in the system language.
-    com.auralis.music.windows.settings.DesktopAppLanguage.install()
-    Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
-    // Same startup as the phone's: the YouTube session and the search lookup caches load from their
-    // own files under %APPDATA%\Auralis (separate, so signing out never clears the lookup cache).
     val dataDir = desktopAppDataDir()
-    YouTubeSession.init(com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "youtube-session.properties")))
-    // Spotify's session (sp_dc cookie, protected by the Windows user like YouTube's).
-    val spotifyFile = com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "spotify-session.properties"))
-    com.auralis.music.data.network.SpotifySession.init(object : com.auralis.music.data.network.SpotifySession.Store {
-        override fun getString(key: String) = spotifyFile.getString(key, "") ?: ""
-        override fun getLong(key: String) = spotifyFile.getString(key, "0")?.toLongOrNull() ?: 0L
-        override fun put(values: Map<String, Any>) = spotifyFile.putStrings(values.mapValues { it.value.toString() })
-        override fun clear() = spotifyFile.clear()
-    })
-    // The phone's settings files (DataStore), and content settings (language, region, proxy,
-    // lyrics providers) applied to every request as on the phone.
+    val windowTitle = if (dev) "Auralis Dev" else "Auralis"
+    // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
+    Log.logToFile(java.io.File(dataDir, "auralis.log"))
+    val allowMultiple = args.contains("--allow-multiple") || args.contains("--self-test")
+    var singleInstanceLock = if (!allowMultiple) SingleInstanceApp.tryAcquire(dataDir) else null
+    if (!allowMultiple && singleInstanceLock == null) {
+        Log.i(TAG, "Another instance of Auralis may be running. Attempting to focus existing window...")
+        val focused = SingleInstanceApp.focusExistingWindow(dataDir, windowTitle)
+        if (focused) {
+            Log.i(TAG, "Existing window focused. Exiting secondary launcher.")
+            kotlin.system.exitProcess(0)
+        }
+        // focusExistingWindow returned false: no window exists on screen!
+        Log.w(TAG, "No active window found for running instance. Recovering from zombie process...")
+        SingleInstanceApp.recoverZombieInstance(dataDir)
+        singleInstanceLock = SingleInstanceApp.acquireWithRetry(dataDir, maxWaitMs = 1500L)
+        if (singleInstanceLock == null) {
+            Log.e(TAG, "Could not acquire single instance lock even after zombie recovery. Exiting.")
+            kotlin.system.exitProcess(0)
+        }
+        Log.i(TAG, "Successfully acquired lock after zombie recovery. Launching Auralis window.")
+    }
+
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        Log.e(TAG, "Fatal uncaught exception on thread '${thread.name}': ${throwable.message}", throwable)
+        runCatching { singleInstanceLock?.close() }
+        kotlin.system.exitProcess(1)
+    }
+
+    Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
+
+    val initScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    val langJob = initScope.launch {
+        com.auralis.music.windows.settings.DesktopAppLanguage.install()
+    }
+    val ytJob = initScope.launch {
+        YouTubeSession.init(com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "youtube-session.properties")))
+    }
+    val spotifyJob = initScope.launch {
+        val spotifyFile = com.auralis.music.windows.profile.ProtectedYouTubeStore(java.io.File(dataDir, "spotify-session.properties"))
+        com.auralis.music.data.network.SpotifySession.init(object : com.auralis.music.data.network.SpotifySession.Store {
+            override fun getString(key: String) = spotifyFile.getString(key, "") ?: ""
+            override fun getLong(key: String) = spotifyFile.getString(key, "0")?.toLongOrNull() ?: 0L
+            override fun put(values: Map<String, Any>) = spotifyFile.putStrings(values.mapValues { it.value.toString() })
+            override fun clear() = spotifyFile.clear()
+        })
+    }
+
     val stores = com.auralis.music.desktop.settings.DesktopDataStores(java.io.File(dataDir, "settings"))
-    com.auralis.music.windows.settings.DesktopCaches.install(kotlinx.coroutines.runBlocking { stores.storage.settingsFlow.first().maxImageCacheSizeMb })
+    com.auralis.music.windows.settings.DesktopCaches.install(512)
     com.auralis.music.data.datastore.ContentSettingsStore.init(stores.content)
     com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
     com.auralis.music.data.network.ContentSettingsSource.updates = com.auralis.music.data.datastore.ContentSettingsStore.current
     com.auralis.music.data.network.ContentProxy.install()
-    val searchLookups = PropertiesFileKeyValueStore(java.io.File(dataDir, "search-lookups.properties"))
-    AlbumMetadataResolver.persistTo(searchLookups)
-    InnerTubeClient.persistReleaseTypesTo(searchLookups)
-    val searchRepository = SearchRepositoryImpl(
-        InnerTubeClient(),
-        SearchSuggestionsClient(),
-        KeyValueSearchHistoryStore(PropertiesFileKeyValueStore(java.io.File(dataDir, "search-history.properties")))
-    )
 
-    // Audio through libVLC: the copy the installer bundles (resources "vlc" folder), else an
-    // installed VLC. Without either, the app still runs and the bar explains what is missing.
-    val bundledVlc = System.getProperty("compose.application.resources.dir")?.let { java.io.File(it, "vlc") }
-    val playback = com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(bundledVlc)?.let {
-        com.auralis.music.desktop.playback.DesktopPlaybackController(it, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
-            volumeStore = PropertiesFileKeyValueStore(java.io.File(dataDir, "playback-volume.properties")))
+    val searchLookupsDeferred = initScope.async {
+        val store = PropertiesFileKeyValueStore(java.io.File(dataDir, "search-lookups.properties"))
+        AlbumMetadataResolver.persistTo(store)
+        InnerTubeClient.persistReleaseTypesTo(store)
+        store
     }
-    com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
-    // Lyrics: the phone's provider race. AMLL keeps its song index in the cache folder, as on the phone.
-    com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
-    val lyrics = playback?.let {
-        com.auralis.music.desktop.lyrics.DesktopLyricsController(
-            it,
-            com.auralis.music.desktop.lyrics.DesktopLyricsRepository(
-                com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics"))
-            ),
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    val searchRepositoryDeferred = initScope.async {
+        SearchRepositoryImpl(
+            InnerTubeClient(),
+            SearchSuggestionsClient(),
+            KeyValueSearchHistoryStore(PropertiesFileKeyValueStore(java.io.File(dataDir, "search-history.properties")))
         )
     }
 
-    // Library and listening history: JSON files with the phone's rules. A song counts as played
-    // once audio starts, excluding failed stream lookups.
-    val library = com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
-    val history = com.auralis.music.desktop.library.DesktopHistoryRepository(java.io.File(dataDir, "history.json"), library)
+    val bundledVlc = System.getProperty("compose.application.resources.dir")?.let { java.io.File(it, "vlc") }
+    val playbackDeferred = initScope.async {
+        val player = com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(bundledVlc)
+        player?.let {
+            com.auralis.music.desktop.playback.DesktopPlaybackController(
+                it,
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+                volumeStore = PropertiesFileKeyValueStore(java.io.File(dataDir, "playback-volume.properties"))
+            )
+        }
+    }
+
+    com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
+    com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
+
+    val lyricsDeferred = initScope.async {
+        val playback = playbackDeferred.await()
+        playback?.let {
+            com.auralis.music.desktop.lyrics.DesktopLyricsController(
+                it,
+                com.auralis.music.desktop.lyrics.DesktopLyricsRepository(
+                    com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics"))
+                ),
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+            )
+        }
+    }
+
+    val libraryDeferred = initScope.async {
+        com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
+    }
+
+    val historyDeferred = initScope.async {
+        val lib = libraryDeferred.await()
+        com.auralis.music.desktop.library.DesktopHistoryRepository(java.io.File(dataDir, "history.json"), lib)
+    }
+
+    val listeningStatsDeferred = initScope.async {
+        com.auralis.music.desktop.library.DesktopListeningStats(java.io.File(dataDir, "listening-stats.json"))
+    }
+
+    val recorderScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    val privacyState = stores.privacy.settingsFlow.stateIn(
+        recorderScope,
+        kotlinx.coroutines.flow.SharingStarted.Eagerly,
+        com.auralis.music.domain.model.PrivacySettings()
+    )
+    val accountDeferred = initScope.async {
+        com.auralis.music.windows.profile.DesktopAccount(java.io.File(dataDir, "account-session.bin"), recorderScope)
+    }
+
+    val libraryFlagsDeferred = initScope.async {
+        PropertiesFileKeyValueStore(java.io.File(dataDir, "library-flags.properties"))
+    }
+
+    val iconDeferred = initScope.async {
+        Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
+            ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
+    }
+
+    val (searchRepository, library, history, listeningStats, playback, lyrics, account, libraryFlags, icon) =
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            langJob.join()
+            ytJob.join()
+            spotifyJob.join()
+            searchLookupsDeferred.await()
+            val sRepo = searchRepositoryDeferred.await()
+            val lib = libraryDeferred.await()
+            val hist = historyDeferred.await()
+            val stats = listeningStatsDeferred.await()
+            val pb = playbackDeferred.await()
+            val lyr = lyricsDeferred.await()
+            val acc = accountDeferred.await()
+            val flags = libraryFlagsDeferred.await()
+            val ic = iconDeferred.await()
+            ReadyComponents(sRepo, lib, hist, stats, pb, lyr, acc, flags, ic)
+        }
+
     val radioRecommendations = com.auralis.music.windows.player.DesktopRadioRecommendations(history)
     playback?.radioCandidates = radioRecommendations::candidates
-    val listeningStats = com.auralis.music.desktop.library.DesktopListeningStats(java.io.File(dataDir, "listening-stats.json"))
-    val recorderScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
-    val privacyState = stores.privacy.settingsFlow.stateIn(recorderScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, kotlinx.coroutines.runBlocking { stores.privacy.settingsFlow.first() })
-    val account = com.auralis.music.windows.profile.DesktopAccount(java.io.File(dataDir, "account-session.bin"), recorderScope)
+
+    // Restore last played song, queue, and artwork theme palette from previous session
+    com.auralis.music.windows.player.DesktopPlaybackSessionStore.init(dataDir)
+    val restoredSession = com.auralis.music.windows.player.DesktopPlaybackSessionStore.currentSession()
+    if (restoredSession != null && playback != null) {
+        playback.restoreQueue(restoredSession.queue.ifEmpty { listOf(restoredSession.track) }, restoredSession.queueIndex)
+    }
+
     if (playback != null) recorderScope.launch {
         stores.settings.settingsFlow.collect { settings ->
             com.auralis.music.desktop.playback.DesktopStreamResolver.quality = settings.audioQuality
@@ -111,6 +220,18 @@ fun main(args: Array<String>) {
     if (playback != null) {
         val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
         appScope.launch {
+            playback.queue.collect { q ->
+                val track = q.current
+                if (track != null) {
+                    com.auralis.music.windows.player.DesktopPlaybackSessionStore.save(
+                        track = track,
+                        queue = q.tracks,
+                        queueIndex = q.index
+                    )
+                }
+            }
+        }
+        appScope.launch {
             kotlinx.coroutines.flow.combine(playback.queue, playback.state, playback.session) { q, state, session ->
                 if (state == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING) session to q.current else null
             }.filterNotNull().distinctUntilChangedBy { it.first }.collect { (_, track) ->
@@ -122,23 +243,42 @@ fun main(args: Array<String>) {
             }
         }
     }
-    // Discord status through the Discord desktop app, with the phone's Discord settings. Nothing is
-    // sent until the user connects on the Discord page and Rich Presence is on.
     val discord = com.auralis.music.desktop.discord.DesktopDiscordPresence(stores.discord, playback)
     val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"), listeningStats)
-    val libraryFlags = PropertiesFileKeyValueStore(java.io.File(dataDir, "library-flags.properties"))
-
-    val icon = Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")
-        ?.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
 
     val selfTest = SelfTest.fromArgs(args, dataDir)
     var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
     application {
         val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        var composeWindow: java.awt.Window? = null
         val closeApp: () -> Unit = {
+            runCatching { composeWindow?.isVisible = false }
+            runCatching { singleInstanceLock?.close() }
+            runCatching {
+                val q = playback?.queue?.value
+                if (q?.current != null) {
+                    com.auralis.music.windows.player.DesktopPlaybackSessionStore.save(
+                        track = q.current!!,
+                        queue = q.tracks,
+                        queueIndex = q.index
+                    )
+                }
+            }
+            Thread {
+                try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+                kotlin.system.exitProcess(0)
+            }.apply {
+                isDaemon = true
+                name = "auralis-shutdown-watchdog"
+            }.start()
             recorderScope.launch {
-                try { kotlinx.coroutines.withTimeoutOrNull(15_000) { together.close() } }
-                finally { listenRecorder?.close(); playback?.release(); exitApplication() }
+                try { kotlinx.coroutines.withTimeoutOrNull(1000) { together.close() } }
+                finally {
+                    runCatching { listenRecorder?.close() }
+                    runCatching { playback?.release() }
+                    runCatching { exitApplication() }
+                    kotlin.system.exitProcess(0)
+                }
             }
         }
         Window(
@@ -153,7 +293,9 @@ fun main(args: Array<String>) {
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var maximizeHovered by remember { mutableStateOf(false) }
             DisposableEffect(window) {
+                composeWindow = window
                 window.minimumSize = java.awt.Dimension(900, 600)
+                singleInstanceLock?.recordWindowHandle(window.windowHandle)
                 val frame = runCatching { NativeWindowFrame(window, window.windowHandle) { maximizeHovered = it } }
                     .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
                 nativeFrame = frame
@@ -162,7 +304,13 @@ fun main(args: Array<String>) {
                     com.auralis.music.windows.media.TaskbarPlaybackControls(frame, window.windowHandle, playback::previous, playback::togglePlayPause, playback::next)
                 }.onFailure { Log.w(TAG, "Taskbar controls unavailable: ${it.message}") }.getOrNull() else null
                 taskbarControls = taskbar
-                onDispose { taskbarControls = null; taskbar?.close(); inputRestore.close(); frame?.close() }
+                onDispose {
+                    taskbarControls = null
+                    composeWindow = null
+                    taskbar?.close()
+                    inputRestore.close()
+                    frame?.close()
+                }
             }
             LaunchedEffect(taskbarControls) {
                 val controls = taskbarControls
@@ -199,6 +347,7 @@ fun main(args: Array<String>) {
                 onShortcutHandler = { shortcutHandler = it },
                 selfTest = selfTest,
                 onSelfTestDone = { passed ->
+                    singleInstanceLock?.close()
                     listenRecorder?.close()
                     playback?.release()
                     kotlin.system.exitProcess(if (passed) 0 else 1)

@@ -318,7 +318,7 @@ fun DesktopProfileSheet(
             Spacer(modifier = Modifier.height(10.dp))
 
             // ── DISCONNECT BUTTON ──
-            if (profile.isGoogleConnected || profile.accessToken != null) {
+            if (profile.isGoogleConnected || profile.accessToken != null || profile.email.isNotBlank() || profile.uid.isNotBlank() || com.auralis.music.data.network.YouTubeSession.isSignedIn) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

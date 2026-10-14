@@ -104,6 +104,14 @@ class DesktopPlaybackController(
         if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = _queue.value.copy(tracks = tracks, index = index)
     }
 
+    /** Restores the previous playback queue on app launch in idle state without auto-starting playback. */
+    fun restoreQueue(tracks: List<Track>, index: Int = 0) {
+        if (tracks.isEmpty() || index !in tracks.indices) return
+        if (_queue.value.current == null && player.state.value == VlcAudioPlayer.State.IDLE) {
+            _queue.value = Queue(tracks = tracks, index = index)
+        }
+    }
+
     /** Rearrange only upcoming songs; keep the playing track, history and stream untouched. */
     fun shuffleUpcoming() {
         if (roomControl != null) return // The room host owns the shared queue order.
@@ -358,9 +366,9 @@ class DesktopPlaybackController(
                     preloadJob?.cancel()
                     preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         val next = q.tracks[q.index + 1]
-                        // Do not start extra searches for unmatched imports in the background.
-                        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id) ?: next.id
-                        if (DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)
+                        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id)
+                            ?: (if (DesktopPlaybackMatch.isVideoId(next.id)) next.id else DesktopPlaybackMatch.videoId(next))
+                        if (id != null && DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)
                     }
                 }
             }
