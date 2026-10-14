@@ -1,5 +1,7 @@
 package com.auralis.music.windows.home
 
+import androidx.compose.ui.text.withStyle
+
 
 import com.auralis.music.ui.components.clickable
 import com.auralis.music.ui.components.IconButton
@@ -84,6 +86,7 @@ internal fun DesktopHomeScreen(
     /** The listener's most-played artists (Familiar Artists, in place of Quick picks). */
     familiarArtists: List<FamiliarArtist> = emptyList(),
     greetingName: String? = null,
+    greetingPalette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
     onOpenFamiliarArtist: (FamiliarArtist) -> Unit = {},
     familiarActions: FamiliarArtistActions? = null,
     favoriteIds: Set<String> = emptySet(),
@@ -120,7 +123,7 @@ internal fun DesktopHomeScreen(
         LazyColumn(Modifier.fillMaxSize(), state = scroll,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            item("greeting") { HomeGreeting(greetingName) }
+            item("greeting") { HomeGreeting(greetingName, greetingPalette) }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeHeading("Recents", null, trailing = {
@@ -266,13 +269,31 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
  * does (a greeting that flips while you look at it is uncanny).
  */
 @Composable
-private fun HomeGreeting(name: String?) {
+private fun HomeGreeting(name: String?, palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette) {
     val part = remember {
         when (java.time.LocalTime.now().hour) {
             in 0..4 -> "Good night"; in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening"
         }
     }
-    Text(if (name.isNullOrBlank()) part else "$part, ${name.trim()}",
+    // The name in the playing song's colours (a gradient through its palette), lifted toward white
+    // when a colour is too dark to read on the page; it fades to the next song's colours.
+    val base = MaterialTheme.colorScheme.onSurface
+    fun readable(c: androidx.compose.ui.graphics.Color) =
+        if (c.luminance() < .45f) androidx.compose.ui.graphics.lerp(c, androidx.compose.ui.graphics.Color.White, .45f) else c
+    val start by androidx.compose.animation.animateColorAsState(if (palette.isDefault) base else readable(palette.primary),
+        androidx.compose.animation.core.tween(700), label = "greetingNameStart")
+    val end by androidx.compose.animation.animateColorAsState(if (palette.isDefault) base else readable(palette.tertiary),
+        androidx.compose.animation.core.tween(700), label = "greetingNameEnd")
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        append(part)
+        if (!name.isNullOrBlank()) {
+            append(", ")
+            withStyle(androidx.compose.ui.text.SpanStyle(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(start, end)))) {
+                append(name.trim())
+            }
+        }
+    }
+    Text(text,
         style = MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.3).sp),
         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
         // Sits closer to Recents than the 34dp between shelves (padding can't be negative).

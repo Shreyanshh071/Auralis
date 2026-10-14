@@ -36,7 +36,8 @@ internal fun DesktopHome(
     /** The listener's most-played artists (Familiar Artists). */
     familiarArtists: List<FamiliarArtist> = emptyList(),
     /** The listener's name for the greeting above Recents; null greets without one. */
-    greetingName: String? = null
+    greetingName: String? = null,
+    greetingPalette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette
 ) {
     val savedArtists by library.getSavedArtists().collectAsState(emptyList())
     val savedArtistIds = remember(savedArtists) { savedArtists.map { it.id }.toSet() }
@@ -177,6 +178,7 @@ internal fun DesktopHome(
         quickPicks = quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
         familiarArtists = familiarArtists,
         greetingName = greetingName,
+        greetingPalette = greetingPalette,
         onOpenFamiliarArtist = { a -> browse.openArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)) },
         familiarActions = FamiliarArtistActions(
             subscribed = { subscriptions.subscribed(it.id) },

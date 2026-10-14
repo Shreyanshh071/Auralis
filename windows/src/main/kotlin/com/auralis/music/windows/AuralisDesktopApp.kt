@@ -184,9 +184,8 @@ fun AuralisDesktopApp(
             listens = allListens,
             blockedTracks = { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blockedArtists) }
         )
-        val byRecent = stats.sortedByDescending { it.patternScore }.take(15)
-        val byAllTime = stats.sortedByDescending { it.totalPlays }.take(10)
-        (byRecent + byAllTime)
+        // The artists played most recently (the row shows them newest first).
+        stats.sortedByDescending { it.lastPlayedAt }
             .distinctBy { com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) }
             .take(20)
     }
@@ -221,7 +220,8 @@ fun AuralisDesktopApp(
             recentPlays = stat.recentPlays,
             weekPlays = stat.weekPlays,
             totalPlays = stat.totalPlays,
-            patternScore = stat.patternScore
+            patternScore = stat.patternScore,
+            lastPlayedAt = stat.lastPlayedAt
         )
     }.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id.ifBlank { null }, it.name, blockedArtists) }
     val homeViewModel = remember {
@@ -692,6 +692,8 @@ fun AuralisDesktopApp(
                                 quickPicks = quickPicks,
                                 familiarArtists = familiarArtists,
                                 // The greeting's name: the Auralis account's, else the YouTube account's.
+                                // The name takes the playing song's colours, as the background does.
+                                greetingPalette = artworkPalette,
                                 greetingName = accountState.profile?.displayName?.takeIf { it.isNotBlank() }
                                     ?: youtubeState.identity?.name?.takeIf { youtubeSignedIn && it.isNotBlank() },
                                 // Search lives in the title bar now; Home shows no search button.
@@ -826,7 +828,10 @@ fun AuralisDesktopApp(
                                 com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
                                     onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
                                     modifier = panelModifier, palette = artworkPalette,
-                                    onCollapse = { rightCollapsed = true })
+                                    onCollapse = { rightCollapsed = true },
+                                    library = library,
+                                    onOpenQueue = { sidePanel = com.auralis.music.windows.player.SidePanel.QUEUE },
+                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) })
                         }
                         }
                         }
