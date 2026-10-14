@@ -64,8 +64,8 @@ internal fun DesktopSignInDialog(
     val ytSignedIn by YouTubeSession.signedIn.collectAsState()
     val ytLabel by YouTubeSession.accountLabel.collectAsState()
     val accountState by account.state.collectAsState()
-    // One page (no tabs): the Auralis account section, then the YouTube Music section.
-    val selectedTab = SignInFilterTab.ALL
+    // Two tabs: the Auralis account (Google or email) and YouTube Music (its own browser session).
+    var selectedTab by remember { mutableStateOf(SignInFilterTab.GOOGLE_EMAIL) }
 
     var localMessage by remember { mutableStateOf<String?>(null) }
     var isErrorMessage by remember { mutableStateOf(false) }
@@ -124,13 +124,36 @@ internal fun DesktopSignInDialog(
                     }
                 }
 
+                // Two tabs: Auralis, YouTube Music.
+                Row(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
+                        .background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(SignInFilterTab.GOOGLE_EMAIL to "Auralis", SignInFilterTab.YOUTUBE to "YouTube Music").forEach { (tab, label) ->
+                        val isSelected = selectedTab == tab
+                        Box(
+                            Modifier.weight(1f).clip(MaterialTheme.shapes.small)
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent)
+                                .then(if (isSelected) Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.shapes.small) else Modifier)
+                                .clickable { selectedTab = tab }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(label, style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f))
+                        }
+                    }
+                }
+
                 // Scrollable main body
                 Column(
                     Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // ── STATUS BANNERS (CONNECTED ACCOUNTS) ──
-                    if (accountState.profile != null) {
+                    if (selectedTab == SignInFilterTab.GOOGLE_EMAIL && accountState.profile != null) {
                         Card(
                             shape = MaterialTheme.shapes.medium,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
@@ -197,12 +220,13 @@ internal fun DesktopSignInDialog(
                             Icon(if (ytSignedIn) Icons.Default.CheckCircle else Icons.Outlined.Info, null, Modifier.size(16.dp),
                                 tint = if (ytSignedIn) Color(0xFF4ADE80) else Color.White.copy(alpha = 0.6f))
                             Text(if (ytSignedIn) "YouTube Music connected${ytLabel?.let { " · $it" } ?: ""}"
-                                else "YouTube Music isn't connected yet. Connect it below.",
+                                else "YouTube Music isn't connected yet.",
                                 style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.weight(1f))
+                            if (!ytSignedIn) TextButton(onClick = { selectedTab = SignInFilterTab.YOUTUBE }) { Text("Connect") }
                         }
                     }
 
-                    if (ytSignedIn) {
+                    if (selectedTab == SignInFilterTab.YOUTUBE && ytSignedIn) {
                         Card(
                             shape = MaterialTheme.shapes.medium,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
@@ -305,7 +329,7 @@ internal fun DesktopSignInDialog(
                     // ─────────────────────────────────────────────────────────────
                     // 1. TOP OPTION: SIGN IN WITH GOOGLE
                     // ─────────────────────────────────────────────────────────────
-                    if (accountState.profile == null) SectionHeading("Auralis account",
+                    if (selectedTab == SignInFilterTab.GOOGLE_EMAIL && accountState.profile == null) SectionHeading("Auralis account",
                         "Sign in with Google or your email and password to sync playlists, likes and stats.")
                     if (selectedTab != SignInFilterTab.YOUTUBE && accountState.profile == null) {
                         Surface(
@@ -462,9 +486,6 @@ internal fun DesktopSignInDialog(
                     // 4. FOURTH OPTION (LAST): PASTE COOKIE MANUALLY
                     // ─────────────────────────────────────────────────────────────
                     if (selectedTab != SignInFilterTab.GOOGLE_EMAIL) {
-                        if (selectedTab == SignInFilterTab.ALL && accountState.profile == null) {
-                            HorizontalDivider(Modifier.fillMaxWidth().padding(vertical = 4.dp), color = Color.White.copy(alpha = 0.12f))
-                        }
 
                         SectionHeading("YouTube Music",
                             "Use the YouTube session from a browser where you're signed in, or sign in with Google in your browser first.")
