@@ -37,5 +37,17 @@ val PlusJakartaSansFontFamily: FontFamily by lazy {
     )
 }
 
+/**
+ * Nunito (SIL Open Font License, Latin subset): rounded strokes, for figures that should read soft
+ * (the Stats numbers; Outfit's were too sharp there).
+ */
+val NunitoFontFamily: FontFamily by lazy {
+    FontFamily(
+        bundled("Nunito-SemiBold.ttf", FontWeight.SemiBold),
+        bundled("Nunito-Bold.ttf", FontWeight.Bold),
+        bundled("Nunito-ExtraBold.ttf", FontWeight.ExtraBold)
+    )
+}
+
 /** The phone's type scale with the bundled fonts. */
 val DesktopTypography: Typography by lazy { auralisTypography(OutfitFontFamily, PlusJakartaSansFontFamily) }

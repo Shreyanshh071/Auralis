@@ -352,10 +352,11 @@ private fun StatImage(url: String?, round: Boolean, size: Int) {
 // Stats type: Outfit for figures and headings (even-width digits, so times don't jiggle), Plus
 // Jakarta Sans for the quiet labels. The page used to mix default bold text at small sizes.
 private val StatFigures = "tnum"
-private val StatHero = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
-    fontWeight = FontWeight.SemiBold, fontSize = 46.sp, lineHeight = 52.sp, letterSpacing = (-1).sp, fontFeatureSettings = StatFigures)
-private val StatValue = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
-    fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 28.sp, letterSpacing = (-0.3).sp, fontFeatureSettings = StatFigures)
+// Figures in Nunito: rounded, so the big numbers read soft rather than sharp.
+private val StatHero = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.NunitoFontFamily,
+    fontWeight = FontWeight.ExtraBold, fontSize = 46.sp, lineHeight = 52.sp, letterSpacing = (-0.5).sp, fontFeatureSettings = StatFigures)
+private val StatValue = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.NunitoFontFamily,
+    fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp, fontFeatureSettings = StatFigures)
 private val StatSection = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
     fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.2).sp)
 private val StatTitle = androidx.compose.ui.text.TextStyle(fontFamily = com.auralis.music.ui.theme.OutfitFontFamily,
