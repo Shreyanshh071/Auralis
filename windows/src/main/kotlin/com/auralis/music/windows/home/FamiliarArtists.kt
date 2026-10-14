@@ -55,7 +55,9 @@ internal data class FamiliarArtist(
     val recentPlays: Int = plays,
     val weekPlays: Int = 0,
     val totalPlays: Int = plays,
-    val patternScore: Double = plays.toDouble()
+    val patternScore: Double = plays.toDouble(),
+    /** When the listener last played this artist (ms); the row is ordered newest first. */
+    val lastPlayedAt: Long = 0L
 )
 
 internal enum class FamiliarArtistTimeRange { RECENT, WEEK, ALL_TIME }
@@ -65,7 +67,8 @@ internal data class FamiliarArtistStats(
     val totalPlays: Int,
     val weekPlays: Int,
     val recentPlays: Int,
-    val patternScore: Double
+    val patternScore: Double,
+    val lastPlayedAt: Long = 0L
 )
 
 private val ArtistSplitRegex = Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)
@@ -133,7 +136,8 @@ internal fun computeFamiliarArtistStats(
             totalPlays = finalTotal,
             weekPlays = week,
             recentPlays = recent,
-            patternScore = score
+            patternScore = score,
+            lastPlayedAt = groupListens.maxOf { it.startedAt }
         )
     }
 }
@@ -157,8 +161,7 @@ internal class FamiliarArtistActions(
 )
 
 /**
- * Familiar Artists: the listener's top artists dynamically reflecting their active listening
- * pattern, with time-range filtering (Recent Pattern, This Week, All Time).
+ * Familiar Artists: the artists the listener played, most recently played first.
  */
 @Composable
 internal fun FamiliarArtistsRow(
@@ -169,59 +172,17 @@ internal fun FamiliarArtistsRow(
     showControls: Boolean = false
 ) {
     if (artists.size < 3) return
-    var timeRange by remember { mutableStateOf(FamiliarArtistTimeRange.RECENT) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    val sortedArtists = remember(artists, timeRange) {
-        when (timeRange) {
-            FamiliarArtistTimeRange.RECENT -> artists.sortedByDescending { it.patternScore }
-            FamiliarArtistTimeRange.WEEK -> artists.sortedByDescending { it.weekPlays.toDouble() * 10.0 + it.patternScore }
-            FamiliarArtistTimeRange.ALL_TIME -> artists.sortedByDescending { it.totalPlays }
-        }
-    }
+    // Recently played first: the artists you listened to last lead the row.
+    val sortedArtists = remember(artists) { artists.sortedByDescending { it.lastPlayedAt } }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Outlined.Person, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                 Text("Familiar Artists", style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
-            }
-
-            // Sleek filter pills for Listening Pattern
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.White.copy(alpha = 0.06f))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                listOf(
-                    FamiliarArtistTimeRange.RECENT to "Recent Pattern",
-                    FamiliarArtistTimeRange.WEEK to "This Week",
-                    FamiliarArtistTimeRange.ALL_TIME to "All Time"
-                ).forEach { (range, label) ->
-                    val isSelected = timeRange == range
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent)
-                            .then(if (isSelected) Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(16.dp)) else Modifier)
-                            .clickable { timeRange = range }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f),
-                            fontSize = 11.sp
-                        )
-                    }
-                }
             }
 
             Spacer(Modifier.width(8.dp))
@@ -244,7 +205,7 @@ internal fun FamiliarArtistsRow(
             val cardWidth = ((maxWidth - 60.dp) / 6).coerceIn(180.dp, 252.dp)
             LazyRow(state = list, modifier = Modifier.fillMaxWidth().mouseDragScroll(list), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 itemsIndexed(sortedArtists.take(10)) { index, artist ->
-                    ArtistPoster(artist, index + 1, timeRange, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
+                    ArtistPoster(artist, index + 1, FamiliarArtistTimeRange.ALL_TIME, { onOpen(artist) }, actions, Modifier.width(cardWidth), showControls)
                 }
             }
         }

@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material3.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -34,10 +36,16 @@ import com.auralis.music.windows.search.DesktopArtwork
 
 @Composable
 internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, onExpand: () -> Unit, modifier: Modifier,
-    palette: com.auralis.music.ui.theme.ArtworkPalette, onCollapse: () -> Unit) {
+    palette: com.auralis.music.ui.theme.ArtworkPalette, onCollapse: () -> Unit,
+    library: com.auralis.music.domain.repository.LibraryRepository? = null,
+    onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}) {
     val queue by playback.queue.collectAsState()
     val track = queue.current ?: return
-    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse) {
+    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, extraCards = { cardModifier ->
+        // Below lyrics: who made the song, then what's next (Spotify's Now Playing view, without tours).
+        SidebarCreditsCard(track, library, onOpenArtist, cardModifier)
+        SidebarNextInQueueCard(playback, onOpenQueue, cardModifier)
+    }) {
         val state by lyrics.state.collectAsState()
         val playerState by playback.state.collectAsState()
         val position = com.auralis.music.ui.lyrics.rememberLyricsClock(playback.clock,
@@ -55,6 +63,7 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
 internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifier: Modifier,
     palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
     onCollapse: (() -> Unit)? = null,
+    extraCards: @Composable ColumnScope.(Modifier) -> Unit = {},
     lyricContent: @Composable () -> Unit) {
     BoxWithConstraints(modifier) {
     var lyricsCollapsed by remember { mutableStateOf(false) }
@@ -73,7 +82,8 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     val coverSize = minOf(maxWidth - 42.dp, maxHeight * .40f)
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))) {
     ArtworkAura(palette, Modifier.fillMaxSize(), track.thumbnail)
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
+    // Scrolls: the lyrics, credits and next-in-queue cards run below the cover.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
@@ -90,9 +100,10 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
             onToggle = { lyricsCollapsed = !lyricsCollapsed },
             onOpenWindow = { lyricsWindow = true },
             onExpand = onExpand,
-            modifier = Modifier.weight(1f, fill = false).width(coverSize),
+            modifier = Modifier.width(coverSize).height(if (lyricsCollapsed) 48.dp else 320.dp),
             lyricContent = lyricContent
         )
+        extraCards(Modifier.width(coverSize))
     }
     }
     }

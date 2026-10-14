@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -88,7 +89,8 @@ fun AuralisSlider(
     val hoverInteraction = remember { MutableInteractionSource() }
     val isHovered by hoverInteraction.collectIsHoveredAsState()
     val slimThickness by animateDpAsState(
-        if (isHovered || isDragging) 8.dp else 5.5.dp,
+        // The glass capsule thickens while hovered or dragged.
+        if (isHovered || isDragging) 16.dp else 10.dp,
         tween(180), label = "slimHoverThickness"
     )
     var dragProgress by remember { mutableFloatStateOf(value) }
@@ -399,35 +401,25 @@ fun AuralisSlider(
                     }
 
                     "Slim" -> {
-                        // ── 3. SLIM STYLE (Continuous thin rounded bar without protruding thumb) ──
-                        val strokePx = with(density) { slimThickness.toPx() }
-                        val r = strokePx / 2f
-                        val startX = r
-                        val endX = width - r
-                        val trackWidth = (endX - startX).coerceAtLeast(1f)
-                        val thumbX = (startX + trackWidth * effectiveProgress).coerceIn(startX, endX)
-
-                        // Inactive Track (Right)
-                        if (thumbX < endX) {
-                            drawLine(
-                                color = inactiveTrackColor,
-                                start = Offset(thumbX, centerY),
-                                end = Offset(endX, centerY),
-                                strokeWidth = strokePx,
-                                cap = StrokeCap.Round
-                            )
+                        // ── 3. SLIM STYLE: a glass capsule. A translucent track with a bright hairline
+                        // rim and a soft top sheen; the played part is a solid fill inside it. ──
+                        val heightPx = with(density) { slimThickness.toPx() }
+                        val radius = heightPx / 2f
+                        val top = centerY - radius
+                        val trackWidth = width.coerceAtLeast(1f)
+                        val playedX = (trackWidth * effectiveProgress).coerceIn(0f, trackWidth)
+                        val capsule = androidx.compose.ui.geometry.RoundRect(0f, top, trackWidth, top + heightPx,
+                            androidx.compose.ui.geometry.CornerRadius(radius))
+                        val clip = Path().apply { addRoundRect(capsule) }
+                        drawPath(clip, color = inactiveTrackColor.copy(alpha = (inactiveTrackColor.alpha * 0.9f).coerceAtLeast(0.14f)))
+                        drawPath(clip, brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.16f), 0.5f to Color.Transparent, startY = top, endY = top + heightPx))
+                        if (playedX > 0f) clipPath(clip) {
+                            drawRect(activeTrackColor, topLeft = Offset(0f, top),
+                                size = androidx.compose.ui.geometry.Size(playedX, heightPx))
                         }
-
-                        // Active Track (Left)
-                        if (thumbX > startX) {
-                            drawLine(
-                                color = activeTrackColor,
-                                start = Offset(startX, centerY),
-                                end = Offset(thumbX, centerY),
-                                strokeWidth = strokePx,
-                                cap = StrokeCap.Round
-                            )
-                        }
+                        drawPath(clip, color = Color.White.copy(alpha = 0.32f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = with(density) { 1.dp.toPx() }))
                     }
 
                     "Squiggly" -> {
