@@ -1,5 +1,8 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.theme.auralisPushParent
+import androidx.compose.foundation.layout.fillMaxSize
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,10 +40,10 @@ fun DesktopProfile(
     var showAccount by remember { mutableStateOf(false) }
     val accountState = account?.state?.collectAsState()?.value
     val authUiState = AuthUiState(profile = accountState?.profile ?: com.auralis.music.domain.auth.UserProfile())
-    if (showAccount && account != null) {
-        AccountPage(account) { showAccount = false }
-        return
-    }
+    // Account slides in over Profile and back out, like the other settings pages.
+    val accountPush = com.auralis.music.ui.theme.rememberPushProgress(showAccount && account != null)
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().auralisPushParent(accountPush)) {
     DesktopProfileSheet(
         onOpenAccount = { showAccount = true },
         authUiState = authUiState,
@@ -79,6 +82,11 @@ fun DesktopProfile(
         searchRepository = search,
         hasActiveTrack = hasActiveTrack
     )
+    }
+    com.auralis.music.ui.theme.AuralisPushedPage(page = if (showAccount) account else null) { pushed ->
+        AccountPage(pushed) { showAccount = false }
+    }
+    }
 }
 
 /** The phone's Settings hub on Windows, opened straight from the sidebar. */

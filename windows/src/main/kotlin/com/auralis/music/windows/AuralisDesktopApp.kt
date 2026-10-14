@@ -41,6 +41,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -646,8 +648,17 @@ fun AuralisDesktopApp(
                     Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface)) {
                         DesktopPageSurface(Modifier.fillMaxSize()) {
                         androidx.compose.runtime.key(refreshTick) {
-                        if (browse.top != null) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
-                        else when (destination) {
+                        // Pages fade up into place (and the old one fades out) instead of swapping on one frame.
+                        // Each page reads the page it animates to, never the live destination, so a page
+                        // leaving never redraws as the one arriving.
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = if (browse.top != null) BrowseRoute else destination,
+                            transitionSpec = { pageEnterTransition() togetherWith pageExitTransition() },
+                            label = "page",
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                        if (page == BrowseRoute) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library)
+                        else when (page as DesktopDestination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
                                 viewModel = homeViewModel,
                                 library = library,
@@ -749,6 +760,7 @@ fun AuralisDesktopApp(
                             )
                         }
                         }
+                        }
                         menuTrack?.let { track ->
                             com.auralis.music.windows.library.DesktopTrackMenu(
                                 track = track,
@@ -781,7 +793,12 @@ fun AuralisDesktopApp(
                             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
                         val panelModifier = Modifier.width(sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp).fillMaxHeight()
                         val closePanel = { sidePanel = com.auralis.music.windows.player.SidePanel.NOW_PLAYING }
-                        when (sidePanel) {
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = sidePanel,
+                            transitionSpec = { pageEnterTransition() togetherWith pageExitTransition() },
+                            label = "sidePanel"
+                        ) { panel ->
+                        when (panel) {
                             com.auralis.music.windows.player.SidePanel.LYRICS ->
                                 com.auralis.music.windows.player.SidePanelSheet("Lyrics", closePanel, panelModifier) {
                                     com.auralis.music.windows.player.SideLyricsPanel(playback, lyrics)
@@ -797,10 +814,16 @@ fun AuralisDesktopApp(
                                     onCollapse = { rightCollapsed = true })
                         }
                         }
+                        }
                       }
                     }
                   }
                 }
+                // The next song peeks out above the bar (drawn first, so the bar covers its lower edge).
+                Box {
+                com.auralis.music.windows.player.UpNextPeek(playback,
+                    Modifier.align(Alignment.TopStart).padding(start = 16.dp)
+                        .offset(y = -com.auralis.music.windows.player.UpNextPeekHeight))
                 com.auralis.music.windows.player.NowPlayingBar(
                     playback,
                     onOpenPlayer = { if (canShowPlayer) showPlayer = true },
@@ -810,6 +833,7 @@ fun AuralisDesktopApp(
                     onOpenLyrics = { if (canShowPlayer) sidePanel = if (sidePanel == com.auralis.music.windows.player.SidePanel.LYRICS)
                         com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS }
                 )
+                }
             }
             if (destination == DesktopDestination.WRAPPED) {
                 Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)) {
@@ -855,3 +879,20 @@ private fun NotBuiltYet(title: String, detail: String) {
         Text("Not built yet. $detail", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/** The page key while an album, playlist or artist page is open (they animate among themselves). */
+private object BrowseRoute
+
+/** A page arriving: fades in while rising a few dp and settling from 98.5% scale. */
+internal fun pageEnterTransition(): androidx.compose.animation.EnterTransition =
+    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = 60,
+        easing = androidx.compose.animation.core.LinearOutSlowInEasing)) +
+    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(300,
+        easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = 0.985f) +
+    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(300,
+        easing = androidx.compose.animation.core.FastOutSlowInEasing)) { it / 48 }
+
+/** A page leaving: a quick fade, so the next one isn't drawn over a full-strength old page. */
+internal fun pageExitTransition(): androidx.compose.animation.ExitTransition =
+    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120,
+        easing = androidx.compose.animation.core.FastOutLinearInEasing))

@@ -54,10 +54,18 @@ fun BrowsePages(
     val startRadio: (com.auralis.music.domain.model.Track) -> Unit = { track ->
         playback?.playSingle(track)
     }
+    val forwardEnter = com.auralis.music.ui.theme.auralisDetailForwardEnter()
+    val forwardExit = com.auralis.music.ui.theme.auralisDetailForwardExit()
+    val backwardEnter = com.auralis.music.ui.theme.auralisDetailBackwardEnter()
+    val backwardExit = com.auralis.music.ui.theme.auralisDetailBackwardExit()
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         AnimatedContent(
             targetState = browse.stack.size to top,
-            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+            // Opening slides the page in from the right; Back reverses it (Library's detail motion).
+            transitionSpec = {
+                if (targetState.first >= initialState.first) forwardEnter togetherWith forwardExit
+                else backwardEnter togetherWith backwardExit
+            },
             contentKey = { it.first },
             label = "browsePage",
             modifier = Modifier.fillMaxSize()
