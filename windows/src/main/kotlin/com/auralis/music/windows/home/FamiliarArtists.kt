@@ -56,8 +56,9 @@ internal data class FamiliarArtist(
     val weekPlays: Int = 0,
     val totalPlays: Int = plays,
     val patternScore: Double = plays.toDouble(),
-    /** When the listener last played this artist (ms); the row is ordered newest first. */
-    val lastPlayedAt: Long = 0L
+    val lastPlayedAt: Long = 0L,
+    /** Time spent listening to this artist (ms), measured. */
+    val listenedMs: Long = 0L
 )
 
 internal enum class FamiliarArtistTimeRange { RECENT, WEEK, ALL_TIME }
@@ -68,7 +69,8 @@ internal data class FamiliarArtistStats(
     val weekPlays: Int,
     val recentPlays: Int,
     val patternScore: Double,
-    val lastPlayedAt: Long = 0L
+    val lastPlayedAt: Long = 0L,
+    val listenedMs: Long = 0L
 )
 
 private val ArtistSplitRegex = Regex("""\s*(?:,|&| feat\.? | ft\.? | x )\s*""", RegexOption.IGNORE_CASE)
@@ -137,7 +139,8 @@ internal fun computeFamiliarArtistStats(
             weekPlays = week,
             recentPlays = recent,
             patternScore = score,
-            lastPlayedAt = groupListens.maxOf { it.startedAt }
+            lastPlayedAt = groupListens.maxOf { it.startedAt },
+            listenedMs = groupListens.sumOf { it.timeMs }
         )
     }
 }
@@ -161,7 +164,7 @@ internal class FamiliarArtistActions(
 )
 
 /**
- * Familiar Artists: the artists the listener played, most recently played first.
+ * Familiar Artists: the artists the listener listens to most, ranked by plays and time listened.
  */
 @Composable
 internal fun FamiliarArtistsRow(
@@ -175,8 +178,8 @@ internal fun FamiliarArtistsRow(
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Recently played first: the artists you listened to last lead the row.
-    val sortedArtists = remember(artists) { artists.sortedByDescending { it.lastPlayedAt } }
+    // The artists you listen to most: by plays and by time listened, together.
+    val sortedArtists = remember(artists) { rankFamiliarArtists(artists) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -248,18 +251,11 @@ private fun ArtistPoster(
             Text(artist.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2,
                 overflow = TextOverflow.Ellipsis, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp))
 
-            val displayPlays = when (timeRange) {
-                FamiliarArtistTimeRange.RECENT -> if (artist.recentPlays > 0) artist.recentPlays else artist.totalPlays
-                FamiliarArtistTimeRange.WEEK -> if (artist.weekPlays > 0) artist.weekPlays else (artist.recentPlays.takeIf { it > 0 } ?: artist.totalPlays)
-                FamiliarArtistTimeRange.ALL_TIME -> artist.totalPlays
-            }
-            val playText = when {
-                timeRange == FamiliarArtistTimeRange.RECENT && artist.recentPlays > 0 ->
-                    if (displayPlays == 1) "1 recent play" else "$displayPlays recent plays"
-                timeRange == FamiliarArtistTimeRange.WEEK && artist.weekPlays > 0 ->
-                    if (displayPlays == 1) "1 play this week" else "$displayPlays plays this week"
-                else ->
-                    if (displayPlays == 1) "1 play" else "$displayPlays plays"
+            // Plays and time listened: what the ranking is made of.
+            val plays = artist.totalPlays
+            val playText = buildString {
+                append(if (plays == 1) "1 play" else "$plays plays")
+                formatListened(artist.listenedMs)?.let { append(" · ").append(it) }
             }
             Text(playText, color = Color.White.copy(alpha = .65f), fontSize = 12.sp,
                 maxLines = 1, modifier = Modifier.padding(top = 2.dp))
@@ -329,4 +325,23 @@ internal fun ArtistMenu(artist: FamiliarArtist, expanded: Boolean, dismiss: () -
         else item("Save to library", Icons.Outlined.LibraryAdd) { actions.toggleLibrary(artist) }
         item("Block artist", Icons.Outlined.PersonOff) { actions.block(artist) }
     }
+}
+
+/**
+ * The listener's top artists: each scored on plays and on time listened, both against the top
+ * artist's (so neither dominates), most first; ties go to more time.
+ */
+internal fun rankFamiliarArtists(artists: List<FamiliarArtist>): List<FamiliarArtist> {
+    val maxPlays = artists.maxOfOrNull { it.totalPlays }?.coerceAtLeast(1) ?: 1
+    val maxTime = artists.maxOfOrNull { it.listenedMs }?.coerceAtLeast(1L) ?: 1L
+    return artists.sortedWith(compareByDescending<FamiliarArtist> {
+        it.totalPlays.toDouble() / maxPlays + it.listenedMs.toDouble() / maxTime
+    }.thenByDescending { it.listenedMs })
+}
+
+/** "3h 12m" / "42m"; null under a minute. */
+internal fun formatListened(ms: Long): String? {
+    val minutes = ms / 60_000L
+    if (minutes < 1) return null
+    return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "${minutes}m"
 }

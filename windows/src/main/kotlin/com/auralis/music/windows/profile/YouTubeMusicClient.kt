@@ -44,8 +44,19 @@ internal class YouTubeMusicClient(
 
     suspend fun resolveScope() = withContext(Dispatchers.IO) {
         check(YouTubeSession.hasAuthCookies(cookie)) { "Sign in to YouTube Music to load your library." }
-        val html = send("$ORIGIN/?authuser=${scope.authUser}", null, headers())
-        check(!Regex("\"LOGGED_IN\"\\s*:\\s*false").containsMatchIn(html)) {
+        val loggedOut = Regex("\"LOGGED_IN\"\\s*:\\s*false")
+        var html = send("$ORIGIN/?authuser=${scope.authUser}", null, headers())
+        // Google rotated the sign-in cookie in the browser: renew from the profile the listener
+        // connected (if any) and try once more before asking them to reconnect.
+        if (loggedOut.containsMatchIn(html) && transport == null) {
+            val stale = cookie
+            YouTubeSessionSource.renew(stale)?.let { fresh ->
+                synchronized(this) { cookie = fresh }
+                YouTubeSession.refreshCookies(stale, fresh)
+                html = send("$ORIGIN/?authuser=${scope.authUser}", null, headers())
+            }
+        }
+        check(!loggedOut.containsMatchIn(html)) {
             "Your YouTube session has expired. Please reconnect your browser profile."
         }
         scope = parseYouTubeScope(html)
