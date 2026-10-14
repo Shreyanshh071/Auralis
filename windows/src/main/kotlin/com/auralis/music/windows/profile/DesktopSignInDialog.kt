@@ -1032,9 +1032,13 @@ internal fun BrowserYouTubePicker(
     }
 }
 
-/** Google's sign-in (email, then password) for YouTube, landing on YouTube Music when done. */
+/**
+ * Google's account chooser for YouTube ("Choose an account to continue to YouTube"; email and
+ * password when the browser has no Google account yet), landing on YouTube Music when done.
+ * ServiceLogin showed "Verify it's you" for an account already signed in instead of the list.
+ */
 internal const val YouTubeGoogleSignInUrl =
-    "https://accounts.google.com/ServiceLogin?service=youtube&passive=false&continue=https%3A%2F%2Fmusic.youtube.com%2F"
+    "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F"
 
 @Composable
 private fun SectionHeading(title: String, subtitle: String) {
