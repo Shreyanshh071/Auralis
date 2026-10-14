@@ -76,6 +76,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         temporary.writeBytes(protected)
         Files.move(temporary.toPath(), sessionFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
+    /** Dismisses the account's status line (e.g. "Signed in as …"). */
+    fun clearMessage() { mutable.value = mutable.value.copy(message = null) }
+
     fun signOut() {
         if (mutable.value.busy) return
         mutable.value = mutable.value.copy(busy = true)
