@@ -90,7 +90,7 @@ fun AuralisSlider(
     val isHovered by hoverInteraction.collectIsHoveredAsState()
     val slimThickness by animateDpAsState(
         // The glass capsule thickens while hovered or dragged.
-        if (isHovered || isDragging) 16.dp else 10.dp,
+        if (isHovered || isDragging) 20.dp else 14.dp,
         tween(180), label = "slimHoverThickness"
     )
     var dragProgress by remember { mutableFloatStateOf(value) }
@@ -411,14 +411,13 @@ fun AuralisSlider(
                         val capsule = androidx.compose.ui.geometry.RoundRect(0f, top, trackWidth, top + heightPx,
                             androidx.compose.ui.geometry.CornerRadius(radius))
                         val clip = Path().apply { addRoundRect(capsule) }
-                        drawPath(clip, color = inactiveTrackColor.copy(alpha = (inactiveTrackColor.alpha * 0.9f).coerceAtLeast(0.14f)))
-                        drawPath(clip, brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.16f), 0.5f to Color.Transparent, startY = top, endY = top + heightPx))
+                        // Frosted track: an even light white (the reference's look), whatever the theme's inactive colour.
+                        drawPath(clip, color = Color.White.copy(alpha = 0.24f))
                         if (playedX > 0f) clipPath(clip) {
                             drawRect(activeTrackColor, topLeft = Offset(0f, top),
                                 size = androidx.compose.ui.geometry.Size(playedX, heightPx))
                         }
-                        drawPath(clip, color = Color.White.copy(alpha = 0.32f),
+                        drawPath(clip, color = Color.White.copy(alpha = 0.16f),
                             style = androidx.compose.ui.graphics.drawscope.Stroke(width = with(density) { 1.dp.toPx() }))
                     }
 
