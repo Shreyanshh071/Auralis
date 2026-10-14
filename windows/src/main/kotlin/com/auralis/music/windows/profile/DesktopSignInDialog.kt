@@ -319,7 +319,8 @@ internal fun DesktopSignInDialog(
                                     color = if (isErrorMessage) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f)
                                 )
-                                IconButton(onClick = { localMessage = null }, modifier = Modifier.size(18.dp)) {
+                                // Dismisses both kinds: the dialog's own note and the account's ("Signed in as …").
+                                IconButton(onClick = { localMessage = null; account.clearMessage() }, modifier = Modifier.size(18.dp)) {
                                     Icon(Icons.Default.Close, "Dismiss", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                                 }
                             }
