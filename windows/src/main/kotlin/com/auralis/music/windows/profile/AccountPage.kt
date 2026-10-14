@@ -1,5 +1,7 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.components.Button
+import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -82,7 +84,7 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                 }
             }
             Text(
-                "Your library on this PC is local. Account cloud library sync has not been connected on Windows yet.",
+                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

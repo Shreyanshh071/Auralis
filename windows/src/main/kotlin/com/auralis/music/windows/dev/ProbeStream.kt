@@ -9,7 +9,8 @@ import kotlinx.coroutines.runBlocking
  * usage: probeStream -Pargs="videoId"
  */
 fun main(rawArgs: Array<String>) = runBlocking {
-    val args = rawArgs.flatMap { it.split("::") }
+    // gradlew.bat splits arguments at spaces, so spaces are written as '+'.
+    val args = rawArgs.flatMap { it.split("::") }.map { it.replace('+', ' ') }
     val id = args.firstOrNull()?.takeIf { it.isNotBlank() } ?: "4NRXx6U8ABQ"
     val started = System.currentTimeMillis()
     val target = if (args.size >= 4) com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(

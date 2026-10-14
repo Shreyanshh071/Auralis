@@ -1,5 +1,6 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.components.clickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn

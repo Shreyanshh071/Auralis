@@ -19,7 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.auralis.music.ui.components.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -178,8 +178,8 @@ fun WrappedScreen(
         }
 
         if (state.hasData) androidx.compose.foundation.layout.Row(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
-            androidx.compose.material3.TextButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) } }) { androidx.compose.material3.Text("Previous", color = Color.White) }
-            androidx.compose.material3.TextButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(pages.lastIndex)) } }) { androidx.compose.material3.Text("Next", color = Color.White) }
+            com.auralis.music.ui.components.TextButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) } }) { androidx.compose.material3.Text("Previous", color = Color.White) }
+            com.auralis.music.ui.components.TextButton(onClick = { scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(pages.lastIndex)) } }) { androidx.compose.material3.Text("Next", color = Color.White) }
         }
         IconButton(
             onClick = onClose,

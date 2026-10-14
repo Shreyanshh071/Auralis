@@ -5,7 +5,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.auralis.music.ui.components.handCursorRoot
 import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.collectAsState
@@ -288,6 +289,19 @@ fun AuralisDesktopApp(
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync with the account: ${e.message}") }
     }
+    // Signing out removes what the account brought here (its playlists and liked songs); what
+    // was imported on this PC stays. The previous account is remembered to know whose to remove.
+    var syncedUid by remember { mutableStateOf(accountState.profile?.uid) }
+    androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
+        val uid = accountState.profile?.uid?.takeIf { it.isNotBlank() }
+        val previous = syncedUid
+        syncedUid = uid
+        if (uid == null && previous != null) {
+            val removed = runCatching { account.removeAccountItems(previous, library) }.getOrDefault(0)
+            libraryViewModel.refresh()
+            if (removed > 0) showUnavailable("Signed out: removed $removed playlists that came from your account")
+        }
+    }
     // While signed in, keep the account current: library edits a few seconds after they happen,
     // listening within about 20 seconds, and the phone's new listening each minute.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
@@ -503,7 +517,8 @@ fun AuralisDesktopApp(
             onDisconnected = { youtubeLibrary.signOut() }) { showSignIn = false }
         // Blur the actual page beneath sign-in, rather than letting crisp rows show through
         // its translucent surface. No screenshot/readback is needed to open the dialog.
-        Surface(modifier = Modifier.fillMaxSize().then(
+        // The hand cursor over anything clickable (each control reports its hover; see HandCursor).
+        Surface(modifier = Modifier.fillMaxSize().handCursorRoot().then(
             if (showSignIn) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
@@ -783,7 +798,7 @@ fun AuralisDesktopApp(
                       Row(Modifier.width(rightDisplay).fillMaxHeight().clip(panelShape)
                           .then(if (rightIsCollapsed) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)) {
                         if (rightIsCollapsed) {
-                        androidx.compose.material3.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
+                        com.auralis.music.ui.components.IconButton(onClick = { rightCollapsed = !rightCollapsed }, modifier = Modifier.width(40.dp), enabled = rightLimit >= 280f) {
                             Icon(if (rightIsCollapsed) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
                                 if (rightIsCollapsed) "Expand now playing" else "Collapse now playing")
                         }

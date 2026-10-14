@@ -13,7 +13,9 @@ import javax.crypto.spec.SecretKeySpec
 
 /** Enumerates profile paths only. Session values are read solely after the user picks a profile. */
 internal object BrowserYouTubeLogin {
-    data class Profile(val browser: String, val name: String, val database: File, val firefox: Boolean, val localState: File? = null) {
+    data class Profile(val browser: String, val name: String, val database: File, val firefox: Boolean, val localState: File? = null,
+        /** The Google account the browser lists for this profile (its profile list, not its cookies). */
+        val email: String? = null) {
         val label get() = "$browser · $name"
     }
     fun profiles(roaming: File = File(System.getenv("APPDATA")), local: File = File(System.getenv("LOCALAPPDATA"))): List<Profile> = buildList {
@@ -28,7 +30,9 @@ internal object BrowserYouTubeLogin {
             val names = runCatching { JSONObject(state.readText()).optJSONObject("profile")?.optJSONObject("info_cache") }.getOrNull()
             root.listFiles()?.filter { it.isDirectory && (it.name == "Default" || it.name.startsWith("Profile ")) }?.forEach {
                 val database = File(it, "Network/Cookies").takeIf(File::isFile) ?: File(it, "Cookies").takeIf(File::isFile)
-                if (database != null) add(Profile(browser, names?.optJSONObject(it.name)?.optString("name")?.takeIf(String::isNotBlank) ?: it.name, database, false, state))
+                val info = names?.optJSONObject(it.name)
+                if (database != null) add(Profile(browser, info?.optString("name")?.takeIf(String::isNotBlank) ?: it.name, database, false, state,
+                    info?.optString("user_name")?.takeIf { email -> email.contains('@') }))
             }
         }
     }.sortedBy { it.label }

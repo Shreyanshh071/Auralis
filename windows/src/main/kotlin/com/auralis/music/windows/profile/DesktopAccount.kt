@@ -112,20 +112,39 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         var playlists = 0; var liked = 0
         val doc = api.get("users/$uid")
         if (doc != null) {
+            // What this PC already had: only what the pull adds is the account's, and goes on sign-out.
+            val localPlaylists = library.getPlaylists().first()
+            val localFavoriteIds = library.getFavoriteTracks().first().map { it.id }.toSet()
+            val addedPlaylists = mutableSetOf<String>()
+            val addedFavorites = mutableSetOf<String>()
+            val catchUpDone = syncMarks.getString("account_items_v1_$uid", "") == "1"
             for (p in objects(doc.optJSONArray("playlists"))) {
                 val title = p.optString("title").ifBlank { "Restored Playlist" }
                 val description = p.optString("description").takeIf { it.isNotBlank() }
                 val cover = p.optString("coverUrl").takeIf { it.isNotBlank() }
                 val id = p.optString("id").takeIf { it.isNotBlank() }
                 val tracks = objects(p.optJSONArray("tracks")).map(::track).filter { it.id.isNotBlank() }
+                // The same playlist under another id (same name AND the very same songs) is not added
+                // twice. A same-named playlist with different songs (99 vs 100) is its own playlist.
+                if (localPlaylists.any { it.id != id && sameNameAndSongs(it, title, tracks) }) continue
+                val existedHere = id != null && localPlaylists.any { it.id == id }
                 val target = if (id != null) library.restorePlaylist(id, title, description, cover) else library.createPlaylist(title, description, cover)
                 if (tracks.isNotEmpty()) library.replacePlaylistTracks(target.id, tracks)
+                if (!existedHere) addedPlaylists += target.id
+                // Catch-up for accounts pulled before this record existed: a playlist made on the
+                // phone (not an import, which this PC may have made itself) is the account's.
+                else if (!catchUpDone && !target.id.startsWith("imported:")) addedPlaylists += target.id
                 playlists++
             }
             for (f in objects(doc.optJSONArray("favorites"))) {
                 val t = track(f)
-                if (t.id.isNotBlank()) { library.setFavorite(t, true); liked++ }
+                if (t.id.isNotBlank()) {
+                    library.setFavorite(t, true); liked++
+                    if (t.id !in localFavoriteIds) addedFavorites += t.id
+                }
             }
+            rememberAccountItems(uid, addedPlaylists, addedFavorites)
+            syncMarks.putStrings(mapOf("account_items_v1_$uid" to "1"))
             for (a in objects(doc.optJSONArray("savedAlbums"))) {
                 val id = a.optString("id"); val title = a.optString("title")
                 if (id.isNotBlank() && title.isNotBlank()) library.saveAlbum(com.auralis.music.domain.model.SavedAlbum(id, title,
@@ -146,6 +165,33 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         pulledUid = uid
         if (doc == null && listens.isEmpty()) return@withContext null
         "Synced from your account: $playlists playlists, $liked liked songs, $newListens new listens"
+    }
+
+    private fun marks(key: String): Set<String> =
+        syncMarks.getString(key, "").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
+
+    /** Adds to the record of what the account brought onto this PC (kept across sessions). */
+    private fun rememberAccountItems(uid: String, playlists: Set<String>, favorites: Set<String>) {
+        if (playlists.isEmpty() && favorites.isEmpty()) return
+        syncMarks.putStrings(mapOf(
+            "account_playlists_$uid" to (marks("account_playlists_$uid") + playlists).joinToString("\n"),
+            "account_favorites_$uid" to (marks("account_favorites_$uid") + favorites).joinToString("\n")))
+    }
+
+    /**
+     * After signing out of [uid]: takes off this PC the playlists and liked songs that came from that
+     * account. What was here before, or was imported here (by link, Spotify, or picking YouTube Music
+     * playlists), stays. Returns how many playlists were removed.
+     */
+    suspend fun removeAccountItems(uid: String, library: com.auralis.music.domain.repository.LibraryRepository): Int = withContext(Dispatchers.IO) {
+        val playlists = marks("account_playlists_$uid")
+        val favorites = marks("account_favorites_$uid")
+        val present = library.getPlaylists().first().map { it.id }.toSet()
+        playlists.filter { it in present }.forEach { library.deletePlaylist(it) }
+        library.getFavoriteTracks().first().filter { it.id in favorites }.forEach { library.setFavorite(it, false) }
+        syncMarks.putStrings(mapOf("account_playlists_$uid" to "", "account_favorites_$uid" to "",
+            "pulled_at_$uid" to "0", "account_items_v1_$uid" to ""))
+        playlists.count { it in present }
     }
 
     /** Which account's backup has been read this session; uploads wait for it (see [pushLibrary]). */
@@ -264,3 +310,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         else -> "Couldn't sign in: ${e.message?.take(160) ?: "check your connection"}"
     }
 }
+
+/** Same playlist: the same name (ignoring case and spaces) and exactly the same songs in it. */
+internal fun sameNameAndSongs(existing: com.auralis.music.domain.model.Playlist, title: String,
+    tracks: List<com.auralis.music.domain.model.Track>): Boolean =
+    existing.title.trim().equals(title.trim(), ignoreCase = true) && tracks.isNotEmpty() &&
+        existing.tracks.map { it.id }.toSet() == tracks.map { it.id }.toSet() && existing.tracks.size == tracks.size
