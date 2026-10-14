@@ -250,6 +250,8 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
             sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
             activeTrackColor = MaterialTheme.colorScheme.onSurface,
             inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+            // The mini player's bar is slim; it still thickens a little on hover.
+            slimThicknessRest = 6.dp, slimThicknessHover = 10.dp,
             modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
         )
         TimeLabel(if (enabled) duration else 0L)
