@@ -489,32 +489,54 @@ internal fun DesktopSignInDialog(
                     if (selectedTab != SignInFilterTab.GOOGLE_EMAIL) {
 
                         SectionHeading("YouTube Music",
-                            "Use the YouTube session from a browser where you're signed in, or sign in with Google in your browser first.")
-                        // Sign in with Google for YouTube Music: Google's own sign-in page in the browser
-                        // (email, then password), which lands on YouTube Music. Then pick that browser below.
+                            "Sign in with Google in a window Auralis opens, or use a browser where you're already signed in.")
+                        // Sign in with Google for YouTube Music: a browser window with Auralis's own profile
+                        // opens on Google's account chooser (or email and password); when YouTube Music loads
+                        // signed in there, the session comes straight into Auralis and the window closes.
                         if (!ytSignedIn) {
-                            var opened by remember { mutableStateOf(false) }
+                            var signingIn by remember { mutableStateOf(false) }
+                            var status by remember { mutableStateOf<String?>(null) }
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
                                 color = Color.White,
                                 contentColor = Color(0xFF1F1F1F),
                                 border = BorderStroke(1.dp, Color(0xFF747775).copy(alpha = 0.3f)),
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(YouTubeGoogleSignInUrl)) }
-                                        .onSuccess { opened = true }
-                                        .onFailure { localMessage = "Couldn't open your browser. Open music.youtube.com and sign in there."; isErrorMessage = true }
+                                modifier = Modifier.fillMaxWidth().clickable(enabled = !signingIn) {
+                                    signingIn = true
+                                    scope.launch {
+                                        try {
+                                            val session = YouTubeBrowserSignIn.signIn { status = it }
+                                            withContext(Dispatchers.IO) {
+                                                YouTubeSession.save(session, "", "0", "YouTube Music")
+                                                YouTubeSessionSource.rememberSignInWindow()
+                                            }
+                                            status = null
+                                            localMessage = "YouTube Music connected."
+                                            isErrorMessage = false
+                                            onConnected()
+                                        } catch (e: kotlinx.coroutines.CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            status = null
+                                            localMessage = e.message ?: "Couldn't sign in. Try again."
+                                            isErrorMessage = true
+                                        } finally {
+                                            signingIn = false
+                                        }
+                                    }
                                 }
                             ) {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                                    GoogleLogo(Modifier.size(20.dp))
+                                    if (signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF1F1F1F))
+                                    else GoogleLogo(Modifier.size(20.dp))
                                     Spacer(Modifier.width(10.dp))
-                                    Text("Sign in with Google for YouTube Music", fontWeight = FontWeight.Medium)
+                                    Text(if (signingIn) "Waiting for sign-in…" else "Sign in with Google for YouTube Music", fontWeight = FontWeight.Medium)
                                 }
                             }
-                            if (opened) Text(
-                                "Finish signing in with your Gmail and password in the browser. Once YouTube Music opens there, pick that browser below.",
-                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
+                            status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f)) }
+                            Text("Or use a browser where you're already signed in:", style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.6f))
                         }
 
                         BrowserYouTubePicker(

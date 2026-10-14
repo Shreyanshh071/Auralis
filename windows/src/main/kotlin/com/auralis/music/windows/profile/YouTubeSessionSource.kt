@@ -19,12 +19,15 @@ internal object YouTubeSessionSource {
 
     /** The listener connected from [profile]. */
     fun remember(profile: BrowserYouTubeLogin.Profile) = runCatching {
-        store.putStrings(mapOf("browser" to profile.browser, "name" to profile.name, "database" to profile.database.absolutePath,
+        store.putStrings(mapOf("mode" to "profile", "browser" to profile.browser, "name" to profile.name, "database" to profile.database.absolutePath,
             "firefox" to profile.firefox.toString(), "localState" to profile.localState?.absolutePath.orEmpty()))
     }
 
+    /** The listener signed in with Google in Auralis's own sign-in window (see [YouTubeBrowserSignIn]). */
+    fun rememberSignInWindow() = runCatching { store.putStrings(mapOf("mode" to "auralis", "database" to "")) }
+
     /** The session came from somewhere else (a pasted cookie): nothing to renew from. */
-    fun forget() = runCatching { store.putStrings(mapOf("database" to "")) }
+    fun forget() = runCatching { store.putStrings(mapOf("mode" to "", "database" to "")) }
 
     private fun profile(): BrowserYouTubeLogin.Profile? {
         val database = store.getString("database", "").orEmpty().takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.isFile } ?: return null
@@ -37,17 +40,21 @@ internal object YouTubeSessionSource {
      * A current session from the remembered profile, when it differs from [stale] and is the same
      * account (same SAPISID). Null when there is no profile, it can't be read, or it holds nothing newer.
      */
-    fun renew(stale: String): String? {
-        val profile = profile() ?: return null
-        val fresh = runCatching { BrowserYouTubeLogin.read(profile) }
-            .onFailure { Log.w(TAG, "Couldn't renew from ${profile.label}: ${it.message}") }.getOrNull() ?: return null
+    suspend fun renew(stale: String): String? {
+        val fresh = if (store.getString("mode", "") == "auralis") {
+            YouTubeBrowserSignIn.renew() ?: return null
+        } else {
+            val profile = profile() ?: return null
+            runCatching { BrowserYouTubeLogin.read(profile) }
+                .onFailure { Log.w(TAG, "Couldn't renew from ${profile.label}: ${it.message}") }.getOrNull() ?: return null
+        }
         if (fresh == stale) return null
         val account = { cookie: String -> YouTubeSession.parseCookies(cookie).let { it["SAPISID"] ?: it["__Secure-3PAPISID"] } }
         if (account(fresh) != account(stale)) {
-            Log.w(TAG, "${profile.label} is now signed in to a different YouTube account; not switching automatically")
+            Log.w(TAG, "The renewed session is a different YouTube account; not switching automatically")
             return null
         }
-        Log.i(TAG, "Renewed the YouTube session from ${profile.label}")
+        Log.i(TAG, "Renewed the YouTube session")
         return fresh
     }
 }
