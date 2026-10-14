@@ -283,6 +283,10 @@ fun main(args: Array<String>) {
             com.auralis.music.domain.model.Playlist("p1", "gili gili", "Imported from Spotify", previewSongs.firstOrNull()?.thumbnail, tracks = previewSongs.take(5)), onDismiss = {}) } },
         "menu-song" to { MenuPreview { @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) com.auralis.music.ui.components.TrackOptionsMenu(track = previewSongs.first(), isFavorite = true,
             userPlaylists = emptyList(), onToggleFavorite = {}, onPlayNext = {}, onAddToQueue = {}, onAddToPlaylist = {}, onCreatePlaylistAndAdd = {}, onDismiss = {}) } },
+        "up-next" to { Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(
+            listOf(androidx.compose.ui.graphics.Color(0xFF3A2440), androidx.compose.ui.graphics.Color(0xFF6B4A2E)))).padding(16.dp)) {
+            com.auralis.music.windows.player.UpNextCard(previewSongs.getOrNull(1)) {}
+        } },
         "lyrics-fluid" to { LyricRendererPreview(fluid = true) },
         "lyrics-letters" to { LyricRendererPreview(fluid = false) },
         "lyrics-dots" to {
@@ -343,7 +347,7 @@ fun main(args: Array<String>) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
             val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
-                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "menu-playlist", "menu-song" -> 860; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
+                height = when (name) { "titlebar", "titlebar-narrow" -> 44; "up-next" -> 100; "menu-playlist", "menu-song" -> 860; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
                         com.auralis.music.data.datastore.LocalSettingsStores provides stores,
