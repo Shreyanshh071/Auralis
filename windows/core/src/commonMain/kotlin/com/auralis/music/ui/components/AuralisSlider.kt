@@ -159,6 +159,8 @@ fun AuralisSlider(
                 .fillMaxWidth()
                 .height(44.dp)
                 .hoverable(hoverInteraction)
+                // The hand cursor while over the seek bar, like every other control.
+                .handCursor(hoverInteraction)
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
