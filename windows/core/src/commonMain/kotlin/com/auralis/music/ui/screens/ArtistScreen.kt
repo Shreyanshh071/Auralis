@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.TextButton
 import com.auralis.music.ui.components.PlatformBackHandler
 
 import com.auralis.music.ui.i18n.Strings
@@ -13,7 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import com.auralis.music.ui.components.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn

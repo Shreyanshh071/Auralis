@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.TextButton
 import com.auralis.music.ui.components.Switch
 
 import com.auralis.music.ui.i18n.Strings
@@ -12,7 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*

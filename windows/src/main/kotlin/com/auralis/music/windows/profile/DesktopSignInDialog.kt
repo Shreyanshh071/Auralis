@@ -1,11 +1,15 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.Button
+import com.auralis.music.ui.components.TextButton
+import com.auralis.music.ui.components.OutlinedButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -17,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -60,6 +65,13 @@ internal fun DesktopSignInDialog(
     val ytLabel by YouTubeSession.accountLabel.collectAsState()
     val accountState by account.state.collectAsState()
     var selectedTab by remember { mutableStateOf(SignInFilterTab.ALL) }
+    // A fresh Google/email sign-in without YouTube Music: go straight to connecting it.
+    var seenProfile by remember { mutableStateOf(accountState.profile?.uid) }
+    LaunchedEffect(accountState.profile?.uid) {
+        val uid = accountState.profile?.uid
+        if (uid != null && seenProfile == null && !ytSignedIn) selectedTab = SignInFilterTab.YOUTUBE
+        seenProfile = uid
+    }
 
     var localMessage by remember { mutableStateOf<String?>(null) }
     var isErrorMessage by remember { mutableStateOf(false) }
@@ -218,6 +230,18 @@ internal fun DesktopSignInDialog(
                                 ) {
                                     Text("Sign out")
                                 }
+                            }
+                        }
+                        // Google sign-in is the Auralis account only; YouTube Music is its own session.
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(if (ytSignedIn) Icons.Default.CheckCircle else Icons.Outlined.Info, null, Modifier.size(16.dp),
+                                tint = if (ytSignedIn) Color(0xFF4ADE80) else Color.White.copy(alpha = 0.6f))
+                            Text(if (ytSignedIn) "YouTube Music connected${ytLabel?.let { " · $it" } ?: ""}"
+                                else "YouTube Music isn't connected. It needs your YouTube session from a browser.",
+                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.weight(1f))
+                            if (!ytSignedIn && selectedTab != SignInFilterTab.YOUTUBE) TextButton(onClick = { selectedTab = SignInFilterTab.YOUTUBE }) {
+                                Text("Connect")
                             }
                         }
                     }
@@ -707,8 +731,11 @@ internal fun BrowserYouTubePicker(
         }
     }
 
-    val workingCandidate = remember(profiles) {
-        profiles?.firstOrNull { runCatching { BrowserYouTubeLogin.read(it) }.isSuccess }
+    // Cookies are read only when a profile is picked. The suggestion is the profile the browser
+    // lists as signed in with the same Google account as Auralis (its profile list, no cookies).
+    val workingCandidate = remember(profiles, accountState.profile?.email) {
+        val email = accountState.profile?.email?.takeIf { it.contains('@') }
+        profiles?.firstOrNull { email != null && it.email.equals(email, ignoreCase = true) }
     }
 
     fun import(read: () -> Pair<String, String>) {
@@ -818,7 +845,7 @@ internal fun BrowserYouTubePicker(
                     }
                     Column(Modifier.weight(1f)) {
                         Text("1-Click Connect Available", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text("Active YouTube session found in ${workingCandidate.label}.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
+                        Text("${workingCandidate.label} is signed in with ${workingCandidate.email}, the same Google account as Auralis.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
                     }
                     Button(
                         onClick = { import { BrowserYouTubeLogin.read(workingCandidate) to workingCandidate.label } },
@@ -884,7 +911,7 @@ internal fun BrowserYouTubePicker(
                 val isChromeOrEdge = profile.browser == "Chrome" || profile.browser == "Edge" || profile.browser == "Brave"
                 val subtitle = when {
                     isCurrentlyActive -> "Active session connected on this PC"
-                    isCandidate -> "Active YouTube session ready • Click to connect"
+                    isCandidate -> "Same Google account as Auralis • Click to connect"
                     isChromeOrEdge -> "App-Bound protected by Chrome • Click to paste cookie"
                     else -> "Click to import session"
                 }

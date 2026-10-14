@@ -1,5 +1,6 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.Switch
 
 import com.auralis.music.ui.i18n.Strings
@@ -15,13 +16,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.selection.toggleable
+import com.auralis.music.ui.components.toggleable
 import androidx.compose.ui.semantics.Role
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState

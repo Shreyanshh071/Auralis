@@ -1,8 +1,11 @@
 package com.auralis.music.windows.history
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.FilledIconButton
+import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow

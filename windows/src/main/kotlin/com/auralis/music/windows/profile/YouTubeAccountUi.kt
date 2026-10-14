@@ -1,5 +1,7 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.components.IconButton
+import com.auralis.music.ui.components.TextButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,7 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
+import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState

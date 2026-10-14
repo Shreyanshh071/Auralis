@@ -12,6 +12,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -80,9 +81,12 @@ fun Modifier.combinedClickable(
     onLongClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
     onClick: () -> Unit
-): Modifier = this
-    .secondaryClick(if (enabled) onLongClick else null)
-    .foundationCombinedClickable(interactionSource, indication, enabled, onClickLabel, role, onLongClickLabel, onLongClick, onDoubleClick, onClick)
+): Modifier = composed {
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    TrackHover(source, enabled)
+    secondaryClick(if (enabled) onLongClick else null)
+        .foundationCombinedClickable(source, indication, enabled, onClickLabel, role, onLongClickLabel, onLongClick, onDoubleClick, onClick)
+}
 
 /** As above, without an interaction source. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -94,9 +98,12 @@ fun Modifier.combinedClickable(
     onLongClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
     onClick: () -> Unit
-): Modifier = this
-    .secondaryClick(if (enabled) onLongClick else null)
-    .foundationCombinedClickable(enabled, onClickLabel, role, onLongClickLabel, onLongClick, onDoubleClick, onClick)
+): Modifier = composed {
+    val source = remember { MutableInteractionSource() }
+    TrackHover(source, enabled)
+    secondaryClick(if (enabled) onLongClick else null)
+        .foundationCombinedClickable(source, androidx.compose.foundation.LocalIndication.current, enabled, onClickLabel, role, onLongClickLabel, onLongClick, onDoubleClick, onClick)
+}
 
 /** Runs [onClick] on a right-click (secondary button press). */
 fun Modifier.secondaryClick(onClick: (() -> Unit)?): Modifier = if (onClick == null) this else composed {

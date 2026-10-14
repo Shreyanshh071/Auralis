@@ -1,5 +1,7 @@
 package com.auralis.music.windows.library
 
+import com.auralis.music.ui.components.Button
+import com.auralis.music.ui.components.TextButton
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
