@@ -29,6 +29,11 @@ fun getOptimizedThumbnailUrl(url: String?): String? {
             cleaned.replace(GOOGLE_W_REGEX, "=w800-h800-c-l90-rj")
                 .replace(GOOGLE_S_REGEX, "=s800-c")
         }
+        // Anything from YouTube that isn't a video thumbnail is used exactly as given: a playlist's
+        // cover (i.ytimg.com/pl_c/...) and a mix's cover (music.youtube.com/image/mixart?...) are served
+        // only with their signed query. Stripped they were 404/400, so Home's mixes and playlists showed
+        // blank squares.
+        (cleaned.contains("ytimg.com") || cleaned.contains("youtu")) && !Regex("/vi(_webp)?/").containsMatchIn(cleaned) -> cleaned
         // YouTube video thumbnail: hq720.jpg (1280x720 16:9 aspect ratio, HD, NO black letterbox bars), crisp on high-DPI displays
         cleaned.contains("i.ytimg.com") || cleaned.contains("img.youtube.com") || cleaned.contains("youtu") -> {
             val match = YOUTUBE_VIDEO_ID_REGEX.find(cleaned)?.groupValues?.getOrNull(1)

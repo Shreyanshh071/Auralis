@@ -174,3 +174,9 @@ tasks.register<JavaExec>("probeStream") {
     mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
     args = listOfNotNull(findProperty("args")?.toString())
 }
+
+// Development check: ./gradlew :windows:probeHome (signed-in Home shelves and their covers; read only)
+tasks.register<JavaExec>("probeHome") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeHomeKt")
+}

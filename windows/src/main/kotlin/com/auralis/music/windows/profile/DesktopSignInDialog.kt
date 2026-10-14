@@ -64,14 +64,8 @@ internal fun DesktopSignInDialog(
     val ytSignedIn by YouTubeSession.signedIn.collectAsState()
     val ytLabel by YouTubeSession.accountLabel.collectAsState()
     val accountState by account.state.collectAsState()
-    var selectedTab by remember { mutableStateOf(SignInFilterTab.ALL) }
-    // A fresh Google/email sign-in without YouTube Music: go straight to connecting it.
-    var seenProfile by remember { mutableStateOf(accountState.profile?.uid) }
-    LaunchedEffect(accountState.profile?.uid) {
-        val uid = accountState.profile?.uid
-        if (uid != null && seenProfile == null && !ytSignedIn) selectedTab = SignInFilterTab.YOUTUBE
-        seenProfile = uid
-    }
+    // One page (no tabs): the Auralis account section, then the YouTube Music section.
+    val selectedTab = SignInFilterTab.ALL
 
     var localMessage by remember { mutableStateOf<String?>(null) }
     var isErrorMessage by remember { mutableStateOf(false) }
@@ -127,41 +121,6 @@ internal fun DesktopSignInDialog(
                             contentDescription = "Close",
                             tint = Color.White.copy(alpha = 0.85f)
                         )
-                    }
-                }
-
-                // Sleek glass segmented pill tabs for filtering
-                Row(
-                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    val activeBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                    val activeBorder = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-
-                    SignInFilterTab.entries.forEach { tab ->
-                        val label = when (tab) {
-                            SignInFilterTab.ALL -> "All Sign-in Options"
-                            SignInFilterTab.GOOGLE_EMAIL -> "Google & Email"
-                            SignInFilterTab.YOUTUBE -> "YouTube Music"
-                        }
-                        val isSelected = selectedTab == tab
-                        Box(
-                            Modifier.weight(1f).clip(MaterialTheme.shapes.small)
-                                .background(if (isSelected) activeBg else Color.Transparent)
-                                .then(if (isSelected) Modifier.border(1.dp, activeBorder, MaterialTheme.shapes.small) else Modifier)
-                                .clickable { selectedTab = tab }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.65f)
-                            )
-                        }
                     }
                 }
 
@@ -238,11 +197,8 @@ internal fun DesktopSignInDialog(
                             Icon(if (ytSignedIn) Icons.Default.CheckCircle else Icons.Outlined.Info, null, Modifier.size(16.dp),
                                 tint = if (ytSignedIn) Color(0xFF4ADE80) else Color.White.copy(alpha = 0.6f))
                             Text(if (ytSignedIn) "YouTube Music connected${ytLabel?.let { " · $it" } ?: ""}"
-                                else "YouTube Music isn't connected. It needs your YouTube session from a browser.",
+                                else "YouTube Music isn't connected yet. Connect it below.",
                                 style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.weight(1f))
-                            if (!ytSignedIn && selectedTab != SignInFilterTab.YOUTUBE) TextButton(onClick = { selectedTab = SignInFilterTab.YOUTUBE }) {
-                                Text("Connect")
-                            }
                         }
                     }
 
@@ -349,6 +305,8 @@ internal fun DesktopSignInDialog(
                     // ─────────────────────────────────────────────────────────────
                     // 1. TOP OPTION: SIGN IN WITH GOOGLE
                     // ─────────────────────────────────────────────────────────────
+                    if (accountState.profile == null) SectionHeading("Auralis account",
+                        "Sign in with Google or your email and password to sync playlists, likes and stats.")
                     if (selectedTab != SignInFilterTab.YOUTUBE && accountState.profile == null) {
                         Surface(
                             shape = MaterialTheme.shapes.medium,
@@ -508,18 +466,33 @@ internal fun DesktopSignInDialog(
                             HorizontalDivider(Modifier.fillMaxWidth().padding(vertical = 4.dp), color = Color.White.copy(alpha = 0.12f))
                         }
 
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Outlined.TravelExplore, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                            Text(
-                                "Import YouTube Music from Browser",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
-                            )
+                        SectionHeading("YouTube Music",
+                            "Use the YouTube session from a browser where you're signed in, or sign in with Google in your browser first.")
+                        // Sign in with Google for YouTube Music: Google's own sign-in page in the browser
+                        // (email, then password), which lands on YouTube Music. Then pick that browser below.
+                        if (!ytSignedIn) {
+                            var opened by remember { mutableStateOf(false) }
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                color = Color.White,
+                                contentColor = Color(0xFF1F1F1F),
+                                border = BorderStroke(1.dp, Color(0xFF747775).copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(YouTubeGoogleSignInUrl)) }
+                                        .onSuccess { opened = true }
+                                        .onFailure { localMessage = "Couldn't open your browser. Open music.youtube.com and sign in there."; isErrorMessage = true }
+                                }
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    GoogleLogo(Modifier.size(20.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Sign in with Google for YouTube Music", fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            if (opened) Text(
+                                "Finish signing in with your Gmail and password in the browser. Once YouTube Music opens there, pick that browser below.",
+                                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
                         }
 
                         BrowserYouTubePicker(
@@ -1056,5 +1029,17 @@ internal fun BrowserYouTubePicker(
                 }
             }
         }
+    }
+}
+
+/** Google's sign-in (email, then password) for YouTube, landing on YouTube Music when done. */
+internal const val YouTubeGoogleSignInUrl =
+    "https://accounts.google.com/ServiceLogin?service=youtube&passive=false&continue=https%3A%2F%2Fmusic.youtube.com%2F"
+
+@Composable
+private fun SectionHeading(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.6f))
     }
 }
