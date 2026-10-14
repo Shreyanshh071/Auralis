@@ -102,7 +102,8 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
             onToggle = { lyricsCollapsed = !lyricsCollapsed },
             onOpenWindow = { lyricsWindow = true },
             onExpand = onExpand,
-            modifier = Modifier.width(coverSize).height(if (lyricsCollapsed) 48.dp else 320.dp),
+            // No fixed height: the card animates its own (open and closed); a fixed one made closing snap.
+            modifier = Modifier.width(coverSize),
             lyricContent = lyricContent
         )
         extraCards(Modifier.width(coverSize))
