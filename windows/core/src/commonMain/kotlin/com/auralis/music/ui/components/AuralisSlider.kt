@@ -82,7 +82,10 @@ fun AuralisSlider(
     /** Timestamps under the track; off for decorative previews (e.g. the style picker). */
     showTimestamps: Boolean = true,
     /** Light feedback on tap, drag start and release (the phone's haptic tick). */
-    onTick: () -> Unit = {}
+    onTick: () -> Unit = {},
+    /** The glass (Slim) capsule's thickness at rest and while hovered or dragged. */
+    slimThicknessRest: androidx.compose.ui.unit.Dp = 12.dp,
+    slimThicknessHover: androidx.compose.ui.unit.Dp = 18.dp
 ) {
     val density = LocalDensity.current
     var isDragging by remember { mutableStateOf(false) }
@@ -90,7 +93,7 @@ fun AuralisSlider(
     val isHovered by hoverInteraction.collectIsHoveredAsState()
     val slimThickness by animateDpAsState(
         // The glass capsule thickens while hovered or dragged.
-        if (isHovered || isDragging) 20.dp else 14.dp,
+        if (isHovered || isDragging) slimThicknessHover else slimThicknessRest,
         tween(180), label = "slimHoverThickness"
     )
     var dragProgress by remember { mutableFloatStateOf(value) }
