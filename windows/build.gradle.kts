@@ -64,6 +64,8 @@ val prepareVlc by tasks.registering(Sync::class) {
             "plugins/access/libimem_plugin.dll", "plugins/access/libaccess_concat_plugin.dll",
             "plugins/misc/libgnutls_plugin.dll", "plugins/misc/liblogger_plugin.dll", "plugins/misc/libxml_plugin.dll"
         )
+        // Animated covers: decoded video handed to the app as frames (memory output + pixel conversion).
+        include("plugins/video_output/libvmem_plugin.dll", "plugins/video_chroma/**")
         // Audio codecs (FFmpeg's avcodec covers AAC; Opus is YouTube's usual format).
         include(
             listOf("avcodec", "opus", "vorbis", "mpg123", "flac", "faad", "araw", "lpcm", "adpcm", "aes3", "g711", "speex")
@@ -179,4 +181,11 @@ tasks.register<JavaExec>("probeStream") {
 tasks.register<JavaExec>("probeHome") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeHomeKt")
+}
+
+// Development check: ./gradlew :windows:probeCanvas -Pargs="Title::Artist" (animated covers; no window or sound)
+tasks.register<JavaExec>("probeCanvas") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeCanvasKt")
+    args = listOfNotNull(findProperty("args")?.toString())
 }
