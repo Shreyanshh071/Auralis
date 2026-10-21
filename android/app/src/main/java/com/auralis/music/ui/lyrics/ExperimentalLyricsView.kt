@@ -1013,6 +1013,10 @@ fun ExperimentalLyricsView(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .stationaryLyricsBlur(
+                        enabled = standardLyricsBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && !isSelectionModeActive,
+                        focusFraction = LYRICS_ANCHOR_RATIO
+                    )
                     .fadingEdge(top = 44.dp, bottom = LYRICS_FADE_BOTTOM_DP)
                     .nestedScroll(lyricsNestedScrollConnection),
                 contentPadding = PaddingValues(
@@ -1051,17 +1055,6 @@ fun ExperimentalLyricsView(
 
                             val speakerStyle = speakerStyles?.getOrNull(index)
                             val bgVisible = !isAutoScrollEnabled || (line.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain))
-                            val blurGeometry by remember(listIndex, listState, activeListIndexState) {
-                                derivedStateOf {
-                                    resolveLyricsBlurGeometry(
-                                        layoutInfo = listState.layoutInfo,
-                                        lineIndex = listIndex,
-                                        activeIndex = activeListIndexState.value,
-                                        fallbackActiveFraction = LYRICS_ANCHOR_RATIO
-                                    )
-                                }
-                            }
-
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally
@@ -1118,11 +1111,7 @@ fun ExperimentalLyricsView(
                                     isAutoScrollEnabled = isAutoScrollEnabled,
                                     displayedCurrentLineIndex = deferredCurrentLineIndex,
                                     syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                                    standardBlur = standardLyricsBlur,
-                                    lineCenterPx = blurGeometry.lineCenterPx,
-                                    activeLineCenterPx = blurGeometry.activeLineCenterPx,
-                                    viewportStartPx = blurGeometry.viewportStartPx,
-                                    viewportEndPx = blurGeometry.viewportEndPx,
+                                    standardBlur = false, // Progressive blur is fixed to the viewport, not this row.
                                     speakerStyle = speakerStyle,
                                     useAgentSides = hasMultipleVocalists,
                                     onSizeChanged = { },

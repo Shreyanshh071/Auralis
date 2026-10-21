@@ -799,6 +799,10 @@ fun SyncedLyricsView(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(lyricsNestedScrollConnection)
+                .stationaryLyricsBlur(
+                    enabled = standardLyricsBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && selectedIndices.isEmpty(),
+                    focusFraction = targetCenterFraction
+                )
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
@@ -868,24 +872,6 @@ fun SyncedLyricsView(
                             isPast -> pastDistance
                             else -> futureDistance
                         }
-                        val blurGeometry by remember(
-                            listIndex,
-                            listState,
-                            activeMergedIndexState,
-                            targetCenterFraction,
-                            viewportHeightPx
-                        ) {
-                            derivedStateOf {
-                                resolveLyricsBlurGeometry(
-                                    layoutInfo = listState.layoutInfo,
-                                    lineIndex = listIndex,
-                                    activeIndex = activeMergedIndexState.value,
-                                    fallbackActiveFraction = targetCenterFraction,
-                                    fallbackViewportHeightPx = viewportHeightPx
-                                )
-                            }
-                        }
-
                         // Vocal agent & background vocal positioning: duets only, so a one-singer
                         // song keeps the text-position setting whether or not its source tagged "v1".
                         val agent = if (hasMultipleVocalists) line.agent else null
@@ -1000,10 +986,6 @@ fun SyncedLyricsView(
                                     isPast = isPast,
                                     pastDistance = pastDistance,
                                     distanceFromCurrent = distanceFromCurrent,
-                                    lineCenterPx = blurGeometry.lineCenterPx,
-                                    activeLineCenterPx = blurGeometry.activeLineCenterPx,
-                                    viewportStartPx = blurGeometry.viewportStartPx,
-                                    viewportEndPx = blurGeometry.viewportEndPx,
                                     isSelected = isSelected,
                                     lyricsMode = lyricsMode,
                                     syncType = lyrics.syncType,
@@ -1014,7 +996,7 @@ fun SyncedLyricsView(
                                     offsetMs = offsetMs,
                                     animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation),
                                     enableGlowEffect = appearance.enableGlowingLyricsEffect,
-                                    standardBlur = standardLyricsBlur,
+                                    standardBlur = false, // Progressive blur is fixed to the viewport, not this row.
                                     fontSizeSp = appearance.lyricsTextSize,
                                     lineSpacingMultiplier = appearance.lyricsLineSpacing,
                                     isAutoScrollActive = isAutoScrollEnabled,
