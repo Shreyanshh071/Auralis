@@ -132,28 +132,7 @@ fun StorageSettingsScreen(
                 .statusBarsPadding()
         ) {
             // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(Strings.back),
-                        tint = onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = str(Strings.storage),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 21.sp
-                )
-            }
+            com.auralis.music.ui.components.PageHeader(str(Strings.storage), onDismiss, Modifier.padding(horizontal = 12.dp))
 
             // ── STORAGE SETTINGS LIST ──
             LazyColumn(

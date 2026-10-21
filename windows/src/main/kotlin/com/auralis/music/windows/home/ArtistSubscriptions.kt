@@ -13,11 +13,15 @@ import kotlinx.coroutines.sync.withLock
  * state is read off each artist page and toggled with YouTube's own subscribe write. Signed out
  * there is no state and nothing to toggle.
  */
-internal class ArtistSubscriptions {
+internal class ArtistSubscriptions(
+    private val signedIn: () -> Boolean = { YouTubeSession.isSignedIn },
+    private val clientProvider: (suspend () -> YouTubeMusicClient)? = null
+) {
     /** Browse id -> the channel the subscribe button acts on, and whether it's subscribed. */
     private val states = mutableStateMapOf<String, Pair<String, Boolean>>()
     private val busyId = mutableStateOf<String?>(null)
     private val mutex = Mutex()
+    private val subscriptionMutex = Mutex()
     private var client: YouTubeMusicClient? = null
     private var clientKey: String? = null
 
@@ -25,6 +29,7 @@ internal class ArtistSubscriptions {
     fun busy(browseId: String) = busyId.value == browseId
 
     private suspend fun api(): YouTubeMusicClient = mutex.withLock {
+        clientProvider?.let { return@withLock it() }
         val headers = YouTubeSession.authHeaders(YouTubeMusicClient.ORIGIN)
         val key = headers["Cookie"].orEmpty() + "|" + headers["X-Goog-AuthUser"]
         client?.takeIf { clientKey == key } ?: YouTubeMusicClient(headers["Cookie"].orEmpty(), headers["X-Goog-AuthUser"] ?: "0")
@@ -32,8 +37,8 @@ internal class ArtistSubscriptions {
     }
 
     /** Reads the subscribe state for artists not read yet. Signed out, forgets everything. */
-    suspend fun load(browseIds: List<String>) {
-        if (!YouTubeSession.isSignedIn) { states.clear(); client = null; clientKey = null; return }
+    suspend fun load(browseIds: List<String>) = subscriptionMutex.withLock {
+        if (!signedIn()) { states.clear(); client = null; clientKey = null; return }
         val api = runCatching { api() }.getOrNull() ?: return
         browseIds.filter { it.startsWith("UC") && it !in states }.forEach { id ->
             try { api.artistSubscription(id)?.let { states[id] = it } }
@@ -42,9 +47,19 @@ internal class ArtistSubscriptions {
         }
     }
 
+    /** Explicit state for Follow controls: local and remote state may initially disagree. */
+    suspend fun setSubscribed(browseId: String, subscribed: Boolean) = subscriptionMutex.withLock {
+        check(signedIn()) { "Sign in with YouTube to subscribe to artists" }
+        require(browseId.startsWith("UC")) { "Couldn't find this artist on YouTube Music" }
+        val api = api()
+        val channel = (states[browseId] ?: api.artistSubscription(browseId))?.first ?: browseId
+        api.setSubscribed(channel, subscribed)
+        states[browseId] = channel to subscribed
+    }
+
     /** Flips the subscription; returns the message to show. */
     suspend fun toggle(browseId: String, name: String): String {
-        if (!YouTubeSession.isSignedIn) return "Sign in with YouTube to subscribe to artists"
+        if (!signedIn()) return "Sign in with YouTube to subscribe to artists"
         if (!browseId.startsWith("UC")) return "Couldn't find $name on YouTube Music"
         if (busyId.value != null) return ""
         busyId.value = browseId

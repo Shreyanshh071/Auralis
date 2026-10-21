@@ -8,7 +8,7 @@ import java.util.Base64
 
 /** Existing sessions remain readable; newly saved cookies are protected by the Windows user. */
 internal class ProtectedYouTubeStore(file: File) : KeyValueStore {
-    private val store = PropertiesFileKeyValueStore(file)
+    private val store = PropertiesFileKeyValueStore(file, synchronous = true)
     override fun getString(key: String, default: String): String? {
         val value = store.getString(key, default) ?: return null
         return if (key == "cookie" && value.startsWith("dpapi:")) runCatching {

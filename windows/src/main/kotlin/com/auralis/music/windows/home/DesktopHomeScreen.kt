@@ -1,5 +1,7 @@
 package com.auralis.music.windows.home
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.ui.text.withStyle
 
 
@@ -108,6 +110,12 @@ internal fun DesktopHomeScreen(
         addAll(content.shelves)
         if (content.picks.isNotEmpty()) add(DesktopHomeShelf("quick-picks", "Quick picks", tracks = content.picks))
     }
+    // Every shelf's first covers load together, so scrolling down finds them ready.
+    LaunchedEffect(shelves, recents) {
+        prefetchHomeArtwork(recents.take(24).map { it.thumbnail to it.id } + shelves.flatMap { shelf ->
+            shelf.tracks.take(12).map { it.thumbnail to it.id } + shelf.albums.take(12).map { it.thumbnail to null }
+        })
+    }
     val loadMore by rememberUpdatedState(onLoadMore)
     LaunchedEffect(scroll, loadingMore, canLoadMore, loadMoreFailed) {
         if (canLoadMore && !loadingMore && !loadMoreFailed) snapshotFlow {
@@ -126,15 +134,15 @@ internal fun DesktopHomeScreen(
             item("greeting") { HomeGreeting(greetingName, greetingPalette) }
             item("recents") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HomeHeading("Recents", null, trailing = {
-                        if (findMusic != null) findMusic() else IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Find music") }
+                    HomeHeading(desktopText("Recents"), null, trailing = {
+                        if (findMusic != null) findMusic() else IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, desktopText("Find music")) }
                         IconButton(onClick = onToggleRecents) {
                             Icon(if (recentsGrid) Icons.Outlined.ViewList else Icons.Outlined.GridView,
                                 if (recentsGrid) "Show recents as a list" else "Show recents as covers", Modifier.size(18.dp))
                         }
                     })
                     if (recents.isEmpty()) {
-                        Text(if (serviceLoading || state.isLoading) "Loading recents…" else "Your recently played music will appear here.",
+                        Text(desktopText(if (serviceLoading || state.isLoading) "Loading recents…" else "Your recently played music will appear here."),
                             style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 12.dp))
                     } else LazyRow(state = recentsScroll, modifier = Modifier.mouseDragScroll(recentsScroll), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -158,7 +166,7 @@ internal fun DesktopHomeScreen(
             }
             if (serviceLoading && shelves.isEmpty()) item("loading") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HomeHeading("Albums & singles", null)
+                    HomeHeading(desktopText("Albums & singles"), null)
                     LazyRow(state = loadingScroll, modifier = Modifier.mouseDragScroll(loadingScroll), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(10) { Box(Modifier.size(150.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh)) }
                     }
@@ -175,13 +183,13 @@ internal fun DesktopHomeScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(serviceError ?: state.error.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                         color = colors.onSurfaceVariant)
-                    TextButton(onClick = onRefresh) { Text("Try again") }
+                    TextButton(onClick = onRefresh) { Text(desktopText("Try again")) }
                 }
             }
             if (loadingMore || canLoadMore) item("more") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     if (loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else TextButton(onClick = onLoadMore) { Text(if (loadMoreFailed) "Try loading more again" else "More music") }
+                    else TextButton(onClick = onLoadMore) { Text(desktopText(if (loadMoreFailed) "Try loading more again" else "More music")) }
                 }
             }
         }
@@ -248,7 +256,7 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
         Row(Modifier.fillMaxWidth().height(78.dp).clip(RoundedCornerShape(12.dp))
             .background(background)
             .hoverable(interactions).clickable(onClick = click), verticalAlignment = Alignment.CenterVertically) {
-            HomeArtwork(item.image ?: item.track?.thumbnail, Modifier.size(78.dp))
+            HomeArtwork(item.image ?: item.track?.thumbnail, Modifier.size(78.dp), item.track?.id)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
                     color = if (active) colors.primary else colors.onSurface)
@@ -269,30 +277,15 @@ private fun ShortcutCard(item: SpeedDialItem, currentTrackId: String?, playing: 
  * does (a greeting that flips while you look at it is uncanny).
  */
 @Composable
-private fun HomeGreeting(name: String?, palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette) {
+internal fun HomeGreeting(name: String?, palette: com.auralis.music.ui.theme.ArtworkPalette) {
     val part = remember {
         when (java.time.LocalTime.now().hour) {
             in 0..4 -> "Good night"; in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening"
         }
     }
-    // The name in the playing song's colours (a gradient through its palette), lifted toward white
-    // when a colour is too dark to read on the page; it fades to the next song's colours.
-    val base = MaterialTheme.colorScheme.onSurface
-    fun readable(c: androidx.compose.ui.graphics.Color) =
-        if (c.luminance() < .45f) androidx.compose.ui.graphics.lerp(c, androidx.compose.ui.graphics.Color.White, .45f) else c
-    val start by androidx.compose.animation.animateColorAsState(if (palette.isDefault) base else readable(palette.primary),
-        androidx.compose.animation.core.tween(700), label = "greetingNameStart")
-    val end by androidx.compose.animation.animateColorAsState(if (palette.isDefault) base else readable(palette.tertiary),
-        androidx.compose.animation.core.tween(700), label = "greetingNameEnd")
-    val text = androidx.compose.ui.text.buildAnnotatedString {
-        append(part)
-        if (!name.isNullOrBlank()) {
-            append(", ")
-            withStyle(androidx.compose.ui.text.SpanStyle(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(start, end)))) {
-                append(name.trim())
-            }
-        }
-    }
+    val targetColour = greetingThemeColour(palette, MaterialTheme.colorScheme.background)
+    val colour by animateColorAsState(targetColour, tween(600))
+    val text = greetingNameText(desktopText(part), name, colour)
     Text(text,
         style = MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.3).sp),
         fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -309,9 +302,9 @@ private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlayi
     onPlay: (Track, List<Track>) -> Unit, onMenu: (Track) -> Unit, onToggleFavorite: (Track) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        HomeHeading("Quick picks", null, trailing = {
+        HomeHeading(desktopText("Quick picks"), null, trailing = {
             TextButton(onClick = { tracks.firstOrNull()?.let { onPlay(it, tracks) } }) {
-                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Play all")
+                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(desktopText("Play all"))
             }
         })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -339,7 +332,7 @@ private fun QuickPicksGrid(tracks: List<Track>, currentTrackId: String?, isPlayi
                                         tint = if (liked) colors.primary else colors.onSurfaceVariant)
                                 }
                                 IconButton(onClick = { onMenu(track) }, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Outlined.MoreHoriz, "Song options", Modifier.size(18.dp))
+                                    Icon(Icons.Outlined.MoreHoriz, desktopText("Song options"), Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -370,7 +363,7 @@ internal fun CompactSong(track: Track, active: Boolean, click: () -> Unit, menu:
                 Text(track.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = menu, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.MoreHoriz, "Song options", Modifier.size(18.dp)) }
+            IconButton(onClick = menu, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.MoreHoriz, desktopText("Song options"), Modifier.size(18.dp)) }
         }
       }
     }
@@ -390,7 +383,7 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
                 androidx.compose.animation.AnimatedVisibility(visible = active, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)),
                     modifier = Modifier.align(Alignment.BottomEnd)) {
                   FilledIconButton(onClick = click, modifier = Modifier.padding(9.dp).size(36.dp)) {
-                    Icon(Icons.Outlined.GraphicEq, "Playing")
+                    Icon(Icons.Outlined.GraphicEq, desktopText("Playing"))
                 }
                 }
             }
@@ -398,41 +391,6 @@ private fun ArtworkCard(title: String, subtitle: String, image: String?, active:
                 style = MaterialTheme.typography.titleMedium, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
             Text(subtitle, Modifier.padding(top = 4.dp, bottom = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun HomeArtwork(url: String?, modifier: Modifier, trackId: String? = null) {
-    val context = coil3.compose.LocalPlatformContext.current
-    val resolvedUrl = remember(url, trackId) {
-        val raw = url?.trim().orEmpty()
-        val cleaned = when {
-            raw.contains("hqhqdefault.jpg") -> raw.replace(Regex("""(?:hq)+default\.jpg"""), "hqdefault.jpg")
-            raw.isNotBlank() -> raw
-            !trackId.isNullOrBlank() && !trackId.startsWith("local:") && !trackId.startsWith("sp_") ->
-                "https://i.ytimg.com/vi/$trackId/hq720.jpg"
-            else -> ""
-        }
-        if (cleaned.isNotBlank()) com.auralis.music.ui.components.getOptimizedThumbnailUrl(cleaned) ?: cleaned else null
-    }
-    val request = remember(resolvedUrl) {
-        if (!resolvedUrl.isNullOrBlank()) {
-            coil3.request.ImageRequest.Builder(context)
-                .data(resolvedUrl)
-                .size(600)
-                .build()
-        } else null
-    }
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-        Icon(Icons.Outlined.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f))
-        if (request != null) {
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
         }
     }
 }

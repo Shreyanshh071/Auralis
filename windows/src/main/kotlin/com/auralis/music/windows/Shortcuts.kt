@@ -1,5 +1,6 @@
 package com.auralis.music.windows
 
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -32,7 +33,7 @@ interface ShortcutActions {
     fun togglePlayer()
     fun showLyrics()
     fun showQueue()
-    /** Closes the player; false when it wasn't open. */
+    /** Closes the player, otherwise goes back through local pages and navigation history. */
     fun closePlayer(): Boolean
 }
 
@@ -51,14 +52,14 @@ interface ShortcutActions {
  * | Ctrl+F or Ctrl+K | Search |
  * | Ctrl+P | Open / close the player |
  * | Ctrl+L / Ctrl+Q | Player with lyrics / queue |
- * | Esc | Close the player |
+ * | Esc | Close the player, otherwise return to the previous page |
  */
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val ctrl = event.isCtrlPressed
     // Compare key codes, not keys: an arrow on the number pad (Num Lock off) is a different Key
     // from the main arrow key but the same key code, and both should work.
-    val code = event.key.nativeKeyCode
+    val code = runCatching { event.key.nativeKeyCode }.getOrDefault(0)
     // Work everywhere, even in the search field.
     if (ctrl) {
         when (code) {
@@ -71,7 +72,7 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
             else -> {}
         }
     }
-    if (code == VK_ESCAPE && actions.closePlayer()) return true
+    if ((code == VK_ESCAPE || event.key == Key.Escape) && actions.closePlayer()) return true
     if (typing) return false
     if (ctrl) {
         when (code) {
@@ -90,4 +91,13 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
         else -> return false
     }
     return true
+}
+
+/** Player collapse does not consume a page-history entry. Local back handlers then precede the root. */
+internal fun handleEscapeBack(playerOpen: Boolean, closePlayer: () -> Unit): Boolean {
+    if (playerOpen) {
+        closePlayer()
+        return true
+    }
+    return com.auralis.music.ui.components.DesktopBackDispatcher.back()
 }

@@ -1,7 +1,10 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,9 +17,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.network.YouTubeBackoff
+import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.SavedArtist
@@ -24,6 +29,8 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.ui.components.clickable
 import com.auralis.music.windows.search.DesktopArtwork
+import com.auralis.music.windows.home.ArtistSubscriptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -104,8 +111,8 @@ internal fun SidebarCard(title: String, action: String? = null, onAction: () -> 
     Column(modifier.clip(shape).background(Color.White.copy(alpha = .07f)).border(1.dp, Color.White.copy(alpha = .10f), shape)
         .padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
-            if (action != null) Text(action, Modifier.clickable(onClick = onAction), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            Text(desktopText(title), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
+            if (action != null) Text(desktopText(action), Modifier.clickable(onClick = onAction), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 color = Color.White.copy(alpha = .75f))
         }
         content()
@@ -121,6 +128,14 @@ internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpe
     var showAll by remember(track.id) { mutableStateOf(false) }
     val saved by (library?.getSavedArtists() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(emptyList())
     val scope = rememberCoroutineScope()
+    val signedIn by YouTubeSession.signedIn.collectAsState()
+    val sessionRevision by YouTubeSession.revision.collectAsState()
+    val subscriptions = remember(sessionRevision) { ArtistSubscriptions() }
+    var pendingChannel by remember { mutableStateOf<String?>(null) }
+    var followError by remember(track.id, sessionRevision) { mutableStateOf<String?>(null) }
+    LaunchedEffect(subscriptions, people.mapNotNull { it.channelId }) {
+        subscriptions.load(people.mapNotNull { it.channelId })
+    }
     SidebarCard("Credits", if (people.size > 3) (if (showAll) "Show less" else "Show all") else null, { showAll = !showAll }, modifier) {
         (if (showAll) people else people.take(3)).forEach { person ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -135,26 +150,47 @@ internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpe
                         modifier = if (linked) Modifier.clickable(interactionSource = nameHover, indication = null) {
                             onOpenArtist(Artist(person.channelId!!, person.name))
                         } else Modifier)
-                    Text(person.roles.joinToString(" • "), fontSize = 12.sp, color = Color.White.copy(alpha = .65f), maxLines = 1,
+                    Text(person.roles.joinToString(" • ") { desktopText(it) }, fontSize = 12.sp, color = Color.White.copy(alpha = .65f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis)
                 }
                 val channel = person.channelId
                 if (channel != null && library != null) {
-                    val following = saved.any { it.id == channel }
-                    Text(if (following) "Following" else "Follow",
-                        Modifier.clip(RoundedCornerShape(50)).border(1.dp, Color.White.copy(alpha = .35f), RoundedCornerShape(50))
-                            .background(if (following) Color.White.copy(alpha = .12f) else Color.Transparent)
-                            .clickable {
-                                scope.launch {
-                                    if (following) library.removeArtist(channel)
-                                    else library.saveArtist(SavedArtist(channel, person.name, null))
-                                }
-                            }
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    val following = if (signedIn) subscriptions.subscribed(channel) ?: saved.any { it.id == channel }
+                        else saved.any { it.id == channel }
+                    SidebarFollowButton(following, pendingChannel == channel, pendingChannel == null) {
+                        pendingChannel = channel
+                        followError = null
+                        val next = !following
+                        scope.launch {
+                            try {
+                                // Confirm the connected account's subscription before changing the local library.
+                                if (signedIn) subscriptions.setSubscribed(channel, next)
+                                if (next) library.saveArtist(SavedArtist(channel, person.name, null))
+                                else library.removeArtist(channel)
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) {
+                                followError = e.message ?: "Couldn't update following. Try again."
+                            } finally { pendingChannel = null }
+                        }
+                    }
                 }
             }
         }
+        followError?.let { Text(desktopText(it), fontSize = 12.sp, color = Color.White.copy(alpha = .8f)) }
+    }
+}
+
+@Composable
+internal fun SidebarFollowButton(following: Boolean, busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Box(Modifier.padding(start = 12.dp).height(36.dp).widthIn(min = 76.dp)
+        .clip(shape).border(1.dp, Color.White.copy(alpha = .35f), shape)
+        .background(if (following) Color.White.copy(alpha = .12f) else Color.Transparent)
+        .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center) {
+        Text(if (busy) "…" else desktopText(if (following) "Following" else "Follow"),
+            fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center, maxLines = 1, color = Color.White)
     }
 }
 
@@ -164,7 +200,13 @@ internal fun SidebarNextInQueueCard(playback: DesktopPlaybackController, onOpenQ
     val queue by playback.queue.collectAsState()
     val next = queue.tracks.getOrNull(queue.index + 1) ?: return
     SidebarCard("Next in queue", "Open queue", onOpenQueue, modifier) {
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { playback.next() },
+        // A plain filled rounded highlight on hover (as the library sidebar's rows), not the ripple's
+        // hover layer, which sat flush on the cover and read as a thin uneven outline.
+        val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val hovered by hover.collectIsHoveredAsState()
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(if (hovered) Color.White.copy(alpha = .10f) else Color.Transparent)
+            .hoverable(hover).clickable(interactionSource = hover, indication = null) { playback.next() }.padding(6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             DesktopArtwork(next.thumbnail, Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)), 6.dp, next.title)
             Column(Modifier.weight(1f)) {

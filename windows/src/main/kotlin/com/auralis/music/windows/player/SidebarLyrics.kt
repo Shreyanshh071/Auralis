@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.clickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -65,14 +67,15 @@ internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSee
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?, lineGap: androidx.compose.ui.unit.Dp) {
-    val mode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val appearance = LocalAppearanceSettings.current
+    val mode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
     val lines = remember(lyrics) {
         lyrics?.lines?.takeIf { it.isNotEmpty() }
             ?: lyrics?.plainLyrics?.lines()?.filter(String::isNotBlank)?.map { LyricLine(0, it) }.orEmpty()
     }
     if (lines.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-            Text("No lyrics available", color = Color.White.copy(alpha = .7f))
+            Text(desktopText("No lyrics available"), color = Color.White.copy(alpha = .7f))
         }
         return
     }
@@ -102,7 +105,8 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     var manualScroll by remember { mutableLongStateOf(0L) }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(scrollTarget, manualScroll, lines, breaks) {
+    LaunchedEffect(scrollTarget, manualScroll, lines, breaks, appearance.autoScrollLyrics) {
+        if (!appearance.autoScrollLyrics) return@LaunchedEffect
         val remaining = 3000L - (System.currentTimeMillis() - manualScroll)
         if (remaining > 0) delay(remaining)
         list.animateScrollToItem(scrollTarget, -(list.layoutInfo.viewportSize.height * .30f).toInt())
@@ -123,7 +127,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                     // Left, with the lyric text, as Spicy Lyrics places its dots.
                     InstrumentalIntroIndicator(introTime, introDurationMs, isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS, horizontalAlignment = Alignment.Start,
                         dotSize = 12.dp, compact = true,
-                        onSkipIntro = { manualScroll = 0; onSeek(introDurationMs) })
+                        onSkipIntro = { if (appearance.changeLyricsOnTap) { manualScroll = 0; onSeek(introDurationMs) } })
                 }
             }
             lines.forEachIndexed { index, line ->
@@ -135,7 +139,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 SidebarLyricLine(line.text, activeBreak == null && (if (line.hasWordTiming) index in singing else active == index), synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                    blur = (distance * 1.2f).coerceAtMost(3.5f).dp,
+                    blur = if (appearance.standardLyricsBlur) (distance * 1.2f).coerceAtMost(3.5f).dp else 0.dp,
                     nextLineTime = lines.getOrNull(index + 1)?.time)
               }
               breaks[index]?.let { (start, end) ->
@@ -145,7 +149,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                         isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS,
                         dotsAlignment = Alignment.Start, dotSize = 12.dp, compact = true,
                         modifier = Modifier.padding(horizontal = 10.dp),
-                        onSkip = { manualScroll = 0; onSeek(end) })
+                        onSkip = { if (appearance.changeLyricsOnTap) { manualScroll = 0; onSeek(end) } })
                 }
               }
             }
@@ -161,13 +165,24 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
     previewHovered: Boolean = false, line: LyricLine? = null, position: State<Long>? = null,
     syncType: SyncType = SyncType.PLAIN, blur: androidx.compose.ui.unit.Dp = 0.dp,
     nextLineTime: Long? = null) {
-    val animationMode = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val appearance = LocalAppearanceSettings.current
+    val animationMode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
+    val textAlignment = when (appearance.lyricsTextPosition.lowercase()) {
+        "right" -> TextAlign.Right
+        "center", "centre" -> TextAlign.Center
+        else -> TextAlign.Left
+    }
+    val horizontalAlignment = when (textAlignment) {
+        TextAlign.Right -> Alignment.End
+        TextAlign.Center -> Alignment.CenterHorizontally
+        else -> Alignment.Start
+    }
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
     val hovered = hover || previewHovered
     val easing = CubicBezierEasing(.2f, 0f, 0f, 1f)
     val alpha = animateFloatAsState(if (active || !synced) 1f else if (hovered) .55f else .38f, tween(260, easing = easing), label = "sidebarLineText")
-    val blurAmount = androidx.compose.animation.core.animateDpAsState(if (active || hovered) 0.dp else blur, tween(320, easing = easing), label = "sidebarLineBlur")
+    val blurAmount = androidx.compose.animation.core.animateDpAsState(if (active || hovered || !appearance.standardLyricsBlur) 0.dp else blur, tween(320, easing = easing), label = "sidebarLineBlur")
     val background = animateFloatAsState(if (hovered) .10f else 0f, tween(260, easing = easing), label = "sidebarLineHover")
     val words = remember(line, syncType) {
         line?.let { resolveExperimentalWordTimestamps(it, syncType) }?.let(::presentationWordTimestamps)
@@ -176,7 +191,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             .clip(RoundedCornerShape(16.dp))
             .drawBehind { drawRect(Color.White.copy(alpha = background.value)) }
             .hoverable(interaction)
-            .clickable(enabled = synced, interactionSource = interaction, indication = null, onClick = onClick)
+            .clickable(enabled = synced && appearance.changeLyricsOnTap, interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 3.dp)
             .graphicsLayer {
                 // Hover changes drawing properties, keeping text layout and the layer stable.
@@ -187,8 +202,9 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             }) {
         val textSize = LocalAppearanceSettings.current.lyricsTextSize * (24f / 22f)
         val lineHeight = textSize * LocalAppearanceSettings.current.lyricsLineSpacing
-        val lyricStyle = TextStyle(fontSize = textSize.sp, lineHeight = lineHeight.sp, fontWeight = FontWeight.Bold,
+        val lyricStyle = TextStyle(fontSize = textSize.sp, lineHeight = lineHeight.sp, fontWeight = FontWeight.Bold, textAlign = textAlignment,
             fontFamily = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontFamily)
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = horizontalAlignment) {
         if (synced && line != null && position != null && animationMode == LyricsAnimationMode.FLUID) {
             FluidLyricLine(line!!.copy(text = text),
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
@@ -200,7 +216,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
                 isActive = active, effectivePlaybackPosition = position!!.value,
                 lineColor = Color.White, accentColor = Color.White,
-                textAlign = TextAlign.Left, alignment = Alignment.Start,
+                textAlign = textAlignment, alignment = horizontalAlignment,
                 fontSizeSp = textSize, lineSpacingMultiplier = LocalAppearanceSettings.current.lyricsLineSpacing, fontFamily = lyricStyle.fontFamily,
                 modifier = Modifier)
         } else if (active && !words.isNullOrEmpty() && position != null) {
@@ -210,10 +226,16 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 lyricStyle = lyricStyle,
                 lineColor = Color.White, expressiveAccent = Color.White,
                 isBackground = line?.isBackground == true,
-                focusedAlpha = .30f, alignment = TextAlign.Left)
+                focusedAlpha = .30f, alignment = textAlignment)
         } else {
             Text(text, color = Color.White, fontSize = textSize.sp, lineHeight = lineHeight.sp,
-                fontWeight = FontWeight.Bold)
+                fontWeight = FontWeight.Bold, textAlign = textAlignment, modifier = Modifier.fillMaxWidth())
+        }
+        DesktopLyricsUi.romanizedLine(text, Color.White.copy(alpha = .65f), (textSize * .65f).sp, textAlignment, Modifier.fillMaxWidth())
+        line?.translatedText?.takeIf { it.isNotBlank() && it != text }?.let { translated ->
+            Text(translated, fontSize = (textSize * .65f).sp, color = Color.White.copy(alpha = .75f),
+                textAlign = textAlignment, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+        }
         }
     }
 }

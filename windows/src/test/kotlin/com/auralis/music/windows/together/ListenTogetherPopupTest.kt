@@ -31,6 +31,7 @@ class ListenTogetherPopupTest {
         var created = ""
         var closes = 0
         var leaves = 0
+        var changedSettings: com.auralis.music.data.sync.RoomSettings? = null
         val scroll = ScrollState(0)
         val scene = ImageComposeScene(800, 640, coroutineContext = Dispatchers.Unconfined) {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color.White)) {
@@ -44,7 +45,7 @@ class ListenTogetherPopupTest {
                             Box(Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }
                                 .heightIn(max = 592.dp).verticalScroll(scroll)) {
                                 ListenTogetherContent(state.value, { closes++ }, { created = it }, onLeave = { leaves++ },
-                                    defaultName = "Shreyanshh")
+                                    defaultName = "Shreyanshh", onSettings = { changedSettings = it })
                             }
                         }
                     }
@@ -77,7 +78,9 @@ class ListenTogetherPopupTest {
             render("host-bottom")
             click(bounds.center.x, bounds.bottom - 44f)
             assertEquals("Shreyanshh", created)
-            state.value = DesktopTogether.State(code = "ABC123", host = true, members = listOf("You", "Friend"), track = "A song")
+            val track = com.auralis.music.domain.model.Track("room-song", "A song", "An artist")
+            state.value = DesktopTogether.State(code = "ABC123", host = true, members = listOf("You", "Friend"),
+                currentTrack = track, isPlaying = true)
             render("connected")
             kotlinx.coroutines.runBlocking { scroll.scrollTo(scroll.maxValue) }
             render("connected-bottom")
@@ -85,8 +88,17 @@ class ListenTogetherPopupTest {
             assertEquals(1, leaves)
             kotlinx.coroutines.runBlocking { scroll.scrollTo(0) }
             render("connected-top")
+            click(bounds.right - 66f, bounds.top + 403f)
+            assertEquals(false, changedSettings?.guestsCanAddSongs, "The host can change room rules")
             click(bounds.right - 38f, bounds.top + 38f)
             assertEquals(1, closes)
+            state.value = state.value.copy(host = false, hostName = "You",
+                settings = com.auralis.music.data.sync.RoomSettings(requireApproval = true))
+            render("guest")
+            kotlinx.coroutines.runBlocking { scroll.scrollTo(scroll.maxValue) }
+            render("guest-bottom")
+            click(bounds.center.x, bounds.bottom - 44f)
+            assertEquals(2, leaves, "Guests can leave through the phone-style room controls")
         } finally { scene.close() }
     }
 }

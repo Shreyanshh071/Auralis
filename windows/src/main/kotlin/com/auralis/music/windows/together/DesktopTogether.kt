@@ -31,7 +31,8 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         val requests: List<SongRequest> = emptyList(), val searchResults: List<Track> = emptyList(),
         val searching: Boolean = false, val closingAtMs: Long? = null, val closingReason: String? = null,
         val waitingForGuests: Boolean = false, val poorConnection: Boolean = false,
-        val activity: List<RoomActivity> = emptyList()) {
+        val activity: List<RoomActivity> = emptyList(),
+        val currentTrack: Track? = null, val isPlaying: Boolean = false) {
         val guestControls get() = settings.guestsCanControlPlayback
         val guestSongs get() = settings.guestsMayPlaySongs
     }
@@ -115,6 +116,8 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
                     settings=remote?.let { settingsFrom(it.optJSONObject("settings")) }?:hostSettings)
                 bindControls()
                 if(remote!=null) follow(remote)
+                mutable.update { it.copy(track=playback.queue.current?.title.orEmpty(),
+                    currentTrack=playback.queue.current,isPlaying=playback.playing) }
                 if(pollMs>0) startPolling()
             } catch(e:Exception) {
                 unbindControls()
@@ -211,6 +214,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         }
         updateReadiness()
         mutable.update { it.copy(track=playback?.queue?.current?.title.orEmpty(),
+            currentTrack=playback?.queue?.current,isPlaying=playback?.playing==true,
             message=it.message?.takeUnless { m->m.startsWith("Connection interrupted:") }) }
     }
     private fun hostFields(code:String,initial:Boolean):JSONObject {

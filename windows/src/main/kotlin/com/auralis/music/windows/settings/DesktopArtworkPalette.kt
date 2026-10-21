@@ -44,12 +44,17 @@ object DesktopArtworkPaletteStore {
 fun rememberArtworkPalette(url: String?): ArtworkPalette {
     val initial = remember(url) {
         if (!url.isNullOrBlank()) {
-            DesktopArtworkPaletteStore.get(url) ?: DesktopArtworkPaletteStore.lastPalette() ?: DefaultArtworkPalette
+            DesktopArtworkPaletteStore.get(url) ?: run {
+                val session = com.auralis.music.windows.player.DesktopPlaybackSessionStore.currentSession()
+                if (session != null && (session.artworkUrl == url || session.track.thumbnail == url)) {
+                    session.palette?.takeIf { !it.isDefault }
+                } else null
+            } ?: DefaultArtworkPalette
         } else {
             DesktopArtworkPaletteStore.lastPalette() ?: DefaultArtworkPalette
         }
     }
-    var palette by remember(url) { mutableStateOf(initial) }
+    var palette by remember { mutableStateOf(initial) }
 
     LaunchedEffect(url) {
         com.auralis.music.ui.theme.ArtworkPaletteSource.current = paletteFlow
@@ -65,15 +70,7 @@ fun rememberArtworkPalette(url: String?): ArtworkPalette {
                 com.auralis.music.windows.player.DesktopPlaybackSessionStore.updatePalette(cached)
             } else {
                 val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val thumbnail = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url) ?: url
-                        com.auralis.music.data.network.NetworkClientProvider.okHttpClient
-                            .newCall(Request.Builder().url(thumbnail).build()).execute().use { response ->
-                                check(response.isSuccessful)
-                                val image = response.body?.byteStream()?.use(ImageIO::read)
-                                image?.let(::extractArtworkPalette) ?: DefaultArtworkPalette
-                            }
-                    }.getOrDefault(DefaultArtworkPalette)
+                    loadAndExtractPalette(url)
                 }
                 if (!result.isDefault) {
                     DesktopArtworkPaletteStore.put(url, result)
@@ -85,6 +82,42 @@ fun rememberArtworkPalette(url: String?): ArtworkPalette {
         }
     }
     return palette
+}
+
+internal fun loadAndExtractPalette(url: String): ArtworkPalette {
+    val decoded: BufferedImage? = when {
+        java.io.File(url).isFile -> runCatching { ImageIO.read(java.io.File(url)) }.getOrNull()
+        url.startsWith("file:") -> runCatching { ImageIO.read(java.io.File(java.net.URI(url))) }.getOrNull()
+        else -> {
+            val candidateUrls = buildList {
+                val optimized = com.auralis.music.ui.components.getOptimizedThumbnailUrl(url)
+                if (!optimized.isNullOrBlank()) add(optimized)
+                if (optimized != url) add(url)
+                if (optimized?.contains("/hq720.jpg") == true) {
+                    add(optimized.replace("/hq720.jpg", "/hqdefault.jpg"))
+                }
+            }.distinct()
+
+            var img: BufferedImage? = null
+            for (candidate in candidateUrls) {
+                try {
+                    val request = Request.Builder()
+                        .url(candidate)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .build()
+                    com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+                        .newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                img = response.body?.byteStream()?.use(ImageIO::read)
+                            }
+                        }
+                    if (img != null) break
+                } catch (_: Exception) {}
+            }
+            img
+        }
+    }
+    return decoded?.let(::extractArtworkPalette) ?: DefaultArtworkPalette
 }
 
 /** One colour cluster of the cover: its average colour, HSL and how many sampled pixels it covers. */

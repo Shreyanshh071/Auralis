@@ -9,11 +9,12 @@ import kotlinx.coroutines.runBlocking
 /**
  * Animated covers check, no window or sound: looks a song up on each source, then plays the
  * found video silently for a few seconds and counts the frames that arrive.
- * usage: probeCanvas -Pargs="Title::Artist" (spaces as '+')
+ * usage: probeCanvas -Pargs="Title::Artist[::Album]" (spaces as '+'); -PdataDir=<dir> keeps its cache out of the app's
  */
 fun main(rawArgs: Array<String>) = runBlocking {
     val args = rawArgs.flatMap { it.split("::") }.map { it.replace('+', ' ') }
-    val track = Track(id = "probe", title = args.getOrElse(0) { "Blinding Lights" }, artist = args.getOrElse(1) { "The Weeknd" })
+    val track = Track(id = "probe", title = args.getOrElse(0) { "Blinding Lights" }, artist = args.getOrElse(1) { "The Weeknd" },
+        album = args.getOrNull(2)?.takeIf { it.isNotBlank() })
     // libVLC from the installed VLC (the app finds its bundled copy the same way).
     checkNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull()) { "No libVLC" }
     var url: String? = null

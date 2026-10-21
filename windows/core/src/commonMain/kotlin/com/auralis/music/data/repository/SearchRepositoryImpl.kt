@@ -35,8 +35,17 @@ import java.net.URLEncoder
 class SearchRepositoryImpl(
     private val innerTubeClient: InnerTubeClient,
     private val suggestionsClient: SearchSuggestionsClient,
-    private val searchHistory: SearchHistoryStore
+    private val searchHistory: SearchHistoryStore,
+    private val albumImporter: suspend (String) -> com.auralis.music.domain.model.Playlist? =
+        com.auralis.music.data.network.YouTubePlaylistImporter()::importPlaylistById
 ) : SearchRepository {
+
+    private suspend fun importAlbum(id: String): com.auralis.music.domain.model.Playlist? = try {
+        albumImporter(id)
+    } catch (e: Exception) {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        null
+    }
 
     override suspend fun search(query: String): SearchResults = search(query) {}
 
@@ -1000,7 +1009,6 @@ class SearchRepositoryImpl(
     override suspend fun getArtistPage(artist: Artist, onPreview: suspend (ArtistPage) -> Unit): ArtistPage? =
         innerTubeClient.getArtistPage(artist, onPreview)
 
-    private val youtubePlaylistImporter = com.auralis.music.data.network.YouTubePlaylistImporter()
 
     private fun filterOfficialAlbumTracks(album: PlaylistResult, tracks: List<Track>): List<Track> {
         if (tracks.isEmpty()) return tracks
@@ -1070,8 +1078,46 @@ class SearchRepositoryImpl(
         }
     }
 
-    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
+    private val albumTrackCache = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, List<Track>>(32, .75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Track>>?) = size > 128
+        })
+
+    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> {
+        // Cache releases, never mutable playlists. Failed/empty answers remain retryable.
+        val release = album.id.startsWith("MPRE") || album.id.startsWith("OLAK") || album.id.startsWith("album:")
+        val key = "${album.id}|${album.title}|${album.author.orEmpty()}"
+        if (release) albumTrackCache[key]?.let { return it }
+        return loadAlbumTracks(album).also { if (release && it.isNotEmpty()) albumTrackCache[key] = it }
+    }
+
+    private suspend fun loadAlbumTracks(album: PlaylistResult): List<Track> =
+        com.auralis.music.data.network.AlbumBrowseRequest.run { withContext(Dispatchers.IO) {
         try {
+            // Home history cards use album:<videoId> until the catalogue ID is known.
+            // Resolve the exact recording's album before relying on a text search.
+            if (album.id.startsWith("album:")) {
+                val video = album.id.removePrefix("album:")
+                if (video.matches(Regex("[A-Za-z0-9_-]{11}"))) {
+                    val known = InnerTubeClient.cachedQueueAlbum(video)
+                    val details = if (known == null) innerTubeClient.getQueue(listOf(video)).firstOrNull() else null
+                    val title = known?.first ?: details?.album
+                    val id = known?.second ?: details?.albumId
+                    val sameAlbum = title != null && AlbumMetadataResolver.cleanAlbumTitle(title)
+                        .equals(AlbumMetadataResolver.cleanAlbumTitle(album.title), ignoreCase = true)
+                    if (sameAlbum && id != null && id != album.id) {
+                        val imported = importAlbum(id)
+                        if (!imported?.tracks.isNullOrEmpty()) return@withContext filterOfficialAlbumTracks(
+                            album, withAlbumArt(imported!!.tracks, album.thumbnail))
+                    }
+                    if (album.author?.endsWith(" · Single") == true && details != null &&
+                        AlbumMetadataResolver.cleanTrackTitle(details.title).equals(
+                            AlbumMetadataResolver.cleanTrackTitle(album.title), ignoreCase = true) &&
+                        SearchQueryMatcher.isAuthorMatch(details.artist, album.author!!.removeSuffix(" · Single"))) {
+                        return@withContext listOf(details)
+                    }
+                }
+            }
             // 0. If this is an artist Top Songs collection
             if (album.id.startsWith("artist_top_songs:")) {
                 val artistName = album.author?.ifBlank { null }
@@ -1095,7 +1141,7 @@ class SearchRepositoryImpl(
 
             // 1. If album ID is already an official YouTube browse ID (MPRE, VL, PL, OLAK)
             if (album.id.startsWith("MPRE") || album.id.startsWith("VL") || album.id.startsWith("PL") || album.id.startsWith("OLAK")) {
-                val imported = youtubePlaylistImporter.importPlaylistById(album.id)
+                val imported = importAlbum(album.id)
                 if (imported != null && imported.tracks.isNotEmpty()) {
                     val tracksWithAlbumMeta = imported.tracks.map {
                         it.copy(
@@ -1121,14 +1167,15 @@ class SearchRepositoryImpl(
                 ?.takeIf { it.isNotBlank() && it != "Artist" && it != "Various Artists" }
 
             val queriesToTry = listOfNotNull(
-                cleanTitle.takeIf { it.isNotBlank() },
                 primaryArtist?.let { "$it $cleanTitle" },
+                cleanTitle.takeIf { it.isNotBlank() },
                 album.title.takeIf { it != cleanTitle }
             ).distinct()
 
             var matchedAlbum: PlaylistResult? = null
             for (query in queriesToTry) {
-                val albumsResult = innerTubeClient.search(query, InnerTubeClient.FILTER_ALBUMS).albums
+                val albumsResult = try { innerTubeClient.search(query, InnerTubeClient.FILTER_ALBUMS).albums }
+                    catch (e: Exception) { kotlinx.coroutines.currentCoroutineContext().ensureActive(); emptyList() }
                 val match = albumsResult.firstOrNull { cand ->
                     val candClean = AlbumMetadataResolver.cleanAlbumTitle(cand.title)
                     val authorMatches = primaryArtist != null && cand.author?.let {
@@ -1146,7 +1193,7 @@ class SearchRepositoryImpl(
             }
 
             if (matchedAlbum != null && (matchedAlbum.id.startsWith("MPRE") || matchedAlbum.id.startsWith("OLAK") || matchedAlbum.id.startsWith("VL") || matchedAlbum.id.startsWith("PL"))) {
-                val imported = youtubePlaylistImporter.importPlaylistById(matchedAlbum.id)
+                val imported = importAlbum(matchedAlbum.id)
                 if (imported != null && imported.tracks.isNotEmpty()) {
                     val tracksWithAlbumMeta = imported.tracks.map {
                         it.copy(
@@ -1172,7 +1219,8 @@ class SearchRepositoryImpl(
             ).distinct()
 
             for (sQuery in songQueries) {
-                val albumSongs = innerTubeClient.search(sQuery, InnerTubeClient.FILTER_SONGS).songs
+                val albumSongs = try { innerTubeClient.search(sQuery, InnerTubeClient.FILTER_SONGS).songs }
+                    catch (e: Exception) { kotlinx.coroutines.currentCoroutineContext().ensureActive(); emptyList() }
                 val matchingSongs = albumSongs.filter {
                     val songAlbum = it.album ?: ""
                     val cleanSongAlbum = AlbumMetadataResolver.cleanAlbumTitle(songAlbum)
@@ -1191,7 +1239,7 @@ class SearchRepositoryImpl(
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             emptyList()
         }
-    }
+    } }
 
     override fun getRecentSearchQueries(): Flow<List<String>> {
         return searchHistory.recentQueries()

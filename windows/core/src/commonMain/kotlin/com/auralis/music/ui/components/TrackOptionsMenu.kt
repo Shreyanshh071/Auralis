@@ -720,7 +720,7 @@ fun TrackOptionsMenu(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    if (!com.auralis.music.ui.components.LocalOptionsSheetInMenu.current) Spacer(modifier = Modifier.height(18.dp))
                 }
             } else {
                 // ── PLAYLIST PICKER VIEW ──
@@ -839,7 +839,7 @@ fun TrackOptionsMenu(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                if (!com.auralis.music.ui.components.LocalOptionsSheetInMenu.current) Spacer(modifier = Modifier.height(16.dp))
             }
         }
         }

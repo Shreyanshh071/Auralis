@@ -76,4 +76,30 @@ class QueueHistoryTest {
             assertEquals("history_header", state.layoutInfo.visibleItemsInfo.first().key)
         } finally { scene.close() }
     }
+
+    @Test fun sequentialAdvancementMovesPlayedSongToHistoryWithoutReorderingOrLooping() {
+        val songList = listOf(Track("self_aware", "Self Aware", "Temper City"), Track("stateside", "Stateside", "PinkPantheress"), Track("love_me_not", "Love Me Not", "Ravyn Lenae"))
+        val queue = Queue(songList, 0, emptySet())
+
+        // Advancing to next: mark current song as heard and advance index
+        val withHeard = queue.copy(listenedIndices = queue.listenedIndices + queue.index)
+        val nextQueue = withHeard.copy(index = withHeard.index + 1)
+
+        // Queue order must be strictly preserved
+        assertEquals(listOf("self_aware", "stateside", "love_me_not"), nextQueue.tracks.map { it.id })
+        assertEquals("stateside", nextQueue.current?.id)
+        // Self Aware MUST be in history
+        assertEquals(listOf("self_aware"), nextQueue.history.map { it.value.id })
+        // Up Next MUST be Love Me Not, NOT Self Aware!
+        assertEquals("love_me_not", nextQueue.tracks.getOrNull(nextQueue.index + 1)?.id)
+
+        // Advancing again: Stateside also goes to history
+        val withHeard2 = nextQueue.copy(listenedIndices = nextQueue.listenedIndices + nextQueue.index)
+        val nextQueue2 = withHeard2.copy(index = withHeard2.index + 1)
+
+        assertEquals(listOf("self_aware", "stateside", "love_me_not"), nextQueue2.tracks.map { it.id })
+        assertEquals("love_me_not", nextQueue2.current?.id)
+        assertEquals(listOf("self_aware", "stateside"), nextQueue2.history.map { it.value.id })
+        assertNull(nextQueue2.tracks.getOrNull(nextQueue2.index + 1))
+    }
 }

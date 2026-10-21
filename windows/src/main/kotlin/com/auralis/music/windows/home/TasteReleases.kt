@@ -61,11 +61,11 @@ internal class TasteReleases(
                     val thumb = item.optString("thumbnail").takeIf(String::isNotBlank)
                     val author = item.optString("author").takeIf(String::isNotBlank)
                     if (id.isNotBlank() && title.isNotBlank()) {
-                        list += PlaylistResult(id, title, thumb, author)
+                        list += historyAlbumIdentity(PlaylistResult(id, title, thumb, author))
                     }
                 }
                 if (list.isNotEmpty()) {
-                    releasesByArtist[key.lowercase()] = list
+                    releasesByArtist[key.lowercase()] = list.distinctBy { it.id }
                 }
             }
         }
@@ -222,9 +222,15 @@ internal class TasteReleases(
                 val key = albumTitle.lowercase()
                 if (key !in seen) {
                     seen += key
-                    val albumId = first.track.albumId?.takeIf { it.isNotBlank() } ?: "album:${first.track.id}"
+                    val albumId = albumListens.firstNotNullOfOrNull { listen ->
+                        listen.track.albumId?.takeIf { it.isNotBlank() } ?:
+                            com.auralis.music.data.network.InnerTubeClient.cachedQueueAlbum(listen.track.id)?.takeIf {
+                                com.auralis.music.data.network.AlbumMetadataResolver.cleanAlbumTitle(it.first)
+                                    .equals(com.auralis.music.data.network.AlbumMetadataResolver.cleanAlbumTitle(albumTitle), ignoreCase = true)
+                            }?.second
+                    } ?: "album:${first.track.id}"
                     val thumb = albumListens.firstNotNullOfOrNull { it.track.thumbnail.takeIf(String::isNotBlank) }.orEmpty()
-                    albums += PlaylistResult(albumId, albumTitle, thumb, first.track.artist)
+                    albums += historyAlbumIdentity(PlaylistResult(albumId, albumTitle, thumb, first.track.artist))
                 }
             }
 

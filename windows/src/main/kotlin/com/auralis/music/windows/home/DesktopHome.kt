@@ -134,7 +134,7 @@ internal fun DesktopHome(
             // account, which can read private ones; it is shown, not added to the Library.
             youtubeSignedIn && (album.id.startsWith("VL") || album.id.startsWith("PL") || album.id.startsWith("RD")) ->
                 onYouTubePlaylist(if (album.id.startsWith("VL")) album else album.copy(id = "VL" + album.id))
-            else -> browse.openAlbum(album)
+            else -> browse.openAlbum(historyAlbumIdentity(album))
         } },
         onMenu = { menuTrack = it },
         onSearch = onNavigateToSearch,

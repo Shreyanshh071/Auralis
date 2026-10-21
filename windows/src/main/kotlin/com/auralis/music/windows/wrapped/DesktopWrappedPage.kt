@@ -16,7 +16,7 @@ internal fun wrappedState(events: List<DesktopListeningStats.Listen>, year: Int,
     val songs = selected.groupBy { DesktopListeningStats.songKey(it.track) }.values.map { list ->
         val track = list.groupBy { it.track.id }.values.maxBy { group -> group.sumOf { it.timeMs } }.first().track
         SongStat(track, list.count { it.countsAsPlay }, list.sumOf { it.timeMs })
-    }.sortedWith(compareByDescending<SongStat> { it.playCount }.thenByDescending { it.timeListenedMs })
+    }.sortedWith(compareByDescending<SongStat> { it.timeListenedMs }.thenByDescending { it.playCount })
     val albums = selected.filter { !it.track.album.isNullOrBlank() }
         .groupBy { artist(it.track) to it.track.album!! }.map { (key, list) ->
             AlbumStat(key.second, key.first, list.first().track.thumbnail, list.sumOf { it.timeMs })

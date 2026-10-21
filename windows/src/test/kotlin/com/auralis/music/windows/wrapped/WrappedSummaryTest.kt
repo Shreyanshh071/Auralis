@@ -7,13 +7,13 @@ import java.time.ZoneId
 import kotlin.test.*
 
 class WrappedSummaryTest {
-    @Test fun usesMeasuredCurrentYearListensAndRanksPlaysThenDuration() {
+    @Test fun usesMeasuredCurrentYearListensAndRanksByTimeListened() {
         val zone = ZoneId.of("Asia/Kolkata")
         fun date(year: Int) = LocalDate.of(year, 1, 2).atStartOfDay(zone).toInstant().toEpochMilli()
         val a = Track("a", "Top song", "Artist A", album = "Album A")
         val b = Track("b", "Second song", "Artist B", album = "Album B")
         val events = listOf(Listen("1", a, date(2026), 60_000), Listen("2", a, date(2026), 60_000),
-            Listen("3", b, date(2026), 90_000), Listen("4", b, date(2025), 9_000_000),
+            Listen("3", b, date(2026), 90_000), Listen("6", b, date(2026), 10_000), Listen("7", b, date(2026), 10_000), Listen("4", b, date(2025), 9_000_000),
             Listen("5", b, date(2027), 9_000_000))
         val summary = wrappedState(events, 2026, zone)
         assertEquals(3, summary.totalMinutes)

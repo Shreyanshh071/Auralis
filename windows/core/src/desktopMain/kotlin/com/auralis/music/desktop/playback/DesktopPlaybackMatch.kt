@@ -64,6 +64,28 @@ object DesktopPlaybackMatch {
         return null
     }
 
+    /**
+     * Another upload of the same recording when [failedId] can't be played: an age-restricted video
+     * ("cannot be watched anonymously") or one with no stream. YouTube Music's own audio track of
+     * the song is usually open (Li Music plays those), so search for it, keep only the same
+     * recording (title, artist, length, no other version), and remember it for next time.
+     */
+    suspend fun alternative(track: Track, failedId: String, resolve: suspend (String) -> String?): Pair<String, String>? {
+        val query = "${track.title} ${track.artist}".trim()
+        val candidates = (runCatching { searchVideos(query) }.getOrDefault(emptyList()) +
+            runCatching { searchVideoCandidates(query) }.getOrDefault(emptyList()))
+            .filter { isVideoId(it.id) && it.id != failedId }.distinctBy { it.id }
+        for (candidate in pickCandidates(track, candidates).take(4)) {
+            val url = resolve(candidate.id) ?: continue
+            RecordingMatches.matchedVideoIds[failedId] = candidate.id
+            if (track.id != failedId) RecordingMatches.matchedVideoIds[track.id] = candidate.id
+            com.auralis.music.util.Log.i("DesktopPlaybackMatch", "'${track.title}' ($failedId) can't be played; using ${candidate.id} (${candidate.title} by ${candidate.artist})")
+            return candidate.id to url
+        }
+        com.auralis.music.util.Log.w("DesktopPlaybackMatch", "No playable upload of '${track.title}' besides $failedId")
+        return null
+    }
+
     private fun pickCandidate(track: Track, candidates: List<Track>): Track? = pickCandidates(track, candidates).firstOrNull()
 
     private fun pickCandidates(track: Track, candidates: List<Track>): List<Track> {

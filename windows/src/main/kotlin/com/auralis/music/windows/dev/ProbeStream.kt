@@ -16,8 +16,15 @@ fun main(rawArgs: Array<String>) = runBlocking {
     val target = if (args.size >= 4) com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(
         com.auralis.music.domain.model.Track(id = id, title = args[1], artist = args[2], duration = args[3].toLong())) else id
     println("MATCH $id -> $target")
-    val url = target?.let { DesktopStreamResolver.resolve(it) }
+    val url = target?.let { DesktopStreamResolver.resolve(it) } ?: target?.let { failed ->
+        // As playback does: another upload of the same recording when this one can't be played.
+        val track = com.auralis.music.domain.model.Track(id = id, title = args.getOrElse(1) { "" }, artist = args.getOrElse(2) { "" },
+            duration = args.getOrNull(3)?.toLongOrNull() ?: 0L)
+        com.auralis.music.desktop.playback.DesktopPlaybackMatch.alternative(track, failed) { DesktopStreamResolver.resolve(it) }
+            ?.also { println("ALTERNATIVE $failed -> ${it.first}") }?.second
+    }
     println("RESOLVE $id -> ${if (url == null) "null" else "ok"} in ${System.currentTimeMillis() - started}ms; backoff=${com.auralis.music.data.network.YouTubeBackoff.active}")
+    target?.let { println("VIDEO $it -> ${if (DesktopStreamResolver.resolveVideo(it) == null) "none (still picture or no stream)" else "video"}") }
     if (url == null) return@runBlocking
     println("CLIENT " + Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1) + " HOST " + java.net.URI(url).host)
     val client = com.auralis.music.data.network.NetworkClientProvider.okHttpClient

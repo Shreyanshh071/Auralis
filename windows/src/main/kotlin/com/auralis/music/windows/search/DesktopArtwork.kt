@@ -39,7 +39,10 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
             // Now playing panel animating open) at a few pixels, and they stayed pixelated.
             val context = coil3.compose.LocalPlatformContext.current
             val request = androidx.compose.runtime.remember(source, highRes) {
-                coil3.request.ImageRequest.Builder(context).data(source).size(if (highRes) 1200 else 400).build()
+                val renderer = com.auralis.music.ui.components.DesktopArtworkRenderer
+                // A large cover shows the thumbnail already in memory until it arrives.
+                renderer.request(context, source, if (highRes) renderer.LARGE_PX else renderer.TILE_PX, crossfade = false,
+                    placeholderKey = if (highRes) com.auralis.music.ui.components.getOptimizedThumbnailUrl(raw) ?: raw else null)
             }
             AsyncImage(
                 // Sized like the phone's rows: 400x400 album art, 16:9 frames for video thumbnails.

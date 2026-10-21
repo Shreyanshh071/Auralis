@@ -3,8 +3,19 @@ package com.auralis.music.desktop.playback
 import com.auralis.music.data.network.NewPipeDownloader
 import com.auralis.music.data.network.RecordingMatches
 import com.auralis.music.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.AudioStream
@@ -17,11 +28,21 @@ import java.util.concurrent.ConcurrentHashMap
  * (Auto) quality: the original-language track at the highest bitrate.
  */
 object DesktopStreamResolver {
+    @Volatile var enabledClients: Set<String> = setOf("VISIONOS")
+        set(value) {
+            if (value.isEmpty() || value == field) return
+            field = value
+            org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient("IOS" in value)
+            clearCache()
+        }
     @Volatile var quality = com.auralis.music.domain.model.AudioQuality.HIGH
         set(value) { if (field != value) { field = value; clearCache() } }
     private const val TAG = "DesktopStreamResolver"
     private const val EXTRACTION_BUDGET_MS = 15000L
-    private const val MAX_ATTEMPTS = 3
+    private const val MAX_ATTEMPTS = 2
+    /** How long one extraction may take before another starts beside it. */
+    private const val HEDGE_MS = 2500L
+    private const val MAX_PARALLEL = 3
     // libVLC sends this user agent too (VlcAudioPlayer).
     private const val PROBE_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -51,6 +72,8 @@ object DesktopStreamResolver {
         return true
     }
     private val cache = ConcurrentHashMap<String, Cached>()
+    /** Videos YouTube refuses to anonymous viewers (age-restricted), so they aren't retried. */
+    private val ageRestricted = ConcurrentHashMap<String, Long>()
 
     @Volatile private var initialized = false
 
@@ -66,20 +89,56 @@ object DesktopStreamResolver {
 
     internal fun initializeExtractor() = ensureInitialized()
 
+    /** Silent companion video for the exact recording; audio resolution remains independent. */
+    suspend fun resolveVideo(videoId: String): String? = withContext(Dispatchers.IO) {
+        if (!DesktopPlaybackMatch.isVideoId(videoId)) return@withContext null
+        runCatching {
+            ensureInitialized()
+            NewPipeDownloader.withRequestBudget(EXTRACTION_BUDGET_MS) {
+                val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                extractor.fetchPage()
+                // YouTube's auto-generated "Artist - Topic" uploads are one still picture of some
+                // release's cover (often another album's): not a video, and it covered the real cover.
+                if (runCatching { extractor.uploaderName }.getOrNull().orEmpty().endsWith(" - Topic")) return@withRequestBudget null
+                extractor.videoStreams.filter { (it.resolution.substringBefore('p').toIntOrNull() ?: 9999) <= 720 }
+                    .maxByOrNull { it.resolution.substringBefore('p').toIntOrNull() ?: 0 }?.content
+            }
+        }.getOrNull()
+    }
+
     /** Starts NewPipe (its first extraction is slow) without waiting for it. */
     fun warmUp() {
         Thread({ runCatching { ensureInitialized() } }, "newpipe-warmup").apply { isDaemon = true }.start()
     }
 
-    suspend fun resolve(videoId: String): String? = withContext(Dispatchers.IO) {
+    /** Lookups under way, by video: playback, the next-song preload and the relay's refresh share one. */
+    private val inFlight = ConcurrentHashMap<String, Deferred<String?>>()
+    /** Lookups outlive the caller: a song skipped mid-lookup is ready when it's picked again. */
+    private val lookups = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    suspend fun resolve(videoId: String): String? {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
-        if (!DesktopPlaybackMatch.isVideoId(target)) return@withContext null
-        cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return@withContext it.url }
+        if (!DesktopPlaybackMatch.isVideoId(target)) return null
+        cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return it.url }
+        val created = lookups.async(start = CoroutineStart.LAZY) { lookUp(target) }
+        val shared = inFlight.putIfAbsent(target, created)
+        if (shared != null) return shared.await()
+        created.invokeOnCompletion { inFlight.remove(target, created) }
+        created.start()
+        return created.await()
+    }
+
+    private suspend fun lookUp(target: String): String? = withContext(Dispatchers.IO) {
         val started = System.currentTimeMillis()
         val testedUrls = mutableSetOf<String>()
 
+        var extractMs = 0L
+        var probeMs = 0L
         for (attempt in 1..MAX_ATTEMPTS) {
-            val streams = extractStreams(target)
+            if (ageRestricted.containsKey(target)) break
+            val extractStarted = System.currentTimeMillis()
+            val streams = extractHedged(target)
+            extractMs += System.currentTimeMillis() - extractStarted
             if (streams.isNullOrEmpty()) {
                 if (attempt < MAX_ATTEMPTS) {
                     kotlinx.coroutines.delay(400L * attempt)
@@ -101,7 +160,9 @@ object DesktopStreamResolver {
                 if (testedUrls.contains(url)) continue
                 testedUrls.add(url)
 
+                val probeStarted = System.currentTimeMillis()
                 val status = probe(url)
+                probeMs += System.currentTimeMillis() - probeStarted
                 if (status == 403) {
                     val host = hostOf(url)
                     Log.w(TAG, "Stream for $target refused (HTTP 403) from $host on attempt $attempt; trying alternate stream")
@@ -109,7 +170,7 @@ object DesktopStreamResolver {
                 } else {
                     val host = hostOf(url)
                     val client = Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1)
-                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (attempt $attempt, check $status, itag ${stream.itag} ${stream.format?.mimeType} from $host client $client)")
+                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (extract ${extractMs}ms, check ${probeMs}ms; attempt $attempt, check $status, itag ${stream.itag} ${stream.format?.mimeType} from $host client $client)")
                     cache[target] = Cached(url, expiryOf(url))
                     return@withContext url
                 }
@@ -117,6 +178,46 @@ object DesktopStreamResolver {
         }
         Log.w(TAG, "No playable stream for $target after ${System.currentTimeMillis() - started}ms")
         null
+    }
+
+    /**
+     * The video's audio streams, without waiting out one slow extraction. Most finish in about a
+     * second, but now and then one stalls for 10-15s (a slow YouTube response), which kept a song
+     * buffering until it was picked again. So when one hasn't answered in [HEDGE_MS], another
+     * starts beside it (up to [MAX_PARALLEL]), and the first good answer wins; a failed one is
+     * replaced at once rather than after it ends the whole attempt.
+     */
+    private suspend fun extractHedged(target: String): List<AudioStream>? = coroutineScope {
+        val answers = Channel<List<AudioStream>>(Channel.UNLIMITED)
+        var started = 0
+        var answered = 0
+        fun startOne() {
+            started++
+            launch(Dispatchers.IO) { answers.send(runInterruptible { extractStreams(target) }.orEmpty()) }
+        }
+        val deadline = System.currentTimeMillis() + EXTRACTION_BUDGET_MS
+        startOne()
+        val result = run {
+            while (answered < started) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) return@run null
+                val wait = if (started < MAX_PARALLEL) minOf(HEDGE_MS, remaining) else remaining
+                val received = withTimeoutOrNull(wait) { answers.receive() }
+                if (received == null) {
+                    // Nothing back in time: let another extraction run beside the slow one.
+                    if (started < MAX_PARALLEL) { Log.d(TAG, "Extraction for $target is slow; starting another"); startOne() }
+                    continue
+                }
+                answered++
+                if (received.isNotEmpty()) return@run received
+                if (ageRestricted.containsKey(target)) return@run null
+                // This one failed: replace it straight away while there is budget for more.
+                if (started < MAX_PARALLEL) startOne()
+            }
+            null
+        }
+        coroutineContext.cancelChildren()
+        result
     }
 
     private fun extractStreams(target: String): List<AudioStream>? = try {
@@ -129,6 +230,8 @@ object DesktopStreamResolver {
     } catch (e: Throwable) {
         // Throwable, not Exception: a missing class (NoClassDefFoundError) must not kill playback.
         if (e is kotlinx.coroutines.CancellationException) throw e
+        // Age-restricted for anonymous viewers: retrying won't change that (playback finds another upload).
+        if (e is org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) ageRestricted[target] = System.currentTimeMillis()
         if (com.auralis.music.data.network.YouTubeBackoff.isBlockPage(e.message.orEmpty())) com.auralis.music.data.network.YouTubeBackoff.trip()
         Log.w(TAG, "Couldn't resolve $target: ${e.javaClass.simpleName} ${e.message}")
         null
@@ -136,12 +239,20 @@ object DesktopStreamResolver {
 
     /** HTTP status for the first two bytes of [url]; -1 when the check itself couldn't run. */
     private fun probe(url: String): Int = try {
+        // The check fetches the song's first relay block rather than two bytes: the same round
+        // trip, and the relay starts from it instead of asking YouTube for it again.
         val request = okhttp3.Request.Builder()
             .url(url)
             .header("User-Agent", PROBE_USER_AGENT)
-            .header("Range", "bytes=0-1")
+            .header("Range", "bytes=0-${LocalStreamRelay.FIRST_BLOCK_BYTES - 1}")
+            .header("Accept-Encoding", "identity")
             .build()
-        probeClient.newCall(request).execute().use { it.code }
+        probeClient.newCall(request).execute().use { response ->
+            if (response.code == 206 && response.header("Content-Range")?.startsWith("bytes 0-") == true) {
+                runCatching { response.body?.bytes() }.getOrNull()?.let { LocalStreamRelay.offerFirstBlock(url, it) }
+            }
+            response.code
+        }
     } catch (e: Exception) {
         -1
     }
@@ -168,7 +279,10 @@ object DesktopStreamResolver {
     }
 
     private fun rankStreams(streams: List<AudioStream>, excludedUrls: Set<String> = emptySet()): List<AudioStream> {
-        val usable = streams.filter { !it.content.isNullOrBlank() && !excludedUrls.contains(it.content) }
+        val usable = streams.filter { stream ->
+            val client = Regex("[?&]c=([^&]+)").find(stream.content.orEmpty())?.groupValues?.get(1)
+            !stream.content.isNullOrBlank() && !excludedUrls.contains(stream.content) && (client !in setOf("VISIONOS","IOS") || client in enabledClients)
+        }
         val unblocked = usable.filter { !hostBlocked(it.content) }
         val pool = unblocked.ifEmpty { usable }
 

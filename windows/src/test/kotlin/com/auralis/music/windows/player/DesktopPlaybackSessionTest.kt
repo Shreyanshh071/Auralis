@@ -117,4 +117,65 @@ class DesktopPlaybackSessionTest {
         assertNotNull(last)
         assertEquals(Color(0xFF334455), last.primary)
     }
+
+    @Test
+    fun newTrackDoesNotInheritPreviousTracksPalette() {
+        val dir = tempDir()
+        DesktopPlaybackSessionStore.init(dir)
+
+        val track1 = sampleTrack("track1", "Song 1", "Artist 1")
+        val palette1 = ArtworkPalette(Color(0xFFFF8A80), Color(0xFFFF8A80), Color(0xFFFF8A80))
+        DesktopPlaybackSessionStore.save(track1, artworkUrl = track1.thumbnail, palette = palette1)
+
+        val track2 = sampleTrack("track2", "Song 2", "Artist 2")
+        // Main.kt saves new track without palette on queue change
+        DesktopPlaybackSessionStore.save(track2, artworkUrl = track2.thumbnail)
+
+        val session = DesktopPlaybackSessionStore.currentSession()
+        assertNotNull(session)
+        assertEquals("track2", session.track.id)
+        assertNull(session.palette, "New track must not inherit previous track's palette")
+        assertNull(DesktopArtworkPaletteStore.get(track2.thumbnail), "New track's URL must not return previous track's palette")
+    }
+
+    @Test
+    fun sameTrackPreservesPaletteOnQueueChange() {
+        val dir = tempDir()
+        DesktopPlaybackSessionStore.init(dir)
+
+        val track = sampleTrack("track1", "Song 1", "Artist 1")
+        val palette = ArtworkPalette(Color(0xFF2196F3), Color(0xFF1976D2), Color(0xFF0D47A1))
+        DesktopPlaybackSessionStore.save(track, artworkUrl = track.thumbnail, palette = palette)
+
+        // Queue update for the same track
+        DesktopPlaybackSessionStore.save(track, queue = listOf(track, sampleTrack("track2")), queueIndex = 0)
+
+        val session = DesktopPlaybackSessionStore.currentSession()
+        assertNotNull(session)
+        assertEquals("track1", session.track.id)
+        assertNotNull(session.palette)
+        assertEquals(Color(0xFF2196F3), session.palette?.primary)
+    }
+
+    @Test
+    fun loadAndExtractPaletteExtractsDistinctColorsFromFiles() {
+        val dir = tempDir()
+        val redFile = File(dir, "red.png")
+        val blueFile = File(dir, "blue.png")
+
+        val redImg = java.awt.image.BufferedImage(100, 100, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        redImg.createGraphics().apply { color = java.awt.Color.RED; fillRect(0, 0, 100, 100); dispose() }
+        javax.imageio.ImageIO.write(redImg, "png", redFile)
+
+        val blueImg = java.awt.image.BufferedImage(100, 100, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        blueImg.createGraphics().apply { color = java.awt.Color.BLUE; fillRect(0, 0, 100, 100); dispose() }
+        javax.imageio.ImageIO.write(blueImg, "png", blueFile)
+
+        val redPalette = com.auralis.music.windows.settings.loadAndExtractPalette(redFile.absolutePath)
+        val bluePalette = com.auralis.music.windows.settings.loadAndExtractPalette(blueFile.absolutePath)
+
+        assertFalse(redPalette.isDefault)
+        assertFalse(bluePalette.isDefault)
+        assertNotEquals(redPalette.primary, bluePalette.primary)
+    }
 }

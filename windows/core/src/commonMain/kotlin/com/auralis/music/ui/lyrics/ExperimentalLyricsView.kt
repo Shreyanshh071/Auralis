@@ -873,10 +873,10 @@ fun ExperimentalLyricsView(
                         val scrollDelta = itemCenterY - targetCenterY
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
-                                // A small leftover delta means the target is already practically centered.
-                                // Snap it rather than running a second animation that reads as an extra scroll.
-                                if (animate && kotlin.math.abs(scrollDelta) > 48f) {
-                                    val durationMs = (180 + kotlin.math.abs(scrollDelta) / 8f).toInt().coerceIn(180, 360)
+                                // Short lines still need a visible transition. Snapping deltas below
+                                // 48px made the same playback feel different across lyric formats.
+                                if (animate) {
+                                    val durationMs = (320 + kotlin.math.abs(scrollDelta) / density.density / 4f).toInt().coerceIn(320, 500)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
                                         animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
@@ -1018,6 +1018,13 @@ fun ExperimentalLyricsView(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .then(lyricsUi.manualScrollModifier(listState) {
+                        if (!isSelectionModeActive) {
+                            isAutoScrollEnabled = false
+                            isUserInteracting = true
+                            lastPreviewTime = System.currentTimeMillis()
+                        }
+                    })
                     .fadingEdge(top = 44.dp, bottom = LYRICS_FADE_BOTTOM_DP)
                     .nestedScroll(lyricsNestedScrollConnection),
                 contentPadding = PaddingValues(

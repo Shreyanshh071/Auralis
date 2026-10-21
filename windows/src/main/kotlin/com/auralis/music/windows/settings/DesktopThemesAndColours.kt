@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.Switch
 
 import androidx.compose.foundation.BorderStroke
@@ -28,17 +30,8 @@ internal fun DesktopThemesAndColours(onBack: () -> Unit) {
         item { ThemeColourPreview() }
         item { ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } } }
         item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
-        item { Text("Artwork backgrounds follow the current song in every theme. When the player is empty, an open playlist uses its cover.",
+        item { Text(desktopText("Artwork backgrounds follow the current song in every theme. When the player is empty, an open playlist uses its cover."),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text("Colours from playing artwork", style = MaterialTheme.typography.titleMedium)
-                    Text("Used by the Dynamic palette", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(settings.dynamicTheme, { update { copy(dynamicTheme = it) } })
-            }
-        }
     }
 }
 
@@ -47,7 +40,7 @@ internal fun DesktopThemesAndColours(onBack: () -> Unit) {
 private fun ThemeColourPreview() {
     val colours = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Live preview", style = MaterialTheme.typography.titleMedium)
+        Text(desktopText("Live preview"), style = MaterialTheme.typography.titleMedium)
         Surface(Modifier.fillMaxWidth().height(220.dp), shape = RoundedCornerShape(28.dp),
             color = colours.background, border = BorderStroke(1.dp, colours.outlineVariant)) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {

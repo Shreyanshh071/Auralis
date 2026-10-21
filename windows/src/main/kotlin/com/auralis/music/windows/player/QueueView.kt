@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.Box
@@ -84,7 +86,7 @@ internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolea
             item(key = "history_header") {
                 QueueSectionHeader("History", action = {
                     Text(
-                        text = "Clear",
+                        text = desktopText("Clear"),
                         color = Color.White.copy(alpha = 0.75f),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
@@ -123,7 +125,7 @@ private fun QueueSectionHeader(title: String, modifier: Modifier = Modifier, act
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = title,
+            text = desktopText(title),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White,
@@ -154,7 +156,7 @@ private fun QueueRow(track: Track, isCurrent: Boolean, isPlaying: Boolean, onCli
                 ) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Currently playing",
+                        contentDescription = desktopText("Currently playing"),
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
@@ -182,10 +184,10 @@ private fun QueueRow(track: Track, isCurrent: Boolean, isPlaying: Boolean, onCli
         if (onRemove != null) {
             Box {
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.MoreVert, contentDescription = desktopText("Options"), tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { menuOpen = false; onRemove() })
+                    DropdownMenuItem(text = { Text(desktopText("Remove from queue")) }, onClick = { menuOpen = false; onRemove() })
                 }
             }
         } else {

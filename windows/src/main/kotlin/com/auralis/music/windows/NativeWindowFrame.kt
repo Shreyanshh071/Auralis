@@ -17,33 +17,70 @@ import java.awt.Window
  * Moving a borderless AWT window with setLocation bypasses Windows Snap and DWM animations.
  * Native caption hit testing lets Windows own the move/resize/maximize loop instead.
  */
+/** Which caption button (HTMINBUTTON 8, HTMAXBUTTON 9, HTCLOSE 20; 0 = none) the pointer is over. */
+data class CaptionHover(val button: Int = 0, val pressed: Boolean = false)
+
 internal class NativeWindowFrame(private val window: Window, handle: Long,
-    private val onMaximizeHover: (Boolean) -> Unit = {}) : AutoCloseable {
+    private val onCaptionHover: (CaptionHover) -> Unit = {}) : AutoCloseable {
     private val hwnd = HWND(Pointer(handle))
     private val user = User32.INSTANCE
     private val nativeUser = NativeLibrary.getInstance("user32")
     private val hooks = mutableListOf<Hook>()
     private val originalStyle = user.GetWindowLong(hwnd, WinUser.GWL_STYLE)
     @Volatile var captionBounds: Rect = Rect.Zero
+    @Volatile var brandBounds: Rect = Rect.Zero
+    @Volatile var minimizeBounds: Rect = Rect.Zero
     @Volatile var maximizeBounds: Rect = Rect.Zero
+    @Volatile var closeBounds: Rect = Rect.Zero
+    /** Runs the app's close (tray, confirmation) instead of a bare SC_CLOSE. */
+    @Volatile var onClose: (() -> Unit)? = null
     /** The title bar's search field: inside the drag area, but clicks must reach it. */
     @Volatile var searchBounds: Rect = Rect.Zero
     @Volatile var onTaskbarMessage: ((Int, Long) -> Boolean)? = null
-    private var maximizePressed = false
-    private var maximizeHovered = false
+    private val renderPause = MinimisedRenderPause(window)
+    /** The caption button under the press (Windows' own buttons capture until release), or 0. */
+    private var pressedButton = 0
+    private var hover = CaptionHover()
+    /** Change the real non-client frame without recreating Compose or interrupting playback. */
+    var systemDecorated = false
+        set(value) {
+            if (field == value) return
+            field = value
+            pressedButton = 0
+            hoverCaption(0)
+            // Our buttons aren't shown under the system caption; they report fresh bounds when back.
+            minimizeBounds = Rect.Zero; maximizeBounds = Rect.Zero; closeBounds = Rect.Zero
+            refreshFrame()
+            window.validate()
+        }
 
-    private fun hoverMaximize(hovered: Boolean) {
-        if (maximizeHovered == hovered) return
-        maximizeHovered = hovered
-        java.awt.EventQueue.invokeLater { onMaximizeHover(hovered) }
+    private fun hoverCaption(button: Int) {
+        val next = CaptionHover(button, button != 0 && button == pressedButton)
+        if (hover == next) return
+        hover = next
+        java.awt.EventQueue.invokeLater { onCaptionHover(next) }
     }
 
-    private fun finishMaximizeClick(overButton: Boolean): LRESULT {
-        val pressed = maximizePressed
-        maximizePressed = false
+    private fun finishCaptionClick(hit: Int): LRESULT {
+        val pressed = pressedButton
+        pressedButton = 0
         nativeUser.getFunction("ReleaseCapture").invokeInt(emptyArray())
-        if (pressed && overButton) toggleMaximize()
+        hoverCaption(if (hit in CAPTION_BUTTONS) hit else 0)
+        if (pressed != 0 && hit == pressed) when (pressed) {
+            8 -> minimize()
+            9 -> toggleMaximize()
+            20 -> onClose?.let { java.awt.EventQueue.invokeLater(it) } ?: command(0xF060)
+        }
         return LRESULT(0)
+    }
+
+    /** Hit test for a client-coordinate mouse message (sent to us while the press is captured). */
+    private fun clientHit(l: LPARAM): Int {
+        val point = POINT((l.toLong() and 0xffff).toShort().toInt(), ((l.toLong() shr 16) and 0xffff).toShort().toInt())
+        point.write()
+        nativeUser.getFunction("ClientToScreen").invokeInt(arrayOf(hwnd, point.pointer))
+        point.read()
+        return hitTest(point.x, point.y)
     }
 
     private fun interface Procedure : StdCallCallback {
@@ -61,6 +98,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                 originalStyle or WinUser.WS_CAPTION or WinUser.WS_THICKFRAME or
                     WinUser.WS_SYSMENU or WinUser.WS_MINIMIZEBOX or WinUser.WS_MAXIMIZEBOX)
             refreshFrame()
+            java.awt.EventQueue.invokeLater { cursorSource = findSkiaLayer(window)?.let { it.canvas ?: it } }
             Log.i("AuralisWindow", "Native frame installed (${hooks.size} window handles)")
         } catch (error: Exception) {
             close()
@@ -76,8 +114,26 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
             try {
                 when {
                     root && onTaskbarMessage?.invoke(message, w.toLong()) == true -> LRESULT(0)
+                    // AWT's undecorated peer suppresses these messages itself. Let Windows draw,
+                    // measure and operate the caption when the system title bar is selected.
+                    root && systemDecorated && (message == 0x0083 || message == 0x0084 ||
+                        message == 0x0085 || message == 0x0086 || message in 0x00A0..0x00AD) ->
+                        user.DefWindowProc(current, message, w, l)
+                    !root && systemDecorated && message == 0x0084 ->
+                        user.CallWindowProc(previous, current, message, w, l)
+                    root && message == 0x0005 -> { // WM_SIZE: see MinimisedRenderPause.
+                        if (w.toInt() == 1) renderPause.minimised(true)
+                        // AWT takes the restored size first; then a frame is drawn before Windows goes on.
+                        user.CallWindowProc(previous, current, message, w, l)
+                            .also { if (w.toInt() == 0 || w.toInt() == 2) renderPause.minimised(false) }
+                    }
+                    root && message == 0x0014 -> { // WM_ERASEBKGND: area the app hasn't drawn yet is dark, never white.
+                        val area = RECT().also { user.GetClientRect(current, it) }
+                        nativeUser.getFunction("FillRect").invokeInt(arrayOf(Pointer(w.toLong()), area.pointer.also { area.write() }, backgroundBrush))
+                        LRESULT(1)
+                    }
                     root && message == 0x00A0 -> { // Non-client hover bypasses Compose's hoverable.
-                        hoverMaximize(w.toInt() == 9)
+                        hoverCaption(w.toInt().takeIf { it in CAPTION_BUTTONS } ?: 0)
                         val tracking = Memory(if (Native.POINTER_SIZE == 8) 24L else 16L)
                         tracking.clear()
                         tracking.setInt(0, tracking.size().toInt())
@@ -86,37 +142,32 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         nativeUser.getFunction("TrackMouseEvent").invokeInt(arrayOf(tracking))
                         user.CallWindowProc(previous, current, message, w, l)
                     }
-                    root && message == 0x02A2 -> {
-                        hoverMaximize(false)
+                    root && message == 0x02A2 && pressedButton == 0 -> {
+                        hoverCaption(0)
                         user.CallWindowProc(previous, current, message, w, l)
                     }
-                    root && (message == 0x00A1 || message == 0x00A3) && w.toInt() == 9 -> {
-                        // AWT has no native caption button here. Capture until release so dragging
-                        // off the button cancels the click, just like a normal Windows control.
-                        maximizePressed = true
+                    root && (message == 0x00A1 || message == 0x00A3) && w.toInt() in CAPTION_BUTTONS -> {
+                        // AWT has no native caption buttons (DefWindowProc would paint classic ones).
+                        // Capture until release so dragging off a button cancels the click, like Windows.
+                        pressedButton = w.toInt()
+                        hoverCaption(pressedButton)
                         nativeUser.getFunction("SetCapture").invokePointer(arrayOf(hwnd))
                         LRESULT(0)
                     }
-                    root && message == 0x00A2 && maximizePressed -> {
+                    root && message == 0x00A2 && pressedButton != 0 -> {
                         val x = (l.toLong() and 0xffff).toShort().toInt()
                         val y = ((l.toLong() shr 16) and 0xffff).toShort().toInt()
-                        finishMaximizeClick(hitTest(x, y) == 9)
+                        finishCaptionClick(hitTest(x, y))
                     }
-                    root && message == 0x0202 && maximizePressed -> {
-                        val point = POINT((l.toLong() and 0xffff).toShort().toInt(),
-                            ((l.toLong() shr 16) and 0xffff).toShort().toInt())
-                        point.write()
-                        nativeUser.getFunction("ClientToScreen").invokeInt(arrayOf(hwnd, point.pointer))
-                        point.read()
-                        finishMaximizeClick(hitTest(point.x, point.y) == 9)
-                    }
+                    root && message == 0x0202 && pressedButton != 0 -> finishCaptionClick(clientHit(l))
                     root && (message == 0x0215 || message == 0x001F || (message == 0x0006 && (w.toInt() and 0xffff) == 0)) -> {
-                        maximizePressed = false
-                        hoverMaximize(false)
+                        pressedButton = 0
+                        hoverCaption(0)
                         user.CallWindowProc(previous, current, message, w, l)
                     }
                     root && message == 0x0200 -> {
-                        hoverMaximize(false)
+                        // While captured, the pressed button stays lit only with the pointer over it.
+                        hoverCaption(if (pressedButton != 0 && clientHit(l) == pressedButton) pressedButton else 0)
                         user.CallWindowProc(previous, current, message, w, l)
                     }
                     root && message == 0x0083 -> { // WM_NCCALCSIZE: draw our bar in the client area.
@@ -130,6 +181,10 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                             rect.setInt(12, minOf(rect.getInt(12), info.rcWork.bottom))
                         }
                         LRESULT(0)
+                    }
+                    message == 0x0020 && (l.toLong() and 0xffff) == 1L -> { // WM_SETCURSOR over HTCLIENT.
+                        val result = user.CallWindowProc(previous, current, message, w, l)
+                        if (clearStaleSizingCursor()) LRESULT(1) else result
                     }
                     message == 0x0084 -> { // WM_NCHITTEST (signed screen coordinates).
                         val x = (l.toLong() and 0xffff).toShort().toInt()
@@ -170,19 +225,28 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
         user.GetWindowRect(hwnd, rect)
         val x = screenX - rect.left
         val y = screenY - rect.top
-        if (!isMaximized()) {
-            val border = (8 * window.graphicsConfiguration.defaultTransform.scaleX).toInt()
-            val left = x < border
-            val right = x >= rect.right - rect.left - border
-            val top = y < border
-            val bottom = y >= rect.bottom - rect.top - border
-            return when {
-                top && left -> 13; top && right -> 14; bottom && left -> 16; bottom && right -> 17
-                left -> 10; right -> 11; top -> 12; bottom -> 15
-                else -> captionHit(screenX, screenY)
-            }
+        val caption = captionHit(screenX, screenY)
+        if (isMaximized()) return caption
+        // There is no invisible border (WM_NCCALCSIZE keeps the whole rect as client), so the resize
+        // band sits inside the visible window: keep it a thin strip at the very edge. At 8px x scale
+        // the top ~12px of the title bar, buttons included, was a resize zone and the rest wasn't.
+        val scale = window.graphicsConfiguration.defaultTransform.scaleX
+        val side = (5 * scale).toInt().coerceAtLeast(1)
+        val topBand = (3 * scale).toInt().coerceAtLeast(1)
+        val info = WinUser.MONITORINFO()
+        user.GetMonitorInfo(user.MonitorFromWindow(hwnd, 2), info)
+        // An edge flush with the screen (or past it) has no resize band, like a native window whose
+        // border would lie off-screen: a window filling the screen behaves as maximized, and the corner
+        // pixel lights Close (Fitts' law). Bottom compares with the work area, as the taskbar covers it.
+        val left = x < side && rect.left > info.rcMonitor.left
+        val right = x >= rect.right - rect.left - side && rect.right < info.rcMonitor.right
+        val top = y < topBand && rect.top > info.rcMonitor.top
+        val bottom = y >= rect.bottom - rect.top - side && rect.bottom < info.rcWork.bottom
+        return when {
+            top && left -> 13; top && right -> 14; bottom && left -> 16; bottom && right -> 17
+            left -> 10; right -> 11; top -> 12; bottom -> 15
+            else -> caption
         }
-        return captionHit(screenX, screenY)
     }
 
     private fun captionHit(screenX: Int, screenY: Int): Int {
@@ -191,13 +255,63 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
         nativeUser.getFunction("ScreenToClient").invokeInt(arrayOf(hwnd, point.pointer))
         point.read()
         val offset = androidx.compose.ui.geometry.Offset(point.x.toFloat(), point.y.toFloat())
+        // Caption buttons reach up to the top edge and Close to the right edge, so the corner pixel is
+        // still Close even where Compose's bounds stop a pixel short of the client edge.
+        fun button(bounds: Rect, toRight: Boolean = false) = !bounds.isEmpty && offset.y < bounds.bottom &&
+            offset.x >= bounds.left && (toRight || offset.x < bounds.right)
         return when {
-            maximizeBounds.contains(offset) -> 9 // HTMAXBUTTON: Windows 11 Snap layouts, native toggle.
+            button(closeBounds, toRight = true) -> 20 // HTCLOSE
+            button(maximizeBounds) -> 9 // HTMAXBUTTON: Windows 11 Snap layouts, native toggle.
+            button(minimizeBounds) -> 8 // HTMINBUTTON
             searchBounds.contains(offset) -> 1 // HTCLIENT: the search field.
-            captionBounds.contains(offset) -> 2 // HTCAPTION: drag-to-top, drag-to-restore, double click.
+            (captionBounds.contains(offset) || brandBounds.contains(offset)) -> 2 // HTCAPTION: drag-to-top, drag-to-restore, double click.
             else -> 1 // HTCLIENT
         }
     }
+
+    /** The loading frame's colour (0x0F0E13) as a GDI brush (COLORREF is 0x00BBGGRR). */
+    private val backgroundBrush by lazy {
+        NativeLibrary.getInstance("gdi32").getFunction("CreateSolidBrush").invokePointer(arrayOf(0x130E0F))
+    }
+
+    /** Compose sets its pointer icon on the Skia layer's canvas; found on the EDT, read from here. */
+    @Volatile private var cursorSource: java.awt.Component? = null
+    private fun systemCursor(id: Int): Pointer? =
+        nativeUser.getFunction("LoadCursorW").invokePointer(arrayOf(null, Pointer.createConstant(id.toLong())))
+    /** IDC_SIZENWSE, IDC_SIZENESW, IDC_SIZEWE, IDC_SIZENS: the cursors DefWindowProc shows on the frame. */
+    private val sizingCursors by lazy { listOf(32642, 32643, 32644, 32645).mapNotNull(::systemCursor).toSet() }
+
+    /**
+     * Crossing the resize band leaves Windows' sizing cursor set, and AWT doesn't replace it when the
+     * pointer moves on into a Compose control (the drag area, being HTCAPTION, does get the arrow back).
+     * So the title bar's buttons kept a resize cursor only if the pointer had come in over the edge.
+     * Put back the cursor Compose asked for whenever a sizing cursor is still showing over the client.
+     */
+    private fun clearStaleSizingCursor(): Boolean {
+        val now = nativeUser.getFunction("GetCursor").invokePointer(emptyArray()) ?: return false
+        if (now !in sizingCursors) return false
+        val source = cursorSource
+        if (source == null) java.awt.EventQueue.invokeLater {
+            cursorSource = findSkiaLayer(window)?.let { it.canvas ?: it }
+        }
+        val id = when (source?.cursor?.type ?: java.awt.Cursor.DEFAULT_CURSOR) {
+            java.awt.Cursor.E_RESIZE_CURSOR, java.awt.Cursor.W_RESIZE_CURSOR -> return false // the sidebar handle's own cursor
+            java.awt.Cursor.HAND_CURSOR -> 32649
+            java.awt.Cursor.TEXT_CURSOR -> 32513
+            java.awt.Cursor.WAIT_CURSOR -> 32514
+            java.awt.Cursor.CROSSHAIR_CURSOR -> 32515
+            java.awt.Cursor.MOVE_CURSOR -> 32646
+            else -> 32512 // IDC_ARROW
+        }
+        nativeUser.getFunction("SetCursor").invokePointer(arrayOf(systemCursor(id)))
+        return true
+    }
+
+    private fun findSkiaLayer(root: java.awt.Component): org.jetbrains.skiko.SkiaLayer? =
+        root as? org.jetbrains.skiko.SkiaLayer
+            ?: (root as? java.awt.Container)?.components?.firstNotNullOfOrNull(::findSkiaLayer)
+
+    private companion object { val CAPTION_BUTTONS = setOf(8, 9, 20) }
 
     fun minimize() = command(0xF020)
     private fun isMaximized() = nativeUser.getFunction("IsZoomed").invokeInt(arrayOf(hwnd)) != 0
@@ -220,3 +334,14 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
         hooks.clear()
     }
 }
+
+/**
+ * Hides or reveals a window to the compositor while it keeps drawing (DWMWA_CLOAK). Shown again from
+ * the tray, an OpenGL window displayed black until Skia's first buffer swap; cloaked, it draws that
+ * frame unseen and appears with its content.
+ */
+internal fun setWindowCloaked(handle: Long, cloaked: Boolean) = runCatching {
+    val value = Memory(4).apply { setInt(0, if (cloaked) 1 else 0) }
+    NativeLibrary.getInstance("dwmapi").getFunction("DwmSetWindowAttribute")
+        .invokeInt(arrayOf(Pointer(handle), 13, value, 4)) == 0
+}.getOrDefault(false)

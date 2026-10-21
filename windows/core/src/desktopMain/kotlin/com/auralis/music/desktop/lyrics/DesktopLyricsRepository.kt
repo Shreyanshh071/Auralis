@@ -16,6 +16,9 @@ class DesktopLyricsRepository(
     private val disk: LyricsDiskCache? = null,
     private val client: LyricsClient = LyricsClient()
 ) {
+    companion object {
+        @Volatile var preferredProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
+    }
     private val memory = ConcurrentHashMap<String, LyricsData>()
 
     /** Cached lyrics for [videoId], aligned to [durationMs]; null when there are none. */
@@ -42,7 +45,14 @@ class DesktopLyricsRepository(
     ): LyricsData? {
         val key = videoId.lowercase()
         val started = System.currentTimeMillis()
-        val result = client.getLyrics(
+        var preferred: LyricsData? = null
+        val deadline = System.currentTimeMillis() + 15_000
+        for (provider in preferredProviders.filter { LyricsClient.isProviderEnabled(it) }) {
+            if (System.currentTimeMillis() >= deadline) break
+            preferred = client.searchProvider(provider,title,artist,durationSec,videoId,album,channelTitle,durationMs)
+            if (preferred != null && preferred.lines.isNotEmpty()) break
+        }
+        val result = preferred ?: client.getLyrics(
             title = title,
             artist = artist,
             durationSec = durationSec,
@@ -72,7 +82,5 @@ class DesktopLyricsRepository(
     private fun align(lyrics: LyricsData, durationMs: Long): LyricsData =
         if (durationMs > 0L) LyricsAlignmentEngine.alignToPlayback(lyrics, durationMs, null) else lyrics
 
-    private companion object {
-        const val TAG = "DesktopLyrics"
-    }
+    private val TAG = "DesktopLyrics"
 }

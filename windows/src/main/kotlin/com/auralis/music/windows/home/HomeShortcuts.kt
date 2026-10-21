@@ -1,5 +1,7 @@
 package com.auralis.music.windows.home
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.background
@@ -32,7 +34,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.auralis.music.domain.model.SpeedDialItem
 import com.auralis.music.domain.model.SpeedDialType
 
@@ -58,11 +59,11 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (!collapsed) {
                 Icon(Icons.Outlined.GridView, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Shortcuts", Modifier.weight(1f).padding(start = 8.dp), style = if (sidebar) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(desktopText("Shortcuts"), Modifier.weight(1f).padding(start = 8.dp), style = if (sidebar) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { query = ""; picking = true }) { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)); if (!collapsed) Text("Add") }
+            TextButton(onClick = { query = ""; picking = true }) { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)); if (!collapsed) Text(desktopText("Add")) }
         }
-        if (freshPins.isEmpty() && !collapsed) Text("Add playlists and artists you want to reach quickly.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (freshPins.isEmpty() && !collapsed) Text(desktopText("Add playlists and artists you want to reach quickly."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         else {
           val cards: @Composable (SpeedDialItem) -> Unit = { item ->
                 var artistMenu by remember { mutableStateOf(false) }
@@ -87,7 +88,7 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                         } else ShortcutPhoto(item, photoSize.value.toInt())
                         if (!collapsed) Column(Modifier.weight(1f).padding(horizontal = if (sidebar) 8.dp else 12.dp)) {
                             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
-                            Text(item.album?.author ?: when (item.type) { SpeedDialType.ARTIST -> "Artist"; SpeedDialType.TRACK -> item.track?.artist ?: "Song"; else -> "Playlist" },
+                            Text(item.album?.author?.let { com.auralis.music.ui.i18n.desktopCollectionCaption(it) } ?: when (item.type) { SpeedDialType.ARTIST -> desktopText("Artist"); SpeedDialType.TRACK -> item.track?.artist ?: desktopText("Song"); else -> desktopText("Playlist") },
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color.White.copy(alpha = .72f))
                         }
                         if (!collapsed) Box {
@@ -109,12 +110,12 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
           }
         }
     }
-    if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text("Add a shortcut") },
-        confirmButton = { TextButton(onClick = { picking = false }) { Text("Done") } }, text = {
+    if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text(desktopText("Add a shortcut")) },
+        confirmButton = { TextButton(onClick = { picking = false }) { Text(desktopText("Done")) } }, text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Filter playlists and artists") })
+                OutlinedTextField(query, { query = it }, singleLine = true, label = { Text(desktopText("Filter playlists and artists")) })
                 val matches = candidates.filter { it.name.contains(query, true) }.distinctBy { it.id }
-                if (matches.isEmpty()) Text("No matching playlists or artists.")
+                if (matches.isEmpty()) Text(desktopText("No matching playlists or artists."))
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     items(matches, key = { it.id }) { item ->
                         val isPinned = pins.any { pin ->
@@ -196,22 +197,10 @@ private fun ShortcutPhoto(item: SpeedDialItem, side: Int = 48) {
     val isArtist = item.type == SpeedDialType.ARTIST
     val shape = if (isArtist) CircleShape else RoundedCornerShape(8.dp)
     val rawUrl = item.image?.takeIf { it.isNotBlank() } ?: item.track?.thumbnail?.takeIf { it.isNotBlank() }
-    val imageUrl = remember(rawUrl) {
-        if (!rawUrl.isNullOrBlank()) com.auralis.music.ui.components.getOptimizedThumbnailUrl(rawUrl) ?: rawUrl else null
-    }
-    val context = coil3.compose.LocalPlatformContext.current
-    val request = remember(imageUrl) {
-        if (!imageUrl.isNullOrBlank()) {
-            coil3.request.ImageRequest.Builder(context)
-                .data(imageUrl)
-                .size(400)
-                .build()
-        } else null
-    }
     Box(Modifier.size(side.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center) {
-        if (request != null) {
-            AsyncImage(request, item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (!rawUrl.isNullOrBlank() || item.track != null) {
+            HomeArtwork(rawUrl, Modifier.fillMaxSize(), item.track?.id, contentDescription = item.name)
         } else {
             val icon = when (item.type) {
                 SpeedDialType.ARTIST -> Icons.Outlined.Person

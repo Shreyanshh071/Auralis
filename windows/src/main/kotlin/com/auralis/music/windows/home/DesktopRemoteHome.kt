@@ -43,17 +43,18 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                     launch {
                         try {
                             val root = api.browseHome()
-                            if (version == generation) mutable.value = mutable.value.copy(shelves = parseRemoteHome(root),
-                                token = remoteHomeContinuation(root), loading = false)
+                            // Parsing a whole feed took ~100ms; keep it off the UI thread at startup.
+                            val (shelves, token) = withContext(Dispatchers.Default) { parseRemoteHome(root) to remoteHomeContinuation(root) }
+                            if (version == generation) mutable.value = mutable.value.copy(shelves = shelves, token = token, loading = false)
                         } catch (e: CancellationException) { throw e }
                         catch (_: Exception) { if (version == generation) mutable.value = mutable.value.copy(loading = false, error = "Couldn't load your YouTube Home. Try again.") }
                     }
                     launch {
-                        val tracks = runCatching { parseRemoteHistory(api.browseHome("FEmusic_history")) }.getOrDefault(emptyList())
+                        val tracks = runCatching { api.browseHome("FEmusic_history").let { withContext(Dispatchers.Default) { parseRemoteHistory(it) } } }.getOrDefault(emptyList())
                         if (version == generation) mutable.value = mutable.value.copy(recents = tracks)
                     }
                     launch {
-                        val shelves = runCatching { parseRemoteHome(api.browseHome("FEmusic_new_releases")) }.getOrDefault(emptyList())
+                        val shelves = runCatching { api.browseHome("FEmusic_new_releases").let { withContext(Dispatchers.Default) { parseRemoteHome(it) } } }.getOrDefault(emptyList())
                         val albums = shelves.flatMap { it.albums }.filterNot { it.id.startsWith("UC") }.distinctBy { it.id }
                         if (version == generation && albums.isNotEmpty()) mutable.value = mutable.value.copy(
                             releases = DesktopHomeShelf("new-releases", "Albums & singles", albums = albums))
@@ -73,7 +74,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
             val root = api.browseHome(continuation = next)
             if (version != generation) return
             consumed += next
-            val page = parseRemoteHome(root)
+            val page = withContext(Dispatchers.Default) { parseRemoteHome(root) }
             val known = mutable.value.shelves.map { it.id }.toSet()
             val fresh = page.filter { it.id !in known }
             mutable.value = mutable.value.copy(shelves = mutable.value.shelves + fresh, loadingMore = false,

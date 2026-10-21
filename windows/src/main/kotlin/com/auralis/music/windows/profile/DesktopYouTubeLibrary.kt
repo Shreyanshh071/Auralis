@@ -24,8 +24,10 @@ internal class YouTubeAccountsStore(private val store: KeyValueStore) {
         entries.optJSONObject(index)?.let { YouTubeAccountSummary(it.getString("id"),
             YouTubeIdentity(it.getString("name"), it.optString("subtitle"), it.optString("avatar").takeIf(String::isNotBlank))) }
     }
-    @Synchronized fun findCookie(cookie: String): String? = (0 until entries.length()).firstNotNullOfOrNull {
-        entries.optJSONObject(it)?.takeIf { item -> item.optString("session") == cookie }?.optString("id")
+    @Synchronized fun findCookie(cookie: String, authUser: String = "0"): String? = (0 until entries.length()).firstNotNullOfOrNull {
+        entries.optJSONObject(it)?.takeIf { item ->
+            item.optString("authUser", "0") == authUser && sameYouTubeAccountSession(item.optString("session"), cookie)
+        }?.optString("id")
     }
     @Synchronized fun session(id: String): JSONObject? = (0 until entries.length()).firstNotNullOfOrNull {
         entries.optJSONObject(it)?.takeIf { item -> item.optString("id") == id }?.let { item -> JSONObject(item.toString()) }
@@ -77,10 +79,9 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
         val version = generation
         client = null
         if (cookie.isBlank()) {
-            mutable.value.activeId?.let(accounts::remove)
             mutable.value = YouTubeLibraryState(accounts = accounts.summaries()); return
         }
-        val cachedId = accounts.findCookie(cookie)
+        val cachedId = accounts.findCookie(cookie, headers["X-Goog-AuthUser"] ?: "0")
         val cachedIdentity = accounts.summaries().firstOrNull { it.id == cachedId }?.identity
         mutable.value = YouTubeLibraryState(cachedIdentity, accounts.playlists(cachedId), true,
             accounts = accounts.summaries(), activeId = cachedId)
@@ -108,7 +109,7 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 if (generation == version) mutable.value = mutable.value.copy(loading = false,
-                    error = if (client == null) "Couldn't verify your YouTube account. Reconnect your browser profile."
+                    error = if (client == null) "Couldn't reach your YouTube account. Your saved connection is retained; try again."
                     else "Couldn't finish loading your YouTube playlists. Try again.")
             }
         }
@@ -152,5 +153,16 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
             check(version == generation) { "The YouTube account changed. Open this playlist again." }
             onPage(page)
         }
+    }
+}
+
+/** Google rotates non-identity cookies independently of the account registry. */
+internal fun sameYouTubeAccountSession(saved: String, current: String): Boolean {
+    if (!YouTubeSession.hasAuthCookies(saved) || !YouTubeSession.hasAuthCookies(current)) return false
+    if (saved == current) return true
+    val a = YouTubeSession.parseCookies(saved)
+    val b = YouTubeSession.parseCookies(current)
+    return listOf("SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID").any { name ->
+        !a[name].isNullOrBlank() && a[name] == b[name]
     }
 }

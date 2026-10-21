@@ -34,7 +34,8 @@ fun main() = application {
                 TitleBarActions(false, false, {}, {}, {}, "Sign in", {}, {}, {}, {}),
                 "Auralis window-frame check", null, state.placement == WindowPlacement.Maximized,
                 { frame?.minimize() }, { frame?.toggleMaximize() }, ::exitApplication,
-                captionBounds = { frame?.captionBounds = it }, maximizeBounds = { frame?.maximizeBounds = it }
+                captionBounds = { frame?.captionBounds = it }, brandBounds = { frame?.brandBounds = it }, maximizeBounds = { frame?.maximizeBounds = it },
+                minimizeBounds = { frame?.minimizeBounds = it }, closeBounds = { frame?.closeBounds = it }
             )
             Text("Checking native window controls. This window will close automatically.")
         }
@@ -50,9 +51,40 @@ fun main() = application {
             try {
                 delay(800)
                 val original = rect()
+                val originalHandle = window.windowHandle
+                native.systemDecorated = true
+                delay(500)
+                val decoratedClient = RECT().also { user.GetClientRect(hwnd, it) }
+                val decoratedOrigin = POINT().also { it.write() }
+                api.getFunction("ClientToScreen").invokeInt(arrayOf(hwnd, decoratedOrigin.pointer))
+                decoratedOrigin.read()
+                check(decoratedOrigin.y > original.top + 15) { "System caption did not reserve a native title bar" }
+                check(decoratedClient.bottom < original.bottom - original.top - 15) { "System title bar did not resize the client" }
+                check(window.windowHandle == originalHandle) { "Title-bar switch recreated the window" }
+                val nativeCaptionHit = hit(original.left + 100, original.top + 18)
+                check(nativeCaptionHit == 2) { "System caption cannot drag the window: $nativeCaptionHit" }
+                user.EnumChildWindows(hwnd, { child, _ ->
+                    val childRect = RECT().also { user.GetWindowRect(child, it) }
+                    check(childRect.left == decoratedOrigin.x && childRect.top == decoratedOrigin.y &&
+                        childRect.right == decoratedOrigin.x + decoratedClient.right &&
+                        childRect.bottom == decoratedOrigin.y + decoratedClient.bottom) {
+                        "Compose canvas did not fit the decorated client: $childRect"
+                    }
+                    true
+                }, null)
+                native.systemDecorated = false
+                delay(500)
+                val customClient = RECT().also { user.GetClientRect(hwnd, it) }
+                check(customClient.bottom == original.bottom - original.top) { "Custom title bar did not restore the full client" }
+                println("PASS: system title bar applies and restores live on the same native window")
                 val caption = native.captionBounds
                 check(caption.width > 0) { "Missing caption geometry" }
                 check(hit(original.left + caption.center.x.toInt(), original.top + caption.center.y.toInt()) == 2)
+                val brand = native.brandBounds
+                check(brand.width > 0) { "Missing logo/name drag area" }
+                check(hit(original.left + brand.center.x.toInt(), original.top + brand.center.y.toInt()) == 2) {
+                    "Logo/name must be a native drag area"
+                }
                 val maximize = native.maximizeBounds
                 check(hit(original.left + maximize.center.x.toInt(), original.top + maximize.center.y.toInt()) == 9)
                 check(hit(original.left + 1, original.top + 1) == 13)

@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Repeat
@@ -126,10 +128,10 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 IconButton(onClick = controller::shuffleUpcoming, enabled = queue.hasNext && !roomActive,
                     colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Shuffle, desktopText("Shuffle upcoming songs"), Modifier.size(20.dp))
                 }
                 IconButton(onClick = controller::previous, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(22.dp))
+                    Icon(Icons.Rounded.SkipPrevious, contentDescription = desktopText("Previous"), modifier = Modifier.size(22.dp))
                 }
                 val busy = resolving || state == VlcAudioPlayer.State.BUFFERING
                 FilledIconButton(
@@ -152,7 +154,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                     }
                 }
                 IconButton(onClick = controller::next, enabled = queue.hasNext || (enabled && !roomActive && repeatMode == DesktopPlaybackController.RepeatMode.ALL), colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(22.dp))
+                    Icon(Icons.Rounded.SkipNext, contentDescription = desktopText("Next"), modifier = Modifier.size(22.dp))
                 }
                 IconButton(onClick = controller::cycleRepeatMode, enabled = enabled && !roomActive,
                     colors = IconButtonDefaults.iconButtonColors(contentColor = if (repeatMode == DesktopPlaybackController.RepeatMode.OFF)
@@ -186,9 +188,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             Box {
                 var devices by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
                 IconButton(onClick = { devices = controller.outputDevices() }, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.Headphones, "Sound output", tint = iconTint, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Headphones, desktopText("Sound output"), tint = iconTint, modifier = Modifier.size(20.dp))
                 }
-                com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
+                com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }, frosted = true) {
                     com.auralis.music.windows.GlassDropdownMenuHeader("Sound output")
                     val chosen = controller.outputDevice
                     // libVLC lists Windows' default as an empty id; show it as "Windows default".
@@ -209,14 +211,14 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                             onClick = { controller.setOutputDevice(id.ifEmpty { null }); devices = null }
                         )
                     }
-                    if (devices.isNullOrEmpty()) com.auralis.music.windows.GlassDropdownMenuItem(text = { Text("No outputs found") }, onClick = { devices = null }, enabled = false)
+                    if (devices.isNullOrEmpty()) com.auralis.music.windows.GlassDropdownMenuItem(text = { Text(desktopText("No outputs found")) }, onClick = { devices = null }, enabled = false)
                 }
             }
             IconButton(onClick = onOpenLyrics, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Outlined.Textsms, "Lyrics", tint = iconTint, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Textsms, desktopText("Lyrics"), tint = iconTint, modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = onOpenQueue, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, "Queue", tint = iconTint, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, desktopText("Queue"), tint = iconTint, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -272,9 +274,9 @@ private fun TimeLabel(ms: Long) {
 @Composable
 private fun NoPlayer() {
     Column {
-        Text("Playback needs VLC", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(desktopText("Playback needs VLC"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         Text(
-            "Auralis plays audio through libVLC. Install VLC (64-bit) and restart Auralis.",
+            desktopText("Auralis plays audio through libVLC. Install VLC (64-bit) and restart Auralis."),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

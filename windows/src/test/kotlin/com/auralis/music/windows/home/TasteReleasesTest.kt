@@ -37,5 +37,12 @@ class TasteReleasesTest {
         val patience = albums.first { it.title == "Patience" }
         assertEquals("album:s4", patience.id)
     }
+
+    @Test fun albumUsesARealIdEvenWhenTheFirstListenHasNone() {
+        val listens = listOf(
+            Listen("1", Track("first", "Song one", "TV Girl", album = "Who Really Cares"), now, 180_000),
+            Listen("2", Track("second", "Song two", "TV Girl", album = "Who Really Cares", albumId = "MPRE-real"), now, 180_000))
+        assertEquals("MPRE-real", TasteReleases.localAlbumsForArtist(listens, "TV Girl").single().id)
+    }
 }
 

@@ -97,8 +97,11 @@ object DesktopPlaybackSessionStore {
         palette: ArtworkPalette? = null
     ) {
         if (track.id.isBlank()) return
-        val existingPalette = palette?.takeIf { !it.isDefault } ?: cachedSession?.palette
-        val existingArtwork = artworkUrl?.takeIf { it.isNotBlank() } ?: cachedSession?.artworkUrl ?: track.thumbnail.takeIf { it.isNotBlank() }
+        val sameTrack = cachedSession?.track?.id == track.id
+        val existingPalette = palette?.takeIf { !it.isDefault }
+            ?: if (sameTrack) cachedSession?.palette else null
+        val existingArtwork = artworkUrl?.takeIf { it.isNotBlank() }
+            ?: if (sameTrack) cachedSession?.artworkUrl else track.thumbnail.takeIf { it.isNotBlank() }
         val session = SavedPlaybackSession(track, queue, queueIndex, existingArtwork, existingPalette)
         cachedSession = session
 

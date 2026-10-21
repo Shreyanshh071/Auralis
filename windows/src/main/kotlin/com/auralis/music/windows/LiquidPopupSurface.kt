@@ -55,7 +55,7 @@ internal fun Modifier.recordPopupGlass(source: PopupGlassSource): Modifier = thi
 /** Shared by options menus and search; popup coordinates are relative to the owner window. */
 @Composable
 internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
-    tint: Color = Color(0xFF101010).copy(alpha = .38f), content: @Composable () -> Unit) {
+    tint: Color = Color(0xFF101010).copy(alpha = .38f), frosted: Boolean = false, content: @Composable () -> Unit) {
     val source = LocalPopupGlassSource.current
     val shape = RoundedCornerShape(18.dp)
     val layer = rememberGraphicsLayer()
@@ -71,7 +71,8 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
         .drawWithCache {
             val padding = 54.dp.toPx()
             val copiedDensity = Density(density, fontScale)
-            layer.renderEffect = effect.create(size.width, size.height, padding, density, 18.dp.toPx())
+            layer.renderEffect = if (frosted) androidx.compose.ui.graphics.BlurEffect(24.dp.toPx(), 24.dp.toPx())
+                else effect.create(size.width, size.height, padding, density, 18.dp.toPx())
             onDrawWithContent {
                 // Observing the capture frame repaints the popup scene when the page changes.
                 source?.frame?.longValue
@@ -89,12 +90,12 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
                     drawContext.canvas.translate(padding, padding)
                 }
                 drawRect(tint.copy(alpha = if (captured) tint.alpha else .68f))
-                drawRect(Brush.verticalGradient(
+                if (!frosted) drawRect(Brush.verticalGradient(
                     0f to Color.White.copy(alpha = .18f),
                     0.35f to Color.White.copy(alpha = .04f),
                     1f to Color.Transparent
                 ))
-                drawRect(Brush.linearGradient(
+                if (!frosted) drawRect(Brush.linearGradient(
                     0f to Color.White.copy(alpha = .10f),
                     0.45f to Color.Transparent,
                     start = Offset.Zero,
@@ -103,7 +104,7 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
                 drawContent()
             }
         }
-        .border(1.dp, Brush.verticalGradient(listOf(
+        .border(1.dp, if (frosted) androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = .14f)) else Brush.verticalGradient(listOf(
             Color.White.copy(alpha = .38f),
             Color.White.copy(alpha = .08f),
             Color.White.copy(alpha = .18f)

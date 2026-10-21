@@ -74,7 +74,7 @@ class DesktopPlaybackController(
     private val autoRadio = DesktopAutoRadio(scope, { _queue.value },
         { autoLoadMore && roomControl == null && _repeatMode.value == RepeatMode.OFF }, { radioCandidates(it) },
         { batch -> _queue.update { q -> q.copy(tracks = q.tracks + batch.filter { song -> q.tracks.none { it.id == song.id } }) } },
-        { val q = _queue.value; if (q.hasNext) load(q.copy(index = q.index + 1)) })
+        { if (_queue.value.hasNext) next() })
     private val _session = MutableStateFlow(0L)
     val session: StateFlow<Long> = _session.asStateFlow()
     private val _roomActive = MutableStateFlow(false)
@@ -109,6 +109,16 @@ class DesktopPlaybackController(
         if (tracks.isEmpty() || index !in tracks.indices) return
         if (_queue.value.current == null && player.state.value == VlcAudioPlayer.State.IDLE) {
             _queue.value = Queue(tracks = tracks, index = index)
+            // The first lookup after launch is the slowest (~2.5s, NewPipe warming up); do it for the
+            // restored song shortly after launch, so pressing play starts it almost at once.
+            val track = tracks[index]
+            if (offlineFile(track.id) == null) preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.delay(RESTORED_PRELOAD_DELAY_MS)
+                if (_queue.value.current?.id != track.id || player.state.value != VlcAudioPlayer.State.IDLE) return@launch
+                val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id)
+                    ?: track.id.takeIf(DesktopPlaybackMatch::isVideoId) ?: return@launch
+                resolveStream(id)?.let { LocalStreamRelay.preload(it, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }) }
+            }
         }
     }
 
@@ -116,8 +126,10 @@ class DesktopPlaybackController(
     fun shuffleUpcoming() {
         if (roomControl != null) return // The room host owns the shared queue order.
         val queue = _queue.value
-        if (!queue.hasNext) return
-        _queue.value = queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled(), listenedIndices = queue.listenedIndices.filter { it <= queue.index }.toSet())
+        if (queue.current == null) return
+        shuffleEngaged = true
+        _queue.value = if (shuffleWholeQueue) Queue(listOf(queue.current!!) + queue.tracks.filterIndexed { i, _ -> i != queue.index }.shuffled(), 0)
+        else queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled(), listenedIndices = queue.listenedIndices.filter { it <= queue.index }.toSet())
     }
 
     /** True while the stream URL for the current song is being looked up. */
@@ -129,6 +141,8 @@ class DesktopPlaybackController(
     val volume: StateFlow<Float> = _volume
 
     val state: StateFlow<VlcAudioPlayer.State> get() = player.state
+    /** The native stream identity and state in one emission; the queue may already show the next song. */
+    val mediaState: StateFlow<VlcAudioPlayer.MediaState> get() = player.mediaState
     val positionMs: StateFlow<Long> get() = player.positionMs
     /** Which song libVLC's length belongs to; null while the next stream is still resolving. */
     private val lengthTrackId = MutableStateFlow<String?>(null)
@@ -144,6 +158,14 @@ class DesktopPlaybackController(
     val clock: com.auralis.music.data.service.PlaybackClockSource get() = player.clock
     @Volatile var preloadNext: Boolean = true
     fun setRate(rate: Float) = player.setRate(rate)
+    fun setNormalizeVolume(enabled: Boolean) { player.normalizeVolume = enabled }
+    var crossfadeSeconds: Float
+        get() = player.crossfadeSeconds
+        set(value) { player.crossfadeSeconds = value.coerceIn(0f,12f) }
+    @Volatile var preventDuplicates = true
+    @Volatile var stickyShuffle = false
+    @Volatile var shuffleWholeQueue = false
+    private var shuffleEngaged = false
     private var preloadJob: Job? = null
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -155,6 +177,9 @@ class DesktopPlaybackController(
     /** The song whose stream was already looked up again after a playback error. */
     private var retriedTrackId: String? = null
 
+    /** The song being started and when it was asked for, until it sounds (for the log). */
+    @Volatile private var startRequested: Pair<String, Long>? = null
+
     /** The stream URL handed to libVLC for the current song. */
     @Volatile private var currentUrl: String? = null
 
@@ -163,19 +188,35 @@ class DesktopPlaybackController(
         // a URL is handed to libVLC (it reports a refused stream a moment later).
         scope.launch {
             player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) {
+                startRequested?.let { (id, nanos) ->
+                    startRequested = null
+                    com.auralis.music.util.Log.i("DesktopPlayback", "Started $id in ${(System.nanoTime() - nanos) / 1_000_000}ms")
+                }
                 consecutiveFailures = 0
                 _queue.update { q -> q.current?.let { q.copy(listenedIndices = q.listenedIndices + q.index) } ?: q }
             } }
         }
         player.onFinished = { scope.launch {
+            if (_resolving.value && crossfadeSeconds > 0) return@launch
             if (roomControl != null) { if (_queue.value.hasNext) next() }
             else {
-                val next = _queue.value.afterFinished(_repeatMode.value)
+                val q = _queue.value
+                val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
+                val next = withCurrentHeard.afterFinished(_repeatMode.value)
                 if (next != null) load(next) else autoRadio.request(advanceWhenLoaded = true)
             }
         } }
+        scope.launch {
+            player.positionMs.collect { position ->
+                val remaining = player.lengthMs.value - position
+                if (crossfadeSeconds > 0 && roomControl == null && _repeatMode.value != RepeatMode.ONE &&
+                    player.state.value == VlcAudioPlayer.State.PLAYING && !_resolving.value && _queue.value.hasNext &&
+                    remaining > 0 && remaining <= crossfadeSeconds * 1000 && position > 1000) next()
+            }
+        }
         player.onError = {
             scope.launch {
+                if (_resolving.value && crossfadeSeconds > 0) return@launch
                 val track = _queue.value.current ?: return@launch
                 // A stream URL can expire or be refused (YouTube answers 403). Like the phone,
                 // avoid that server for a while and look the song up once more before giving up.
@@ -196,7 +237,9 @@ class DesktopPlaybackController(
     fun playFrom(track: Track, list: List<Track>, automatic: Boolean = list.size <= 1) {
         if (intercepted("play_track", track)) return
         autoRadio.reset(automatic)
-        val tracks = list.ifEmpty { listOf(track) }
+        val supplied = list.ifEmpty { listOf(track) }
+        val unique = if (preventDuplicates) supplied.distinctBy { it.id } else supplied
+        val tracks = if (stickyShuffle && shuffleEngaged) listOf(track) + unique.filter { it.id != track.id }.shuffled() else unique
         val index = tracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
         consecutiveFailures = 0
         load(Queue(tracks, index))
@@ -223,8 +266,9 @@ class DesktopPlaybackController(
     fun next() {
         if (intercepted("next")) return
         val q = _queue.value
-        if (q.hasNext) load(q.copy(index = q.index + 1))
-        else if (roomControl == null && q.current != null && _repeatMode.value == RepeatMode.ALL) load(q.copy(index = 0))
+        val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
+        if (withCurrentHeard.hasNext) load(withCurrentHeard.copy(index = withCurrentHeard.index + 1))
+        else if (roomControl == null && withCurrentHeard.current != null && _repeatMode.value == RepeatMode.ALL) load(withCurrentHeard.copy(index = 0))
         else autoRadio.request(advanceWhenLoaded = true)
     }
 
@@ -233,7 +277,10 @@ class DesktopPlaybackController(
         if (intercepted("previous")) return
         val q = _queue.value
         if (player.positionMs.value > 3000L || q.index <= 0) seekTo(0L)
-        else load(q.copy(index = q.index - 1))
+        else {
+            val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
+            load(withCurrentHeard.copy(index = q.index - 1))
+        }
     }
 
     fun seekTo(ms: Long) { if (!intercepted("seek", position = ms)) player.seekTo(ms) }
@@ -256,6 +303,7 @@ class DesktopPlaybackController(
         if (intercepted("recommend", track)) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
+        if (preventDuplicates && q.tracks.drop(q.index + 1).any { it.id == track.id }) return
         val tracks = q.tracks.toMutableList().apply { add(q.index + 1, track) }
         _queue.value = q.copy(tracks = tracks, listenedIndices = q.listenedIndices.map { if (it > q.index) it + 1 else it }.toSet())
     }
@@ -265,6 +313,7 @@ class DesktopPlaybackController(
         if (intercepted("recommend", track)) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
+        if (preventDuplicates && q.tracks.drop(q.index + 1).any { it.id == track.id }) return
         _queue.value = q.copy(tracks = q.tracks + track)
     }
 
@@ -274,7 +323,8 @@ class DesktopPlaybackController(
         if (index !in q.tracks.indices) return
         if (intercepted("play_track", q.tracks[index])) return
         consecutiveFailures = 0
-        load(q.copy(index = index))
+        val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
+        load(withCurrentHeard.copy(index = index))
     }
 
     /** Removes a song that isn't the one playing. */
@@ -319,14 +369,23 @@ class DesktopPlaybackController(
         autoRadio.reset(false)
         preloadJob?.cancel()
         loadJob?.cancel()
+        stallJob?.cancel()
         player.release()
     }
 
+    private fun shouldRetainUnplayed(current: Queue, requested: Queue): Boolean {
+        if (current.tracks.size != requested.tracks.size) return false
+        if (current.current == null || requested.current == null) return false
+        return requested.index > current.index + 1
+    }
+
     private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
-        // Room queues retain the host's shared positions. Local selections keep every unheard
-        // song available after the selection instead of hiding the skipped-over range.
-        val q = if (roomControl == null) requested.retainUnplayed() else requested
+        val current = _queue.value
+        // Retain unplayed songs only when jumping ahead by 2 or more tracks over unheard songs.
+        // Sequential advancement (next, finished) and stepping back (previous) never reorder tracks.
+        val q = if (roomControl == null && shouldRetainUnplayed(current, requested)) requested.retainUnplayed() else requested
         val track = q.current ?: return
+        if (!isRetry) startRequested = track.id to System.nanoTime()
         if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
         lengthTrackId.value = null
@@ -334,8 +393,12 @@ class DesktopPlaybackController(
         autoRadio.queueChanged()
         loadJob?.cancel()
         preloadJob?.cancel()
-        player.stop()
+        stallJob?.cancel()
+        val fade = crossfadeSeconds > 0 && roomControl == null && !isRetry && resumeAtMs == 0L &&
+            current.current != null && current.current?.id != track.id && player.state.value == VlcAudioPlayer.State.PLAYING
+        if (!fade) player.stop()
         if (!isRetry) roomTrackWillLoad?.invoke(track)
+        player.warmOutput()
         loadJob = scope.launch {
             _resolving.value = true
             val localAudio = offlineFile(track.id)
@@ -343,7 +406,9 @@ class DesktopPlaybackController(
                 localAudio?.absolutePath
                     ?: run {
                         val videoId = DesktopPlaybackMatch.videoId(track)
+                        // An age-restricted or unplayable upload: play another upload of the same recording.
                         if (videoId == null) null else resolveStream(videoId)
+                            ?: DesktopPlaybackMatch.alternative(track, videoId, resolveStream)?.second
                     }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -357,22 +422,86 @@ class DesktopPlaybackController(
             if (url == null) {
                 failed(track)
             } else {
+                // A sleeping device (Bluetooth earbuds) misses the first second or two of whatever
+                // plays as it wakes; give a cold one that long on silence first.
+                val awake = player.warmOutput()
+                if (awake < OUTPUT_WAKE_MS) {
+                    kotlinx.coroutines.delay(OUTPUT_WAKE_MS - awake)
+                    if (_queue.value.current?.id != track.id) return@launch
+                }
                 player.setVolume(_volume.value)
                 currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
-                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs)
+                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs, track.id)
                 lengthTrackId.value = track.id
+                if (localAudio == null) watchForStall(track)
                 if (preloadNext && q.hasNext) {
                     preloadJob?.cancel()
                     preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         val next = q.tracks[q.index + 1]
+                        if (offlineFile(next.id) != null) return@launch
                         val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id)
                             ?: (if (DesktopPlaybackMatch.isVideoId(next.id)) next.id else DesktopPlaybackMatch.videoId(next))
-                        if (id != null && DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)
+                        // The next song's address and its first seconds of audio, so skipping starts at once.
+                        if (id != null && DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)?.let { nextUrl ->
+                            LocalStreamRelay.preload(nextUrl, refresh = { DesktopStreamResolver.refreshBlocking(next.id) })
+                        }
                     }
                 }
             }
         }
+    }
+
+    private var stallJob: Job? = null
+    /** Fresh streams fetched for a song that stalled; reset when another song is picked. */
+    private var stallRetries = 0
+    private var stallTrackId: String? = null
+
+    /**
+     * A stream can open but never deliver (or stop mid-song) without libVLC reporting an error, so
+     * the song sat buffering until it was picked again, which fetched a fresh stream. Do that on
+     * its own: no sound within [START_STALL_MS] of starting, or no progress for [PLAY_STALL_MS] while
+     * playing, gets a fresh stream at the same position (twice, then the song counts as failed).
+     */
+    private fun watchForStall(track: Track) {
+        if (stallTrackId != track.id) { stallTrackId = track.id; stallRetries = 0 }
+        stallJob?.cancel()
+        stallJob = scope.launch {
+            var lastPosition = -1L
+            var since = System.nanoTime()
+            while (_queue.value.current?.id == track.id) {
+                kotlinx.coroutines.delay(500)
+                val state = player.state.value
+                val position = player.positionMs.value
+                val waiting = state == VlcAudioPlayer.State.BUFFERING || state == VlcAudioPlayer.State.PLAYING
+                if (!waiting || roomControl != null || (state == VlcAudioPlayer.State.PLAYING && position != lastPosition)) {
+                    if (state == VlcAudioPlayer.State.PLAYING) lastPosition = position
+                    since = System.nanoTime()
+                    if (state == VlcAudioPlayer.State.ENDED || state == VlcAudioPlayer.State.ERROR) return@launch
+                    continue
+                }
+                val limit = if (lastPosition < 0) START_STALL_MS else PLAY_STALL_MS
+                if ((System.nanoTime() - since) / 1_000_000 < limit) continue
+                if (stallRetries >= 2) {
+                    com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} still stalled after fresh streams")
+                    failed(track)
+                    return@launch
+                }
+                stallRetries++
+                com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} stalled ${if (lastPosition < 0) "before starting" else "at ${position}ms"}; fetching a fresh stream ($stallRetries/2)")
+                currentUrl?.let(DesktopStreamResolver::markHostFailed)
+                DesktopStreamResolver.invalidate(track.id)
+                load(_queue.value, resumeAtMs = if (lastPosition < 0) 0L else position, isRetry = true)
+                return@launch
+            }
+        }
+    }
+
+    private companion object {
+        const val OUTPUT_WAKE_MS = 1000L
+        const val START_STALL_MS = 6000L
+        const val RESTORED_PRELOAD_DELAY_MS = 4000L
+        const val PLAY_STALL_MS = 10_000L
     }
 
     private fun failed(track: Track) {

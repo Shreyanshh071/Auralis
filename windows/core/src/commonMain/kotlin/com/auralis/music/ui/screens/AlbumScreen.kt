@@ -98,7 +98,10 @@ fun AlbumScreen(
     onBack: () -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBackButton: Boolean = true,
+    loadFailed: Boolean = false,
+    onRetry: () -> Unit = {}
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -172,7 +175,7 @@ fun AlbumScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -200,7 +203,7 @@ fun AlbumScreen(
                             .background(Color.Black.copy(alpha = 0.35f))
                     }
 
-                    Box(
+                    if (showBackButton) Box(
                         modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -210,7 +213,7 @@ fun AlbumScreen(
                             tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )
-                    }
+                    } else Spacer(Modifier.size(40.dp))
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -620,17 +623,19 @@ fun AlbumScreen(
                 }
             } else {
                 item {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 40.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = str(Strings.no_tracks_found_for_this_album),
+                            text = if (loadFailed) "Couldn't load this album. Check your connection and try again."
+                                else str(Strings.no_tracks_found_for_this_album),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (loadFailed) TextButton(onClick = onRetry) { Text("Try again") }
                     }
                 }
             }

@@ -1,5 +1,7 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.Button
 import com.auralis.music.ui.components.TextButton
@@ -110,7 +112,7 @@ internal fun DesktopSignInDialog(
                             color = Color.White
                         )
                         Text(
-                            text = "Sync your library, playlists, and listening stats across devices",
+                            text = desktopText("Sync your library, playlists, and listening stats across devices"),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.6f)
                         )
@@ -118,7 +120,7 @@ internal fun DesktopSignInDialog(
                     IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
+                            contentDescription = desktopText("Close"),
                             tint = Color.White.copy(alpha = 0.85f)
                         )
                     }
@@ -185,7 +187,7 @@ internal fun DesktopSignInDialog(
                                             border = BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.5f))
                                         ) {
                                             Text(
-                                                if (accountState.profile!!.isGoogleConnected) "Google" else "Account",
+                                                desktopText(if (accountState.profile!!.isGoogleConnected) "Google" else "Account"),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = Color(0xFF4ADE80),
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -210,7 +212,7 @@ internal fun DesktopSignInDialog(
                                     ),
                                     enabled = !accountState.busy && !busy
                                 ) {
-                                    Text("Sign out")
+                                    Text(desktopText("Sign out"))
                                 }
                             }
                         }
@@ -222,7 +224,7 @@ internal fun DesktopSignInDialog(
                             Text(if (ytSignedIn) "YouTube Music connected${ytLabel?.let { " · $it" } ?: ""}"
                                 else "YouTube Music isn't connected yet.",
                                 style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.weight(1f))
-                            if (!ytSignedIn) TextButton(onClick = { selectedTab = SignInFilterTab.YOUTUBE }) { Text("Connect") }
+                            if (!ytSignedIn) TextButton(onClick = { selectedTab = SignInFilterTab.YOUTUBE }) { Text(desktopText("Connect")) }
                         }
                     }
 
@@ -245,7 +247,7 @@ internal fun DesktopSignInDialog(
                                     Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                                 }
                                 Column(Modifier.weight(1f)) {
-                                    Text("YouTube Music Connected", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
                                     Text(
                                         text = ytLabel.ifBlank { "Active session linked to this PC" },
                                         style = MaterialTheme.typography.bodySmall,
@@ -279,9 +281,9 @@ internal fun DesktopSignInDialog(
                                     if (busy) {
                                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Disconnecting...")
+                                        Text(desktopText("Disconnecting..."))
                                     } else {
-                                        Text("Disconnect")
+                                        Text(desktopText("Disconnect"))
                                     }
                                 }
                             }
@@ -321,7 +323,7 @@ internal fun DesktopSignInDialog(
                                 )
                                 // Dismisses both kinds: the dialog's own note and the account's ("Signed in as …").
                                 IconButton(onClick = { localMessage = null; account.clearMessage() }, modifier = Modifier.size(18.dp)) {
-                                    Icon(Icons.Default.Close, "Dismiss", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Default.Close, desktopText("Dismiss"), tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -354,13 +356,13 @@ internal fun DesktopSignInDialog(
                                 GoogleLogo(Modifier.size(24.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        "Sign in with Google",
+                                        desktopText("Sign in with Google"),
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFF1F1F1F)
                                     )
                                     Text(
-                                        "Opens browser to choose your Gmail / Google account",
+                                        desktopText("Opens browser to choose your Gmail / Google account"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFF5F6368)
                                     )
@@ -383,7 +385,7 @@ internal fun DesktopSignInDialog(
                                 ) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                                     Text(
-                                        "Select your Google account in the browser to sign in…",
+                                        desktopText("Select your Google account in the browser to sign in…"),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.White,
                                         modifier = Modifier.weight(1f)
@@ -392,7 +394,7 @@ internal fun DesktopSignInDialog(
                                         onClick = { account.cancelGoogle() },
                                         colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.85f))
                                     ) {
-                                        Text("Cancel")
+                                        Text(desktopText("Cancel"))
                                     }
                                 }
                             }
@@ -407,22 +409,22 @@ internal fun DesktopSignInDialog(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(alpha = 0.12f))
-                            Text("OR ENTER EMAIL MANUALLY", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f))
+                            Text(desktopText("OR ENTER EMAIL MANUALLY"), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f))
                             HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(alpha = 0.12f))
                         }
 
                         OutlinedTextField(
                             value = email,
                             onValueChange = { email = it },
-                            label = { Text("Email Address") },
-                            placeholder = { Text("name@example.com") },
+                            label = { Text(desktopText("Email Address")) },
+                            placeholder = { Text(desktopText("name@example.com")) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !accountState.busy && !busy,
                             trailingIcon = {
                                 if (email.isNotEmpty()) {
                                     IconButton(onClick = { email = "" }) {
-                                        Icon(Icons.Default.Close, "Clear", Modifier.size(16.dp))
+                                        Icon(Icons.Default.Close, desktopText("Clear"), Modifier.size(16.dp))
                                     }
                                 }
                             },
@@ -432,8 +434,8 @@ internal fun DesktopSignInDialog(
                         OutlinedTextField(
                             value = password,
                             onValueChange = { password = it },
-                            label = { Text("Password") },
-                            placeholder = { Text("Enter your password") },
+                            label = { Text(desktopText("Password")) },
+                            placeholder = { Text(desktopText("Enter your password")) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !accountState.busy && !busy,
@@ -459,9 +461,9 @@ internal fun DesktopSignInDialog(
                             if (accountState.busy && !accountState.browser) {
                                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                                 Spacer(Modifier.width(8.dp))
-                                Text(if (createMode) "Creating Account..." else "Signing In...")
+                                Text(desktopText(if (createMode) "Creating Account..." else "Signing In..."))
                             } else {
-                                Text(if (createMode) "Create Account" else "Sign In with Email")
+                                Text(desktopText(if (createMode) "Create Account" else "Sign In with Email"))
                             }
                         }
 
@@ -472,12 +474,12 @@ internal fun DesktopSignInDialog(
                         ) {
                             TextButton(onClick = { createMode = !createMode }, enabled = !accountState.busy && !busy) {
                                 Text(
-                                    if (createMode) "Already have an account? Sign in" else "Need an account? Create one",
+                                    desktopText(if (createMode) "Already have an account? Sign in" else "Need an account? Create one"),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
                             TextButton(onClick = { account.reset(email) }, enabled = !accountState.busy && !busy && email.contains('@')) {
-                                Text("Forgot password?", style = MaterialTheme.typography.bodySmall)
+                                Text(desktopText("Forgot password?"), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -531,11 +533,11 @@ internal fun DesktopSignInDialog(
                                     if (signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF1F1F1F))
                                     else GoogleLogo(Modifier.size(20.dp))
                                     Spacer(Modifier.width(10.dp))
-                                    Text(if (signingIn) "Waiting for sign-in…" else "Sign in with Google for YouTube Music", fontWeight = FontWeight.Medium)
+                                    Text(desktopText(if (signingIn) "Waiting for sign-in…" else "Sign in with Google for YouTube Music"), fontWeight = FontWeight.Medium)
                                 }
                             }
                             status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f)) }
-                            Text("Or use a browser where you're already signed in:", style = MaterialTheme.typography.bodySmall,
+                            Text(desktopText("Or use a browser where you're already signed in:"), style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.6f))
                         }
 
@@ -801,7 +803,7 @@ internal fun BrowserYouTubePicker(
                         Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("YouTube Music Connected", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                        Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, color = Color.White)
                         Text(
                             text = label.ifBlank { "Active session linked to this PC" },
                             style = MaterialTheme.typography.bodySmall,
@@ -835,9 +837,9 @@ internal fun BrowserYouTubePicker(
                         if (busy) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(Modifier.width(6.dp))
-                            Text("Disconnecting...")
+                            Text(desktopText("Disconnecting..."))
                         } else {
-                            Text("Disconnect")
+                            Text(desktopText("Disconnect"))
                         }
                     }
                 }
@@ -861,7 +863,7 @@ internal fun BrowserYouTubePicker(
                         Icon(Icons.Outlined.TravelExplore, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("1-Click Connect Available", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Text(desktopText("1-Click Connect Available"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color.White)
                         Text("${workingCandidate.label} is signed in with ${workingCandidate.email}, the same Google account as Auralis.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
                     }
                     Button(
@@ -871,9 +873,9 @@ internal fun BrowserYouTubePicker(
                         if (busy) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(Modifier.width(6.dp))
-                            Text("Connecting...")
+                            Text(desktopText("Connecting..."))
                         } else {
-                            Text("Connect")
+                            Text(desktopText("Connect"))
                         }
                     }
                 }
@@ -907,7 +909,7 @@ internal fun BrowserYouTubePicker(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { message = null }, modifier = Modifier.size(18.dp)) {
-                        Icon(Icons.Default.Close, "Dismiss", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Close, desktopText("Dismiss"), tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                     }
                 }
             }
@@ -921,7 +923,7 @@ internal fun BrowserYouTubePicker(
 
         when {
             profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
-            profiles!!.isEmpty() -> Text("No supported browser profiles found. You can paste a YouTube cookie below.")
+            profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste a YouTube cookie below."))
             else -> profiles!!.forEach { profile ->
                 val isCurrentlyActive = signedIn && (workingCandidate?.label == profile.label || profile.label == label)
                 val isCandidate = !signedIn && workingCandidate?.label == profile.label
@@ -993,13 +995,13 @@ internal fun BrowserYouTubePicker(
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "How to copy your cookie in Chrome / Edge:",
+                        desktopText("How to copy your cookie in Chrome / Edge:"),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
                     Text(
-                        "1. Open music.youtube.com and sign in\n2. Press F12 → go to the 'Network' tab\n3. Click any request, copy the 'Cookie' header and paste it here",
+                        desktopText("1. Open music.youtube.com and sign in\n2. Press F12 → go to the 'Network' tab\n3. Click any request, copy the 'Cookie' header and paste it here"),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.7f)
                     )
@@ -1007,8 +1009,8 @@ internal fun BrowserYouTubePicker(
                     OutlinedTextField(
                         value = cookie,
                         onValueChange = { cookie = it },
-                        label = { Text("YouTube Cookie Header") },
-                        placeholder = { Text("Paste Cookie: SID=... or __Secure-3PSID=...") },
+                        label = { Text(desktopText("YouTube Cookie Header")) },
+                        placeholder = { Text(desktopText("Paste Cookie: SID=... or __Secure-3PSID=...")) },
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = if (showCookieText) VisualTransformation.None else PasswordVisualTransformation(),
                         enabled = !busy && !accountState.busy,
@@ -1017,7 +1019,7 @@ internal fun BrowserYouTubePicker(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (cookie.isNotBlank()) {
                                     IconButton(onClick = { cookie = "" }) {
-                                        Icon(Icons.Default.Close, "Clear cookie")
+                                        Icon(Icons.Default.Close, desktopText("Clear cookie"))
                                     }
                                     IconButton(onClick = { showCookieText = !showCookieText }) {
                                         Icon(
@@ -1033,7 +1035,7 @@ internal fun BrowserYouTubePicker(
                                         if (!text.isNullOrBlank()) cookie = text.trim()
                                     } catch (_: Exception) {}
                                 }) {
-                                    Icon(Icons.Outlined.ContentPaste, "Paste from clipboard")
+                                    Icon(Icons.Outlined.ContentPaste, desktopText("Paste from clipboard"))
                                 }
                             }
                         }
@@ -1055,7 +1057,7 @@ internal fun BrowserYouTubePicker(
                             },
                             enabled = cookie.isNotBlank() && !busy && !accountState.busy
                         ) {
-                            Text("Connect YouTube Music")
+                            Text(desktopText("Connect YouTube Music"))
                         }
 
                         OutlinedButton(
@@ -1069,7 +1071,7 @@ internal fun BrowserYouTubePicker(
                         ) {
                             Icon(Icons.Outlined.OpenInBrowser, null, Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Open in Browser")
+                            Text(desktopText("Open in Browser"))
                         }
                     }
                 }
