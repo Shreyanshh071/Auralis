@@ -22,13 +22,14 @@ object OnboardingStore {
     private const val PICKER_DONE = "picker_done_v1"
     private const val ARTISTS = "starter_artists"
     private const val TRACKS = "starter_tracks"
+    private const val GUEST_ACCESS = "guest_access"
 
     @Serializable
     private data class SavedArtist(val id: String, val name: String, val thumbnail: String? = null)
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0)
+    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0, val guestAccess: Boolean = false)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
@@ -39,14 +40,14 @@ object OnboardingStore {
 
     /**
      * @param signedInAtLaunch someone updating from a version without onboarding is already
-     * signed in: they never see the tour or the picker.
+     * signed in: an app update must not replay the tour. Artist choices remain account-scoped.
      */
     fun init(context: Context, signedInAtLaunch: Boolean) {
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         val uid = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty() } catch (_: Exception) { "" }
         if (signedInAtLaunch && !p.contains(TOUR_SEEN)) {
-            p.edit().putBoolean(TOUR_SEEN, true).putBoolean("$PICKER_DONE:$uid", true).apply()
+            p.edit().putBoolean(TOUR_SEEN, true).apply()
         }
         bindAccount(uid)
     }
@@ -57,7 +58,16 @@ object OnboardingStore {
         val artists = decode(p.getString("$ARTISTS:$uid", null), ListSerializer(SavedArtist.serializer()))
         val tracks = decode(p.getString("$TRACKS:$uid", null), ListSerializer(Track.serializer()))
         NewUserSeedProvider.setStarter(artists.map { it.name }, tracks)
-        _state.value = State(p.getBoolean(TOUR_SEEN, false), p.getBoolean("$PICKER_DONE:$uid", false), uid)
+        if (uid.isNotBlank()) p.edit().putBoolean(GUEST_ACCESS, false).apply()
+        _state.value = State(p.getBoolean(TOUR_SEEN, false), p.getBoolean("$PICKER_DONE:$uid", false), uid,
+            starterVersion = _state.value.starterVersion + 1,
+            guestAccess = uid.isBlank() && p.getBoolean(GUEST_ACCESS, false))
+    }
+
+    /** Local guest access needs no Firebase account or cloud writes. */
+    fun continueAsGuest() {
+        prefs?.edit()?.putBoolean(GUEST_ACCESS, true)?.apply()
+        bindAccount("")
     }
 
     fun markTourSeen() {
@@ -65,7 +75,7 @@ object OnboardingStore {
         _state.value = _state.value.copy(tourSeen = true)
     }
 
-    /** Skipped picker: nothing saved, Home keeps the built-in starter mix. */
+    /** Skipped picker: Home loads the general feed without inventing artist preferences. */
     fun skipPicker() {
         prefs?.edit()?.putBoolean(accountKey(PICKER_DONE), true)?.apply()
         _state.value = _state.value.copy(pickerDone = true)
@@ -95,12 +105,12 @@ object OnboardingStore {
     /** Part of the existing account restore, before the new-user picker decision. */
     fun restorePicks(uid: String, cloud: Map<*, *>?) {
         val artistJson = cloud?.get("artists") as? String ?: return
-        val trackJson = cloud["tracks"] as? String ?: return
-        if (decode(artistJson, ListSerializer(SavedArtist.serializer())).isEmpty() ||
-            decode(trackJson, ListSerializer(Track.serializer())).isEmpty()) return
+        val trackJson = cloud["tracks"] as? String ?: "[]"
+        if (decode(artistJson, ListSerializer(SavedArtist.serializer())).isEmpty()) return
         prefs?.edit()?.putString("$ARTISTS:$uid", artistJson)?.putString("$TRACKS:$uid", trackJson)
             ?.putBoolean("$PICKER_DONE:$uid", true)?.apply()
-        bindAccount(uid)
+        // A slow restore from a previous account must not replace the current listener's taste.
+        if (_state.value.accountId == uid) bindAccount(uid)
     }
 
     private fun <T> decode(raw: String?, serializer: kotlinx.serialization.KSerializer<List<T>>): List<T> =

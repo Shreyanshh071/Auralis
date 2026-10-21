@@ -9,6 +9,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OnboardingFlowTest {
+    @Test fun `tour is installation scoped while artist choices are account scoped`() {
+        assertEquals(Step.TOUR, OnboardingFlow.step(false, true, true, true))
+        assertEquals(Step.APP, OnboardingFlow.step(true, true, true, null))
+        assertEquals(Step.PICK_ARTISTS, OnboardingFlow.step(true, true, false, false))
+        assertEquals(Step.SIGN_IN, OnboardingFlow.step(true, false, true, true))
+    }
+    @Test fun `regional and international artist suggestions interleave without duplicates`() {
+        val regional = listOf(Artist("a", "A"), Artist("b", "B"))
+        val international = listOf(Artist("c", "C"), Artist("a2", "A"))
+        assertEquals(listOf("A", "C", "B"), OnboardingFlow.suggestions(regional, international).map { it.name })
+    }
+
     @Test fun `first install runs tour then login then picks`() {
         assertEquals(Step.TOUR, OnboardingFlow.step(false, false, false, null))
         assertEquals(Step.SIGN_IN, OnboardingFlow.step(true, false, false, null))
@@ -18,7 +30,7 @@ class OnboardingFlowTest {
     }
     @Test fun `restore finishes before picker decision and returning users skip`() {
         assertEquals(Step.SETTLING, OnboardingFlow.step(true, true, false, null))
-        assertEquals(Step.APP, OnboardingFlow.step(true, true, false, true))
+        assertEquals(Step.PICK_ARTISTS, OnboardingFlow.step(true, true, false, true))
     }
     @Test fun `related artists insert beside pick without duplicates`() {
         val a = Artist("a", "A")

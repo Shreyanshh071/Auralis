@@ -14,6 +14,7 @@ import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.SearchRepository
+import com.auralis.music.ui.viewmodel.forDisplay
 import com.auralis.music.ui.viewmodel.HomeViewModel
 import com.auralis.music.ui.viewmodel.LibraryUiState
 import com.auralis.music.ui.viewmodel.OfflineLibrary
@@ -106,6 +107,37 @@ class ConnectivityOfflineTest {
     }
 
     // ── Home ──
+
+    @Test
+    fun speedDialAppearsLiveOnlyAfterSixMeasuredListensAndNeverPadsWithArtistPicks() = runTest(testDispatcher) {
+        val songs = (1..6).map { Track("real$it", "Distinct song $it", "Artist $it") }
+        val repo = mockk<HistoryRepository>()
+        coEvery { repo.getHistory() } returns flowOf(songs.map { HistoryEntry(it, 1L) })
+        coEvery { repo.getTopPlayedTracks() } returns flowOf(songs.map { PlayCountEntry(it.id, 1, 1L, it) })
+        coEvery { repo.getLikedSeeds(any()) } returns emptyList()
+        coEvery { repo.getRecentHeavyRotation(any()) } returns emptyList()
+        coEvery { repo.getForgottenFavorites(any()) } returns emptyList()
+        val times = MutableStateFlow<Map<String, Long>>(emptyMap())
+        val provider = com.auralis.music.domain.recommendations.NewUserSeedProvider
+        provider.setStarter(listOf("Chosen Artist"), listOf(Track("not-played", "Chosen song", "Chosen Artist")))
+        try {
+            val vm = HomeViewModel(repo, EmptySearch, mockk(relaxed = true),
+                ioDispatcher = testDispatcher, defaultDispatcher = testDispatcher,
+                isOnline = MutableStateFlow(false), listeningTimes = times)
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.forDisplay().speedDialPages.isEmpty())
+            times.value = songs.take(5).associate { it.id to 30_000L }
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.forDisplay().speedDialPages.isEmpty())
+            times.value = songs.associate { it.id to 30_000L }
+            advanceUntilIdle()
+            assertEquals(songs.map { it.id }.toSet(), vm.uiState.value.forDisplay().speedDialPages.flatten()
+                .mapNotNull { it.track?.id }.toSet())
+            times.value = emptyMap() // Clearing listening stats hides the row again.
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.forDisplay().speedDialPages.isEmpty())
+        } finally { provider.setStarter(emptyList(), emptyList()) }
+    }
 
     @Test
     fun homeIsOfflineAndFetchesNothingThenReloadsWhenNetworkReturns() = runTest(testDispatcher) {

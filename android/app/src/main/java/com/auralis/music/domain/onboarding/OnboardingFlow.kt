@@ -15,8 +15,8 @@ object OnboardingFlow {
     const val RELATED_PER_PICK = 3
 
     /**
-     * @param hasListeningData null while sign-in or the account restore is still settling;
-     * then whether the phone holds any history, playlists or liked songs.
+     * @param hasListeningData null while sign-in or account restore is still settling.
+     * Its non-null value no longer completes selection; only saved account choices do.
      */
     fun step(
         tourSeen: Boolean,
@@ -24,12 +24,11 @@ object OnboardingFlow {
         pickerDone: Boolean,
         hasListeningData: Boolean?
     ): Step = when {
-        !signedIn && !tourSeen -> Step.TOUR
+        !tourSeen -> Step.TOUR
         !signedIn -> Step.SIGN_IN
         pickerDone -> Step.APP
         hasListeningData == null -> Step.SETTLING
-        // A restored account already has a taste: its history drives Home, no picker needed.
-        hasListeningData -> Step.APP
+        // Only this account's saved choices complete onboarding, not imported playlists.
         else -> Step.PICK_ARTISTS
     }
 
@@ -69,4 +68,15 @@ object OnboardingFlow {
         (a.id.isNotBlank() && a.id == b.id) || key(a) == key(b)
 
     private fun key(a: Artist): String = a.name.trim().lowercase()
+
+    /** Keep regional discovery and international suggestions visible together. */
+    fun suggestions(regional: List<Artist>, international: List<Artist>): List<Artist> {
+        val result = mutableListOf<Artist>()
+        for (index in 0 until maxOf(regional.size, international.size)) {
+            listOfNotNull(regional.getOrNull(index), international.getOrNull(index)).forEach { artist ->
+                if (result.none { sameArtist(it, artist) }) result.add(artist)
+            }
+        }
+        return result
+    }
 }

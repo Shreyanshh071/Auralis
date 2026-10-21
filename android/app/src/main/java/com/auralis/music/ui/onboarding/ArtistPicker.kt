@@ -50,7 +50,11 @@ fun ArtistPicker(repository: SearchRepository, onComplete: () -> Unit) {
         if (!online || artists.isNotEmpty()) return@LaunchedEffect
         loading = true
         try {
-            artists = withTimeout(15_000) { ChartsArtistsSource.topArtists(ContentLocale.gl(), ContentLocale.hl()) }
+            artists = withTimeout(15_000) { coroutineScope {
+                val regional = async { ChartsArtistsSource.topArtists(ContentLocale.gl(), ContentLocale.hl()) }
+                val international = async { ChartsArtistsSource.topArtists("US", "en") }
+                OnboardingFlow.suggestions(regional.await(), international.await())
+            } }
             if (artists.isEmpty()) notice = "Artist suggestions are unavailable. Search for your favorites above."
         } catch (e: CancellationException) { if (e !is TimeoutCancellationException) throw e; notice = "Suggestions timed out. Try searching for an artist." }
         catch (_: Exception) { notice = "Artist suggestions are unavailable. Search for your favorites above." }
@@ -60,7 +64,7 @@ fun ArtistPicker(repository: SearchRepository, onComplete: () -> Unit) {
             try {
                 artists = withTimeoutOrNull(15_000) {
                     coroutineScope {
-                        ChartsArtistsSource.fallbackNames(ContentLocale.gl()).map { name -> async {
+                        (ChartsArtistsSource.fallbackNames(ContentLocale.gl()) + ChartsArtistsSource.fallbackNames("US")).distinct().map { name -> async {
                             try { repository.searchArtists(name).firstOrNull() }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { null }
