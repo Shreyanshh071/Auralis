@@ -4,12 +4,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -20,7 +22,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,8 +36,9 @@ import com.auralis.music.domain.model.*
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.theme.LocalReducedMotion
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
-/** Interactive first-launch tour. Choices use the same stores as Settings. */
+/** Interactive first-launch tour, using the actual player and lyric views for its demos. */
 @Composable
 fun AppTour(onFinish: () -> Unit) {
     val context = LocalContext.current
@@ -44,10 +50,15 @@ fun AppTour(onFinish: () -> Unit) {
     val content by contentStore.settingsFlow.collectAsState(ContentSettings())
     val scope = rememberCoroutineScope()
     val pager = rememberPagerState { 6 }
-    androidx.activity.compose.BackHandler(enabled = pager.currentPage > 0) {
-        scope.launch { pager.animateScrollToPage(pager.currentPage - 1) }
-    }
     val reduced = LocalReducedMotion.current
+    fun moveTo(page: Int) { scope.launch {
+        if (reduced) pager.scrollToPage(page)
+        else pager.animateScrollToPage(page, animationSpec = spring(dampingRatio = .92f, stiffness = 190f))
+    } }
+    androidx.activity.compose.BackHandler(enabled = pager.currentPage > 0) { moveTo(pager.currentPage - 1) }
+    val light = when (appearance.appTheme) { "Light Mode", "Light" -> true; "Follow system" -> !isSystemInDarkTheme(); else -> false }
+    val ink by animateColorAsState(if (light) Color(0xFF221C32) else Color.White, label = "tour ink")
+    val background by animateColorAsState(if (light) Color(0xFFF5F1F9) else Color(0xFF0B0A12), label = "tour background")
     val accents = listOf(Color(0xFFA999FF), Color(0xFFFFB995), Color(0xFF8EE9CE), Color(0xFFFF9CC9), Color(0xFF8DCFFF), Color(0xFFCFDF89))
     val accent by animateColorAsState(accents[pager.currentPage], tween(if (reduced) 0 else 500), label = "tour colour")
     val drift = if (reduced) 0f else {
@@ -55,107 +66,133 @@ fun AppTour(onFinish: () -> Unit) {
         val value by motion.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "glow drift")
         value
     }
-    val titles = listOf("Your music.\nYour Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "Where is your sound?")
-    val hints = listOf("A little tour before your first play. Swipe to explore.", "Try a player and choose your theme. You can change everything later.", "Choose how much data your music uses.", "Lyrics move with the music. Pick the animation you like.", "Download songs or whole playlists from their menu. Find them in Library → Downloaded, even without internet.", "Choose the music region and language for your recommendations. Then sign in and pick your artists.")
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0A12))) {
+    val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "Where is your sound?")
+    val hints = listOf("A little tour before your first play.", "Try the real player designs. Tap the preview to pause.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
+    Box(Modifier.fillMaxSize().background(background)) {
         Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.radialGradient(listOf(accent.copy(alpha = .28f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
-            drawRect(Brush.radialGradient(listOf(Color(0xFF685BCE).copy(alpha = .14f), Color.Transparent), center = center.copy(x = size.width * (.8f - drift * .5f), y = size.height * .8f), radius = size.width))
+            drawRect(Brush.radialGradient(listOf(accent.copy(alpha = .27f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
+            drawRect(Brush.radialGradient(listOf(Color(0xFF685BCE).copy(alpha = .12f), Color.Transparent), center = center.copy(x = size.width * (.8f - drift * .5f), y = size.height * .8f), radius = size.width))
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("AURALIS", color = Color.White, letterSpacing = 4.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = onFinish) { Text("Skip tour", color = Color.White.copy(alpha = .7f)) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("AURALIS", color = ink, letterSpacing = 4.sp, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TourTouchButton("Skip tour", false, accent, ink, Modifier.width(90.dp).height(38.dp), onFinish)
             }
-            HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
+            HorizontalPager(state = pager, pageSpacing = 12.dp,
+                flingBehavior = PagerDefaults.flingBehavior(pager, snapAnimationSpec = if (reduced) snap() else spring(dampingRatio = .92f, stiffness = 190f)),
+                modifier = Modifier.weight(1f)) { page ->
                 val offset = (pager.currentPage - page) + pager.currentPageOffsetFraction
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.fillMaxWidth().height(200.dp).graphicsLayer {
-                        translationX = if (reduced) 0f else offset * size.width * .25f
-                        alpha = if (reduced) 1f else (1f - kotlin.math.abs(offset) * .5f).coerceIn(.3f, 1f)
+                val active = pager.settledPage == page
+                Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).graphicsLayer {
+                    alpha = if (reduced) 1f else (1f - abs(offset) * .32f).coerceIn(.35f, 1f)
+                    scaleX = if (reduced) 1f else 1f - abs(offset).coerceAtMost(1f) * .025f
+                    scaleY = scaleX
+                }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(titles[page], fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, color = ink, textAlign = TextAlign.Center)
+                    Text(hints[page], color = ink.copy(alpha = .6f), fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp, bottom = 14.dp))
+                    Box(Modifier.fillMaxWidth().weight(1f).graphicsLayer {
+                        translationX = if (reduced) 0f else offset * size.width * .08f
                     }, contentAlignment = Alignment.Center) {
                         when (page) {
-                            0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo), null, tint = Color.Unspecified, modifier = Modifier.size(138.dp))
-                            1 -> Surface(shape = RoundedCornerShape(if (appearance.playerDesign == "Immersive player") 60.dp else 24.dp), color = accent.copy(alpha = .15f), modifier = Modifier.size(174.dp)) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    Icon(Icons.Rounded.MusicNote, null, tint = accent, modifier = Modifier.size(64.dp))
-                                    Text(appearance.playerDesign, color = Color.White)
-                                    Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(40.dp))
-                                }
+                            0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo), null, tint = Color.Unspecified, modifier = Modifier.size(184.dp).clip(RoundedCornerShape(32.dp)))
+                            1 -> TourPlayerPreview(appearance, active, Modifier.fillMaxSize())
+                            2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp), color = if (light) Color(0xFF45957F) else accent)
+                                Text(settings.audioQuality.description, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
                             }
-                            2 -> EqualizerBars(isPlaying = true, modifier = Modifier.size(130.dp), color = accent)
-                            3 -> LyricsPreview(accent, reduced, appearance.lyricsAnimation)
-                            else -> Icon(when(page) { 0 -> Icons.Rounded.Headphones; 4 -> Icons.Rounded.DownloadDone; else -> Icons.Rounded.Public }, null, tint = accent, modifier = Modifier.size(112.dp))
+                            3 -> TourLyricsPreview(appearance, active, Modifier.fillMaxSize())
+                            else -> Icon(if (page == 4) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = if (light) Color(0xFF7563A4) else accent, modifier = Modifier.size(140.dp))
                         }
                     }
-                    Text(titles[page], fontSize = 34.sp, lineHeight = 39.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.graphicsLayer {
-                        translationX = if (reduced) 0f else offset * size.width * .09f
-                        alpha = if (reduced) 1f else (1f - kotlin.math.abs(offset)).coerceIn(0f, 1f)
-                    })
-                    Spacer(Modifier.height(14.dp))
-                    Text(hints[page], color = Color.White.copy(alpha = .65f), textAlign = TextAlign.Center, lineHeight = 22.sp)
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(16.dp))
                     when(page) {
                         1 -> {
-                            TourChoices(listOf("New player", "Old player", "Immersive player"), appearance.playerDesign, accent) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(playerDesign = value)) } }
-                            Spacer(Modifier.height(12.dp))
-                            TourChoices(listOf("Follow system", "Light Mode", "Dark Mode"), appearance.appTheme, accent) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(appTheme = value)) } }
+                            TourChoices(PlayerDesign.entries.map { it.displayName }, appearance.playerDesign, accent, ink, columns = 3) { value -> scope.launch {
+                                appearanceStore.updateSettings(appearance.copy(playerDesign = value, newPlayerDesign = value != "Old player"))
+                            } }
+                            Spacer(Modifier.height(8.dp))
+                            TourChoices(listOf("Follow system", "Light Mode", "Dark Mode"), appearance.appTheme, accent, ink, columns = 3) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(appTheme = value)) } }
                         }
-                        2 -> TourChoices(AudioQuality.entries.map { it.displayName }, settings.audioQuality.displayName, accent) { value -> scope.launch { settingsStore.setAudioQuality(AudioQuality.entries.first { it.displayName == value }) } }
-                        3 -> TourChoices(listOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.FLUID, LyricsAnimationMode.GLOW).map { it.displayName }, appearance.lyricsAnimation, accent) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(lyricsAnimation = value)) } }
-                        4 -> Text("Tip: tap ⋮ beside a song → Download", color = accent, textAlign = TextAlign.Center)
+                        2 -> TourChoices(AudioQuality.entries.map { it.displayName }, settings.audioQuality.displayName, accent, ink, columns = 2,
+                            label = { value -> AudioQuality.entries.first { it.displayName == value }.name.lowercase().replaceFirstChar { it.uppercase() } }) { value -> scope.launch { settingsStore.setAudioQuality(AudioQuality.entries.first { it.displayName == value }) } }
+                        3 -> TourChoices(LyricsAnimationMode.entries.map { it.displayName }, appearance.lyricsAnimation, accent, ink, columns = 4,
+                            label = { when (LyricsAnimationMode.fromDisplayName(it)) {
+                                LyricsAnimationMode.AURALIS -> "Auralis"
+                                LyricsAnimationMode.FLUID -> "Fluid"
+                                LyricsAnimationMode.APPLE_MUSIC_V2 -> "Apple V2"
+                                LyricsAnimationMode.LYRICS_V2_FLUID -> "V2 Fluid"
+                                else -> it
+                            } }) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(lyricsAnimation = value)) } }
+                        4 -> Text("Tap ⋮ beside a song → Download", color = ink.copy(alpha = .7f), fontSize = 13.sp)
                         5 -> {
-                            LocaleChoice("Music region", YouTubeLocales.countries, content.contentCountry) { value -> scope.launch { contentStore.update { it.copy(contentCountry = value) } } }
-                            LocaleChoice("Content language", YouTubeLocales.languages, content.contentLanguage) { value -> scope.launch { contentStore.update { it.copy(contentLanguage = value) } } }
+                            LocaleChoice("Music region", YouTubeLocales.countries, content.contentCountry, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentCountry = value) } } }
+                            Spacer(Modifier.height(8.dp))
+                            LocaleChoice("Content language", YouTubeLocales.languages, content.contentLanguage, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentLanguage = value) } } }
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 repeat(6) { index ->
-                    val width by animateDpAsState(if (index == pager.currentPage) 26.dp else 6.dp, tween(if (reduced) 0 else 220), label = "page dot")
-                    Box(Modifier.size(width, 6.dp).clip(RoundedCornerShape(9.dp)).background(if (index == pager.currentPage) accent else Color.White.copy(alpha = .2f)))
+                    val proximity = (1f - abs((pager.currentPage - index) + pager.currentPageOffsetFraction)).coerceIn(0f, 1f)
+                    Box(Modifier.size((6 + 18 * proximity).dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(if (proximity > .5f) ink.copy(alpha = .8f) else ink.copy(alpha = .2f)))
                 }
                 Spacer(Modifier.weight(1f))
-                Button(onClick = { if (pager.currentPage == 5) onFinish() else scope.launch { if (reduced) pager.scrollToPage(pager.currentPage + 1) else pager.animateScrollToPage(pager.currentPage + 1) } }, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.Black)) { Text(if (pager.currentPage == 5) "Get started" else "Next") }
+                TourTouchButton(if (pager.currentPage == 5) "Get started" else "Next", true, accent, ink, Modifier.width(108.dp).height(46.dp)) {
+                    if (pager.currentPage == 5) onFinish() else moveTo(pager.currentPage + 1)
+                }
+            }
+        }
+    }
+}
+
+/** Shared press/release spring so every tour control responds while the finger is down. */
+@Composable
+private fun TourTouchButton(text: String, selected: Boolean, accent: Color, ink: Color,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val reduced = LocalReducedMotion.current
+    val haptic = LocalHapticFeedback.current
+    val scale by animateFloatAsState(if (pressed && !reduced) .93f else 1f,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = if (pressed) .8f else .48f, stiffness = 450f), label = "tour press")
+    val rotation by animateFloatAsState(if (pressed && !reduced) -1.4f else 0f,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = .42f, stiffness = 400f), label = "tour wobble")
+    val fill by animateColorAsState(if (selected) accent else ink.copy(alpha = .05f), tween(if (reduced) 0 else 180), label = "tour selection")
+    val shape = RoundedCornerShape(11.dp)
+    Box(modifier.graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = rotation }
+        .clip(shape).background(fill).border(1.dp, if (selected) accent else ink.copy(alpha = .14f), shape)
+        .selectable(selected = selected, interactionSource = interactions, indication = null, role = Role.Button,
+            onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() })
+        .padding(horizontal = 6.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = if (selected) Color(0xFF21192C) else ink, fontSize = 11.sp,
+            lineHeight = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 2)
+    }
+}
+
+@Composable
+private fun TourChoices(values: List<String>, selected: String, accent: Color, ink: Color,
+    columns: Int, label: (String) -> String = { it }, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+        values.chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                row.forEach { value -> TourTouchButton(label(value), value == selected, accent, ink, Modifier.weight(1f).height(47.dp)) { onSelect(value) } }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
 }
 
 @Composable
-private fun TourChoices(values: List<String>, selected: String, accent: Color, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-        values.forEach { value ->
-            FilterChip(selected = value == selected, onClick = { onSelect(value) }, label = { Text(value) }, colors = FilterChipDefaults.filterChipColors(labelColor = Color.White, selectedContainerColor = accent, selectedLabelColor = Color.Black), modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
-
-@Composable
-private fun LocaleChoice(label: String, choices: Map<String, String>, selected: String, onSelect: (String) -> Unit) {
+private fun LocaleChoice(label: String, choices: Map<String, String>, selected: String, accent: Color, ink: Color, onSelect: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("$label: ${choices[selected] ?: "System default"}", color = Color.White) }
+    TourTouchButton("$label: ${choices[selected] ?: "System default"}", false, accent, ink, Modifier.fillMaxWidth().height(46.dp)) { open = true }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(label) }, text = {
-        androidx.compose.foundation.lazy.LazyColumn {
-            item { TextButton(onClick = { onSelect(ContentSettings.SYSTEM); open = false }) { Text("System default") } }
-            choices.forEach { (code, name) -> item(key = code) { TextButton(onClick = { onSelect(code); open = false }) { Text(name) } } }
+        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            item { TourTouchButton("System default", selected == ContentSettings.SYSTEM, accent, MaterialTheme.colorScheme.onSurface, Modifier.fillMaxWidth().height(44.dp)) { onSelect(ContentSettings.SYSTEM); open = false } }
+            choices.forEach { (code, name) -> item(key = code) { TourTouchButton(name, code == selected, accent, MaterialTheme.colorScheme.onSurface, Modifier.fillMaxWidth().height(44.dp)) { onSelect(code); open = false } } }
         }
-    }, confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } })
-}
-
-@Composable
-private fun LyricsPreview(accent: Color, reduced: Boolean, style: String) {
-    var word by remember { mutableIntStateOf(0) }
-    LaunchedEffect(reduced, style) { if (!reduced) while (true) { kotlinx.coroutines.delay(650); word = (word + 1) % 4 } }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("A song for every moment", color = Color.White.copy(alpha = .25f), fontSize = 17.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Let", "your", "music", "shine").forEachIndexed { index, text ->
-                val color by animateColorAsState(if (reduced || index <= word) accent else Color.White.copy(alpha = .3f), label = "lyric word")
-                Text(text, color = color, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        Text(style, color = Color.White.copy(alpha = .5f), modifier = Modifier.padding(top = 14.dp))
-    }
+    }, confirmButton = { TourTouchButton("Close", false, accent, MaterialTheme.colorScheme.onSurface, Modifier.width(80.dp).height(40.dp)) { open = false } })
 }
