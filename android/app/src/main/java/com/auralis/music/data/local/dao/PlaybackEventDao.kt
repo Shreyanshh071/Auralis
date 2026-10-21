@@ -24,6 +24,14 @@ data class PlaybackEventWithTrackTuple(
 /** Measured listening time for one track ID, summed over all its listens. */
 data class TrackListenTime(val trackId: String, val totalMs: Long)
 
+/** Restored and local listens with the same song metadata used by Stats. */
+data class SpeedDialListen(
+    @Embedded val track: TrackEntity,
+    val totalMs: Long,
+    val lastPlayed: Long,
+    val listenCount: Int
+)
+
 @Dao
 interface PlaybackEventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -95,6 +103,15 @@ interface PlaybackEventDao {
 
     @Query("SELECT trackId, SUM(playTimeMs) AS totalMs FROM playback_events GROUP BY trackId")
     fun getListenTimeByTrack(): Flow<List<TrackListenTime>>
+
+    @Query("""
+        SELECT tracks.*, SUM(playback_events.playTimeMs) AS totalMs,
+               MAX(playback_events.timestamp) AS lastPlayed, COUNT(*) AS listenCount
+        FROM playback_events INNER JOIN tracks ON tracks.id = playback_events.trackId
+        GROUP BY tracks.id
+        ORDER BY totalMs DESC, lastPlayed DESC, tracks.id ASC
+    """)
+    fun getSpeedDialListens(): Flow<List<SpeedDialListen>>
 
     @Query("SELECT MIN(timestamp) FROM playback_events")
     fun getFirstEventTimestamp(): Flow<Long?>

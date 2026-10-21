@@ -1,6 +1,8 @@
 package com.auralis.music
 
 import com.auralis.music.data.network.InnerTubeClient
+import com.auralis.music.data.local.dao.SpeedDialListen
+import com.auralis.music.data.local.mapper.toEntity
 import com.auralis.music.data.network.reconnects
 import com.auralis.music.data.network.settleOffline
 import com.auralis.music.domain.model.Artist
@@ -107,6 +109,40 @@ class ConnectivityOfflineTest {
     }
 
     // ── Home ──
+
+    @Test
+    fun restoredListensFillAllThreeSpeedDialPagesWithoutLegacyHistoryRows() = runTest(testDispatcher) {
+        val vm = HomeViewModel(EmptyHistory, EmptySearch, mockk(relaxed = true),
+            ioDispatcher = testDispatcher, defaultDispatcher = testDispatcher,
+            isOnline = MutableStateFlow(false))
+        advanceUntilIdle()
+        val restored = (1..312).map { i -> SpeedDialListen(
+            Track("restored$i", "Restored song $i", "Artist $i").toEntity(),
+            totalMs = (313 - i) * 60_000L, lastPlayed = 1000L + i, listenCount = 313 - i)
+        }
+        vm.applyListeningTracks(restored)
+        advanceUntilIdle()
+        val displayed = vm.uiState.value.forDisplay()
+        assertEquals(3, displayed.speedDialPages.size)
+        assertTrue(displayed.speedDialPages.all { it.size == 9 })
+        val tiles = displayed.speedDialPages.flatten()
+        assertEquals(26, tiles.count { it.track != null })
+        assertEquals(0, tiles.count { it.type == com.auralis.music.domain.model.SpeedDialType.PLACEHOLDER })
+        assertEquals("restored1", tiles.first().track?.id)
+        assertEquals(26, tiles.mapNotNull { it.track?.id }.toSet().size)
+        assertTrue(displayed.topPlayedTracks.isNotEmpty())
+        assertEquals("restored1", displayed.topPlayedTracks.first().track.id)
+        // Ineligible old pins must not consume the 26-song budget before filtering.
+        vm.inMemoryPinnedItems = (1..10).map { i -> com.auralis.music.domain.model.SpeedDialItem(
+            "track-unplayed$i", "Unplayed $i", com.auralis.music.domain.model.SpeedDialType.TRACK,
+            track = Track("unplayed$i", "Unplayed $i", "Unplayed artist"), isPinned = true)
+        }
+        vm.applyListeningTracks(restored)
+        advanceUntilIdle()
+        val repacked = vm.uiState.value.forDisplay().speedDialPages.flatten()
+        assertEquals(26, repacked.count { it.track != null })
+        assertTrue(repacked.none { it.type == com.auralis.music.domain.model.SpeedDialType.PLACEHOLDER })
+    }
 
     @Test
     fun speedDialAppearsLiveOnlyAfterSixMeasuredListensAndNeverPadsWithArtistPicks() = runTest(testDispatcher) {
