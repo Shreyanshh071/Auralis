@@ -82,8 +82,12 @@ fun AppTour(onFinish: () -> Unit) {
                             0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo), null, tint = ink, modifier = Modifier.size(144.dp))
                             1 -> TourPlayerPreview(appearance, active, Modifier.fillMaxSize())
                             2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp), color = accent)
-                                Text(settings.audioQuality.description, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
+                                EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp).graphicsLayer(), color = accent, smoothMotion = true)
+                                val qualityDescription = when (settings.audioQuality) {
+                                    AudioQuality.HIGH, AudioQuality.AUTO -> "Best available audio\nBitrate varies by song and source"
+                                    else -> settings.audioQuality.description
+                                }
+                                Text(qualityDescription, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
                             }
                             3 -> TourLyricsPreview(appearance, active, Modifier.fillMaxSize())
                             else -> Icon(if (page == 4) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = accent, modifier = Modifier.size(140.dp))
