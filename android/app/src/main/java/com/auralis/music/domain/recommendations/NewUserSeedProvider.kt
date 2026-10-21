@@ -33,7 +33,19 @@ import java.util.Collections
  */
 object NewUserSeedProvider {
 
-    val SEED_ARTISTS = listOf(
+    /** Artists picked during onboarding and their top songs; empty means the built-in mix below. */
+    private data class Starter(val artists: List<String>, val tracks: List<Track>)
+    @Volatile private var starter = Starter(emptyList(), emptyList())
+
+    fun setStarter(artists: List<String>, tracks: List<Track>) {
+        starter = Starter(artists.toList(), tracks.toList())
+    }
+
+    /** The new-user seed artists: the onboarding picks, else the built-in list. */
+    val SEED_ARTISTS: List<String>
+        get() = starter.artists.ifEmpty { FALLBACK_SEED_ARTISTS }
+
+    private val FALLBACK_SEED_ARTISTS = listOf(
         "Tame Impala",
         "Kanye West",
         "Karan Aujla",
@@ -49,7 +61,10 @@ object NewUserSeedProvider {
      * Curated, verified baseline tracks across all 9 seed artists (3 per artist = 27 tracks).
      * Provides instantaneous 0ms display on fresh launch before network search results resolve.
      */
-    private val INITIAL_SEED_TRACKS: List<Track> = listOf(
+    private val INITIAL_SEED_TRACKS: List<Track>
+        get() = starter.tracks.ifEmpty { FALLBACK_SEED_TRACKS }
+
+    private val FALLBACK_SEED_TRACKS: List<Track> = listOf(
         // Tame Impala
         Track(
             id = "PvM79DJ2PmM",

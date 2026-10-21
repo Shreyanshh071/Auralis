@@ -307,6 +307,9 @@ class GoogleAccountSyncManager(
             val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             val docSnap = db.collection("users").document(uid).get().await()
 
+            com.auralis.music.data.datastore.OnboardingStore.restorePicks(
+                uid, docSnap.data?.get("starterTaste") as? Map<*, *>)
+
             // Another account's library is on the phone: clear it here (it's in that account's
             // backup) before this account's lands, so accounts never mix.
             takeOverLocalLibrary(uid)

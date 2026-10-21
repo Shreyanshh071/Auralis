@@ -1,0 +1,375 @@
+{
+ "contents": {
+  "singleColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "musicShelfRenderer": {
+           "title": {
+            "runs": [
+             {
+              "text": "Top artists"
+             }
+            ]
+           },
+           "contents": [
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/MxNjcRJ-uK4Xvx7u90IhEFLQM8x9LIGTA9VCKHq5U4Wn2jOgiWaMtg-qz329SIzqnCyhdCCB3MpdAGs=w60-h60-p-l90-rj",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/MxNjcRJ-uK4Xvx7u90IhEFLQM8x9LIGTA9VCKHq5U4Wn2jOgiWaMtg-qz329SIzqnCyhdCCB3MpdAGs=w120-h120-p-l90-rj",
+                   "width": 120,
+                   "height": 120
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL",
+                "trackingParams": "CKQFEIS_AiITCOPq2o_IypcDFTmp2AUdrgQckw=="
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Drake"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "33.2M subscribers"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               }
+              ],
+              "navigationEndpoint": {
+               "clickTrackingParams": "CJ0FEMn0AhgAIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+               "browseEndpoint": {
+                "browseId": "UCU6cE7pdJPc6DU2jSrKEsdQ",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/Gn429K9WtTL6JcxQ3IKtY_pxlt8kk1MwXhhEp0_GhimPo9-lpmzuvcJcIKpNPN1gAda7pfcW=w60-h60-l90-rj",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/Gn429K9WtTL6JcxQ3IKtY_pxlt8kk1MwXhhEp0_GhimPo9-lpmzuvcJcIKpNPN1gAda7pfcW=w120-h120-l90-rj",
+                   "width": 120,
+                   "height": 120
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL",
+                "trackingParams": "CJwFEIS_AiITCOPq2o_IypcDFTmp2AUdrgQckw=="
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "YoungBoy Never Broke Again"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "15.8M subscribers"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               }
+              ],
+              "navigationEndpoint": {
+               "clickTrackingParams": "CJUFEMn0AhgBIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+               "browseEndpoint": {
+                "browseId": "UCR28YDxjDE3ogQROaNdnRbQ",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/dkYRAOQcSpLuL43zdgMfsHuegzZEUogHxxx4Pm3Pf_L6QuEMS9oIZIbWzB0z9gQEcSjD2qI69sgeEBhG=w60-h60-p-l90-rj",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/dkYRAOQcSpLuL43zdgMfsHuegzZEUogHxxx4Pm3Pf_L6QuEMS9oIZIbWzB0z9gQEcSjD2qI69sgeEBhG=w120-h120-p-l90-rj",
+                   "width": 120,
+                   "height": 120
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL",
+                "trackingParams": "CJQFEIS_AiITCOPq2o_IypcDFTmp2AUdrgQckw=="
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Fuerza Regida"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "7.17M subscribers"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               }
+              ],
+              "navigationEndpoint": {
+               "clickTrackingParams": "CI0FEMn0AhgCIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+               "browseEndpoint": {
+                "browseId": "UC0kxNxFQCK6d2spPz5Sme7Q",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/MxNjcRJ-uK4Xvx7u90IhEFLQM8x9LIGTA9VCKHq5U4Wn2jOgiWaMtg-qz329SIzqnCyhdCCB3MpdAGs=w60-h60-p-l90-rj",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/MxNjcRJ-uK4Xvx7u90IhEFLQM8x9LIGTA9VCKHq5U4Wn2jOgiWaMtg-qz329SIzqnCyhdCCB3MpdAGs=w120-h120-p-l90-rj",
+                   "width": 120,
+                   "height": 120
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_CIRCLE",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL",
+                "trackingParams": "CKQFEIS_AiITCOPq2o_IypcDFTmp2AUdrgQckw=="
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Drake"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "33.2M subscribers"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               }
+              ],
+              "navigationEndpoint": {
+               "clickTrackingParams": "CJ0FEMn0AhgAIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+               "browseEndpoint": {
+                "browseId": "UCU6cE7pdJPc6DU2jSrKEsdQ",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicShelfRenderer": {
+           "title": {
+            "runs": [
+             {
+              "text": "Weekly top podcast shows"
+             }
+            ]
+           },
+           "contents": [
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/pl_c/PLzJVLNWKVr6ksDjycE7NpSptOlcaEP-jQ/studio_square_thumbnail.jpg?sqp=CP_M4dYG-oaymwEICDwQPCAASFqi85f_AwYI__nU1QY&rs=AMzJL3nZjpufwR14EzXGDYKzOK9a6VMdeg",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://i.ytimg.com/pl_c/PLzJVLNWKVr6ksDjycE7NpSptOlcaEP-jQ/studio_square_thumbnail.jpg?sqp=CP_M4dYG-oaymwEICHgQeCAASFqi85f_AwYI__nU1QY&rs=AMzJL3lNHgbfRVHyI9kRsVrFUOsxoRg8kg",
+                   "width": 120,
+                   "height": 120
+                  },
+                  {
+                   "url": "https://i.ytimg.com/pl_c/PLzJVLNWKVr6ksDjycE7NpSptOlcaEP-jQ/studio_square_thumbnail.jpg?sqp=CP_M4dYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgj_-dTVBg&rs=AMzJL3lhgI0YTOqli5FT2z_pqseEJN955A",
+                   "width": 226,
+                   "height": 226
+                  },
+                  {
+                   "url": "https://i.ytimg.com/pl_c/PLzJVLNWKVr6ksDjycE7NpSptOlcaEP-jQ/studio_square_thumbnail.jpg?sqp=CP_M4dYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgj_-dTVBg&rs=AMzJL3negc51eAxELVYNSDblZFEkekrHYA",
+                   "width": 544,
+                   "height": 544
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT",
+                "trackingParams": "COICEIS_AiITCOPq2o_IypcDFTmp2AUdrgQckw=="
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Financial Audit"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Caleb Hammer",
+                    "navigationEndpoint": {
+                     "clickTrackingParams": "CNwCEMn0AhgAIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+                     "browseEndpoint": {
+                      "browseId": "UCLe_q9axMaeTbjN0hy1Z9xA",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               }
+              ],
+              "navigationEndpoint": {
+               "clickTrackingParams": "CNwCEMn0AhgAIhMI4-raj8jKlwMVOanYBR2uBByTygEEn3VdmQ==",
+               "browseEndpoint": {
+                "browseId": "MPSPPLzJVLNWKVr6ksDjycE7NpSptOlcaEP-jQ",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE"
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+}

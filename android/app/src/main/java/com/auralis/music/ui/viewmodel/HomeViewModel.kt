@@ -381,6 +381,17 @@ class HomeViewModel(
      * Phase 2: Asynchronous background coroutines for heavy discovery algorithms
      *          (Daily Discover, Similar recommendations, Community Playlists, Quick Picks).
      */
+    /** Apply the picked artists immediately before opening Home for the first time. */
+    fun applyOnboardingPicks() {
+        _uiState.update { it.copy(
+            speedDialPages = buildInitialSeedSpeedDial(),
+            quickPicks = NewUserSeedProvider.getInitialSeedTracks(),
+            similarRecommendations = emptyList(), dailyDiscover = emptyList(),
+            dynamicSections = emptyList()
+        ) }
+        loadHomeData()
+    }
+
     fun loadHomeData(): kotlinx.coroutines.Job {
         // Do not display blocking skeleton if Speed Dial or recommendations are already present
         _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty(), error = null) }
@@ -429,7 +440,7 @@ class HomeViewModel(
                 context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
 
                 // Offline: nothing from the network; the reconnect collector reloads the feed later.
-                if (!isOnline.value) return@launch
+                if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@launch
 
                 // Phase 2: Decoupled background network calls (never block UI or startup frame)
                 // 1. YouTube Music Home feed
@@ -545,7 +556,7 @@ class HomeViewModel(
      * Daily Discover: Seeds liked/played songs -> queries YouTube related -> generates novel discoveries.
      */
     private suspend fun fetchDailyDiscover() = withContext(Dispatchers.IO) {
-        if (!isOnline.value) return@withContext
+        if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
             val likedSeeds = historyRepository.getLikedSeeds(limit = 8).shuffled().take(5)
             val history = historyRepository.getHistory().first().map { it.track }
@@ -621,7 +632,7 @@ class HomeViewModel(
      * Fetches concurrently and saves to local disk cache so shelves never vanish on restart.
      */
     private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
-        if (!isOnline.value) return@withContext
+        if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
@@ -757,7 +768,7 @@ class HomeViewModel(
      * - If first-time user: falls back to YouTube Music home quick picks & trending hits.
      */
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
-        if (!isOnline.value) return@withContext
+        if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
 
@@ -973,7 +984,7 @@ class HomeViewModel(
      * Community Playlists & Curated Mixes
      */
     private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
-        if (!isOnline.value) return@withContext
+        if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
