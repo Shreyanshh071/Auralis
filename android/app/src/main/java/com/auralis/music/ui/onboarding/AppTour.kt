@@ -57,9 +57,10 @@ fun AppTour(onFinish: () -> Unit) {
     } }
     androidx.activity.compose.BackHandler(enabled = pager.currentPage > 0) { moveTo(pager.currentPage - 1) }
     val light = when (appearance.appTheme) { "Light Mode", "Light" -> true; "Follow system" -> !isSystemInDarkTheme(); else -> false }
-    val ink by animateColorAsState(if (light) Color(0xFF221C32) else Color.White, label = "tour ink")
-    val background by animateColorAsState(if (light) Color(0xFFF5F1F9) else Color(0xFF0B0A12), label = "tour background")
-    val accents = listOf(Color(0xFFA999FF), Color(0xFFFFB995), Color(0xFF8EE9CE), Color(0xFFFF9CC9), Color(0xFF8DCFFF), Color(0xFFCFDF89))
+    val ink by animateColorAsState(if (light) Color(0xFF202431) else Color(0xFFF0F2F7), label = "tour ink")
+    val background by animateColorAsState(if (light) Color(0xFFF3F5FA) else Color(0xFF0B0D12), label = "tour background")
+    // Keep the surrounding canvas neutral; the real player supplies its own artwork colors.
+    val accents = listOf(Color(0xFFB8B8FF), Color(0xFFB0BEFF), Color(0xFFA8D5E2), Color(0xFFC5B7F2), Color(0xFFA7CBF1), Color(0xFFB4C4EE))
     val accent by animateColorAsState(accents[pager.currentPage], tween(if (reduced) 0 else 500), label = "tour colour")
     val drift = if (reduced) 0f else {
         val motion = rememberInfiniteTransition(label = "tour atmosphere")
@@ -70,8 +71,8 @@ fun AppTour(onFinish: () -> Unit) {
     val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
     Box(Modifier.fillMaxSize().background(background)) {
         Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.radialGradient(listOf(accent.copy(alpha = .27f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
-            drawRect(Brush.radialGradient(listOf(Color(0xFF685BCE).copy(alpha = .12f), Color.Transparent), center = center.copy(x = size.width * (.8f - drift * .5f), y = size.height * .8f), radius = size.width))
+            drawRect(Brush.radialGradient(listOf(Color(0xFF727FB4).copy(alpha = if (light) .07f else .10f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
+            drawRect(Brush.radialGradient(listOf(Color(0xFF676F9D).copy(alpha = if (light) .04f else .055f), Color.Transparent), center = center.copy(x = size.width * (.8f - drift * .5f), y = size.height * .8f), radius = size.width))
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
