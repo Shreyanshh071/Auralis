@@ -135,11 +135,12 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 // Spicy Lyrics' soft focus: lines blur and fade a little more the further they are
                 // from the one being sung, so they blend into the background.
                 val focus = if (active >= 0) active else 0
-                val distance = if (mode == LyricsAnimationMode.METRO_LYRICS && synced) kotlin.math.abs(index - focus) else 0
+                // Every lyrics style, as in the full player (it was Metro only, so the setting did nothing here).
+                val distance = if (synced) kotlin.math.abs(index - focus) else 0
                 SidebarLyricLine(line.text, activeBreak == null && (if (line.hasWordTiming) index in singing else active == index), synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                    blur = if (appearance.standardLyricsBlur) (distance * 1.2f).coerceAtMost(3.5f).dp else 0.dp,
+                    blur = if (appearance.standardLyricsBlur) (distance * 1.5f).coerceAtMost(4.5f).dp else 0.dp,
                     nextLineTime = lines.getOrNull(index + 1)?.time)
               }
               breaks[index]?.let { (start, end) ->

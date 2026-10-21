@@ -370,9 +370,8 @@ private fun AnimatedMenu(expanded: Boolean, dismiss: () -> Unit, content: @Compo
                 androidx.compose.animation.scaleOut(tween(120, easing = androidx.compose.animation.core.FastOutLinearInEasing),
                     targetScale = .8f, transformOrigin = origin)
         ) {
-            androidx.compose.material3.Surface(Modifier.padding(4.dp), shape = RoundedCornerShape(10.dp),
-                color = Color(0xF0151217), shadowElevation = 12.dp, tonalElevation = 0.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .08f))) {
+            // The same liquid glass as the song and playlist menus: the page behind, blurred and refracted.
+            com.auralis.music.windows.LiquidPopupSurface(Modifier.padding(4.dp)) {
                 Column(Modifier.width(IntrinsicSize.Max).padding(vertical = 8.dp), content = content)
             }
         }
