@@ -1,5 +1,7 @@
 package com.auralis.music.ui
 
+import kotlinx.coroutines.flow.first
+
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 import androidx.compose.foundation.verticalScroll
@@ -531,6 +533,54 @@ fun AuralisApp(
 
     val isUserLoggedIn = isFirebaseUserActive || (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
     val isAppUnlocked = isUserLoggedIn
+
+    val onboarding by com.auralis.music.data.datastore.OnboardingStore.state.collectAsState()
+    val onboardingUid = if (isUserLoggedIn) authUiState.profile.uid.ifBlank {
+        try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty() } catch (_: Exception) { "" }
+    } else ""
+    LaunchedEffect(onboardingUid) {
+        if (onboarding.accountId != onboardingUid) com.auralis.music.data.datastore.OnboardingStore.bindAccount(onboardingUid)
+    }
+    var onboardingHasData by remember(onboardingUid) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(onboardingUid, onboarding.accountId, isUserLoggedIn, authUiState.isSyncing, onboarding.pickerDone) {
+        if (!isUserLoggedIn || onboarding.pickerDone || authUiState.isSyncing || onboarding.accountId != onboardingUid) {
+            onboardingHasData = null
+            if (isUserLoggedIn && onboarding.pickerDone && !authUiState.isSyncing && onboarding.accountId == onboardingUid) {
+                homeViewModel.loadHomeData()
+            }
+        } else {
+            onboardingHasData = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                viewModelProvider.historyRepository.getHistory().first().isNotEmpty() ||
+                    viewModelProvider.libraryRepository.getFavoriteTracks().first().isNotEmpty() ||
+                    viewModelProvider.libraryRepository.getPlaylists().first().isNotEmpty()
+            }
+            if (onboardingHasData == true) {
+                com.auralis.music.data.datastore.OnboardingStore.skipPicker()
+                homeViewModel.loadHomeData()
+            }
+        }
+    }
+    LaunchedEffect(onboarding.starterVersion, onboardingUid) {
+        if (onboarding.starterVersion > 0 && isUserLoggedIn) homeViewModel.applyOnboardingPicks()
+    }
+    val onboardingStep = com.auralis.music.domain.onboarding.OnboardingFlow.step(
+        onboarding.tourSeen, isUserLoggedIn, onboarding.pickerDone, onboardingHasData)
+    if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR) {
+        com.auralis.music.ui.onboarding.AppTour {
+            com.auralis.music.data.datastore.OnboardingStore.markTourSeen()
+        }
+        return
+    }
+    if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.SETTLING) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+    if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.PICK_ARTISTS) {
+        com.auralis.music.ui.onboarding.ArtistPicker(viewModelProvider.searchRepository) {}
+        return
+    }
 
     // Keeps the welcome screen mounted through its own exit animation instead of cutting to the
     // app the instant sign-in succeeds, so unlocking reads as one smooth motion. The delay here

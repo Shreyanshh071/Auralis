@@ -21,6 +21,8 @@ class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.auralis.music.ui.i18n.AppLanguage.init(this)
+        com.auralis.music.data.datastore.OnboardingStore.init(this,
+            try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.isAnonymous == false } catch (_: Exception) { false })
         // Before any screen: Home, Library and Explore read the network state from here.
         com.auralis.music.data.network.ConnectivityMonitor.start(this)
         // Shared network code (hl/gl, proxy) reads these; the same calls it made when it lived here.
