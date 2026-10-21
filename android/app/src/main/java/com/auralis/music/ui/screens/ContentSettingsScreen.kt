@@ -119,6 +119,47 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
     }
 
     var dialog by remember { mutableStateOf<ContentDialog?>(null) }
+    val catalogSource by com.auralis.music.data.datastore.CatalogSettingsStore.source.collectAsState()
+    val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+    var showCatalogPicker by remember { mutableStateOf(false) }
+    var showSpotifyLogin by remember { mutableStateOf(false) }
+    var showSpotifyDisconnect by remember { mutableStateOf(false) }
+    if (showSpotifyDisconnect) AlertDialog(
+        onDismissRequest = { showSpotifyDisconnect = false },
+        title = { Text("Disconnect Spotify?") },
+        text = { Text("Imported playlists stay in your library. Search will use YouTube Music.") },
+        confirmButton = { TextButton(onClick = {
+            com.auralis.music.data.network.SpotifySession.signOut()
+            com.auralis.music.data.datastore.CatalogSettingsStore.select(com.auralis.music.data.datastore.CatalogSource.YOUTUBE_MUSIC)
+            showSpotifyDisconnect = false
+        }) { Text("Disconnect") } },
+        dismissButton = { TextButton(onClick = { showSpotifyDisconnect = false }) { Text("Cancel") } }
+    )
+    if (showSpotifyLogin) {
+        SpotifySignInScreen(onSignedIn = {
+            com.auralis.music.data.datastore.CatalogSettingsStore.select(com.auralis.music.data.datastore.CatalogSource.SPOTIFY)
+            showSpotifyLogin = false
+        }, onDismiss = { showSpotifyLogin = false })
+        return
+    }
+    if (showCatalogPicker) AlertDialog(
+        onDismissRequest = { showCatalogPicker = false },
+        title = { Text("Search catalog") },
+        text = { Column {
+            com.auralis.music.data.datastore.CatalogSource.entries.forEach { source ->
+                TextButton(onClick = {
+                    showCatalogPicker = false
+                    if (source == com.auralis.music.data.datastore.CatalogSource.SPOTIFY && !spotifySignedIn) showSpotifyLogin = true
+                    else com.auralis.music.data.datastore.CatalogSettingsStore.select(source)
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(source.label + if (source == catalogSource) " ✓" else "")
+                }
+            }
+            Text("Spotify supplies catalog details. Audio plays from YouTube. If Spotify is unavailable, search falls back to YouTube Music.", style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(onClick = { showCatalogPicker = false }) { Text("Close") } }
+    )
+
 
     val primary = MaterialTheme.dynamicPrimary
     val surface = MaterialTheme.dynamicSurface
@@ -151,6 +192,18 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
                 contentPadding = bottomChromePadding(includeNavigationBar = false),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
+                item(key = "catalog") {
+                    Section("Music catalog", primary, surface) {
+                        ValueRow(Icons.Default.Public, "Search catalog", catalogSource.label, colors) { showCatalogPicker = true }
+                        Divider()
+                        ValueRow(Icons.Default.People, "Spotify account", if (spotifySignedIn) "Connected · Tap to disconnect" else "Connect for catalog and playlist access", colors) {
+                            if (!spotifySignedIn) showSpotifyLogin = true
+                            else showSpotifyDisconnect = true
+                        }
+                        Text("No paid API key required. Playback continues through YouTube.", color = onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
+                    }
+                }
                 item(key = "general") {
                     Section(str(R.string.general), primary, surface) {
                         ValueRow(Icons.Default.Language, str(R.string.content_language),

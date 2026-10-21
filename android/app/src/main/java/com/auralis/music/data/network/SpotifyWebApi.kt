@@ -17,15 +17,19 @@ internal object SpotifyWebApi {
 
     // Verified hashes from Meld's registry on 2026-10-04. A rejected hash triggers a registry refresh.
     private val bundledHashes = mapOf(
+        "searchDesktop" to "db61238974d27839a136c9dc02bfdbe3fab7635f21cf85976ebff9a1ee281345",
+        "queryArtistOverview" to "9f8134ef565e78621f1e1793555bd6633c5ac144ae0f89604ed3ae3f80b3c8e6",
+        "getAlbum" to "0b6ce3511e1b02e4a40fa95440f992acbe85080eb308af9194322d708fc1914f",
         "libraryV3" to "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
         "fetchPlaylist" to "8964e8eafb21aa992a7d951d256d83285c04be2105d209262901de70cb97584a",
         "fetchLibraryTracks" to "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240"
     )
     private val previousHashes = mapOf(
+        "searchDesktop" to "4801118d4a100f756e833d33984436a3899cff359c532f8fd3aaf174b60b3b49",
         "libraryV3" to "973e511ca44261fda7eebac8b653155e7caee3675abb4fb110cc1b8c78b091c3",
         "fetchPlaylist" to "243c0ba2736f16da721e3a227004bbcdb8df6c846f198bd478172e00aa1faf42"
     )
-    private var remoteHashes: Map<String, Pair<String, String?>> = emptyMap()
+    @Volatile private var remoteHashes: Map<String, Pair<String, String?>> = emptyMap()
 
     private val client by lazy {
         OkHttpClient.Builder()

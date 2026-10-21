@@ -927,7 +927,7 @@ private fun SpotifyAccountCard(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun SpotifySignInScreen(onSignedIn: () -> Unit, onDismiss: () -> Unit) {
+internal fun SpotifySignInScreen(onSignedIn: () -> Unit, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var checking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
