@@ -7,6 +7,8 @@ import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.TitleCleaner
 import com.auralis.music.data.network.reconnects
 import com.auralis.music.data.network.LibraryArtworkRepair
+import com.auralis.music.data.local.dao.SpeedDialListen
+import com.auralis.music.data.local.mapper.toDomain
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.NewUserSeedProvider
 import com.auralis.music.domain.recommendations.TasteProfile
@@ -87,15 +89,77 @@ data class HomeUiState(
 
 /** Visibility policy also covers cached pages and optimistic pins without delaying pin feedback. */
 fun HomeUiState.forDisplay(): HomeUiState {
-    val pages = if (!speedDialReady) emptyList() else speedDialPages.map { page ->
-        page.filter { item -> item.type != SpeedDialType.TRACK ||
-            item.track?.id?.let { SpeedDialIdHelper.getCanonicalTrackId(it) } in qualifiedSpeedDialTrackIds }
-    }.filter { page -> page.any { it.type != SpeedDialType.PLACEHOLDER && it.type != SpeedDialType.SURPRISE } }
+    val eligible = speedDialPages.flatten().filter { item ->
+        item.type != SpeedDialType.PLACEHOLDER && item.type != SpeedDialType.SURPRISE &&
+            (item.type != SpeedDialType.TRACK ||
+                item.track?.id?.let { SpeedDialIdHelper.getCanonicalTrackId(it) } in qualifiedSpeedDialTrackIds)
+    }
+    val pages = if (!speedDialReady) emptyList() else packSpeedDialPages(eligible)
     val shelves = if (!speedDialReady) similarRecommendations.filter { shelf ->
         starterArtistNames.any { it.equals(shelf.artistName ?: shelf.seedTitle, ignoreCase = true) }
     }.ifEmpty { NewUserSeedProvider.starterRecommendations() } else similarRecommendations
     return copy(speedDialPages = pages, similarRecommendations = shelves)
 }
+
+internal fun packSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> {
+    if (allItems.isEmpty()) return emptyList()
+
+    val pages = mutableListOf<List<SpeedDialItem>>()
+
+    // Page 0: 8 items + 1 Surprise Me dice tile in the 9th slot
+    val page0Items = allItems.take(8).toMutableList()
+    while (page0Items.size < 8) {
+        page0Items.add(
+            SpeedDialItem(
+                id = "placeholder-0-${page0Items.size}",
+                name = "",
+                type = SpeedDialType.PLACEHOLDER
+            )
+        )
+    }
+    page0Items.add(
+        SpeedDialItem(
+            id = "surprise-0",
+            name = "Surprise Me",
+            type = SpeedDialType.SURPRISE
+        )
+    )
+    pages.add(page0Items)
+
+    // Page 1: 9 items (items 8..16) without surprise button
+    val page1Items = allItems.drop(8).take(9).toMutableList()
+    if (page1Items.isNotEmpty()) {
+        while (page1Items.size < 9) {
+            page1Items.add(
+                SpeedDialItem(
+                    id = "placeholder-1-${page1Items.size}",
+                    name = "",
+                    type = SpeedDialType.PLACEHOLDER
+                )
+            )
+        }
+        pages.add(page1Items)
+    }
+
+    // Page 2: 9 items (items 17..25) without surprise button
+    val page2Items = allItems.drop(17).take(9).toMutableList()
+    if (page2Items.isNotEmpty()) {
+        while (page2Items.size < 9) {
+            page2Items.add(
+                SpeedDialItem(
+                    id = "placeholder-2-${page2Items.size}",
+                    name = "",
+                    type = SpeedDialType.PLACEHOLDER
+                )
+            )
+        }
+        pages.add(page2Items)
+    }
+
+    return pages
+}
+
+
 
 class HomeViewModel(
     private val historyRepository: HistoryRepository,
@@ -127,6 +191,28 @@ class HomeViewModel(
     @Volatile private var mostListenedPlaylistItems: List<Pair<SpeedDialItem, Long>> = emptyList()
     /** Measured listening time per track ID, used to place playlists among songs. */
     @Volatile private var trackListenMs: Map<String, Long> = emptyMap()
+    @Volatile private var measuredHistory: List<HistoryEntry> = emptyList()
+    @Volatile private var measuredPlayCounts: List<PlayCountEntry> = emptyList()
+
+    /** Restored stats need not have rows in the legacy history/play-count tables. */
+    internal fun applyListeningTracks(listens: List<SpeedDialListen>) {
+        val wasReady = _uiState.value.speedDialReady
+        trackListenMs = listens.associate { it.track.id to it.totalMs }
+        measuredHistory = listens.sortedByDescending { it.lastPlayed }.map {
+            HistoryEntry(it.track.toDomain(), it.lastPlayed)
+        }
+        measuredPlayCounts = listens.sortedByDescending { it.totalMs }.map {
+            PlayCountEntry(it.track.id, it.listenCount, it.lastPlayed, it.track.toDomain())
+        }
+        updateMeasuredListening(trackListenMs)
+        _uiState.update { state -> state.copy(
+            recentTracks = state.recentTracks.ifEmpty { measuredHistory },
+            topPlayedTracks = state.topPlayedTracks.ifEmpty { measuredPlayCounts },
+            speedDialPages = buildSpeedDialPages(state.topPlayedTracks.map { it.track },
+                state.recentTracks.map { it.track })
+        ) }
+        if (!wasReady && _uiState.value.speedDialReady) loadHomeData()
+    }
 
     private val pinPersistenceMutex = Mutex()
     internal val pinSequence = AtomicLong(0)
@@ -199,13 +285,11 @@ class HomeViewModel(
             viewModelScope.launch(ioDispatcher) {
                 PlaylistListeningStore.load(context)
                 val trackListenTimes = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
-                    .playbackEventDao().getListenTimeByTrack()
+                    .playbackEventDao().getSpeedDialListens()
                 combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats, trackListenTimes) { playlists, stats, times ->
                     val top = PlaylistSpeedDialRanking.mostListened(playlists, stats, PlaylistSpeedDialRanking.MAX_PLAYLISTS)
-                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times.associate { it.trackId to it.totalMs }
+                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times
                 }.distinctUntilChanged().collect { (ranked, times) ->
-                    trackListenMs = times
-                    updateMeasuredListening(times)
                     mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
                         SpeedDialItem(
                             id = "playlist-${playlist.id}",
@@ -214,6 +298,7 @@ class HomeViewModel(
                             image = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
                         ) to listenedMs
                     }
+                    applyListeningTracks(times)
                     _uiState.update { current ->
                         val pinned = inMemoryPinnedItems
                         current.copy(speedDialPages = buildSpeedDialPages(
@@ -241,7 +326,11 @@ class HomeViewModel(
                 if (cachedSpeedDial.isNotEmpty() || cachedRecs.isNotEmpty() || cachedDiscover.isNotEmpty() || cachedPinned.isNotEmpty()) {
                     _uiState.update {
                         val currentPages = it.speedDialPages
-                        val effectivePages = if (inMemoryPinnedItems.isNotEmpty() && inMemoryPinnedItems != cachedPinned) {
+                        val effectivePages = if (it.speedDialReady && measuredPlayCounts.isNotEmpty()) {
+                            // Restored listens already rebuilt this row; an older disk cache
+                            // must not replace it with the former sparse/seed-only pages.
+                            currentPages
+                        } else if (inMemoryPinnedItems.isNotEmpty() && inMemoryPinnedItems != cachedPinned) {
                             currentPages
                         } else if (cachedSpeedDial.isNotEmpty()) {
                             cachedSpeedDial
@@ -310,8 +399,9 @@ class HomeViewModel(
 
         // 3. Continuously collect listening history & top played in real-time
         viewModelScope.launch(ioDispatcher) {
-            historyRepository.getHistory().collect { historyList ->
-                val topPlayed = historyRepository.getTopPlayedTracks().first()
+            historyRepository.getHistory().collect { localHistory ->
+                val historyList = localHistory.ifEmpty { measuredHistory }
+                val topPlayed = historyRepository.getTopPlayedTracks().first().ifEmpty { measuredPlayCounts }
                 val isNewUser = !hasListeningHistory(historyList, topPlayed)
 
                 val profile = if (isNewUser) {
@@ -397,8 +487,8 @@ class HomeViewModel(
         return viewModelScope.launch(ioDispatcher) {
             try {
                 // Phase 1: Ultra-fast local SQLite queries (completes in ~5-15ms)
-                val history = historyRepository.getHistory().first()
-                val topPlayed = historyRepository.getTopPlayedTracks().first()
+                val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }
+                val topPlayed = historyRepository.getTopPlayedTracks().first().ifEmpty { measuredPlayCounts }
                 val isNewUser = !hasListeningHistory(history, topPlayed)
 
                 val profile = if (isNewUser) {
@@ -557,8 +647,8 @@ class HomeViewModel(
         if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
             val likedSeeds = historyRepository.getLikedSeeds(limit = 8).shuffled().take(5)
-            val history = historyRepository.getHistory().first().map { it.track }
-            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }.map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().ifEmpty { measuredPlayCounts }.map { it.track }
             val isNewUser = likedSeeds.isEmpty() && history.isEmpty() && topPlayed.isEmpty()
 
             if (isNewUser) {
@@ -632,8 +722,8 @@ class HomeViewModel(
     private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
         if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
-            val history = historyRepository.getHistory().first().map { it.track }
-            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }.map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().ifEmpty { measuredPlayCounts }.map { it.track }
             val isNewUser = history.isEmpty() && topPlayed.isEmpty()
 
             if (isNewUser || (NewUserSeedProvider.hasStarter && !SpeedDialEligibility.ready(trackListenMs))) {
@@ -768,7 +858,7 @@ class HomeViewModel(
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
         if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
-            val history = historyRepository.getHistory().first().map { it.track }
+            val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }.map { it.track }
 
             // Settings → Content → Quick picks → "Last song listened": the row is that song's radio.
             // Falls through to the usual mix when there's no history or the radio comes back empty.
@@ -793,7 +883,7 @@ class HomeViewModel(
                 }
             }
             val heavyRotation = historyRepository.getRecentHeavyRotation()
-            val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
+            val topPlayed = historyRepository.getTopPlayedTracks().first().ifEmpty { measuredPlayCounts }.map { it.track }
             val likedSeeds = historyRepository.getLikedSeeds(limit = 20)
 
             val allUserTracks = (history + heavyRotation + topPlayed + likedSeeds).distinctBy { it.id }
@@ -984,7 +1074,7 @@ class HomeViewModel(
     private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
         if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@withContext
         try {
-            val history = historyRepository.getHistory().first().map { it.track }
+            val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }.map { it.track }
             val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }
 
             if (history.isEmpty() || topArtist.isNullOrBlank()) {
@@ -1136,13 +1226,20 @@ class HomeViewModel(
     ): List<List<SpeedDialItem>> {
         val effectivePinned = pinnedItems ?: inMemoryPinnedItems
         val pinnedIds = computePinnedIds(effectivePinned)
+        val qualified = _uiState.value.qualifiedSpeedDialTrackIds.takeIf { _uiState.value.speedDialReady }
 
         val allItems = mutableListOf<SpeedDialItem>()
         // 1. Add all pinned items first
-        allItems.addAll(effectivePinned)
+        allItems.addAll(effectivePinned.filter { item -> qualified == null || item.type != SpeedDialType.TRACK ||
+            item.track?.id?.let { SpeedDialIdHelper.getCanonicalTrackId(it) } in qualified })
 
         // Actual listening candidates only; starter songs and liked imports never pad this row.
-        val candidateTracks = topTracks + historyTracks
+        val measuredTracks = measuredPlayCounts.map { it.track }.filter {
+            (trackListenMs[it.id] ?: 0L) >= SpeedDialEligibility.MIN_LISTEN_MS
+        }
+        val candidateTracks = (measuredTracks + topTracks + historyTracks).filter {
+            qualified == null || SpeedDialIdHelper.getCanonicalTrackId(it.id) in qualified
+        }
         val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
         val trackItems = mutableListOf<SpeedDialItem>()
         for ((idx, t) in uniqueTracks.withIndex()) {
@@ -1188,63 +1285,8 @@ class HomeViewModel(
         return packageIntoSpeedDialPages(allItems)
     }
 
-    internal fun packageIntoSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> {
-        if (allItems.isEmpty()) return emptyList()
-
-        val pages = mutableListOf<List<SpeedDialItem>>()
-
-        // Page 0: 8 items + 1 Surprise Me dice tile in the 9th slot
-        val page0Items = allItems.take(8).toMutableList()
-        while (page0Items.size < 8) {
-            page0Items.add(
-                SpeedDialItem(
-                    id = "placeholder-0-${page0Items.size}",
-                    name = "",
-                    type = SpeedDialType.PLACEHOLDER
-                )
-            )
-        }
-        page0Items.add(
-            SpeedDialItem(
-                id = "surprise-0",
-                name = "Surprise Me",
-                type = SpeedDialType.SURPRISE
-            )
-        )
-        pages.add(page0Items)
-
-        // Page 1: 9 items (items 8..16) without surprise button
-        val page1Items = allItems.drop(8).take(9).toMutableList()
-        if (page1Items.isNotEmpty()) {
-            while (page1Items.size < 9) {
-                page1Items.add(
-                    SpeedDialItem(
-                        id = "placeholder-1-${page1Items.size}",
-                        name = "",
-                        type = SpeedDialType.PLACEHOLDER
-                    )
-                )
-            }
-            pages.add(page1Items)
-        }
-
-        // Page 2: 9 items (items 17..25) without surprise button
-        val page2Items = allItems.drop(17).take(9).toMutableList()
-        if (page2Items.isNotEmpty()) {
-            while (page2Items.size < 9) {
-                page2Items.add(
-                    SpeedDialItem(
-                        id = "placeholder-2-${page2Items.size}",
-                        name = "",
-                        type = SpeedDialType.PLACEHOLDER
-                    )
-                )
-            }
-            pages.add(page2Items)
-        }
-
-        return pages
-    }
+    internal fun packageIntoSpeedDialPages(allItems: List<SpeedDialItem>): List<List<SpeedDialItem>> =
+        packSpeedDialPages(allItems)
 
     internal fun buildOptimisticSpeedDialPages(
         currentPages: List<List<SpeedDialItem>>,

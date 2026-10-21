@@ -38,4 +38,19 @@ class SpeedDialEligibilityTest {
             qualifiedSpeedDialTrackIds = (1..6).map { "actual$it" }.toSet())
             .forDisplay().speedDialPages.isEmpty())
     }
+
+    @Test fun filteringAnOldCacheRepacksAllEligibleSongsWithoutGridHoles() {
+        val stale = (1..10).map { SpeedDialItem("track-stale$it", "Stale $it", SpeedDialType.TRACK,
+            track = Track("stale$it", "Stale $it", "Old artist")) }
+        val songs = (1..26).map { SpeedDialItem("track-song$it", "Song $it", SpeedDialType.TRACK,
+            track = Track("song$it", "Song $it", "Artist $it")) }
+        val pages = (stale + songs).chunked(9)
+        val state = HomeUiState(speedDialPages = pages, speedDialReady = true,
+            qualifiedSpeedDialTrackIds = songs.map { it.track!!.id }.toSet())
+        val result = state.forDisplay().speedDialPages
+        assertEquals(3, result.size)
+        assertTrue(result.all { it.size == 9 })
+        assertEquals(songs.map { it.track!!.id }, result.flatten().mapNotNull { it.track?.id })
+        assertTrue(result.flatten().none { it.type == SpeedDialType.PLACEHOLDER })
+    }
 }
