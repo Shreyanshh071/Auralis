@@ -79,7 +79,7 @@ fun AppTour(onFinish: () -> Unit) {
                         translationX = if (reduced) 0f else offset * size.width * .08f
                     }, contentAlignment = Alignment.Center) {
                         when (page) {
-                            0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo), null, tint = Color.Unspecified, modifier = Modifier.size(184.dp).clip(RoundedCornerShape(32.dp)))
+                            0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_header_logo), null, tint = ink, modifier = Modifier.size(144.dp))
                             1 -> TourPlayerPreview(appearance, active, Modifier.fillMaxSize())
                             2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp), color = accent)
