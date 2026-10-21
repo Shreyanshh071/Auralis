@@ -266,7 +266,6 @@ fun WelcomeScreen(
     onSignInWithEmail: (String, String) -> Unit,
     onSendPasswordReset: (String) -> Unit = {},
     onDismissPasswordResetMessage: () -> Unit = {},
-    onContinueAsGuest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isEmailAuthOpen by remember { mutableStateOf(false) }
@@ -468,11 +467,6 @@ fun WelcomeScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
                                 )
-                            }
-
-                            TextButton(onClick = onContinueAsGuest, enabled = !authUiState.isSyncing,
-                                modifier = Modifier.fillMaxWidth()) {
-                                Text("Continue as a guest", color = Color.White.copy(alpha = .75f))
                             }
 
                             if (!authUiState.syncMessage.isNullOrBlank()) {

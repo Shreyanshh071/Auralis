@@ -22,14 +22,13 @@ object OnboardingStore {
     private const val PICKER_DONE = "picker_done_v1"
     private const val ARTISTS = "starter_artists"
     private const val TRACKS = "starter_tracks"
-    private const val GUEST_ACCESS = "guest_access"
 
     @Serializable
     private data class SavedArtist(val id: String, val name: String, val thumbnail: String? = null)
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0, val guestAccess: Boolean = false)
+    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
@@ -58,16 +57,8 @@ object OnboardingStore {
         val artists = decode(p.getString("$ARTISTS:$uid", null), ListSerializer(SavedArtist.serializer()))
         val tracks = decode(p.getString("$TRACKS:$uid", null), ListSerializer(Track.serializer()))
         NewUserSeedProvider.setStarter(artists.map { it.name }, tracks)
-        if (uid.isNotBlank()) p.edit().putBoolean(GUEST_ACCESS, false).apply()
         _state.value = State(p.getBoolean(TOUR_SEEN, false), p.getBoolean("$PICKER_DONE:$uid", false), uid,
-            starterVersion = _state.value.starterVersion + 1,
-            guestAccess = uid.isBlank() && p.getBoolean(GUEST_ACCESS, false))
-    }
-
-    /** Local guest access needs no Firebase account or cloud writes. */
-    fun continueAsGuest() {
-        prefs?.edit()?.putBoolean(GUEST_ACCESS, true)?.apply()
-        bindAccount("")
+            starterVersion = _state.value.starterVersion + 1)
     }
 
     fun markTourSeen() {

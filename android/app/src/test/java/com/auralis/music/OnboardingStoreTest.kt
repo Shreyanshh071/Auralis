@@ -44,13 +44,11 @@ class OnboardingStoreTest {
         Dispatchers.resetMain()
     }
 
-    @Test fun firstLaunchTourPersistsAcrossGuestRelaunchWithoutCompletingArtistSelection() {
+    @Test fun firstLaunchTourPersistsAcrossRelaunchWithoutCompletingArtistSelection() {
         assertFalse(OnboardingStore.state.value.tourSeen)
         OnboardingStore.markTourSeen()
-        OnboardingStore.continueAsGuest()
         OnboardingStore.init(context, false)
         assertTrue(OnboardingStore.state.value.tourSeen)
-        assertTrue(OnboardingStore.state.value.guestAccess)
         assertFalse(OnboardingStore.state.value.pickerDone)
     }
 

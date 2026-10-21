@@ -533,7 +533,7 @@ fun AuralisApp(
 
     val isUserLoggedIn = isFirebaseUserActive || (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
     val onboarding by com.auralis.music.data.datastore.OnboardingStore.state.collectAsState()
-    val isAppUnlocked = isUserLoggedIn || onboarding.guestAccess
+    val isAppUnlocked = isUserLoggedIn
     val onboardingUid = if (isUserLoggedIn) authUiState.profile.uid.ifBlank {
         try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty() } catch (_: Exception) { "" }
     } else ""
@@ -623,8 +623,7 @@ fun AuralisApp(
                 },
                 onDismissPasswordResetMessage = {
                     authVM.clearPasswordResetMessage()
-                },
-                onContinueAsGuest = { com.auralis.music.data.datastore.OnboardingStore.continueAsGuest() }
+                }
             )
         }
         return

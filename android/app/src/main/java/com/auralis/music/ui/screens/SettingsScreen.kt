@@ -232,12 +232,6 @@ fun SettingsScreen(
 
                         // ── SYSTEM & ABOUT ──
                         item(key = "hdr_system") { SettingsCategoryHeader(title = str(R.string.system_about), color = cardPrimary) }
-                        if (searchRepository != null) item(key = "item_starter_artists") {
-                            SettingsRowItem(icon = Icons.Default.MusicNote, title = "Choose your artists",
-                                cardBackground = cardBackground, borderColor = cardBorder,
-                                textColor = cardText, iconTint = cardPrimary, iconBackground = cardIconBg,
-                                onClick = { activeDialog = SettingsDialogType.STARTER_ARTISTS })
-                        }
                         item(key = "item_updater") {
                             SettingsRowItem(
                                 icon = Icons.Default.SystemUpdate,
@@ -564,11 +558,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    SettingsDialogType.STARTER_ARTISTS -> {
-                        searchRepository?.let { repository ->
-                            com.auralis.music.ui.onboarding.ArtistPicker(repository) { activeDialog = null }
-                        }
-                    }
                     SettingsDialogType.UPDATER -> {
                         UpdaterScreen(
                             onDismiss = { activeDialog = null }
@@ -580,7 +569,6 @@ fun SettingsScreen(
 }
 
 private enum class SettingsDialogType {
-    STARTER_ARTISTS,
     APPEARANCE,
     CONTENT,
     PLAYER_AUDIO,
