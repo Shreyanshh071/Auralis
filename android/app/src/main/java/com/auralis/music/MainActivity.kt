@@ -35,7 +35,7 @@ import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.data.network.SearchSuggestionsClient
 import com.auralis.music.data.network.SpotifyPlaylistImporter
-import com.auralis.music.data.network.YouTubePlaylistImporter
+import com.auralis.music.data.network.CompleteYouTubePlaylistImporter as YouTubePlaylistImporter
 import com.discord.socialsdk.DiscordSocialSdkInit
 import com.auralis.music.data.repository.*
 import com.auralis.music.data.service.AuralisAudioPlayer

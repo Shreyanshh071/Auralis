@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.SpotifyPlaylistImporter
-import com.auralis.music.data.network.YouTubePlaylistImporter
+import com.auralis.music.data.network.CompleteYouTubePlaylistImporter as YouTubePlaylistImporter
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.auth.GoogleAccountSyncManager
 import com.auralis.music.domain.repository.HistoryRepository

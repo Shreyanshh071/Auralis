@@ -102,7 +102,7 @@ class LibraryRepositoryImpl(
                     title = tuple.playlist.title,
                     description = tuple.playlist.description,
                     coverUrl = tuple.playlist.coverUrl,
-                    tracks = orderedTracks.map { it.toDomain() }.filter { !it.title.startsWith("Track ") && it.title.isNotBlank() },
+                    tracks = orderedTracks.map { it.toDomain() }.filter { it.title.isNotBlank() && (tuple.playlist.id.startsWith("imported:") || !it.title.startsWith("Track ")) },
                     createdAt = tuple.playlist.createdAt,
                     isCustom = tuple.playlist.isCustom
                 )
@@ -121,7 +121,7 @@ class LibraryRepositoryImpl(
                         title = entity.title,
                         description = entity.description,
                         coverUrl = entity.coverUrl,
-                        tracks = trackEntities.map { it.toDomain() }.filter { !it.title.startsWith("Track ") && it.title.isNotBlank() },
+                        tracks = trackEntities.map { it.toDomain() }.filter { it.title.isNotBlank() && (entity.id.startsWith("imported:") || !it.title.startsWith("Track ")) },
                         createdAt = entity.createdAt,
                         isCustom = entity.isCustom
                     )

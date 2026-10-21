@@ -116,18 +116,25 @@ object SpotifyLibrary {
         val token = SpotifySession.getValidAccessToken() ?: return@withContext emptyList()
         val allRawTracks = mutableListOf<Track>()
         var offset = 0
+        var expectedTracks: Int? = null
         try {
             while (true) {
                 val response = SpotifyWebApi.query(token, "fetchLibraryTracks", SpotifyWebApi.likedSongsVariables(offset, 100))
                 val tracks = response.optJSONObject("data")?.optJSONObject("me")?.optJSONObject("library")
                     ?.optJSONObject("tracks") ?: error("Spotify Liked Songs response has no tracks")
                 val items = tracks.optJSONArray("items") ?: error("Spotify Liked Songs response has no items")
+                val before = allRawTracks.size
                 parseGqlTracks(items, likedSongs = true, allRawTracks)
+                PlaylistImportIntegrity.requirePage("Spotify Liked Songs", items.length(), allRawTracks.size - before)
                 offset += items.length()
                 onProgress?.invoke("Fetching Liked Songs (${allRawTracks.size}/${tracks.optInt("totalCount", allRawTracks.size)})...")
                 val totalCount = tracks.optInt("totalCount", -1)
+                expectedTracks = totalCount.takeIf { it >= 0 }
                 if (!hasMorePages(items.length(), offset, totalCount)) break
             }
+            PlaylistImportIntegrity.requireComplete("Spotify Liked Songs", allRawTracks.size, expectedTracks)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (e: IncompletePlaylistImport) { throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching Liked Songs: ${e.message}")
             return@withContext emptyList()
@@ -233,6 +240,7 @@ object SpotifyLibrary {
             var description = "Imported from Spotify"
             var coverUrl: String? = null
             var offset = 0
+            var expectedTracks: Int? = null
             while (true) {
                 val response = SpotifyWebApi.query(token, "fetchPlaylist", SpotifyWebApi.playlistVariables(playlistId, offset, 100))
                 val playlist = response.optJSONObject("data")?.optJSONObject("playlistV2")
@@ -244,15 +252,21 @@ object SpotifyLibrary {
                 }
                 val content = playlist.optJSONObject("content") ?: error("Spotify playlist has no content")
                 val items = content.optJSONArray("items") ?: error("Spotify playlist has no items")
+                val before = rawTracks.size
                 parseGqlTracks(items, likedSongs = false, rawTracks)
+                PlaylistImportIntegrity.requirePage("Spotify", items.length(), rawTracks.size - before)
                 offset += items.length()
                 onProgress?.invoke("Fetching tracks from Spotify (${rawTracks.size}/${content.optInt("totalCount", rawTracks.size)})...")
                 val totalCount = content.optInt("totalCount", -1)
+                expectedTracks = totalCount.takeIf { it >= 0 }
                 if (!hasMorePages(items.length(), offset, totalCount)) break
             }
+            PlaylistImportIntegrity.requireComplete("Spotify", rawTracks.size, expectedTracks)
             val raw = Playlist("sp_$playlistId", title, description, coverUrl, rawTracks)
             if (rawTracks.isEmpty() || !matchTracks) raw
             else raw.copy(tracks = importer.enrichTracksWithYouTubeData(rawTracks, onProgress))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (e: IncompletePlaylistImport) { throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching private Spotify playlist: ${e.message}")
             null
