@@ -163,6 +163,7 @@ class GoogleAccountSyncManager(
             val auth = FirebaseAuth.getInstance()
             val result = auth.createUserWithEmailAndPassword(email.trim(), password).await()
             val user = result.user
+            user?.uid?.let { com.auralis.music.data.datastore.OnboardingStore.onAuthenticated(it, newlyCreated = true) }
 
             user?.let {
                 val profileUpdates = UserProfileChangeRequest.Builder()
@@ -221,6 +222,7 @@ class GoogleAccountSyncManager(
             val auth = FirebaseAuth.getInstance()
             val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
             val user = result.user ?: throw RuntimeException("Authentication returned empty user.")
+            com.auralis.music.data.datastore.OnboardingStore.onAuthenticated(user.uid, newlyCreated = false)
             val name = user.displayName ?: email.substringBefore("@")
 
             val updated = _userProfile.value.copy(
@@ -255,6 +257,8 @@ class GoogleAccountSyncManager(
             val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(account.idToken, null)
             val authResult = FirebaseAuth.getInstance().signInWithCredential(credential).await()
             val fbUser = authResult.user ?: FirebaseAuth.getInstance().currentUser
+            fbUser?.uid?.let { com.auralis.music.data.datastore.OnboardingStore.onAuthenticated(
+                it, newlyCreated = authResult.additionalUserInfo?.isNewUser == true) }
 
             val updated = _userProfile.value.copy(
                 uid = fbUser?.uid ?: "google_${System.currentTimeMillis()}",

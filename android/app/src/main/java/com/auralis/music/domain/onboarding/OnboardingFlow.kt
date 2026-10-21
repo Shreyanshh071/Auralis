@@ -16,7 +16,7 @@ object OnboardingFlow {
 
     /**
      * @param hasListeningData null while sign-in or account restore is still settling.
-     * Its non-null value no longer completes selection; only saved account choices do.
+     * True means this account already has listening history, including restored cloud listens.
      */
     fun step(
         tourSeen: Boolean,
@@ -28,7 +28,7 @@ object OnboardingFlow {
         !signedIn -> Step.SIGN_IN
         pickerDone -> Step.APP
         hasListeningData == null -> Step.SETTLING
-        // Only this account's saved choices complete onboarding, not imported playlists.
+        hasListeningData -> Step.APP
         else -> Step.PICK_ARTISTS
     }
 

@@ -30,7 +30,7 @@ class OnboardingFlowTest {
     }
     @Test fun `restore finishes before picker decision and returning users skip`() {
         assertEquals(Step.SETTLING, OnboardingFlow.step(true, true, false, null))
-        assertEquals(Step.PICK_ARTISTS, OnboardingFlow.step(true, true, false, true))
+        assertEquals(Step.APP, OnboardingFlow.step(true, true, false, true))
     }
     @Test fun `related artists insert beside pick without duplicates`() {
         val a = Artist("a", "A")
