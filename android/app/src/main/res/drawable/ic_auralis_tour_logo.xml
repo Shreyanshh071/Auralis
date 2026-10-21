@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="144dp"
+    android:height="144dp"
+    android:viewportWidth="560"
+    android:viewportHeight="540">
+    <!-- Logo strokes only. Vector geometry stays sharp at the tour's larger size. -->
+    <group android:translateX="-234" android:translateY="-215">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="38"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M628,330 A105,105 0,1 0,471,445 L376,606 M324,515 A105,105 0,1 0,481,606 L653,606 M527,356 L616,506 A105,105 0,1 1,598,698" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M559,356 A32,32 0,1 1,495,356 A32,32 0,1 1,559,356 M408,606 A32,32 0,1 1,344,606 A32,32 0,1 1,408,606 M685,606 A32,32 0,1 1,621,606 A32,32 0,1 1,685,606" />
+    </group>
+</vector>
