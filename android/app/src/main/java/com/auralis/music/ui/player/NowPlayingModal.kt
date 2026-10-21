@@ -461,6 +461,7 @@ fun NowPlayingModal(
         }
     }
     val track = uiState.currentTrack ?: lastValidTrack ?: return
+    val demoControls = LocalPlayerDemoControls.current
     val dynamicPalette = MaterialTheme.dynamicPalette
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -1798,7 +1799,7 @@ fun NowPlayingModal(
                                         .size(width = 38.dp, height = 38.dp)
                                         .clip(RoundedCornerShape(topStart = 19.dp, bottomStart = 19.dp, topEnd = 5.dp, bottomEnd = 5.dp))
                                         .background(Color.White)
-                                        .tactileBounce(scaleDown = 0.86f, onClick = { showPlaylistPicker = true }),
+                                        .tactileBounce(scaleDown = 0.86f, onClick = { if (demoControls != null) demoControls.notice("You can save songs to playlists from the full player after the tour.") else showPlaylistPicker = true }),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -1820,7 +1821,9 @@ fun NowPlayingModal(
                                         .tactileBounce(
                                             scaleDown = 0.86f,
                                             onClick = {
-                                                if (isDownloaded) {
+                                                if (demoControls != null) {
+                                                    demoControls.notice("Downloads are available from the full player after the tour.")
+                                                } else if (isDownloaded) {
                                                     com.auralis.music.data.download.AuralisDownloadManager.removeDownload(track.id)
                                                     Toast.makeText(context, str(R.string.download_removed), Toast.LENGTH_SHORT).show()
                                                 } else {
@@ -1891,7 +1894,7 @@ fun NowPlayingModal(
                                         .size(width = 38.dp, height = 38.dp)
                                         .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp, topEnd = 19.dp, bottomEnd = 19.dp))
                                         .background(Color.White)
-                                        .tactileBounce(scaleDown = 0.86f, onClick = { showTrackOptions = true }),
+                                        .tactileBounce(scaleDown = 0.86f, onClick = { if (demoControls != null) demoControls.notice("Song options are available from the full player after the tour.") else showTrackOptions = true }),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -2061,7 +2064,7 @@ fun NowPlayingModal(
                                 imageVector = AudioOutputIcon,
                                 contentDescription = str(R.string.audio_output_quality),
                                 active = false,
-                                onClick = { showAudioOutputSheet = true }
+                                onClick = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true }
                             )
                         }
 
@@ -2108,13 +2111,13 @@ fun NowPlayingModal(
                     onSelectQueueTrack = onSelectQueueTrack,
                     onReorderQueue = onReorderQueue,
                     onRemoveQueueItem = onRemoveQueueItem,
-                    onShowTrackOptions = { showTrackOptions = true },
+                    onShowTrackOptions = { if (demoControls != null) demoControls.notice("Song options are available from the full player after the tour.") else showTrackOptions = true },
                     onShowQueueTrackOptions = {
                         queueOptionsIndex = -1
                         queueOptionsTrack = it
                     },
                     onShowSleepDialog = { showSleepDialog = true },
-                    onShowOutputPicker = { showAudioOutputSheet = true },
+                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true },
                     lyricsPositionState = lyricsPositionState,
                     lyricsClockSource = lyricsClockSource,
                     onLyricsOffsetChange = onLyricsOffsetChange,
@@ -2159,13 +2162,13 @@ fun NowPlayingModal(
                     onSelectQueueTrack = onSelectQueueTrack,
                     onReorderQueue = onReorderQueue,
                     onRemoveQueueItem = onRemoveQueueItem,
-                    onShowTrackOptions = { showTrackOptions = true },
+                    onShowTrackOptions = { if (demoControls != null) demoControls.notice("Song options are available from the full player after the tour.") else showTrackOptions = true },
                     onShowQueueTrackOptions = {
                         queueOptionsIndex = -1
                         queueOptionsTrack = it
                     },
                     onShowSleepDialog = { showSleepDialog = true },
-                    onShowOutputPicker = { showAudioOutputSheet = true },
+                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true },
                     onOpenListenTogether = onOpenListenTogether,
                     lyricsProviders = lyricsProviders,
                     lyricsProviderPicks = lyricsProviderPicks,
@@ -2181,7 +2184,7 @@ fun NowPlayingModal(
                     sliderStyle = appearance.playerSliderStyle,
                     standardLyricsBlur = appearance.standardLyricsBlur,
                     onArtistClick = onArtistClick,
-                    onAddToPlaylist = { showPlaylistPicker = true }
+                    onAddToPlaylist = { if (demoControls != null) demoControls.notice("You can save songs to playlists from the full player after the tour.") else showPlaylistPicker = true }
                 )
             }
         }
@@ -2255,7 +2258,12 @@ fun NowPlayingModal(
     // Queue rows use the same track-action sheet, but actions target the selected row,
     // never the currently playing song. This sheet belongs only to the classic branch.
     queueOptionsTrack?.let { selectedTrack ->
-        TrackOptionsMenu(
+        if (demoControls != null) {
+            androidx.compose.material3.AlertDialog(onDismissRequest = { queueOptionsTrack = null },
+                title = { androidx.compose.material3.Text("Demo queue") },
+                text = { androidx.compose.material3.Text("Select songs and reorder this queue. Library actions are available after the tour.") },
+                confirmButton = { androidx.compose.material3.TextButton(onClick = { queueOptionsTrack = null }) { androidx.compose.material3.Text("OK") } })
+        } else TrackOptionsMenu(
             track = selectedTrack,
             isFavorite = isFavoriteTrack(selectedTrack.id),
             userPlaylists = userPlaylists,

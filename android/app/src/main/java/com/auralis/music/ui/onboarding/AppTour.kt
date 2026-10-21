@@ -67,7 +67,7 @@ fun AppTour(onFinish: () -> Unit) {
         value
     }
     val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "Where is your sound?")
-    val hints = listOf("A little tour before your first play.", "Try the real player designs. Tap the preview to pause.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
+    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
     Box(Modifier.fillMaxSize().background(background)) {
         Canvas(Modifier.fillMaxSize()) {
             drawRect(Brush.radialGradient(listOf(accent.copy(alpha = .27f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
@@ -161,7 +161,9 @@ private fun TourTouchButton(text: String, selected: Boolean, accent: Color, ink:
     val rotation by animateFloatAsState(if (pressed && !reduced) -1.4f else 0f,
         animationSpec = if (reduced) snap() else spring(dampingRatio = .42f, stiffness = 400f), label = "tour wobble")
     val fill by animateColorAsState(if (selected) accent else ink.copy(alpha = .05f), tween(if (reduced) 0 else 180), label = "tour selection")
-    val shape = RoundedCornerShape(11.dp)
+    val corner by animateDpAsState(if (selected) 7.dp else 25.dp,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = .78f, stiffness = 300f), label = "tour selection shape")
+    val shape = RoundedCornerShape(corner)
     Box(modifier.graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = rotation }
         .clip(shape).background(fill).border(1.dp, if (selected) accent else ink.copy(alpha = .14f), shape)
         .selectable(selected = selected, interactionSource = interactions, indication = null, role = Role.Button,

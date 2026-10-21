@@ -796,6 +796,10 @@ fun InPlayerVolumeSlider(
     controlsAlpha: Float,
     modifier: Modifier = Modifier
 ) {
+    LocalPlayerDemoControls.current?.let { demo ->
+        DemoVolumeSlider(demo, modifier, controlsAlpha)
+        return
+    }
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = remember {

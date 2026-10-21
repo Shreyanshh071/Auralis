@@ -1688,6 +1688,10 @@ private fun TransportGlyph(
 /** System media volume between its two speaker glyphs, kept in step with the hardware keys. */
 @Composable
 private fun ImmersiveVolumeRow() {
+    LocalPlayerDemoControls.current?.let { demo ->
+        DemoVolumeSlider(demo, Modifier.fillMaxWidth())
+        return
+    }
     val context = LocalContext.current
     val audio = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val max = remember(audio) { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
