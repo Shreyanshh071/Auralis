@@ -594,7 +594,11 @@ private fun ExpandedMiniPlayerView(
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
 
-    val backgroundModifier = if (isPureBlack) {
+    val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
+    val contentColor = if (frosted) frostedMiniPlayerContentColor() else Color.White
+    val backgroundModifier = if (frosted) {
+        Modifier.frostedMiniPlayer(hazeState, cardShape)
+    } else if (isPureBlack) {
         Modifier.background(Color.Black)
     } else if (hazeState != null) {
         Modifier
@@ -711,7 +715,7 @@ private fun ExpandedMiniPlayerView(
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         ),
-                        color = Color.White,
+                        color = contentColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -728,7 +732,7 @@ private fun ExpandedMiniPlayerView(
                             text = track.artist,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 13.sp,
-                                color = Color.White.copy(alpha = 0.75f)
+                                color = contentColor.copy(alpha = 0.75f)
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -750,14 +754,14 @@ private fun ExpandedMiniPlayerView(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .background(contentColor.copy(alpha = 0.12f))
                         .tactileBounce(scaleDown = 0.88f, onClick = { onArtistClick?.invoke() }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Person,
                         contentDescription = str(R.string.artist_x, track.artist),
-                        tint = Color.White,
+                        tint = contentColor,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -766,7 +770,7 @@ private fun ExpandedMiniPlayerView(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(22.dp))
-                        .background(Color.White.copy(alpha = 0.14f))
+                        .background(contentColor.copy(alpha = 0.14f))
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -782,7 +786,7 @@ private fun ExpandedMiniPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = str(R.string.previous_track),
-                            tint = Color.White,
+                            tint = contentColor,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -815,7 +819,7 @@ private fun ExpandedMiniPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = str(R.string.next_track),
-                            tint = Color.White,
+                            tint = contentColor,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -826,7 +830,7 @@ private fun ExpandedMiniPlayerView(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .background(contentColor.copy(alpha = 0.12f))
                         .tactileBounce(scaleDown = 0.88f, onClick = { onFavoriteToggle?.invoke() }),
                     contentAlignment = Alignment.Center
                 ) {
@@ -838,7 +842,7 @@ private fun ExpandedMiniPlayerView(
                         Icon(
                             imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
-                            tint = if (fav) Color(0xFFFF4081) else Color.White,
+                            tint = if (fav) Color(0xFFFF4081) else contentColor,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -854,7 +858,7 @@ private fun ExpandedMiniPlayerView(
                     .height(2.5.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .drawWithContent {
-                        drawRect(Color.White.copy(alpha = 0.15f))
+                        drawRect(contentColor.copy(alpha = 0.15f))
                         val progress = progressProvider().coerceIn(0f, 1f)
                         if (progress > 0f) {
                             drawRect(
@@ -906,7 +910,9 @@ private fun ClassicMiniPlayerView(
         Color.White.copy(alpha = 0.08f)
     }
 
-    val classicHazeModifier = if (hazeState != null && !isPureBlack) {
+    val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
+    val contentColor = if (frosted) frostedMiniPlayerContentColor() else Color.White
+    val classicHazeModifier = if (hazeState != null && !isPureBlack && !frosted) {
         Modifier.hazeEffect(
             state = hazeState,
             style = HazeStyle(
@@ -939,10 +945,10 @@ private fun ClassicMiniPlayerView(
             .shadow(elevation = 10.dp, shape = shape)
             .clip(shape)
             .then(classicHazeModifier)
-            .background(effectiveBgColor)
-            .border(1.dp, borderColor, shape)
+            .background(if (frosted) Color.Transparent else effectiveBgColor)
+            .then(if (frosted) Modifier.frostedMiniPlayer(hazeState, shape) else Modifier.border(1.dp, borderColor, shape))
     ) {
-        if (!isPureBlack && activeStyle != PlayerBackgroundStyle.FOLLOW_THEME) {
+        if (!isPureBlack && !frosted && activeStyle != PlayerBackgroundStyle.FOLLOW_THEME) {
             PlayerBackground(
                 style = activeStyle,
                 artworkUrl = track.thumbnail,
@@ -1004,7 +1010,7 @@ private fun ClassicMiniPlayerView(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             ),
-                            color = Color.White,
+                            color = contentColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1013,7 +1019,7 @@ private fun ClassicMiniPlayerView(
                             text = track.artist,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 13.sp,
-                                color = Color.White.copy(alpha = 0.70f)
+                                color = contentColor.copy(alpha = 0.70f)
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1037,7 +1043,7 @@ private fun ClassicMiniPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = str(R.string.previous_track),
-                            tint = Color.White,
+                            tint = contentColor,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -1053,7 +1059,7 @@ private fun ClassicMiniPlayerView(
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
-                            tint = Color.White,
+                            tint = contentColor,
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -1069,7 +1075,7 @@ private fun ClassicMiniPlayerView(
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = str(R.string.next_track),
-                            tint = Color.White,
+                            tint = contentColor,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -1082,7 +1088,7 @@ private fun ClassicMiniPlayerView(
                     .fillMaxWidth()
                     .height(2.5.dp)
                     .drawWithContent {
-                        drawRect(Color.White.copy(alpha = 0.12f))
+                        drawRect(contentColor.copy(alpha = 0.12f))
                         val progress = progressProvider().coerceIn(0f, 1f)
                         if (progress > 0f) {
                             drawRect(
@@ -1140,8 +1146,9 @@ private fun NewMiniPlayerPillView(
     val favoriteExit = auralisIconSwapExit()
     // Liquid glass theme: glass pill, and a compact form while tucked into the minimized dock.
     val glass = if (isPureBlack) null else com.auralis.music.ui.glass.LocalMiniPlayerGlass.current
+    val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
     val lightGlass = glass?.isDark == false
-    val contentColor = if (lightGlass) Color(0xFF1B1B1F) else Color.White
+    val contentColor = if (frosted) frostedMiniPlayerContentColor() else if (lightGlass) Color(0xFF1B1B1F) else Color.White
     val glassTint = if (lightGlass) Color.White.copy(alpha = 0.70f) else Color(0xFF101010).copy(alpha = 0.70f)
     val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
 
@@ -1220,7 +1227,9 @@ private fun NewMiniPlayerPillView(
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 5.dp)
             .then(
-                if (glass != null) {
+                if (frosted) {
+                    Modifier.frostedMiniPlayer(hazeState, pillShape)
+                } else if (glass != null) {
                     Modifier.liquidGlass(glass, pillShape, tint = glassTint).clip(pillShape)
                 } else {
                     Modifier
@@ -1237,7 +1246,7 @@ private fun NewMiniPlayerPillView(
                 }
             )
     ) {
-        if (!isPureBlack && glass == null) {
+        if (!isPureBlack && glass == null && !frosted) {
             PlayerBackground(
                 style = activeStyle,
                 artworkUrl = activeTrack?.thumbnail,
@@ -1336,7 +1345,7 @@ private fun NewMiniPlayerPillView(
                                 Text(
                                     text = pageTrack.artist,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (glass != null) contentColor.copy(alpha = 0.78f) else if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
+                                    color = if (glass != null || frosted) contentColor.copy(alpha = 0.78f) else if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -1350,7 +1359,7 @@ private fun NewMiniPlayerPillView(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            val actionButtonBg = if (glass != null) contentColor.copy(alpha = 0.10f) else if (isPureBlack) Color(0xFF181818) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
+            val actionButtonBg = if (glass != null || frosted) contentColor.copy(alpha = 0.10f) else if (isPureBlack) Color(0xFF181818) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f)
             val actionButtonBorder = if (glass != null) {
                 Modifier.border(0.8.dp, contentColor.copy(alpha = 0.16f), CircleShape)
             } else if (!isPureBlack && activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) {
