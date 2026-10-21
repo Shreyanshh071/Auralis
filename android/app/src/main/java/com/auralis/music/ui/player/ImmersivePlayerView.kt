@@ -365,6 +365,7 @@ fun ImmersivePlayerContainer(
         // The cover's colours carried on below it; the seam rides the cover's bottom edge.
         ImmersiveColorField(
             artworkUrl = track.thumbnail,
+            cropArtwork = cropAlbumArt,
             seamPx = {
                 if (hidePlayerThumbnail) 0f
                 else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
