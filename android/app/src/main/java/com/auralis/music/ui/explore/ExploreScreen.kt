@@ -65,6 +65,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.SearchTopResult
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -510,6 +511,11 @@ fun ExploreScreen(
                     }
                 }
 
+                val catalogStatus by com.auralis.music.data.datastore.CatalogSettingsStore.status.collectAsState()
+                if (uiState.hasSubmittedSearch && catalogStatus != null) {
+                    Text(catalogStatus.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                }
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // ================================================================

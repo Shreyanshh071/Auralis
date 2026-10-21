@@ -23,6 +23,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -223,6 +227,19 @@ class SearchViewModel(
     }
 
     init {
+        if (context != null) viewModelScope.launch {
+            combine(com.auralis.music.data.datastore.CatalogSettingsStore.source,
+                com.auralis.music.data.network.SpotifySession.signedIn) { source, connected -> source to connected }
+                .distinctUntilChanged().drop(1).collectLatest {
+                    liveSongCache.clear()
+                    artistPages.clear()
+                    artistRequests.values.forEach { it.cancel() }
+                    artistRequests.clear()
+                    val query = _uiState.value.query
+                    if (_uiState.value.hasSubmittedSearch && query.isNotBlank()) performSearch(query)
+                }
+        }
+
         // Back online: reload the open artist, album or search results in place.
         viewModelScope.launch {
             isOnline.reconnects().collect {
