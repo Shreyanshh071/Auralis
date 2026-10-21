@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.auralis.music.data.network.AudioStreamResolver
 import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.TitleCleaner
+import com.auralis.music.data.network.reconnects
 import com.auralis.music.data.network.LibraryArtworkRepair
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.recommendations.NewUserSeedProvider
@@ -110,6 +111,8 @@ data class HomeUiState(
     val tasteProfile: TasteProfile = TasteProfile(),
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    /** No network: Home shows the offline state instead of any shelf. */
+    val isOffline: Boolean = false,
     val error: String? = null
 )
 
@@ -121,7 +124,8 @@ class HomeViewModel(
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
     private val libraryRepository: LibraryRepository? = null,
-    private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null
+    private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null,
+    private val isOnline: StateFlow<Boolean> = com.auralis.music.data.network.ConnectivityMonitor.isOnline
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -165,6 +169,16 @@ class HomeViewModel(
     }
 
     init {
+        // Offline shows the offline state; when the network comes back the feed reloads by itself.
+        _uiState.update { it.copy(isOffline = !isOnline.value) }
+        viewModelScope.launch {
+            isOnline.collect { online ->
+                _uiState.update { it.copy(isOffline = !online) }
+            }
+        }
+        viewModelScope.launch {
+            isOnline.reconnects().collect { loadHomeData() }
+        }
         // Settings → Content → Quick picks: rebuild the row as soon as the mode changes.
         viewModelScope.launch(ioDispatcher) {
             com.auralis.music.data.datastore.ContentSettingsStore.current
@@ -414,6 +428,9 @@ class HomeViewModel(
                 // Persist current speed dial to disk cache
                 context?.let { HomeRecommendationsCache.saveSpeedDial(it, _uiState.value.speedDialPages) }
 
+                // Offline: nothing from the network; the reconnect collector reloads the feed later.
+                if (!isOnline.value) return@launch
+
                 // Phase 2: Decoupled background network calls (never block UI or startup frame)
                 // 1. YouTube Music Home feed
                 viewModelScope.launch(Dispatchers.IO) {
@@ -528,6 +545,7 @@ class HomeViewModel(
      * Daily Discover: Seeds liked/played songs -> queries YouTube related -> generates novel discoveries.
      */
     private suspend fun fetchDailyDiscover() = withContext(Dispatchers.IO) {
+        if (!isOnline.value) return@withContext
         try {
             val likedSeeds = historyRepository.getLikedSeeds(limit = 8).shuffled().take(5)
             val history = historyRepository.getHistory().first().map { it.track }
@@ -603,6 +621,7 @@ class HomeViewModel(
      * Fetches concurrently and saves to local disk cache so shelves never vanish on restart.
      */
     private suspend fun fetchSimilarRecommendations() = withContext(Dispatchers.IO) {
+        if (!isOnline.value) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
@@ -738,6 +757,7 @@ class HomeViewModel(
      * - If first-time user: falls back to YouTube Music home quick picks & trending hits.
      */
     private suspend fun fetchQuickPicks() = withContext(Dispatchers.IO) {
+        if (!isOnline.value) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
 
@@ -953,6 +973,7 @@ class HomeViewModel(
      * Community Playlists & Curated Mixes
      */
     private suspend fun fetchCommunityPlaylists() = withContext(Dispatchers.IO) {
+        if (!isOnline.value) return@withContext
         try {
             val history = historyRepository.getHistory().first().map { it.track }
             val topArtist = history.map { it.artist }.firstOrNull { !isInvalidArtistName(it) }

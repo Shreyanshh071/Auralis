@@ -1,5 +1,6 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.data.network.reconnects
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -71,7 +72,8 @@ data class SearchUiState(
 
 class SearchViewModel(
     private val searchRepository: SearchRepository,
-    private val context: Context? = null
+    private val context: Context? = null,
+    private val isOnline: StateFlow<Boolean> = com.auralis.music.data.network.ConnectivityMonitor.isOnline
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -221,6 +223,12 @@ class SearchViewModel(
     }
 
     init {
+        // Back online: reload the open artist, album or search results in place.
+        viewModelScope.launch {
+            isOnline.reconnects().collect {
+                try { refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+            }
+        }
         viewModelScope.launch {
             // Purge any residual bot/background queries from previous runs
             val botQueries = listOf(

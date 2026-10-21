@@ -21,6 +21,8 @@ class AuralisApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.auralis.music.ui.i18n.AppLanguage.init(this)
+        // Before any screen: Home, Library and Explore read the network state from here.
+        com.auralis.music.data.network.ConnectivityMonitor.start(this)
         // Shared network code (hl/gl, proxy) reads these; the same calls it made when it lived here.
         com.auralis.music.data.network.ContentSettingsSource.current = { com.auralis.music.data.datastore.ContentSettingsStore.value }
         com.auralis.music.data.network.ContentLocale.appLanguageTag = { com.auralis.music.ui.i18n.AppLanguage.currentTagOrBlank() }

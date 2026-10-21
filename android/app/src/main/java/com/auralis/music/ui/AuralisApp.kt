@@ -219,6 +219,11 @@ fun AuralisApp(
         return vm
     }
     val libraryUiState = libraryViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.LibraryUiState()
+    // No network: Library lists only downloads, and the pages that need YouTube Music show the offline state.
+    val isOnline by com.auralis.music.data.network.ConnectivityMonitor.isOnline.collectAsState()
+    val shownLibraryUiState = remember(libraryUiState, isOnline) {
+        if (isOnline) libraryUiState else com.auralis.music.ui.viewmodel.OfflineLibrary.filter(libraryUiState)
+    }
 
     // ListenTogetherViewModel: only initialized when Listen Together feature is opened
     var listenTogetherViewModelState by remember {
@@ -1114,6 +1119,10 @@ fun AuralisApp(
                                                     isListenTogetherOpen = true
                                                 },
                                                 onNavigateToExplore = { navigateToDestination(AppDestination.EXPLORE) },
+                                                onOpenDownloads = {
+                                                    navigateToDestination(AppDestination.LIBRARY)
+                                                    obtainLibraryViewModel().openSmartCollection(com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED)
+                                                },
                                                 onMoodSelect = { mood -> homeViewModel.selectMoodFilter(mood) },
                                                 onChipToggle = { chip -> homeViewModel.toggleChip(chip) },
                                                 onSurpriseMe = {
@@ -1250,7 +1259,17 @@ fun AuralisApp(
                                             )
                                         }
 
-                                        AppDestination.EXPLORE -> {
+                                        AppDestination.EXPLORE -> if (!isOnline) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                com.auralis.music.ui.components.OfflineState(onOpenDownloads = {
+                                                    navigateToDestination(AppDestination.LIBRARY)
+                                                    obtainLibraryViewModel().openSmartCollection(com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED)
+                                                })
+                                            }
+                                        } else {
                                             val searchVM = obtainSearchViewModel()
                                             val libVM = obtainLibraryViewModel()
                                             com.auralis.music.ui.explore.ExploreScreen(
@@ -1405,7 +1424,8 @@ fun AuralisApp(
                                         AppDestination.LIBRARY -> {
                                             val libVM = obtainLibraryViewModel()
                                             LibraryScreen(
-                                                uiState = libraryUiState,
+                                                uiState = shownLibraryUiState,
+                                                isOffline = !isOnline,
                                                 floatingHeaderState = libraryHeaderState,
                                                 onRefresh = { libVM.refresh() },
                                                 currentTrackId = playerUiState.currentTrack?.id,
