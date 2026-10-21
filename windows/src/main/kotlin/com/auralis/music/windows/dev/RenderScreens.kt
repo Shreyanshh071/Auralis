@@ -237,6 +237,24 @@ fun main(args: Array<String>) {
                 }
             }
         },
+        // Sidebar lyrics mid-song in Fluid style: lines away from the sung one blur (Blur surrounding lyrics).
+        "lyrics-sidebar-blur" to {
+            val position = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(20500L) }
+            val lyrics = com.auralis.music.domain.model.LyricsData(
+                syncType = com.auralis.music.domain.model.SyncType.LINE_SYNC,
+                provider = com.auralis.music.domain.model.LyricsProvider.LRCLIB,
+                lines = (1..7).map { com.auralis.music.domain.model.LyricLine(8000L + it * 4000L, "Sample line ${listOf("one", "two", "three", "four", "five", "six", "seven")[it - 1]}") })
+            val fluid = com.auralis.music.domain.model.AppearanceSettings(
+                lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.FLUID.displayName, standardLyricsBlur = true)
+            androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.theme.LocalAppearanceSettings provides fluid) {
+                Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    Column(Modifier.width(340.dp).height(640.dp).background(androidx.compose.ui.graphics.Color(0xFF684A48))) {
+                        Row(Modifier.height(48.dp).padding(horizontal = 18.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Lyrics") }
+                        Box(Modifier.weight(1f)) { com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}, lineGap = 10.dp) }
+                    }
+                }
+            }
+        },
         "lyrics-spacing" to {
             val position = androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(1500L) }
             val lyrics = com.auralis.music.domain.model.LyricsData(
