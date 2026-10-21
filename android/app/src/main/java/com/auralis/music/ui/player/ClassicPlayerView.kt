@@ -797,7 +797,7 @@ fun InPlayerVolumeSlider(
     modifier: Modifier = Modifier
 ) {
     LocalPlayerDemoControls.current?.let { demo ->
-        DemoVolumeSlider(demo, modifier, controlsAlpha)
+        PlayerVolumeControls(demo.volume.value, { demo.volume.value = it }, controlsAlpha, modifier)
         return
     }
     val context = LocalContext.current
@@ -833,6 +833,21 @@ fun InPlayerVolumeSlider(
         }
     }
 
+    PlayerVolumeControls(systemVolume, { newVolume ->
+        systemVolume = newVolume
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (newVolume * maxVolume).roundToInt(), 0)
+    }, controlsAlpha, modifier)
+}
+
+/** Shared rendering for the live player and the tour; only the volume sink differs. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerVolumeControls(
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
+    controlsAlpha: Float,
+    modifier: Modifier = Modifier
+) {
     Row(
         modifier = modifier.graphicsLayer { alpha = controlsAlpha },
         verticalAlignment = Alignment.CenterVertically
@@ -840,8 +855,7 @@ fun InPlayerVolumeSlider(
         // Speaker Low / Mute icon
         IconButton(
             onClick = {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                systemVolume = 0f
+                onVolumeChange(0f)
             },
             modifier = Modifier.size(28.dp)
         ) {
@@ -857,12 +871,8 @@ fun InPlayerVolumeSlider(
 
         // Volume track (no thumb)
         Slider(
-            value = systemVolume,
-            onValueChange = { newVol ->
-                systemVolume = newVol
-                val step = (newVol * maxVolume).roundToInt()
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0)
-            },
+            value = volume,
+            onValueChange = onVolumeChange,
             thumb = {},
             track = { sliderState ->
                 val fraction = sliderState.value
@@ -900,9 +910,7 @@ fun InPlayerVolumeSlider(
         // Speaker Max icon
         IconButton(
             onClick = {
-                val maxStep = maxVolume.roundToInt()
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxStep, 0)
-                systemVolume = 1f
+                onVolumeChange(1f)
             },
             modifier = Modifier.size(28.dp)
         ) {

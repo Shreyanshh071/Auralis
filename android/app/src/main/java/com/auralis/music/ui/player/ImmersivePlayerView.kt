@@ -1689,7 +1689,7 @@ private fun TransportGlyph(
 @Composable
 private fun ImmersiveVolumeRow() {
     LocalPlayerDemoControls.current?.let { demo ->
-        DemoVolumeSlider(demo, Modifier.fillMaxWidth())
+        ImmersiveVolumeControls({ demo.volume.value }, { demo.volume.value = it }, {})
         return
     }
     val context = LocalContext.current
@@ -1709,6 +1709,15 @@ private fun ImmersiveVolumeRow() {
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
+    ImmersiveVolumeControls({ volume }, {
+        dragging = true
+        volume = it
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, (it * max).roundToInt(), 0)
+    }, { dragging = false })
+}
+
+@Composable
+private fun ImmersiveVolumeControls(volume: () -> Float, onChange: (Float) -> Unit, onFinish: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -1721,16 +1730,12 @@ private fun ImmersiveVolumeRow() {
         )
         Spacer(Modifier.width(10.dp))
         ImmersiveThinBar(
-            value = { volume },
+            value = volume,
             label = str(R.string.volume),
             idleHeight = 6.dp,
             activeHeight = 10.dp,
-            onChange = {
-                dragging = true
-                volume = it
-                audio.setStreamVolume(AudioManager.STREAM_MUSIC, (it * max).roundToInt(), 0)
-            },
-            onFinish = { dragging = false },
+            onChange = onChange,
+            onFinish = onFinish,
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(10.dp))
