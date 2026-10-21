@@ -204,6 +204,7 @@ object AudioStreamResolver {
         private set
 
     suspend fun resolvePlaybackVideoId(track: com.auralis.music.domain.model.Track): String? {
+        if (track.id.startsWith("unavailable:")) return null
         getMatchedVideoId(track.id)?.let { return it }
         if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return track.id
         return withContext(Dispatchers.IO) {
@@ -224,6 +225,7 @@ object AudioStreamResolver {
         context: android.content.Context? = null,
         duration: Long = 0L
     ): String? = withContext(Dispatchers.IO) {
+        if (videoId.startsWith("unavailable:")) return@withContext null
         val effectiveTargetId = KNOWN_STUDIO_REPLACEMENTS[videoId] ?: videoId
         if (effectiveTargetId != videoId) {
             diagLog("[Diag-Resolver] Redirecting bloated video ID $videoId -> authentic studio audio ID $effectiveTargetId for '$title'")
@@ -321,7 +323,7 @@ object AudioStreamResolver {
         context: android.content.Context? = null,
         duration: Long = 0L
     ): String? {
-        if (title.isBlank()) return null
+        if (originalVideoId.startsWith("unavailable:") || title.isBlank()) return null
         return try {
             val cleanedTitle = TitleCleaner.cleanTitle(title)
             val cleanCoreTitle = cleanedTitle

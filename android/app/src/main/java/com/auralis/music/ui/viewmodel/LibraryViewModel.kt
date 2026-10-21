@@ -6,7 +6,7 @@ import com.auralis.music.ui.i18n.str
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.auralis.music.data.network.SpotifyPlaylistImporter
-import com.auralis.music.data.network.YouTubePlaylistImporter
+import com.auralis.music.data.network.CompleteYouTubePlaylistImporter as YouTubePlaylistImporter
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.SavedAlbum
 import com.auralis.music.domain.model.SavedArtist

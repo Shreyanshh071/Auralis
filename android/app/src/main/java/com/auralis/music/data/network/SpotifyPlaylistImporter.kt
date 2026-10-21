@@ -285,6 +285,10 @@ class SpotifyPlaylistImporter(
             return@withContext null
         }
         val (id, type) = resource
+        if (type == SpotifyItemType.PLAYLIST && SpotifySession.isSignedIn) {
+            SpotifyLibrary.fetchPlaylist(id, this@SpotifyPlaylistImporter, onProgress, matchTracks = false)?.let { return@withContext it }
+        }
+
         Log.i(TAG, "Resolved Spotify resource: id=$id, type=$type")
 
         // ══════════════════════════════════════════════════════════════════════
@@ -304,7 +308,7 @@ class SpotifyPlaylistImporter(
                     Log.i(TAG, "Spotify Web API fetched ${apiPlaylist.tracks.size} tracks for '${apiPlaylist.title}'")
                     return@withContext apiPlaylist
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
                 Log.w(TAG, "Spotify Web API Tier failed: ${e.message}. Falling back to Pathfinder GraphQL / Embed tiers...")
             }
         }
@@ -339,7 +343,7 @@ class SpotifyPlaylistImporter(
                     was404OrPrivate = true
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
             Log.w(TAG, "Error fetching embed HTML: ${e.message}")
         }
 
@@ -359,7 +363,7 @@ class SpotifyPlaylistImporter(
                     Log.i(TAG, "Pathfinder GraphQL successfully fetched ${pathfinderPlaylist.tracks.size} tracks for '${pathfinderPlaylist.title}' in record time.")
                     return@withContext pathfinderPlaylist
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
                 Log.w(TAG, "Pathfinder GraphQL Tier failed: ${e.message}. Falling back to Embed HTML scraper...")
             }
         }
@@ -368,7 +372,7 @@ class SpotifyPlaylistImporter(
         // ── TIER 2: SPOTIFY EMBED HTML SCRAPING (FALLBACK) ──────────────────
         // ══════════════════════════════════════════════════════════════════════
         if (!embedHtml.isNullOrBlank()) {
-            val parsed = parseEmbedHtml(embedHtml, id, type)
+            val parsed = parseCompleteEmbed(embedHtml, id, type)
             if (parsed != null && parsed.tracks.isNotEmpty()) {
                 Log.i(TAG, "Parsed ${parsed.tracks.size} tracks from Embed HTML")
                 return@withContext parsed
@@ -397,13 +401,13 @@ class SpotifyPlaylistImporter(
                     if (html.contains("Page not found") || html.contains("\"status\":404")) {
                         was404OrPrivate = true
                     }
-                    val parsed = parseEmbedHtml(html, id, type)
+                    val parsed = parseCompleteEmbed(html, id, type)
                     if (parsed != null && parsed.tracks.isNotEmpty()) {
                         Log.i(TAG, "Successfully parsed ${parsed.tracks.size} tracks from fallback HTML")
                         return@withContext parsed
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
                 Log.w(TAG, "Error fetching Embed HTML $url: ${e.message}")
             }
         }
@@ -440,27 +444,21 @@ class SpotifyPlaylistImporter(
                         val ifResp = client.newCall(ifReq).execute()
                         if (ifResp.isSuccessful) {
                             val ifHtml = ifResp.body?.string() ?: ""
-                            val parsed = parseEmbedHtml(ifHtml, id, type)
+                            val parsed = parseCompleteEmbed(ifHtml, id, type)
                             if (parsed != null && parsed.tracks.isNotEmpty()) {
                                 return@withContext parsed
                             }
                         }
-                    } catch (e: Exception) {
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
                         Log.w(TAG, "Error fetching oEmbed iframe: ${e.message}")
                     }
                 }
 
                 if (title.isNotBlank()) {
-                    return@withContext Playlist(
-                        id = "sp_$id",
-                        title = title,
-                        description = "Imported from Spotify by $author",
-                        coverUrl = coverUrl,
-                        tracks = emptyList()
-                    )
+                    throw IncompletePlaylistImport("Spotify exposed playlist details without its songs. Connect Spotify and retry. Nothing was replaced.")
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: IncompletePlaylistImport) { throw e } catch (e: Exception) {
             Log.w(TAG, "Error in oEmbed tier: ${e.message}")
         }
 
@@ -542,7 +540,9 @@ class SpotifyPlaylistImporter(
             val items = content.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
+            val before = allTracks.size
             parsePathfinderPlaylistItems(items, title, allTracks, coverUrl ?: "")
+            PlaylistImportIntegrity.requirePage("Spotify", items.length(), allTracks.size - before)
 
             onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
@@ -550,6 +550,7 @@ class SpotifyPlaylistImporter(
             page++
         }
 
+        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
         if (allTracks.isEmpty()) return@withContext null
 
         Log.i(TAG, "Pathfinder GraphQL fetched ${allTracks.size} tracks for playlist '$title'")
@@ -640,7 +641,9 @@ class SpotifyPlaylistImporter(
             val items = tracksObj.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
+            val before = allTracks.size
             parsePathfinderAlbumItems(items, title, artist, coverUrl, allTracks)
+            PlaylistImportIntegrity.requirePage("Spotify album", items.length(), allTracks.size - before)
 
             onProgress?.invoke("Fetching album tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
@@ -648,6 +651,7 @@ class SpotifyPlaylistImporter(
             page++
         }
 
+        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
         if (allTracks.isEmpty()) return@withContext null
 
         Playlist(
@@ -884,6 +888,7 @@ class SpotifyPlaylistImporter(
             }
         }
 
+        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks, hasMore = !nextUrl.isNullOrBlank())
         Log.i(TAG, "Fetched ${allTracks.size} total tracks via Spotify Web API for playlist '$title'")
 
         Playlist(
@@ -971,6 +976,7 @@ class SpotifyPlaylistImporter(
             }
         }
 
+        PlaylistImportIntegrity.requireComplete("Spotify album", allTracks.size, tracksObj?.optInt("total", -1)?.takeIf { it >= 0 }, hasMore = !nextUrl.isNullOrBlank())
         Playlist(
             id = "sp_$albumId",
             title = title,
@@ -1299,6 +1305,27 @@ class SpotifyPlaylistImporter(
     /**
      * Parses the HTML body of open.spotify.com/embed/... to extract playlist metadata and tracks.
      */
+    internal fun parseCompleteEmbed(html: String, resourceId: String, type: SpotifyItemType): Playlist? {
+        val playlist = parseEmbedHtml(html, resourceId, type) ?: return null
+        if (type == SpotifyItemType.TRACK) return playlist
+        var expected: Int? = null
+        val scripts = Regex("<script[^>]*id=[\"'](?:__NEXT_DATA__|initial-state)[\"'][^>]*>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
+        for (script in scripts.findAll(html)) {
+            val raw = script.groupValues[1].trim()
+            val root = try { JSONObject(if (raw.startsWith("{")) raw else String(java.util.Base64.getDecoder().decode(raw))) } catch (_: Exception) { continue }
+            val props = root.optJSONObject("props")?.optJSONObject("pageProps")
+            val entity = props?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
+                ?: props?.optJSONObject("entity") ?: root.optJSONObject("data")?.optJSONObject("entity") ?: root.optJSONObject("entity") ?: continue
+            expected = listOf(entity.optInt("trackCount", -1), entity.optInt("totalTracks", -1),
+                entity.optJSONObject("tracks")?.optInt("total", -1) ?: -1,
+                entity.optJSONObject("trackList")?.optInt("totalCount", -1) ?: -1).firstOrNull { it >= 0 }
+            if (expected != null) break
+        }
+        if (expected == null) throw IncompletePlaylistImport("Spotify only exposed a preview of this playlist. Connect Spotify and import from your account so all entries can be verified. Nothing was replaced.")
+        PlaylistImportIntegrity.requireComplete("Spotify", playlist.tracks.size, expected)
+        return playlist
+    }
+
     fun parseEmbedHtml(html: String, resourceId: String, type: SpotifyItemType): Playlist? {
         if (html.isBlank()) return null
 
