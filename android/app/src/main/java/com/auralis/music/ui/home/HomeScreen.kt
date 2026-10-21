@@ -131,6 +131,7 @@ fun HomeScreen(
     onStartRadio: (Track) -> Unit = {},
     onOpenListenTogether: () -> Unit = {},
     onNavigateToExplore: () -> Unit = {},
+    onOpenDownloads: (() -> Unit)? = null,
     onMoodSelect: (String?) -> Unit = {},
     onChipToggle: (HomeChip?) -> Unit = {},
     onSurpriseMe: () -> Unit = {},
@@ -163,7 +164,14 @@ fun HomeScreen(
     floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
     modifier: Modifier = Modifier
 ) {
-    val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard
+    // Offline: every shelf below reads an empty state, so nothing cached or placeholder shows.
+    @Suppress("NAME_SHADOWING")
+    val uiState = remember(uiState) {
+        if (uiState.isOffline) HomeUiState(speedDialPages = emptyList(), isOffline = true, isRefreshing = uiState.isRefreshing)
+        else uiState
+    }
+    val showWrappedCard = com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState().value.showWrappedCard &&
+        !uiState.isOffline
     val context = LocalContext.current
     val homeScrollState = rememberLazyListState()
     val reducedScrollMotion = LocalReducedMotion.current
@@ -300,6 +308,12 @@ fun HomeScreen(
                         }
                     } }
 
+                // ── OFFLINE: no shelves at all, cached or placeholder; the feed reloads on reconnect ──
+                if (uiState.isOffline) {
+                    item(key = "home_offline", contentType = "offline") {
+                        com.auralis.music.ui.components.OfflineState(onOpenDownloads = onOpenDownloads)
+                    }
+                } else
                 // ── SKELETON GHOST TILES ON INITIAL LOAD ──
                 if (uiState.isLoading && uiState.speedDialPages.isEmpty()) {
                     item(key = "home_skeleton", contentType = "skeleton") {

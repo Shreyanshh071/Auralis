@@ -139,6 +139,9 @@
     <string name="clear_all_downloads">Clear all downloads</string>
     <string name="search_folders_or_tracks">Search folders or tracks...</string>
     <string name="no_offline_downloads_yet">No offline downloads yet</string>
+    <string name="you_are_offline">You\'re offline</string>
+    <string name="offline_play_downloads_hint">Your downloaded songs still play. This page loads again as soon as you\'re back online.</string>
+    <string name="offline_open_downloads">Play downloads</string>
     <string name="download_your_favorite_playlists_and_son">Download your favorite playlists and songs to listen offline anytime.</string>
     <string name="downloaded_folders_x">Downloaded Folders (%1$s)</string>
     <string name="clear_all_downloads_2">Clear All Downloads?</string>

@@ -321,6 +321,8 @@ fun LibraryScreen(
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     floatingHeaderState: com.auralis.music.ui.components.LiquidGlassHeaderPageState? = null,
+    /** No network: [uiState] already holds only downloads; empty collections are hidden too. */
+    isOffline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val appearanceContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
@@ -836,7 +838,7 @@ fun LibraryScreen(
             val displayedPlaylists = sortLibraryPlaylists(
                 playlists = buildList {
                     if (searchQuery.isBlank()) {
-                        if (appearance.showLikedPlaylist) add(likedPlaylist)
+                        if (appearance.showLikedPlaylist && !(isOffline && uiState.favorites.isEmpty())) add(likedPlaylist)
                         if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
                         if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
                         // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
