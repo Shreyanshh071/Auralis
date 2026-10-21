@@ -108,12 +108,7 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
 
-        // Request POST_NOTIFICATIONS permission for Android 13+ (API 33+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-            }
-        }
+        // Optional notification access is explained and requested from the app tour.
 
         // Initialize Core Singletons / Repositories
         val db = AuralisDatabase.getInstance(applicationContext)

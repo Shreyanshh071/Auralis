@@ -47,7 +47,7 @@ fun AppTour(onFinish: () -> Unit) {
     val settings by settingsStore.settingsFlow.collectAsState(PlayerSettings())
     val content by contentStore.settingsFlow.collectAsState(ContentSettings())
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState { 6 }
+    val pager = rememberPagerState { 7 }
     val reduced = LocalReducedMotion.current
     fun moveTo(page: Int) { scope.launch {
         if (reduced) pager.scrollToPage(page)
@@ -56,8 +56,8 @@ fun AppTour(onFinish: () -> Unit) {
     androidx.activity.compose.BackHandler(enabled = pager.currentPage > 0) { moveTo(pager.currentPage - 1) }
     val ink = Color(0xFFF0F2F7)
     val accent = Color(0xFFE5CB9E)
-    val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "Where is your sound?")
-    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
+    val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "You’re in control.", "Where is your sound?")
+    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Allow what works for you. Everything here is optional, and you can change it later.", "Choose your music region and language. Next, sign in and pick your artists.")
     WrappedBackground(animate = !reduced) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -90,6 +90,7 @@ fun AppTour(onFinish: () -> Unit) {
                                 Text(qualityDescription, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
                             }
                             3 -> TourLyricsPreview(appearance, active, Modifier.fillMaxSize())
+                            5 -> TourPermissionsPage(accent, ink, Modifier.fillMaxSize())
                             else -> Icon(if (page == 4) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = accent, modifier = Modifier.size(140.dp))
                         }
                     }
@@ -113,7 +114,7 @@ fun AppTour(onFinish: () -> Unit) {
                                 else -> it
                             } }) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(lyricsAnimation = value)) } }
                         4 -> Text("Tap ⋮ beside a song → Download", color = ink.copy(alpha = .7f), fontSize = 13.sp)
-                        5 -> {
+                        6 -> {
                             LocaleChoice("Music region", YouTubeLocales.countries, content.contentCountry, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentCountry = value) } } }
                             Spacer(Modifier.height(8.dp))
                             LocaleChoice("Content language", YouTubeLocales.languages, content.contentLanguage, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentLanguage = value) } } }
@@ -123,13 +124,13 @@ fun AppTour(onFinish: () -> Unit) {
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(6) { index ->
+                repeat(pager.pageCount) { index ->
                     val proximity = (1f - abs((pager.currentPage - index) + pager.currentPageOffsetFraction)).coerceIn(0f, 1f)
                     Box(Modifier.size((6 + 18 * proximity).dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(if (proximity > .5f) ink.copy(alpha = .8f) else ink.copy(alpha = .2f)))
                 }
                 Spacer(Modifier.weight(1f))
-                TourTouchButton(if (pager.currentPage == 5) "Get started" else "Next", true, accent, ink, Modifier.width(108.dp).height(46.dp)) {
-                    if (pager.currentPage == 5) onFinish() else moveTo(pager.currentPage + 1)
+                TourTouchButton(if (pager.currentPage == pager.pageCount - 1) "Get started" else "Next", true, accent, ink, Modifier.width(108.dp).height(46.dp)) {
+                    if (pager.currentPage == pager.pageCount - 1) onFinish() else moveTo(pager.currentPage + 1)
                 }
             }
         }
@@ -138,7 +139,7 @@ fun AppTour(onFinish: () -> Unit) {
 
 /** Shared press/release spring so every tour control responds while the finger is down. */
 @Composable
-private fun TourTouchButton(text: String, selected: Boolean, accent: Color, ink: Color,
+internal fun TourTouchButton(text: String, selected: Boolean, accent: Color, ink: Color,
     modifier: Modifier = Modifier, onClick: () -> Unit) {
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
