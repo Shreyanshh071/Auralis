@@ -85,4 +85,45 @@ class OnboardingStoreTest {
         assertTrue(OnboardingStore.state.value.tourSeen)
         assertFalse(OnboardingStore.state.value.pickerDone)
     }
+
+    @Test fun newAccountOnUsedPhoneRequiresItsOwnTourAndArtistPicker() {
+        OnboardingStore.markTourSeen()
+        OnboardingStore.onAuthenticated("existing", newlyCreated = false)
+        OnboardingStore.bindAccount("")
+        OnboardingStore.onAuthenticated("brand-new", newlyCreated = true)
+        assertFalse(OnboardingStore.state.value.tourSeen)
+        assertFalse(OnboardingStore.state.value.pickerDone)
+        assertTrue(OnboardingStore.state.value.isNewAccount)
+        OnboardingStore.markTourSeen()
+        assertTrue(OnboardingStore.state.value.tourSeen)
+        OnboardingStore.bindAccount("brand-new")
+        assertTrue(OnboardingStore.state.value.tourSeen)
+    }
+
+    @Test fun firstInstallTourImmediatelyBeforeSignupDoesNotPlayTwice() {
+        OnboardingStore.markTourSeen()
+        OnboardingStore.onAuthenticated("new", newlyCreated = true)
+        OnboardingStore.requireNewcomerTour("new")
+        assertTrue(OnboardingStore.state.value.tourSeen)
+        assertFalse(OnboardingStore.state.value.pickerDone)
+    }
+
+    @Test fun pendingAccountTourSurvivesProcessRestart() {
+        OnboardingStore.onAuthenticated("new", newlyCreated = true)
+        OnboardingStore.init(context, true)
+        OnboardingStore.bindAccount("new")
+        assertFalse(OnboardingStore.state.value.tourSeen)
+        assertTrue(OnboardingStore.state.value.isNewAccount)
+    }
+
+    @Test fun loginWithNoListeningAlsoGetsTourOnceAfterRestoreDecision() {
+        OnboardingStore.markTourSeen()
+        OnboardingStore.onAuthenticated("first", newlyCreated = false)
+        OnboardingStore.onAuthenticated("empty-login", newlyCreated = false)
+        OnboardingStore.requireNewcomerTour("empty-login")
+        assertFalse(OnboardingStore.state.value.tourSeen)
+        OnboardingStore.markTourSeen()
+        OnboardingStore.requireNewcomerTour("empty-login")
+        assertTrue(OnboardingStore.state.value.tourSeen)
+    }
 }

@@ -541,15 +541,26 @@ fun AuralisApp(
         if (onboarding.accountId != onboardingUid) com.auralis.music.data.datastore.OnboardingStore.bindAccount(onboardingUid)
     }
     var onboardingHasData by remember(onboardingUid) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(onboardingUid, onboarding.accountId, isAppUnlocked, authUiState.isSyncing, onboarding.pickerDone) {
+    LaunchedEffect(onboardingUid, onboarding.accountId, isAppUnlocked, authUiState.isSyncing, onboarding.pickerDone, onboarding.isNewAccount) {
         if (!isAppUnlocked || onboarding.pickerDone || (isUserLoggedIn && authUiState.isSyncing) || onboarding.accountId != onboardingUid) {
             onboardingHasData = null
             if (isAppUnlocked && onboarding.pickerDone && !authUiState.isSyncing && onboarding.accountId == onboardingUid) {
                 homeViewModel.loadHomeData()
             }
         } else {
-            // Restore has settled; only this account's pickerDone can skip artist selection.
-            onboardingHasData = false
+            // Never borrow the previous listener's local history for a newly created account.
+            onboardingHasData = !onboarding.isNewAccount && kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                viewModelProvider.historyRepository.getHistory().first().isNotEmpty() ||
+                    viewModelProvider.historyRepository.getTopPlayedTracks().first().isNotEmpty() ||
+                    com.auralis.music.data.local.AuralisDatabase.getInstance(context)
+                        .playbackEventDao().getEventCount() > 0
+            }
+            if (onboardingHasData == true &&
+                com.auralis.music.data.datastore.OnboardingStore.state.value.accountId == onboardingUid) {
+                com.auralis.music.data.datastore.OnboardingStore.skipPicker()
+            } else if (onboardingHasData == false) {
+                com.auralis.music.data.datastore.OnboardingStore.requireNewcomerTour(onboardingUid)
+            }
         }
     }
     LaunchedEffect(onboarding.starterVersion, onboardingUid) {

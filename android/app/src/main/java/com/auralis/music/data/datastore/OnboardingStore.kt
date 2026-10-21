@@ -22,18 +22,22 @@ object OnboardingStore {
     private const val PICKER_DONE = "picker_done_v1"
     private const val ARTISTS = "starter_artists"
     private const val TRACKS = "starter_tracks"
+    private const val NEW_ACCOUNT = "new_account"
+    private const val TOUR_PENDING = "account_tour_pending"
+    private const val ACCOUNT_TOUR_SEEN = "account_tour_seen"
 
     @Serializable
     private data class SavedArtist(val id: String, val name: String, val thumbnail: String? = null)
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0)
+    data class State(val tourSeen: Boolean = false, val pickerDone: Boolean = false, val accountId: String = "", val starterVersion: Int = 0, val isNewAccount: Boolean = false)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var prefs: android.content.SharedPreferences? = null
+    private var signedOutTourCompletedThisSession = false
 
     private fun accountKey(key: String) = "$key:${_state.value.accountId}"
 
@@ -44,6 +48,7 @@ object OnboardingStore {
     fun init(context: Context, signedInAtLaunch: Boolean) {
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
+        signedOutTourCompletedThisSession = false
         val uid = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty() } catch (_: Exception) { "" }
         if (signedInAtLaunch && !p.contains(TOUR_SEEN)) {
             p.edit().putBoolean(TOUR_SEEN, true).apply()
@@ -57,19 +62,47 @@ object OnboardingStore {
         val artists = decode(p.getString("$ARTISTS:$uid", null), ListSerializer(SavedArtist.serializer()))
         val tracks = decode(p.getString("$TRACKS:$uid", null), ListSerializer(Track.serializer()))
         NewUserSeedProvider.setStarter(artists.map { it.name }, tracks)
-        _state.value = State(p.getBoolean(TOUR_SEEN, false), p.getBoolean("$PICKER_DONE:$uid", false), uid,
-            starterVersion = _state.value.starterVersion + 1)
+        _state.value = State(p.getBoolean(TOUR_SEEN, false) && !p.getBoolean("$TOUR_PENDING:$uid", false),
+            p.getBoolean("$PICKER_DONE:$uid", false), uid,
+            starterVersion = _state.value.starterVersion + 1,
+            isNewAccount = p.getBoolean("$NEW_ACCOUNT:$uid", false))
+    }
+
+    /** Called before publishing the signed-in profile, for both email and Google auth. */
+    fun onAuthenticated(uid: String, newlyCreated: Boolean) {
+        if (uid.isBlank()) return
+        if (signedOutTourCompletedThisSession) prefs?.edit()
+            ?.putBoolean("$ACCOUNT_TOUR_SEEN:$uid", true)?.apply()
+        if (newlyCreated) prefs?.edit()
+            ?.putBoolean("$NEW_ACCOUNT:$uid", true)
+            ?.putBoolean("$TOUR_PENDING:$uid", !signedOutTourCompletedThisSession)
+            ?.apply()
+        // A tour immediately before this sign-in counts, but cannot cover later accounts.
+        signedOutTourCompletedThisSession = false
+        bindAccount(uid)
+    }
+
+    /** An older login with no saved taste or listening is also a newcomer to Auralis. */
+    fun requireNewcomerTour(uid: String) {
+        val p = prefs ?: return
+        if (uid != _state.value.accountId || p.getBoolean("$ACCOUNT_TOUR_SEEN:$uid", false)) return
+        p.edit().putBoolean("$TOUR_PENDING:$uid", true).apply()
+        _state.value = _state.value.copy(tourSeen = false)
     }
 
     fun markTourSeen() {
-        prefs?.edit()?.putBoolean(TOUR_SEEN, true)?.apply()
+        prefs?.edit()?.putBoolean(TOUR_SEEN, true)
+            ?.putBoolean(accountKey(ACCOUNT_TOUR_SEEN), true)
+            ?.putBoolean(accountKey(TOUR_PENDING), false)?.apply()
+        signedOutTourCompletedThisSession = _state.value.accountId.isBlank()
         _state.value = _state.value.copy(tourSeen = true)
     }
 
     /** Skipped picker: Home loads the general feed without inventing artist preferences. */
     fun skipPicker() {
-        prefs?.edit()?.putBoolean(accountKey(PICKER_DONE), true)?.apply()
-        _state.value = _state.value.copy(pickerDone = true)
+        prefs?.edit()?.putBoolean(accountKey(PICKER_DONE), true)
+            ?.putBoolean(accountKey(NEW_ACCOUNT), false)?.apply()
+        _state.value = _state.value.copy(pickerDone = true, isNewAccount = false)
     }
 
     fun savePicks(artists: List<Artist>, tracks: List<Track>) {
@@ -80,9 +113,10 @@ object OnboardingStore {
             ?.putString(accountKey(ARTISTS), artistJson)
             ?.putString(accountKey(TRACKS), trackJson)
             ?.putBoolean(accountKey(PICKER_DONE), true)
+            ?.putBoolean(accountKey(NEW_ACCOUNT), false)
             ?.apply()
         NewUserSeedProvider.setStarter(artists.map { it.name }, tracks)
-        _state.value = _state.value.copy(pickerDone = true, starterVersion = _state.value.starterVersion + 1)
+        _state.value = _state.value.copy(pickerDone = true, isNewAccount = false, starterVersion = _state.value.starterVersion + 1)
         // Firestore queues this small merge if the connection goes away after the local save.
         val uid = _state.value.accountId
         if (uid.isNotBlank()) try {
