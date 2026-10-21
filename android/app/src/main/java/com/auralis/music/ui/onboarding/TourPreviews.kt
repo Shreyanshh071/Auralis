@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntSize
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.lyrics.SyncedLyricsView
 import com.auralis.music.ui.player.NowPlayingModal
@@ -78,7 +79,7 @@ internal fun TourLyricsPreview(appearance: AppearanceSettings, active: Boolean, 
 /** The same player composable used during playback, scaled from a phone-sized viewport. */
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
-internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, modifier: Modifier = Modifier) {
+internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, viewport: IntSize, modifier: Modifier = Modifier) {
     val reduced = LocalReducedMotion.current
     val sampleQueue = remember { listOf(
         Track("PvM79DJ2PmM", "The Less I Know the Better", "Tame Impala", album = "Currents", duration = 217, thumbnail = "https://i.ytimg.com/vi/PvM79DJ2PmM/hqdefault.jpg"),
@@ -132,11 +133,9 @@ internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, 
     } }
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
-        val virtualWidth = with(density) { 390.dp.roundToPx() }
-        val virtualHeight = with(density) { 740.dp.roundToPx() }
-        val scale = minOf(constraints.maxWidth.toFloat() / virtualWidth, constraints.maxHeight.toFloat() / virtualHeight).coerceAtLeast(.01f)
-        val width = (virtualWidth * scale).toInt().coerceAtLeast(1)
-        val height = (virtualHeight * scale).toInt().coerceAtLeast(1)
+        val preview = fitPlayerPreview(viewport, IntSize(constraints.maxWidth, constraints.maxHeight))
+        val (width, height, scale) = preview
+        if (scale <= 0f) return@BoxWithConstraints
         // Measure at the real on-screen size. Scaling a larger layer after measurement made
         // Immersive compare scaled root coordinates against unscaled cover/control dimensions.
         Box(Modifier.size(with(density) { width.toDp() }, with(density) { height.toDp() })) {

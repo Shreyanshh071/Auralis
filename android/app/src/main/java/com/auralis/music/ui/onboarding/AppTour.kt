@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntSize
 import com.auralis.music.data.datastore.*
 import com.auralis.music.data.network.YouTubeLocales
 import com.auralis.music.domain.model.*
@@ -59,7 +60,11 @@ fun AppTour(onFinish: () -> Unit) {
     val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "You’re in control.", "Where is your sound?")
     val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Allow what works for you. Everything here is optional, and you can change it later.", "Choose your music region and language. Next, sign in and pick your artists.")
     WrappedBackground(animate = !reduced) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        // Capture the same usable window as the full player, before tour chrome takes space.
+        // Insets are consumed here once, so the embedded players cannot subtract them again.
+        BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        val playerViewport = IntSize(constraints.maxWidth, constraints.maxHeight)
+        Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("AURALIS", color = ink, letterSpacing = 4.sp, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 TourTouchButton("Skip tour", false, accent, ink, Modifier.width(90.dp).height(38.dp), onFinish)
@@ -80,7 +85,7 @@ fun AppTour(onFinish: () -> Unit) {
                     }, contentAlignment = Alignment.Center) {
                         when (page) {
                             0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_tour_logo), null, tint = ink, modifier = Modifier.size(144.dp))
-                            1 -> TourPlayerPreview(appearance, active, Modifier.fillMaxSize())
+                            1 -> TourPlayerPreview(appearance, active, playerViewport, Modifier.fillMaxSize())
                             2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp).graphicsLayer(), color = accent, smoothMotion = true)
                                 val qualityDescription = when (settings.audioQuality) {
@@ -133,6 +138,7 @@ fun AppTour(onFinish: () -> Unit) {
                     if (pager.currentPage == pager.pageCount - 1) onFinish() else moveTo(pager.currentPage + 1)
                 }
             }
+        }
         }
     }
 }
