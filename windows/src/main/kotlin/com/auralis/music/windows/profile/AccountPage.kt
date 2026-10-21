@@ -1,5 +1,7 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.Button
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.BorderStroke
@@ -42,12 +44,11 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
     }
 
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(if (showBack) 24.dp else 0.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = if (showBack) 12.dp else 0.dp).padding(bottom = if (showBack) 24.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         if (showBack) {
-            TextButton(onClick = onBack) { Text("Back") }
-            Text("Auralis account", style = MaterialTheme.typography.headlineLarge)
+            com.auralis.music.ui.components.PageHeader(desktopText("Auralis account"), onBack)
         }
         if (state.profile != null) {
             Card(
@@ -79,12 +80,12 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                         ),
                         enabled = !state.busy
                     ) {
-                        Text("Sign out")
+                        Text(desktopText("Sign out"))
                     }
                 }
             }
             Text(
-                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay.",
+                desktopText("Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -94,20 +95,20 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy && account.googleAvailable
             ) {
-                Text("Sign in with Google")
+                Text(desktopText("Sign in with Google"))
             }
             if (state.browser) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Select your email in the browser window to finish signing in…", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = account::cancelGoogle) { Text("Cancel") }
+                    Text(desktopText("Select your email in the browser window to finish signing in…"), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = account::cancelGoogle) { Text(desktopText("Cancel")) }
                 }
             }
-            Text("Or sign in with your Auralis email and password:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(desktopText("Or sign in with your Auralis email and password:"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
+                label = { Text(desktopText("Email")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy,
@@ -116,7 +117,7 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(desktopText("Password")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy,
@@ -129,21 +130,21 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy && email.contains('@') && password.isNotEmpty()
             ) {
-                Text(if (create) "Create account" else "Sign in")
+                Text(desktopText(if (create) "Create account" else "Sign in"))
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(onClick = { create = !create }, enabled = !state.busy) {
-                    Text(if (create) "Already have an account? Sign in" else "Create an account")
+                    Text(desktopText(if (create) "Already have an account? Sign in" else "Create an account"))
                 }
                 TextButton(onClick = { account.reset(email) }, enabled = !state.busy && email.contains('@')) {
-                    Text("Forgot password")
+                    Text(desktopText("Forgot password"))
                 }
             }
             Text(
-                "Your browser handles Google sign-in. Auralis never sees your Google password.",
+                desktopText("Your browser handles Google sign-in. Auralis never sees your Google password."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.auralis.music.domain.model.SearchResults
 import com.auralis.music.domain.repository.SearchRepository
+import com.auralis.music.data.network.UserSearchRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -13,6 +14,12 @@ import kotlinx.coroutines.launch
 
 /** The Windows search screen's state; the same flow as the phone's SearchViewModel.performSearch. */
 class DesktopSearchState(private val repository: SearchRepository, private val scope: CoroutineScope, private val mayRecordHistory: suspend () -> Boolean = { true }) {
+    private fun visible(result: SearchResults): SearchResults {
+        if (!com.auralis.music.windows.settings.DesktopPreferences.store.bool("hideVideos")) return result
+        fun allowed(item: com.auralis.music.domain.model.SearchTopResult?) = item !is com.auralis.music.domain.model.SearchTopResult.SongResult || !item.track.isMusicVideo
+        return result.copy(songs=result.songs.filterNot {it.isMusicVideo},recommendations=result.recommendations.filterNot {it.isMusicVideo},
+            topResult=result.topResult?.takeIf(::allowed),runnerUp=result.runnerUp?.takeIf(::allowed),rankedMatches=result.rankedMatches.filter(::allowed))
+    }
     var query by mutableStateOf("")
         private set
     /** The committed route remains stable while the title-bar field is being edited. */
@@ -62,7 +69,7 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         suggestionsJob = scope.launch {
             delay(120)
             val found = try {
-                repository.getSuggestions(trimmed).take(3)
+                UserSearchRequest.run { repository.getSuggestions(trimmed).take(3) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -74,16 +81,16 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
             // Let a short burst of typing settle, then show either provider as soon as it arrives.
             delay(120)
             try {
-                repository.searchLiveSongs(trimmed) { songs ->
+                UserSearchRequest.run { repository.searchLiveSongs(trimmed) { songs ->
                     scope.launch {
                         if (query.trim() == trimmed && !hasSubmitted && songs.isNotEmpty()) {
-                            val visible = songs.take(8)
+                            val visible = songs.filterNot {it.isMusicVideo && com.auralis.music.windows.settings.DesktopPreferences.store.bool("hideVideos")}.take(8)
                             if (liveSongCache.size >= 24) liveSongCache.remove(liveSongCache.keys.first())
                             liveSongCache[cacheKey] = visible
                             liveSongs = visible
                         }
                     }
-                }
+                } }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -105,21 +112,21 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         searchFailed = false
         // A recent identical search shows complete at once while it refreshes.
         val cached = repository.cachedSearch(trimmed)?.takeIf { it.isNotEmpty() }
-        results = cached ?: SearchResults()
+        results = visible(cached ?: SearchResults())
         isSearching = cached == null
         searchJob = scope.launch {
             if (recordHistory) launch { runCatching { if (mayRecordHistory()) repository.recordSearchQuery(trimmed) } }
             try {
-                val finished = repository.search(trimmed) { received ->
+                val finished = UserSearchRequest.run { repository.search(trimmed) { received ->
                     scope.launch {
                         if (trimmed.equals(query, ignoreCase = true)) {
-                            results = received
+                            results = visible(received)
                             isSearching = false
                         }
                     }
-                }
+                } }
                 if (trimmed.equals(query, ignoreCase = true)) {
-                    results = finished
+                    results = visible(finished)
                     searchFailed = finished.requestFailed
                     isSearching = false
                 }

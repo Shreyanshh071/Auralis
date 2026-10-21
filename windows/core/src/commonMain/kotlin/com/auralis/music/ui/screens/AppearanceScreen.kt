@@ -200,28 +200,7 @@ fun AppearanceScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(Strings.back),
-                        tint = onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(Strings.appearance),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 22.sp
-                )
-            }
+            com.auralis.music.ui.components.PageHeader(str(Strings.appearance), onDismiss, Modifier.padding(horizontal = 12.dp))
 
             // ── SETTINGS SCROLLABLE LIST ──
             LazyColumn(

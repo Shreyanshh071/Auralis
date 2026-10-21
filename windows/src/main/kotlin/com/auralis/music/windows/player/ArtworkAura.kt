@@ -4,6 +4,8 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
@@ -11,6 +13,8 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import com.auralis.music.ui.theme.ArtworkPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Request
 import org.jetbrains.skia.*
 import java.awt.image.BufferedImage
@@ -32,47 +36,67 @@ private val auraTextureCache = java.util.Collections.synchronizedMap(
     }
 )
 
+// Serialize duplicate loads without putting every shortcut and player cover behind one request.
+private val auraTextureLoadMutexes = Array(32) { Mutex() }
+
+internal fun auraTextureKey(artwork: String): String =
+    com.auralis.music.ui.components.getOptimizedThumbnailUrl(artwork) ?: artwork
+
+/** Shared by preloading and visible auras, including different resolutions of the same cover. */
+internal suspend fun loadAuraTexture(artwork: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    val url = auraTextureKey(artwork)
+    auraTextureLoadMutexes[(url.hashCode() and Int.MAX_VALUE) % auraTextureLoadMutexes.size].withLock {
+        auraTextureCache[url] ?: runCatching {
+            val decoded = if (java.io.File(url).isFile) ImageIO.read(java.io.File(url))
+            else if (url.startsWith("file:")) ImageIO.read(java.io.File(java.net.URI(url)))
+            else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+                .newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    check(response.isSuccessful)
+                    response.body?.byteStream()?.use(ImageIO::read)
+                }
+            decoded?.let(::auraTexture)?.also { auraTextureCache[url] = it }
+        }.getOrNull()
+    }
+}
+
+@Composable
+internal fun rememberAuraCover(artwork: String?): State<ImageBitmap?> {
+    val url = artwork?.let(::auraTextureKey)
+    // Keep the decoded previous song until its replacement is ready.
+    val cover = remember { mutableStateOf(url?.let { auraTextureCache[it] }) }
+    LaunchedEffect(url) {
+        if (url == null) cover.value = null
+        else loadAuraTexture(url)?.let { cover.value = it }
+    }
+    return cover
+}
+
 @Composable
 internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: String? = null,
     presentation: AuraPresentation = AuraPresentation.SIDEBAR,
     brightness: Float = presentation.brightness,
-    saturation: Float = presentation.saturation) {
-    var cover by remember(artwork) { mutableStateOf<ImageBitmap?>(artwork?.let { auraTextureCache[it] }) }
-    LaunchedEffect(artwork) {
-        if (artwork == null) { cover = null; return@LaunchedEffect }
-        val cached = auraTextureCache[artwork]
-        if (cached != null) {
-            cover = cached
-            return@LaunchedEffect
-        }
-        val decoded = withContext(Dispatchers.IO) {
-            runCatching {
-                val url = com.auralis.music.ui.components.getOptimizedThumbnailUrl(artwork) ?: artwork
-                if (java.io.File(url).isFile) ImageIO.read(java.io.File(url))?.let(::auraTexture)
-                else if (url.startsWith("file:")) ImageIO.read(java.io.File(java.net.URI(url)))?.let(::auraTexture)
-                else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
-                    .newCall(Request.Builder().url(url).build()).execute().use { response ->
-                        check(response.isSuccessful)
-                        response.body?.byteStream()?.use(ImageIO::read)?.let(::auraTexture)
-                    }
-            }.getOrNull()
-        }
-        // Retain the previous cover while the next one loads; crossfade only decoded images.
-        if (decoded != null) {
-            auraTextureCache[artwork] = decoded
-            cover = decoded
-        }
-    }
+    saturation: Float = presentation.saturation,
+    motionAura: MotionAura? = null) {
+    val still by rememberAuraCover(artwork)
+    val moving = motionAura?.texture?.value
+    val cover = moving ?: still
     val time = remember { mutableFloatStateOf(0f) }
+    val auraOff = com.auralis.music.windows.dev.PerfFlags.off("aura")
     LaunchedEffect(Unit) {
+        if (auraOff) return@LaunchedEffect
         var previous = 0L
         while (true) withFrameNanos { now ->
             if (previous != 0L) time.floatValue += ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
             previous = now
         }
     }
-    Crossfade(cover, modifier, animationSpec = tween(1000), label = "cover flow transition") { image ->
-        if (image == null) {
+    // The first decoded image shows at once. A new one (the next song, or an animated cover's next
+    // colour frame) fades in over the one on screen, which stays fully opaque underneath until the
+    // fade ends: a crossfade dimmed both halfway, so the sidebar pulsed with every video frame.
+    if (cover == null) Box(modifier) {
+        if (presentation == AuraPresentation.FULL_PLAYER && artwork != null) {
+            BlurredArtworkBackground(artwork)
+        } else {
             Canvas(Modifier.fillMaxSize()) {
                 val fallback = if (presentation == AuraPresentation.SHORTCUT)
                     listOf(androidx.compose.ui.graphics.Color(0xFF4D246D), androidx.compose.ui.graphics.Color(0xFF156A78), androidx.compose.ui.graphics.Color(0xFF852755))
@@ -87,15 +111,40 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
                         center = center, radius = size.width.coerceAtLeast(size.height) * .8f))
                 }
             }
-        } else {
-            val resources = remember(image, presentation, brightness, saturation) {
-                AuraRenderer(image, presentation, brightness, saturation)
-            }
-            DisposableEffect(resources) { onDispose { resources.close() } }
-            Canvas(Modifier.fillMaxSize()) {
-                drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
-            }
         }
+    } else AuraLayers(cover, modifier, fadeMs = if (moving != null) MOTION_FADE_MS else 1000) { image ->
+        val resources = remember(image, presentation, brightness, saturation) {
+            AuraRenderer(image, presentation, brightness, saturation)
+        }
+        DisposableEffect(resources) { onDispose { resources.close() } }
+        if (auraOff) androidx.compose.foundation.Image(image, null, Modifier.fillMaxSize(),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        else Canvas(Modifier.fillMaxSize()) {
+            drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
+        }
+    }
+}
+
+/** How long each new animated-cover colour frame takes to fade in (MotionAura waits longer between frames). */
+internal const val MOTION_FADE_MS = 600
+
+/** [image] fading in on top of the previous image, which stays opaque underneath until the fade completes. */
+@Composable
+private fun AuraLayers(image: ImageBitmap, modifier: Modifier, fadeMs: Int, layer: @Composable (ImageBitmap) -> Unit) {
+    var top by remember { mutableStateOf(image) }
+    var below by remember { mutableStateOf<ImageBitmap?>(null) }
+    val fade = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(image) {
+        if (image === top) return@LaunchedEffect
+        below = top
+        top = image
+        fade.snapTo(0f)
+        fade.animateTo(1f, tween(fadeMs))
+        below = null
+    }
+    Box(modifier) {
+        below?.let { previous -> key(previous) { Box(Modifier.fillMaxSize()) { layer(previous) } } }
+        key(top) { Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) { layer(top) } }
     }
 }
 
@@ -134,15 +183,8 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
     return tiny.toComposeImageBitmap()
 }
 
-// Domain-warp noise and octave mixing adapted from Better Lyrics/Kawarp (MIT).
-// License is bundled at third-party/kawarp-LICENSE.txt.
-internal class AuraRenderer(image: ImageBitmap,
-    private val presentation: AuraPresentation = AuraPresentation.SIDEBAR,
-    private val brightness: Float = presentation.brightness,
-    private val saturation: Float = presentation.saturation) : AutoCloseable {
-    private val texture = Image.makeFromBitmap(image.asSkiaBitmap())
-    private val child = texture.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR)
-    private val effect = RuntimeEffect.makeForShader("""
+/** The aura shader, compiled once and shared: compiling it per renderer cost a hitch for every animated-cover frame. */
+private val sharedAuraEffect: RuntimeEffect by lazy { RuntimeEffect.makeForShader("""
         uniform shader cover;
         uniform float2 resolution;
         uniform float time;
@@ -199,7 +241,17 @@ internal class AuraRenderer(image: ImageBitmap,
             colour = mix(half3(cssLuminance), colour, saturation) * brightness;
             return half4(clamp(colour, 0.0, 1.0), 1.0);
         }
-    """.trimIndent())
+    """.trimIndent()) }
+
+// Domain-warp noise and octave mixing adapted from Better Lyrics/Kawarp (MIT).
+// License is bundled at third-party/kawarp-LICENSE.txt.
+internal class AuraRenderer(image: ImageBitmap,
+    private val presentation: AuraPresentation = AuraPresentation.SIDEBAR,
+    private val brightness: Float = presentation.brightness,
+    private val saturation: Float = presentation.saturation) : AutoCloseable {
+    private val texture = Image.makeFromBitmap(image.asSkiaBitmap())
+    private val child = texture.makeShader(FilterTileMode.CLAMP, FilterTileMode.CLAMP, SamplingMode.LINEAR)
+    private val effect = sharedAuraEffect
     private val builder = RuntimeShaderBuilder(effect).apply { child("cover", child) }
     private val paint = org.jetbrains.skia.Paint()
     private val software = System.getProperty("skiko.renderApi").orEmpty().startsWith("SOFTWARE")
@@ -235,5 +287,6 @@ internal class AuraRenderer(image: ImageBitmap,
             paint.shader = null
         }
     }
-    override fun close() { frame?.close(); raster?.close(); paint.close(); builder.close(); effect.close(); child.close(); texture.close() }
+    // The shared shader stays alive; only this renderer's own objects are freed.
+    override fun close() { frame?.close(); raster?.close(); paint.close(); builder.close(); child.close(); texture.close() }
 }

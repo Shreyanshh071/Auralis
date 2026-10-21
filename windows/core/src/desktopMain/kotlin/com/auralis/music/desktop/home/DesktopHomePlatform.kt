@@ -53,7 +53,9 @@ class DesktopHomePlatform(private val dir: File, private val stats: com.auralis.
             val tmp = File(dir, "$name.tmp")
             tmp.writeText(json.encodeToString(serializer, value))
             val file = File(dir, name)
-            if (!tmp.renameTo(file)) {
+            try {
+                java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: Exception) {
                 file.delete()
                 tmp.renameTo(file)
             }

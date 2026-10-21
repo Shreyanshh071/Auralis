@@ -1,5 +1,7 @@
 package com.auralis.music.windows.library
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -131,7 +133,7 @@ fun DesktopLibrary(
                     )
                     if (query.isBlank() && filter !in listOf(com.auralis.music.ui.library.LibrarySourceFilter.ALBUMS, com.auralis.music.ui.library.LibrarySourceFilter.ARTISTS)) {
                         com.auralis.music.ui.components.TextButton(onClick = onOpenProfile) {
-                            androidx.compose.material3.Text("Import playlists")
+                            androidx.compose.material3.Text(desktopText("Import playlists"))
                         }
                     }
                 }

@@ -33,6 +33,7 @@ object LocalStreamRelay {
     private const val CHUNK_BYTES = 32L * 1024L
     private const val CACHE_BLOCKS = 256 // 8 MiB per retained stream, at most four streams.
     private const val PREFETCH_BLOCKS = 64 // 2 MiB ahead; foreground seeks never queue behind this.
+    private const val PRELOAD_BLOCKS = 8 // 256 KiB: ~10s of 160 kbps audio
     private const val CHUNK_ATTEMPTS = 2
     private const val MAX_REFRESHES = 3
     private const val USER_AGENT =
@@ -74,20 +75,75 @@ object LocalStreamRelay {
         }
     }
 
-    /** A local URL for libVLC that serves [upstreamUrl]; [refresh] fetches a new URL for the same song. */
+    /** The size of the first piece the resolver's stream check fetches and hands over. */
+    const val FIRST_BLOCK_BYTES = CHUNK_BYTES
+    /** First pieces fetched by the resolver's check, by stream URL, until a stream claims them. */
+    private val firstBlocks = LinkedHashMap<String, ByteArray>()
+
+    /** The resolver already fetched bytes 0..[FIRST_BLOCK_BYTES] of [url] while checking it. */
+    fun offerFirstBlock(url: String, bytes: ByteArray) {
+        val length = clenOf(url)
+        // Only a whole block (or a whole stream shorter than one) is a valid cache entry.
+        if (bytes.size.toLong() != FIRST_BLOCK_BYTES && bytes.size.toLong() != length) return
+        synchronized(firstBlocks) {
+            firstBlocks[url] = bytes
+            while (firstBlocks.size > 8) firstBlocks.keys.iterator().let { it.next(); it.remove() }
+        }
+        streams.values.firstOrNull { it.url == url }?.let { stream ->
+            synchronized(stream.blocks) { stream.blocks.putIfAbsent(0L, bytes) }
+        }
+    }
+
+    /**
+     * A local URL for libVLC that serves [upstreamUrl]; [refresh] fetches a new URL for the same
+     * song. The song being played: other songs' read-ahead stops so it has the connections.
+     */
     fun register(upstreamUrl: String, refresh: (() -> String?)? = null): String {
+        val token = tokenFor(upstreamUrl, refresh)
+        streams.forEach { (other, stream) -> if (other != token) stream.generation.incrementAndGet() }
+        return "http://127.0.0.1:${server.address.port}/s/$token"
+    }
+
+    /**
+     * Fetches the start of the next song ahead of time ([PRELOAD_BLOCKS] pieces, several seconds
+     * of audio), so skipping to it starts from memory. [register] then reuses the same stream.
+     */
+    fun preload(upstreamUrl: String, refresh: (() -> String?)? = null) {
+        val stream = streams[tokenFor(upstreamUrl, refresh)] ?: return
+        val generation = stream.generation.get()
+        prefetcher.execute {
+            runCatching {
+                var position = 0L
+                repeat(PRELOAD_BLOCKS) {
+                    if (stream.generation.get() != generation || (stream.length in 1..position)) return@runCatching
+                    val end = if (stream.length > 0) minOf(position + CHUNK_BYTES - 1, stream.length - 1) else position + CHUNK_BYTES - 1
+                    if (cachedBlock(stream, position, end) == null) return@runCatching
+                    position += CHUNK_BYTES
+                }
+            }
+        }
+    }
+
+    /** The stream already registered for [upstreamUrl], or a new one with its first piece warming. */
+    private fun tokenFor(upstreamUrl: String, refresh: (() -> String?)?): String {
+        streams.entries.firstOrNull { it.value.url == upstreamUrl }?.let { existing ->
+            registrationOrder.remove(existing.key)
+            registrationOrder.add(existing.key)
+            return existing.key
+        }
         val token = UUID.randomUUID().toString()
         val stream = Stream(upstreamUrl, refresh, length = clenOf(upstreamUrl))
+        synchronized(firstBlocks) { firstBlocks.remove(upstreamUrl) }?.let { synchronized(stream.blocks) { stream.blocks[0L] = it } }
         streams[token] = stream
         registrationOrder.add(token)
         while (streams.size > 4) registrationOrder.poll()?.let { streams.remove(it)?.generation?.incrementAndGet() }
-        // Pre-warm the first block immediately so it's ready in memory when libVLC connects
-        prefetcher.execute {
+        // Pre-warm the first block so it's in memory when libVLC connects (unless the check brought it).
+        if (synchronized(stream.blocks) { stream.blocks[0L] } == null) prefetcher.execute {
             runCatching {
                 cachedBlock(stream, 0L, minOf(CHUNK_BYTES - 1, if (stream.length > 0) stream.length - 1 else CHUNK_BYTES - 1))
             }
         }
-        return "http://127.0.0.1:${server.address.port}/s/$token"
+        return token
     }
 
     private fun clenOf(url: String): Long =

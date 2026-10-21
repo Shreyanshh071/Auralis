@@ -38,9 +38,11 @@ fun BrowsePages(
     onUnavailable: (String) -> Unit,
     libraryViewModel: com.auralis.music.ui.viewmodel.LibraryViewModel,
     library: com.auralis.music.domain.repository.LibraryRepository,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null
 ) {
     val top = browse.top ?: return
+    val back: () -> Unit = onBack ?: { browse.pop(); Unit }
     val libraryState by libraryViewModel.uiState.collectAsState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val queue = playback?.queue?.collectAsState()?.value
@@ -58,7 +60,7 @@ fun BrowsePages(
     val forwardExit = com.auralis.music.ui.theme.auralisDetailForwardExit()
     val backwardEnter = com.auralis.music.ui.theme.auralisDetailBackwardEnter()
     val backwardExit = com.auralis.music.ui.theme.auralisDetailBackwardExit()
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    FloatingBrowseNavigation(onBack = back, modifier = modifier) {
         AnimatedContent(
             targetState = browse.stack.size to top,
             // Opening slides the page in from the right; Back reverses it (Library's detail motion).
@@ -94,7 +96,10 @@ fun BrowsePages(
                     onAddToQueue = { playback?.addToQueue(it) },
                     onStartRadio = startRadio,
                     onOpenArtist = browse::openArtist,
-                    onBack = { browse.pop() }
+                    onBack = back,
+                    showBackButton = false,
+                    loadFailed = page.loadFailed,
+                    onRetry = browse::retryAlbum
                 )
                 is BrowsePage.Artist -> ArtistScreen(
                     artistPage = page.page,
@@ -117,8 +122,9 @@ fun BrowsePages(
                     onStartRadio = startRadio,
                     onOpenArtist = browse::openArtist,
                     onAlbumClick = { browse.openAlbum(it, fromArtist = page.page) },
-                    onBack = { browse.pop() },
-                    modifier = Modifier.fillMaxSize()
+                    onBack = back,
+                    modifier = Modifier.fillMaxSize(),
+                    showBackButton = false
                 )
             }
             }

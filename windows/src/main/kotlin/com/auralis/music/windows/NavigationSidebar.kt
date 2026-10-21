@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -24,17 +26,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-internal enum class SidebarPage(val label: String, val icon: ImageVector) {
+internal enum class SidebarPage(private val englishLabel: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.Home), LIBRARY("Library", Icons.Outlined.LibraryMusic),
-    HISTORY("History", Icons.Outlined.History), DOWNLOADS("Downloads", Icons.Outlined.Download), NEW_PLAYLIST("New playlist", Icons.Outlined.Add)
+    HISTORY("History", Icons.Outlined.History), DOWNLOADS("Downloads", Icons.Outlined.Download), NEW_PLAYLIST("New playlist", Icons.Outlined.Add);
+
+    val label: String get() = desktopText(englishLabel)
 }
 
 @Composable
-internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onToggle: () -> Unit, onSelect: (SidebarPage) -> Unit, shortcuts: @Composable () -> Unit = {}) {
+internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onToggle: () -> Unit, onSelect: (SidebarPage) -> Unit,
+    shortcutScrollState: androidx.compose.foundation.ScrollState = rememberScrollState(), shortcuts: @Composable () -> Unit = {},
+    modifier: Modifier = Modifier, contentBottomInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val colours = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().background(colours.surface).padding(horizontal = 8.dp, vertical = 12.dp)) {
+    // The tint fills the whole panel (it wraps the Up Next card); only the content stops above the card.
+    Column(modifier.fillMaxSize().background(colours.surface).padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 12.dp + contentBottomInset)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (!collapsed) Text("Auralis", Modifier.weight(1f).padding(start = 12.dp), fontSize = 18.sp)
+            if (!collapsed) Text(desktopText("Auralis"), Modifier.weight(1f).padding(start = 12.dp), fontSize = 18.sp)
             IconButton(onClick = onToggle, modifier = Modifier.size(40.dp)) {
                 Icon(if (collapsed) Icons.Outlined.ChevronRight else Icons.Outlined.ChevronLeft,
                     if (collapsed) "Expand navigation" else "Collapse navigation")
@@ -52,7 +59,7 @@ internal fun NavigationSidebar(selected: SidebarPage?, collapsed: Boolean, onTog
             Spacer(Modifier.height(4.dp))
         }
         Spacer(Modifier.height(8.dp))
-        Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { shortcuts() }
+        Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(shortcutScrollState)) { shortcuts() }
     }
 }
 

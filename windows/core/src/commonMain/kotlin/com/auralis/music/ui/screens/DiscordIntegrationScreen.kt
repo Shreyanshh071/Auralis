@@ -134,7 +134,7 @@ fun DiscordIntegrationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 18.dp),
+                .padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp),
             contentPadding = PaddingValues(top = 0.dp, bottom = 40.dp)
         ) {

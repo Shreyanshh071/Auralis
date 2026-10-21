@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.Switch
 
 import com.auralis.music.ui.screens.*
@@ -75,6 +77,11 @@ fun DesktopSettingsScreen(
     val settingsStore = com.auralis.music.data.datastore.LocalSettingsStores.current.settings
     val settingsPlatform = com.auralis.music.ui.settings.LocalSettingsPlatform.current
     val settingsScope = rememberCoroutineScope()
+    val systemStore = DesktopSystemPreferences.store
+    val system by systemStore.settings.collectAsState()
+    var showDiscord by remember { mutableStateOf(false) }
+    if (showDiscord) com.auralis.music.windows.discord.DiscordSettingsPopup(
+        settingsPlatform.discord as? com.auralis.music.windows.discord.WindowsDiscordPresence) { showDiscord = false }
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<SettingsDialogType?>(null) }
 
     com.auralis.music.ui.components.PlatformBackHandler(enabled = true) {
@@ -209,7 +216,24 @@ fun DesktopSettingsScreen(
                         }
 
                         // ── SYSTEM & ABOUT ──
+                        item(key = "discord") {
+                            SettingsRowItem(icon = Icons.Default.Forum, title = "Discord Rich Presence",
+                                cardBackground = cardBackground, borderColor = cardBorder, textColor = cardText,
+                                iconTint = cardPrimary, iconBackground = cardIconBg, onClick = { showDiscord = true })
+                        }
                         item(key = "hdr_system") { SettingsCategoryHeader(title = str(Strings.system_about), color = cardPrimary) }
+                        item(key = "close_to_tray") {
+                            PlayerPreferenceToggle("Close to system tray",
+                                "Keep Auralis running in the background when closing the window.", system.closeToTray) {
+                                systemStore.update { old -> old.copy(closeToTray = it) }
+                            }
+                        }
+                        item(key = "song_notifications") {
+                            PlayerPreferenceToggle("Song notifications",
+                                "Show a notification when a new song starts while Auralis is in the background.", system.songNotifications) {
+                                systemStore.update { old -> old.copy(songNotifications = it) }
+                            }
+                        }
                         item(key = "item_updater") {
                             SettingsRowItem(
                                 icon = Icons.Default.SystemUpdate,
@@ -331,7 +355,7 @@ private fun SettingsCategoryHeader(
     color: Color = MaterialTheme.colorScheme.primary
 ) {
     Text(
-        text = title,
+        text = desktopText(title),
         color = color,
         fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
@@ -381,7 +405,7 @@ private fun SettingsRowItem(
             }
             Spacer(modifier = Modifier.width(14.dp))
             Text(
-                text = title,
+                text = desktopText(title),
                 color = textColor,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.5.sp,

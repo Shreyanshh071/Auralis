@@ -6,7 +6,7 @@ data class AppearanceSettings(
     val landscapeScaling: Boolean = false,
     val dynamicTheme: Boolean = true,
     val dynamicIconColors: Boolean = true,
-    val appTheme: String = "Follow system",
+    val appTheme: String = "Dark Mode",
     val colorPalette: String = "Dynamic",
     /** Liquid glass dock and mini player, with scroll-to-minimize. */
     val liquidGlass: Boolean = false,

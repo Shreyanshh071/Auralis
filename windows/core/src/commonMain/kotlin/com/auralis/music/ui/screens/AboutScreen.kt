@@ -66,29 +66,8 @@ fun AboutScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = str(Strings.about),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        ),
-                        color = onBackground
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(Strings.back),
-                            tint = onBackground
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = backgroundColor
-                )
+            com.auralis.music.ui.components.PageHeader(
+                str(Strings.about), onDismiss, Modifier.padding(horizontal = 12.dp)
             )
         },
         containerColor = backgroundColor

@@ -22,9 +22,23 @@ class DesktopLyricsController(
     private val repository: DesktopLyricsRepository,
     private val scope: CoroutineScope
 ) {
-    data class State(val trackId: String? = null, val lyrics: LyricsData? = null, val isLoading: Boolean = false)
+    data class State(val trackId: String? = null, val lyrics: LyricsData? = null, val isLoading: Boolean = false, val originalLyrics: LyricsData? = null)
 
     private val _state = MutableStateFlow(State())
+    fun applyTranslation(trackId: String?, source: LyricsData, translated: LyricsData): Boolean {
+        while (true) {
+            val current = _state.value
+            if (current.trackId != trackId || (current.originalLyrics ?: current.lyrics) != source) return false
+            if (_state.compareAndSet(current, current.copy(lyrics=translated, originalLyrics=source))) return true
+        }
+    }
+    fun clearTranslation() {
+        while (true) {
+            val current = _state.value
+            val source = current.originalLyrics ?: return
+            if (_state.compareAndSet(current, current.copy(lyrics=source, originalLyrics=null))) return
+        }
+    }
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var job: Job? = null

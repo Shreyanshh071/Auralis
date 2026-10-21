@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -29,6 +31,10 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +42,7 @@ import androidx.compose.material3.Icon
 import com.auralis.music.ui.components.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -50,6 +57,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,6 +97,8 @@ fun PlayerScreen(
     val queue by playback.queue.collectAsState()
     val track = queue.current
     val appearance = LocalAppearanceSettings.current
+    val prefs = com.auralis.music.windows.settings.DesktopPreferences.store
+    val preferenceRevision by prefs.changes.collectAsState()
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
     // Opaque: the main window must never show through the player.
@@ -94,7 +106,7 @@ fun PlayerScreen(
         PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
 
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
-            val wide = maxWidth > 900.dp
+            val wide = maxWidth > 900.dp && prefs.bool("stagePlayer",true)
             val leftWidth = if (wide) maxWidth * 0.44f else maxWidth
             // Spicy Lyrics' layout: the cover with room around it, the seek bar under it, then
             // the title block; playback controls and volume appear on the cover while hovered.
@@ -136,12 +148,16 @@ fun PlayerScreen(
                 }
                 if (wide) {
                     Column(Modifier.weight(0.58f).fillMaxHeight()) {
-                        PanelTabs(panel, onSelect = onPanelChange)
-                        Spacer(Modifier.height(8.dp))
+                        if(prefs.bool("tabbedPlayer",true)) PlayerPanelTabs(panel, onSelect = onPanelChange)
+                        Spacer(Modifier.height(12.dp))
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            when (panel) {
+                            if(!prefs.bool("tabbedPlayer",true)) Column(Modifier.fillMaxSize()) {
+                                Box(Modifier.weight(.65f)) {LyricsPanel(playback,lyrics)}
+                                HorizontalDivider()
+                                Box(Modifier.weight(.35f)) {QueueView(playback)}
+                            } else when (panel) {
                                 PlayerPanel.LYRICS -> LyricsPanel(playback, lyrics)
-                                PlayerPanel.QUEUE -> QueueView(playback)
+                                PlayerPanel.QUEUE -> QueueView(playback, Modifier.padding(horizontal = 16.dp))
                             }
                         }
                     }
@@ -150,7 +166,7 @@ fun PlayerScreen(
         }
 
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
-            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close player", tint = Color.White, modifier = Modifier.size(32.dp))
+            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
         }
     }
 }
@@ -158,29 +174,39 @@ fun PlayerScreen(
 /** What the player shows beside the artwork. */
 enum class PlayerPanel(val label: String) { LYRICS("Lyrics"), QUEUE("Queue") }
 
-/** Lyrics / Queue switch: white text on a translucent pill, like the player's other glass controls. */
+/** Quiet text navigation on the player's backdrop; no separate settings-style capsule. */
 @Composable
-private fun PanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit) {
+internal fun PlayerPanelTabs(selected: PlayerPanel, onSelect: (PlayerPanel) -> Unit, modifier: Modifier = Modifier) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color.White.copy(alpha = 0.10f))
-            .padding(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.padding(horizontal = 12.dp).selectableGroup()
     ) {
         PlayerPanel.entries.forEach { item ->
             val isSelected = item == selected
-            Text(
-                text = item.label,
-                style = MaterialTheme.typography.labelLarge,
-                fontSize = 16.sp,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (isSelected) Color.White.copy(alpha = 0.18f) else Color.Transparent)
-                    .clickable { onSelect(item) }
-                    .padding(horizontal = 22.dp, vertical = 10.dp)
-            )
+            val interactions = remember { MutableInteractionSource() }
+            val hovered by interactions.collectIsHoveredAsState()
+            val focused by interactions.collectIsFocusedAsState()
+            val emphasis by androidx.compose.animation.core.animateFloatAsState(
+                if (isSelected) 1f else 0f, tween(180), label = "playerPanelSelection")
+            Box(Modifier.height(48.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color.White.copy(alpha = if (focused) .09f else if (hovered) .05f else 0f))
+                .pointerHoverIcon(PointerIcon.Hand)
+                .selectable(selected = isSelected, interactionSource = interactions, indication = null,
+                    role = Role.Tab, onClick = { if (!isSelected) onSelect(item) })
+                .padding(horizontal = 12.dp)) {
+                Text(
+                    text = desktopText(item.label),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = .54f + .46f * emphasis),
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                Box(Modifier.align(Alignment.BottomCenter).size(width = 24.dp, height = 2.dp)
+                    .graphicsLayer { alpha = emphasis; scaleX = .65f + .35f * emphasis }
+                    .background(Color.White.copy(alpha = .9f), RoundedCornerShape(1.dp)))
+            }
         }
     }
 }
@@ -270,7 +296,7 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
 @Composable
 private fun PlayerTime(ms: Long) {
     val seconds = (ms / 1000).coerceAtLeast(0)
-    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 17.sp, color = Color.White.copy(alpha = .8f))
+    Text(desktopText("%d:%02d").format(seconds / 60, seconds % 60), fontSize = 17.sp, color = Color.White.copy(alpha = .8f))
 }
 
 /** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
@@ -285,11 +311,8 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
-        // Animated when the song has an animated cover (Appearance > Animated covers).
-        AnimatedCover(queue.current, Modifier.fillMaxSize()) {
-            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-                contentDescription = title, contentScale = scale)
-        }
+        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+            contentDescription = title, contentScale = scale)
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
@@ -297,7 +320,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                 Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext && !roomActive) {
-                        Icon(Icons.Rounded.Shuffle, "Shuffle upcoming songs", tint = Color.White, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Rounded.Shuffle, desktopText("Shuffle upcoming songs"), tint = Color.White, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
                         ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
@@ -338,22 +361,14 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
  */
 @Composable
 internal fun BlurredArtworkBackground(url: String?, blurRadius: Dp = 120.dp, brightness: Float = .70f, artworkScale: Float = 1.10f) {
-    Crossfade(targetState = url, animationSpec = tween(700), label = "playerBackground") { artwork ->
+    // Pre-blurred once (see BlurredArtwork.kt): a full-window blur every animated frame made
+    // resizing and maximizing lag. The fraction matches a 1280dp-wide window, scaled by artworkScale.
+    val blurred by rememberBlurredArtwork(url, blurRadius.value / (1280f * artworkScale))
+    Crossfade(targetState = blurred, animationSpec = tween(700), label = "playerBackground") { picture ->
         Box(Modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
-            if (artwork != null) {
-                val downscale = 2f
-                AsyncImage(
-                    model = artwork,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize(1f / downscale)
-                        .graphicsLayer {
-                            scaleX = artworkScale * downscale
-                            scaleY = artworkScale * downscale
-                        }
-                        .blur(blurRadius / downscale)
-                )
+            if (picture != null) {
+                androidx.compose.foundation.Image(picture, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = artworkScale; scaleY = artworkScale })
             }
         }
     }

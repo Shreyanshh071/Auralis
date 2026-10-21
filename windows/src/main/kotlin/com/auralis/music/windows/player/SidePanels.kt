@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +38,7 @@ enum class SidePanel { NOW_PLAYING, LYRICS, QUEUE }
 internal fun SidePanelSheet(title: String, onClose: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier.background(MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 18.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(desktopText(title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close $title") }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { content() }

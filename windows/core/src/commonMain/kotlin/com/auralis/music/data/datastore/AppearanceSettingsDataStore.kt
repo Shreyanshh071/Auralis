@@ -99,7 +99,10 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 throw exception
             }
         }
-        .map { preferences ->
+        .map(::readSettings)
+
+    private fun readSettings(preferences: Preferences): AppearanceSettings {
+
             val legacyExpLyrics = preferences[EXPERIMENTAL_LYRICS] ?: false
             val storedAnimation = preferences[LYRICS_ANIMATION]
             val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
@@ -108,13 +111,15 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 storedAnimation ?: LyricsAnimationMode.METRO_LYRICS.displayName
             }
 
-            AppearanceSettings(
+            return AppearanceSettings(
                 highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: true,
                 landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
-                dynamicTheme = preferences[DYNAMIC_THEME] ?: true,
+                // Liquidify is always on on Windows (the option was removed).
+                dynamicTheme = true,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
                 liquidGlass = preferences[LIQUID_GLASS] ?: false,
-                appTheme = preferences[APP_THEME] ?: "Follow system",
+                // Only Light and Dark remain; older choices (Follow system, AMOLED, Midnight Velvet) read as Dark.
+                appTheme = if (preferences[APP_THEME] in setOf("Light Mode", "Light")) "Light Mode" else "Dark Mode",
                 colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
 
                 miniPlayerDesign = preferences[MINI_PLAYER_DESIGN] ?: run {
@@ -174,11 +179,18 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 showCachedPlaylist = preferences[SHOW_CACHED_PLAYLIST] ?: true,
                 showUploadedPlaylist = preferences[SHOW_UPLOADED_PLAYLIST] ?: true
             )
-        }
+    }
 
     override suspend fun updateSettings(settings: AppearanceSettings) {
-        try {
-            dataStore.edit { preferences ->
+        dataStore.edit { preferences -> writeSettings(preferences, settings) }
+    }
+
+    /** Each update transforms the latest disk snapshot, so rapid controls cannot overwrite each other. */
+    suspend fun update(transform: (AppearanceSettings) -> AppearanceSettings) {
+        dataStore.edit { preferences -> writeSettings(preferences, transform(readSettings(preferences))) }
+    }
+
+    private fun writeSettings(preferences: androidx.datastore.preferences.core.MutablePreferences, settings: AppearanceSettings) {
                 preferences[HIGH_REFRESH_RATE] = settings.highRefreshRate
                 preferences[LANDSCAPE_SCALING] = settings.landscapeScaling
                 preferences[DYNAMIC_THEME] = settings.dynamicTheme
@@ -231,10 +243,6 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 preferences[SHOW_MONTHLY_MOST_PLAYLIST] = settings.showMonthlyMostPlaylist
                 preferences[SHOW_CACHED_PLAYLIST] = settings.showCachedPlaylist
                 preferences[SHOW_UPLOADED_PLAYLIST] = settings.showUploadedPlaylist
-            }
-        } catch (e: Exception) {
-            com.auralis.music.util.Log.e("AppearanceSettings", "Failed to update appearance settings", e)
-        }
     }
 
     override suspend fun hideMostPlayedPlaylist(playlistId: String) {

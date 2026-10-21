@@ -1,5 +1,7 @@
 package com.auralis.music.windows.library
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.DropdownMenuItem
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -55,7 +57,7 @@ internal fun DesktopSongMenuContent(items: List<GlassMenuItem>, onDismiss: () ->
             Box(Modifier.matchParentSize()) { background() }
             Column(Modifier.width(280.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items.forEach { item ->
-                    DropdownMenuItem(text = { Text(item.label, style = MaterialTheme.typography.bodyMedium) },
+                    DropdownMenuItem(text = { Text(desktopText(item.label), style = MaterialTheme.typography.bodyMedium) },
                         onClick = { item.onClick(); if (item.dismisses) onDismiss() }, enabled = item.enabled,
                         leadingIcon = { item.icon?.let { Icon(it, null, Modifier.size(18.dp), tint = item.tint ?: MaterialTheme.colorScheme.onSurfaceVariant) } },
                         modifier = Modifier.heightIn(min = 38.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .08f)))

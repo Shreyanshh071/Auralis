@@ -26,15 +26,15 @@ actual object Log {
      * Also writes every line to [log] (this session), keeping the previous session's file as
      * `<name>.old`. Lines are flushed at once so the file is complete even after a crash.
      */
-    fun logToFile(log: File) {
+    fun logToFile(log: File, append: Boolean = false) {
         runCatching {
             log.parentFile?.mkdirs()
-            if (log.exists()) {
+            if (!append && log.exists()) {
                 val old = File(log.parentFile, log.name + ".old")
                 old.delete()
                 log.renameTo(old)
             }
-            file = PrintWriter(log.bufferedWriter(Charsets.UTF_8), true)
+            file = PrintWriter(java.io.OutputStreamWriter(java.io.FileOutputStream(log, append || !log.exists()), Charsets.UTF_8), true)
         }
     }
 

@@ -157,14 +157,6 @@ fun DesktopProfileSheet(
         }
     }
 
-    // Settings pushes over the profile instead of replacing it on one frame.
-    // Imports, YouTube sign-in and Discord live in the title bar on Windows.
-    val subPage = when {
-        isSettingsOpen -> ProfileSubPage.SETTINGS
-        else -> null
-    }
-    val subPagePush = rememberPushProgress(subPage != null)
-
     val themePrimary = MaterialTheme.dynamicPrimary
     val themeBackground = MaterialTheme.dynamicBackground
 
@@ -172,7 +164,6 @@ fun DesktopProfileSheet(
         modifier = modifier
             .fillMaxSize()
             .background(themeBackground)
-            .auralisPushParent(subPagePush)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -378,29 +369,17 @@ fun DesktopProfileSheet(
         }
     }
 
-    AuralisPushedPage(page = subPage) { page ->
-        when (page) {
-            ProfileSubPage.SETTINGS -> {
-                com.auralis.music.windows.settings.DesktopSettingsScreen(
-                    settings = playerSettings,
-                    onThemeModeChange = onThemeModeChange,
-                    onAudioQualityChange = onAudioQualityChange,
-                    onToggleGaplessPlayback = onToggleGaplessPlayback,
-                    onToggleSkipSilence = onToggleSkipSilence,
-                    onToggleSpatialAudio = onToggleSpatialAudio,
-                    onClearCache = onClearCache,
-                    onNavigateToAccount = { isSettingsOpen = false },
-                    onDismiss = { isSettingsOpen = false },
-                    historyRepository = historyRepository,
-                    searchRepository = searchRepository,
-                    hasActiveTrack = hasActiveTrack
-                )
-            }
-        }
+    if (isSettingsOpen) {
+        val stores = com.auralis.music.data.datastore.LocalSettingsStores.current
+        com.auralis.music.windows.settings.DesktopSettingsDialog(
+            stores = stores,
+            history = historyRepository,
+            search = searchRepository,
+            hasActiveTrack = hasActiveTrack,
+            onDismiss = { isSettingsOpen = false }
+        )
     }
 }
-
-private enum class ProfileSubPage { SETTINGS }
 
 @Composable
 private fun GoogleLogoIcon(modifier: Modifier = Modifier) {

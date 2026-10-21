@@ -1,5 +1,7 @@
 package com.auralis.music.windows.wrapped
 
+import com.auralis.music.ui.i18n.desktopText
+
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -408,7 +410,7 @@ private fun WrappedCover(year: Int, coverUrls: List<String?>) {
             .padding(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("AURALIS", fontFamily = WrappedDisplayFont, fontSize = 22.sp, color = Color(0xFFE8C27A))
+        Text(desktopText("AURALIS"), fontFamily = WrappedDisplayFont, fontSize = 22.sp, color = Color(0xFFE8C27A))
         Text(str("wrapped_x", year), fontFamily = WrappedDisplayFont, fontSize = 12.sp, color = Color(0xFFE8C27A).copy(alpha = 0.7f))
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {

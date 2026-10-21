@@ -23,10 +23,12 @@ import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
 /*
- * Animated covers ("canvas"): for songs that have one, the cover in the player and the Now Playing
+ * Animated covers ("canvas"): for songs that have one, the cover in the Now Playing
  * sidebar becomes a short looping video. Found on Apple Music (album motion artwork), Tidal (album
  * video covers) or Vivi Music's curated library, as Vivi Music does on Android (GPL-3.0, adapted).
- * Matching is strict (same title and every credited artist) so another song's video never shows.
+ * Matching is strict so another recording's video never shows: same title including version tags
+ * (a "(Mixed)" or "(Live)" result is a different recording), every credited artist, and the same
+ * album when the song's album is known; a compilation's video never stands in for a song elsewhere.
  */
 
 /** Where animated covers come from. Auto tries Apple Music, then Tidal, then the Vivi library. */
@@ -65,8 +67,8 @@ internal object CanvasLookup {
 
     suspend fun find(track: Track, source: CanvasSource): String? = withContext(Dispatchers.IO) {
         if (track.title.isBlank() || track.artist.isBlank()) return@withContext null
-        // v2: full-size Tidal links (v1 stored 640x640 ones).
-        val key = "v2|${source.name}|${norm(track.title)}|${norm(track.artist)}"
+        // v3: version tags and the album count (v2 matched "Let Down" to a DJ mix's "Let Down (Mixed)").
+        val key = "v3|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}"
         found[key]?.let { return@withContext it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
@@ -103,7 +105,29 @@ internal object CanvasLookup {
         val want = artists(requested); val have = returned.flatMap(::artists).toSet()
         return want.isNotEmpty() && want.all { it in have }
     }
-    private fun titleMatch(requested: String, returned: String) = norm(requested).isNotBlank() && norm(requested) == norm(returned)
+    /**
+     * A title with its bracketed and " - " parts: tags that don't change the recording (remaster,
+     * feat., explicit, single/album version) are dropped, any other tag (mixed, live, remix,
+     * acoustic, sped up...) is kept, so it has to be on both sides.
+     */
+    private val sameRecordingTag = Regex("""^(\d{4}\s*)?(re-?master(ed)?(\s*\d{4})?(\s*version)?|\d{4}\s*re-?master(ed)?(\s*version)?|explicit|clean|mono|stereo|(feat|ft|featuring|with)\b.*|single version|album version|original version|from .*|official( music| lyric)?( video| audio)?|lyrics?( video)?|visuali[sz]er|audio|video|m/?v|hd|hq|4k)$""", RegexOption.IGNORE_CASE)
+    internal fun titleKey(title: String): String {
+        val tags = mutableListOf<String>()
+        var base = title.replace(Regex("""\(([^)]*)\)|\[([^\]]*)\]""")) { m ->
+            tags += (m.groups[1] ?: m.groups[2])!!.value.trim(); " "
+        }
+        Regex("""\s[-–—]\s(.+)$""").find(base)?.let { m -> tags += m.groupValues[1].trim(); base = base.substring(0, m.range.first) }
+        val kept = tags.filterNot { sameRecordingTag.matches(it.trim()) }.map { it.lowercase().replace(Regex("""[^\p{L}\p{Nd}]+"""), "") }
+            .filter { it.isNotBlank() }.sorted()
+        val core = base.lowercase().replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
+        return if (kept.isEmpty()) core else core + "|" + kept.joinToString("+")
+    }
+    private fun titleMatch(requested: String, returned: String) = titleKey(requested).isNotBlank() && titleKey(requested) == titleKey(returned)
+    /** An album's name without its edition ("Deluxe", "2017 Remaster") or " - Single"/" - EP". */
+    private fun albumKey(album: String) = norm(album.replace(Regex("""\s-\s(single|ep)$""", RegexOption.IGNORE_CASE), ""))
+    /** The result's album is the song's own (any edition), or the song's album isn't known. */
+    private fun albumMatch(track: Track, returned: String) =
+        track.album.isNullOrBlank() || returned.isBlank() || albumKey(track.album.orEmpty()) == albumKey(returned)
     private fun primaryArtist(track: Track) = track.artist.split(artistSplit).first().trim()
     private fun get(url: String, headers: Map<String, String> = emptyMap()): String? {
         val request = Request.Builder().url(url).header("User-Agent", UA).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
@@ -139,13 +163,16 @@ internal object CanvasLookup {
             val song = songs.optJSONObject(i) ?: continue
             val attrs = song.optJSONObject("attributes") ?: continue
             if (!titleMatch(track.title, attrs.optString("name")) || !artistMatch(track.artist, listOf(attrs.optString("artistName")))) continue
+            if (!albumMatch(track, attrs.optString("albumName"))) continue
             val albumId = song.optJSONObject("relationships")?.optJSONObject("albums")?.optJSONArray("data")?.optJSONObject(0)?.optString("id")
                 ?.takeIf { it.isNotBlank() }
                 ?: attrs.optString("url").substringAfter("/album/", "").substringBefore("?").substringAfterLast("/").takeIf { it.all(Char::isDigit) && it.isNotBlank() }
                 ?: continue
             val album = get("https://amp-api.music.apple.com/v1/catalog/us/albums/$albumId?extend=editorialVideo", auth) ?: continue
-            val video = JSONObject(album).optJSONArray("data")?.optJSONObject(0)?.optJSONObject("attributes")?.optJSONObject("editorialVideo")
-                ?: continue
+            val albumAttrs = JSONObject(album).optJSONArray("data")?.optJSONObject(0)?.optJSONObject("attributes") ?: continue
+            // A DJ mix or various-artists compilation's video is that compilation's, not this song's.
+            if (albumAttrs.optBoolean("isCompilation") && albumKey(track.album.orEmpty()) != albumKey(albumAttrs.optString("name"))) continue
+            val video = albumAttrs.optJSONObject("editorialVideo") ?: continue
             for (asset in listOf("motionDetailSquare", "motionSquareVideo1x1", "motionDetailTall", "motionTallVideo3x4")) {
                 video.optJSONObject(asset)?.optString("video")?.takeIf { it.startsWith("http") }?.let { return it }
             }
@@ -162,6 +189,7 @@ internal object CanvasLookup {
             val item = items.optJSONObject(i) ?: continue
             val names = item.optJSONArray("artists")?.let { a -> (0 until a.length()).map { a.optJSONObject(it)?.optString("name").orEmpty() } }.orEmpty()
             if (!titleMatch(track.title, item.optString("title")) || !artistMatch(track.artist, names)) continue
+            if (!albumMatch(track, item.optJSONObject("album")?.optString("title").orEmpty())) continue
             val cover = item.optJSONObject("album")?.optString("videoCover")?.takeIf { it.isNotBlank() && it != "null" } ?: continue
             val parts = cover.split("-")
             // The full 1280x1280: the player's cover is large, and 640 looked soft on it.
@@ -178,7 +206,7 @@ internal object CanvasLookup {
         }?.also { viviItems = it } ?: return null
         return items.firstOrNull { item ->
             titleMatch(track.title, item.optString("song")) && artistMatch(item.optString("artist"), listOf(track.artist)) &&
-                (track.album.isNullOrBlank() || item.optString("album").isBlank() || norm(track.album.orEmpty()) == norm(item.optString("album")))
+                albumMatch(track, item.optString("album"))
         }?.optString("url")?.takeIf { it.startsWith("http") }
     }
 }
@@ -188,20 +216,29 @@ internal object CanvasLookup {
  * still [artwork] shows until the first video frame, then the video fades in.
  */
 @Composable
-internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier, artwork: @Composable BoxScope.() -> Unit) {
+internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
+    motionAura: MotionAura? = null, artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     var url by remember(track?.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(track?.id, prefs) {
-        url = if (track != null && prefs.enabled && com.auralis.music.desktop.playback.CanvasVideoEngine.available) CanvasLookup.find(track, prefs.source) else null
+        url = null
+        url = if (track != null && prefs.enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+            com.auralis.music.desktop.playback.CanvasVideoEngine.available) CanvasLookup.find(track, prefs.source) else null
     }
     Box(modifier) {
         artwork()
         val video = url
-        if (video != null) key(video) {
+        if (video != null) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-            DisposableEffect(video) {
-                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(video) { frame = it }
-                onDispose { stop?.invoke() }
+            DisposableEffect(video, motionAura) {
+                val active = java.util.concurrent.atomic.AtomicBoolean(true)
+                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(video) {
+                    synchronized(active) { if (active.get()) { frame = it; motionAura?.offer(it) } }
+                }
+                onDispose {
+                    synchronized(active) { active.set(false); motionAura?.offer(null) }
+                    stop?.invoke()
+                }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
             frame?.let { Image(it, null, Modifier.matchParentSize().alpha(shown), contentScale = ContentScale.Crop,

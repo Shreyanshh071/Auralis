@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds the latest Windows module jars, backs up user data, updates the installed app, and launches it for testing.
+    Builds the complete Windows distribution, backs up user data, updates the installed app, and launches it for testing.
 .PARAMETER TestFilter
     Optional gradle test filter pattern (e.g. "*SidebarLyricsCollapseTest*").
 .PARAMETER SkipTests
@@ -18,10 +18,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
-$appLocalDir = "$env:LOCALAPPDATA\Auralis"
+$appLocalDir = "$env:USERPROFILE\AppData\Local\Auralis"
 $appExe = "$appLocalDir\Auralis.exe"
 $appCfg = "$appLocalDir\app\Auralis.cfg"
-$appDataDir = "$env:APPDATA\Auralis"
+$appDataDir = "$env:USERPROFILE\AppData\Roaming\Auralis"
 $backupBaseDir = "$env:USERPROFILE\Downloads\Auralis-checkpoints"
 
 Write-Host "==> Starting Windows app update workflow..." -ForegroundColor Cyan
@@ -41,11 +41,11 @@ if (-not $SkipTests) {
     }
 }
 
-# 2. Build jars
-Write-Host "==> Building Windows jars..." -ForegroundColor Cyan
-& "$workspaceRoot\gradlew.bat" :windows:jar :windows-core:desktopJar
+# 2. Build the complete distribution, including matching Compose/runtime dependencies
+Write-Host "==> Building Windows distribution..." -ForegroundColor Cyan
+& "$workspaceRoot\gradlew.bat" :windows:createDistributable
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Jar build failed with exit code $LASTEXITCODE. Aborting update."
+    Write-Error "Distribution build failed with exit code $LASTEXITCODE. Aborting update."
     exit $LASTEXITCODE
 }
 
@@ -75,6 +75,16 @@ if ($running) {
     Start-Sleep -Milliseconds 1200
 }
 
+# Credential files belong to the Windows user, never to the application image.
+# Verify the deployment itself leaves every saved connection byte-for-byte intact.
+$sessionHashes = @{}
+foreach ($sessionName in @('account-session.bin', 'youtube-session.properties', 'youtube-accounts.properties', 'youtube-session-source.properties', 'spotify-session.properties')) {
+    $sessionPath = Join-Path $appDataDir $sessionName
+    if (Test-Path -LiteralPath $sessionPath) {
+        $sessionHashes[$sessionName] = (Get-FileHash -LiteralPath $sessionPath -Algorithm SHA256).Hash
+    }
+}
+
 if ($ClearArtworkCache) {
     $artCache = "$appDataDir\artwork-cache"
     if (Test-Path $artCache) {
@@ -83,42 +93,58 @@ if ($ClearArtworkCache) {
     }
 }
 
-# 6. Resolve destination jar names from cfg
-$cfgLines = Get-Content $appCfg
-$mainJarName = $null
-$coreJarName = $null
-
-foreach ($line in $cfgLines) {
-    if ($line -match '^app\.classpath=\$APPDIR\\(windows-[a-f0-9]+\.jar)$') {
-        $mainJarName = $Matches[1]
-    }
-    if ($line -match '^app\.classpath=\$APPDIR\\(windows-core-desktop-[a-f0-9]+\.jar)$') {
-        $coreJarName = $Matches[1]
-    }
+# 6. Update the complete app image. Copying only project jars can leave an incompatible
+# installed Compose runtime (including libraries shrunk by a previous release installer).
+$distributionDir = "$workspaceRoot\windows\build\compose\binaries\main\app\Auralis"
+if (-not (Test-Path -LiteralPath "$distributionDir\Auralis.exe")) {
+    throw "Missing Windows distribution at $distributionDir"
+}
+Write-Host "==> Updating installed application and runtime..." -ForegroundColor Cyan
+Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $appLocalDir -Recurse -Force
 }
 
-if (-not $mainJarName) {
-    Write-Error "Could not identify main windows jar name from $appCfg"
-    exit 1
+foreach ($sessionName in $sessionHashes.Keys) {
+    $sessionPath = Join-Path $appDataDir $sessionName
+    if (-not (Test-Path -LiteralPath $sessionPath) -or (Get-FileHash -LiteralPath $sessionPath -Algorithm SHA256).Hash -ne $sessionHashes[$sessionName]) {
+        throw "Saved connection changed during deployment: $sessionName. User data backup: $backupDir"
+    }
 }
+Write-Host "    Saved account connections preserved." -ForegroundColor Green
 
-$destMainJar = "$appLocalDir\app\$mainJarName"
-$srcMainJar = "$workspaceRoot\windows\build\libs\windows.jar"
-Write-Host "==> Copying $srcMainJar to $destMainJar..." -ForegroundColor Cyan
-Copy-Item -Path $srcMainJar -Destination $destMainJar -Force
-
-if ($coreJarName) {
-    $destCoreJar = "$appLocalDir\app\$coreJarName"
-    $srcCoreJar = "$workspaceRoot\windows\core\build\libs\windows-core-desktop.jar"
-    if (Test-Path $srcCoreJar) {
-        Write-Host "==> Copying $srcCoreJar to $destCoreJar..." -ForegroundColor Cyan
-        Copy-Item -Path $srcCoreJar -Destination $destCoreJar -Force
+# 6b. Build this build's class archive now. Each build names its own (Auralis.cfg); without it the
+# first launch loads every class from the jars and shows a black window for seconds, and the app
+# only builds it itself 45s into that launch. Uses the class list recorded by the last full start.
+$appDir = "$appLocalDir\app"
+$archiveName = (Select-String -LiteralPath $appCfg -Pattern '-Dauralis\.cdsArchive=(\S+)').Matches | Select-Object -First 1 | ForEach-Object { $_.Groups[1].Value }
+$classList = "$appDir\auralis-classes.lst"
+if ($archiveName -and -not (Test-Path -LiteralPath "$appDir\$archiveName") -and (Test-Path -LiteralPath $classList) -and (Get-Item -LiteralPath $classList).Length -ge 200000) {
+    Write-Host "==> Building class archive $archiveName..." -ForegroundColor Cyan
+    Get-ChildItem -LiteralPath $appDir -Filter 'auralis-cds-*.jsa*' | Where-Object { $_.Name -ne $archiveName } | ForEach-Object {
+        $_.IsReadOnly = $false; Remove-Item -LiteralPath $_.FullName -Force
+    }
+    # The same class path, in the same order, as the launcher gives the app, or the JVM rejects the archive.
+    $classPath = (Get-Content -LiteralPath $appCfg | Where-Object { $_ -like 'app.classpath=*' } |
+        ForEach-Object { $_.Substring('app.classpath='.Length).Replace('$APPDIR', $appDir) }) -join ';'
+    $dumpList = "$appDir\auralis-classes.dump.lst"
+    $partial = "$appDir\$archiveName.partial"
+    Copy-Item -LiteralPath $classList -Destination $dumpList -Force
+    & "$appLocalDir\runtime\bin\java.exe" -Xshare:dump "-XX:SharedClassListFile=$dumpList" "-XX:SharedArchiveFile=$partial" -cp $classPath *> "$appDir\auralis-cds.log"
+    $dumpExit = $LASTEXITCODE
+    Remove-Item -LiteralPath $dumpList -Force -ErrorAction SilentlyContinue
+    if ($dumpExit -eq 0 -and (Test-Path -LiteralPath $partial)) {
+        Move-Item -LiteralPath $partial -Destination "$appDir\$archiveName" -Force
+        Write-Host "    Class archive ready." -ForegroundColor Green
+    } else {
+        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        Write-Warning "Class archive build failed (see $appDir\auralis-cds.log); the app builds it itself after its first launch."
     }
 }
 
 # 7. Launch Auralis
-Write-Host "==> Launching $appExe..." -ForegroundColor Cyan
-Start-Process -FilePath $appExe
+Write-Host "==> Launching $appExe on interactive desktop..." -ForegroundColor Cyan
+$shell = New-Object -ComObject "Shell.Application"
+$shell.ShellExecute($appExe, "", "", "open", 1)
 
 Start-Sleep -Seconds 3
 $newProcesses = Get-Process -Name Auralis -ErrorAction SilentlyContinue

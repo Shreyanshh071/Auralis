@@ -1,5 +1,7 @@
 package com.auralis.music.windows.profile
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -71,14 +73,14 @@ internal fun DesktopSpotifySignIn(onSignedIn: () -> Unit, onDismiss: () -> Unit,
         Column(Modifier.fillMaxWidth().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Sign in to Spotify", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Close") }
+                Text(desktopText("Sign in to Spotify"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, desktopText("Close")) }
             }
-            Text("Choose the browser profile where you're signed in to open.spotify.com. Only its Spotify session is used, and it's saved securely on this PC.",
+            Text(desktopText("Choose the browser profile where you're signed in to open.spotify.com. Only its Spotify session is used, and it's saved securely on this PC."),
                 color = Color.White.copy(alpha = .72f))
             when {
                 profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
-                profiles!!.isEmpty() -> Text("No supported browser profiles found. You can paste your sp_dc cookie below.")
+                profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste your sp_dc cookie below."))
                 else -> profiles!!.forEach { profile ->
                     GlassActionButton(onClick = { connect { BrowserYouTubeLogin.readSpotify(profile) to "Spotify · ${profile.label}" } },
                         enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(profile.label) }
@@ -86,10 +88,10 @@ internal fun DesktopSpotifySignIn(onSignedIn: () -> Unit, onDismiss: () -> Unit,
             }
             GlassActionButton(onClick = {
                 scope.launch(Dispatchers.IO) { runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI("https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F")) } }
-            }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Not signed in? Open Spotify in your browser") }
-            GlassActionButton(onClick = { paste = !paste }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Paste the sp_dc cookie instead") }
+            }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(desktopText("Not signed in? Open Spotify in your browser")) }
+            GlassActionButton(onClick = { paste = !paste }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(desktopText("Paste the sp_dc cookie instead")) }
             if (paste) {
-                OutlinedTextField(cookie, { cookie = it }, label = { Text("sp_dc value or Cookie header") }, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(cookie, { cookie = it }, label = { Text(desktopText("sp_dc value or Cookie header")) }, modifier = Modifier.fillMaxWidth(),
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), enabled = !busy, maxLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White, unfocusedTextColor = Color.White,
@@ -98,11 +100,11 @@ internal fun DesktopSpotifySignIn(onSignedIn: () -> Unit, onDismiss: () -> Unit,
                 GlassActionButton(onClick = {
                     val raw = cookie.trim().removePrefix("Cookie:").trim()
                     connect { (if (raw.contains("=")) raw else "sp_dc=$raw") to "Spotify" }
-                }, enabled = cookie.isNotBlank() && !busy, modifier = Modifier.fillMaxWidth()) { Text("Connect Spotify") }
+                }, enabled = cookie.isNotBlank() && !busy, modifier = Modifier.fillMaxWidth()) { Text(desktopText("Connect Spotify")) }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            GlassActionButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) { Text("Cancel") }
+            GlassActionButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) { Text(desktopText("Cancel")) }
         }
     }
 }

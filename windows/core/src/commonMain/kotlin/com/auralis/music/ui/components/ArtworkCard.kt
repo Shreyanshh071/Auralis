@@ -30,6 +30,9 @@ interface ArtworkRenderer {
     /** Just the image at [url] (no corners, placeholder or URL sizing), like a bare AsyncImage. */
     @Composable
     fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier)
+
+    /** Starts loading artwork (url, or the track's thumbnail) that is about to scroll into view. */
+    fun prefetch(items: List<Pair<String?, Track?>>, sizeToConstraints: Boolean) {}
 }
 
 /** Until a platform installs its renderer: the empty-artwork look (note on a dark tile). */
@@ -97,3 +100,29 @@ fun rememberShimmerBrush(
     )
 }
 
+/**
+ * Loads the artwork of the [ahead] items past the last visible one, and a few before the first,
+ * whenever the visible range changes, so covers are ready before their rows scroll in. [artworkAt]
+ * gives an item's artwork by its index in the list (null for items without one).
+ */
+@Composable
+fun PrefetchListArtwork(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    sizeToConstraints: Boolean = true,
+    ahead: Int = 24,
+    artworkAt: (Int) -> Pair<String?, Track?>?
+) {
+    val renderer = LocalArtworkRenderer.current
+    val lookup = androidx.compose.runtime.rememberUpdatedState(artworkAt)
+    androidx.compose.runtime.LaunchedEffect(state, renderer, sizeToConstraints) {
+        androidx.compose.runtime.snapshotFlow {
+            val visible = state.layoutInfo.visibleItemsInfo
+            if (visible.isEmpty()) null else visible.first().index..visible.last().index
+        }.collect { range ->
+            if (range == null) return@collect
+            val total = state.layoutInfo.totalItemsCount
+            val indices = (range.last + 1..minOf(range.last + ahead, total - 1)) + (maxOf(range.first - 6, 0) until range.first)
+            renderer.prefetch(indices.mapNotNull { lookup.value(it) }, sizeToConstraints)
+        }
+    }
+}

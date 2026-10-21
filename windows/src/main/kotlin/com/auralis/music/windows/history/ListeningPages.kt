@@ -1,5 +1,7 @@
 package com.auralis.music.windows.history
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.FilledIconButton
 import com.auralis.music.ui.components.TextButton
@@ -106,7 +108,7 @@ private fun clock(ms: Long): String {
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
 }
 
-private fun count(n: Int, one: String, many: String = one + "s") = "$n ${if (n == 1) one else many}"
+private fun count(n: Int, one: String, many: String = one + "s") = desktopText("%1\$s " + if (n == 1) one else many, n)
 
 private fun artistName(track: Track) = track.artist.trim().removeSuffix(" - Topic")
 
@@ -133,12 +135,14 @@ fun ListeningStatsPage(
     var confirmClear by remember { mutableStateOf(false) }
     val year = LocalDate.now().year
     val firstEvent = events.minOfOrNull { it.startedAt }
-    val chips = remember(option, firstEvent) { ranges(option, firstEvent) }
+    val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
+    val chips = remember(option, firstEvent, languageRevision) { ranges(option, firstEvent) }
     val range = if (wrapped) StatsRange("$year", LocalDate.of(year, 1, 1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(), Long.MAX_VALUE)
         else chips.getOrElse(chip) { chips.first() }
     val selected = events.filter { it.startedAt >= range.from && it.startedAt < range.until }
     val songs = selected.groupBy { DesktopListeningStats.songKey(it.track) }.values
-        .sortedWith(compareByDescending<List<DesktopListeningStats.Listen>> { list -> list.count { it.countsAsPlay } }.thenByDescending { list -> list.sumOf { it.timeMs } })
+        // Ranked by time listened, like Top Artists; plays only break ties.
+        .sortedWith(compareByDescending<List<DesktopListeningStats.Listen>> { list -> list.sumOf { it.timeMs } }.thenByDescending { list -> list.count { it.countsAsPlay } })
     val artists = selected.groupBy { artistName(it.track) }.entries.sortedByDescending { (_, list) -> list.sumOf { it.timeMs } }
     val albumCount = selected.mapNotNull { it.track.album?.takeIf(String::isNotBlank)?.let { album -> "${artistName(it.track)}|$album" } }.distinct().size
     fun songTrack(list: List<DesktopListeningStats.Listen>) = list.groupBy { it.track.id }.values.maxBy { it.sumOf { e -> e.timeMs } }.first().track
@@ -157,17 +161,17 @@ fun ListeningStatsPage(
     val card = colours.surfaceContainer
     val accent = colours.primary
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    com.auralis.music.ui.components.PageHeader(if (wrapped) "Your $year Wrapped" else "Stats", onBack, Modifier.weight(1f))
-                    if (!wrapped) IconButton(onClick = onOpenWrapped) { Icon(Icons.Rounded.AutoAwesome, "Your Wrapped") }
+                    com.auralis.music.ui.components.PageHeader(if (wrapped) desktopText("Your %1\$s Wrapped", year) else desktopText("Stats"), onBack, Modifier.weight(1f))
+                    if (!wrapped) IconButton(onClick = onOpenWrapped) { Icon(Icons.Rounded.AutoAwesome, desktopText("Your Wrapped")) }
                     Box {
-                        IconButton(onClick = { statsMenu = true }) { Icon(Icons.Default.MoreVert, "Stats options") }
+                        IconButton(onClick = { statsMenu = true }) { Icon(Icons.Default.MoreVert, desktopText("Stats options")) }
                         com.auralis.music.windows.GlassDropdownMenu(statsMenu, onDismissRequest = { statsMenu = false }) {
                             com.auralis.music.windows.GlassDropdownMenuItem(
-                                text = { Text("Clear listening stats") },
+                                text = { Text(desktopText("Clear listening stats")) },
                                 enabled = events.isNotEmpty(),
                                 leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
                                 onClick = { statsMenu = false; confirmClear = true }
@@ -181,12 +185,12 @@ fun ListeningStatsPage(
                     item {
                         Box {
                             StatsPill(selected = false, onClick = { optionMenu = true }) {
-                                Text(option.label); Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                                Text(desktopText(option.label)); Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
                             }
                             com.auralis.music.windows.GlassDropdownMenu(optionMenu, onDismissRequest = { optionMenu = false }) {
                                 StatsOption.entries.forEach { entry ->
                                     com.auralis.music.windows.GlassDropdownMenuItem(
-                                        text = { Text(entry.label) },
+                                        text = { Text(desktopText(entry.label)) },
                                         selected = option == entry,
                                         onClick = { option = entry; chip = 0; optionMenu = false }
                                     )
@@ -195,19 +199,19 @@ fun ListeningStatsPage(
                         }
                     }
                     itemsIndexed(chips) { index, entry ->
-                        StatsPill(selected = index == chip, onClick = { chip = index }) { Text(entry.label) }
+                        StatsPill(selected = index == chip, onClick = { chip = index }) { Text(desktopText(entry.label)) }
                     }
                 }
             }
             if (selected.isEmpty()) item {
-                Text("Play some music to build your stats. Only time you actually listen on this PC is counted.",
+                Text(desktopText("Play some music to build your stats. Only time you actually listen on this PC is counted."),
                     color = colours.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
             } else {
                 item { SectionTitle("Your Highlights", Icons.Rounded.AutoAwesome) }
                 artists.firstOrNull()?.let { (name, list) ->
                     item {
                         HighlightCard(label = "Top Artist", title = name,
-                            subtitle = "${count(list.distinctBy { DesktopListeningStats.songKey(it.track) }.size, "song")} played · ${clock(list.sumOf { it.timeMs })}",
+                            subtitle = desktopText("%1\$s songs played", list.distinctBy { DesktopListeningStats.songKey(it.track) }.size) + " · " + clock(list.sumOf { it.timeMs }),
                             image = photos[name] ?: list.first().track.thumbnail, round = true, action = Icons.Rounded.Star,
                             onAction = { onOpenArtist(Artist(id = "", name = name)) }, onClick = { onOpenArtist(Artist(id = "", name = name)) })
                     }
@@ -230,7 +234,7 @@ fun ListeningStatsPage(
                             }
                             Spacer(Modifier.width(18.dp))
                             Column {
-                                Text("Total time listened", style = StatLabel, color = colours.onSurfaceVariant)
+                                Text(desktopText("Total time listened"), style = StatLabel, color = colours.onSurfaceVariant)
                                 Text(clock(selected.sumOf { it.timeMs }), style = StatHero)
                             }
                         }
@@ -261,14 +265,14 @@ fun ListeningStatsPage(
         }
         if (topTracks.isNotEmpty()) ExtendedFloatingActionButton(
             onClick = { topTracks.shuffled().let { playback?.playFrom(it.first(), it) } },
-            icon = { Icon(Icons.Rounded.Shuffle, null) }, text = { Text("Shuffle") },
+            icon = { Icon(Icons.Rounded.Shuffle, null) }, text = { Text(desktopText("Shuffle")) },
             containerColor = colours.surfaceContainerHigh, contentColor = accent,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
-    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Clear listening stats?") },
-        text = { Text("This removes measured listening stats on this PC. Your library and listening history are kept.") },
-        confirmButton = { TextButton(onClick = { stats.clear(); confirmClear = false }) { Text("Clear") } },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
+    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text(desktopText("Clear listening stats?")) },
+        text = { Text(desktopText("This removes measured listening stats on this PC. Your library and listening history are kept.")) },
+        confirmButton = { TextButton(onClick = { stats.clear(); confirmClear = false }) { Text(desktopText("Clear")) } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(desktopText("Cancel")) } })
 }
 
 @Composable
@@ -300,7 +304,7 @@ private fun HighlightCard(label: String, title: String, subtitle: String, image:
             StatImage(image, round, 60)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(label, style = StatLabel, color = colours.onSurfaceVariant)
+                Text(desktopText(label), style = StatLabel, color = colours.onSurfaceVariant)
                 Text(title, style = StatTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, style = StatSmall, color = colours.onSurfaceVariant)
             }
@@ -322,7 +326,7 @@ private fun MetricCard(icon: ImageVector, value: Int, label: String, modifier: M
             Spacer(Modifier.width(12.dp))
             Column {
                 Text("$value", style = StatValue)
-                Text(label, style = StatSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(desktopText(label), style = StatSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -338,7 +342,7 @@ private fun StatLine(rank: Int, title: String, subtitle: String, image: String?,
             Text("$rank. $title", style = StatTitle.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = StatSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Default.MoreVert, "Options") }
+        if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Default.MoreVert, desktopText("Options")) }
     }
 }
 

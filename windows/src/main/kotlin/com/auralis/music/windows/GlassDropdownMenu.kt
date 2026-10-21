@@ -28,7 +28,7 @@ import androidx.compose.ui.window.*
 /** Anchored dropdown with the same live page blur as the app's other glass popups. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit,
+internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, frosted: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
     if (!expanded) return
     val density = LocalDensity.current
@@ -44,7 +44,9 @@ internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit,
     Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest,
         properties = PopupProperties(focusable = true)) {
         LiquidPopupSurface(Modifier.width(with(density) { (window.width - margin * 2).coerceAtLeast(1).toDp() }.coerceAtMost(280.dp))
-            .heightIn(max = with(density) { (window.height - margin * 2).coerceAtLeast(1).toDp() })) {
+            .heightIn(max = with(density) { (window.height - margin * 2).coerceAtLeast(1).toDp() }),
+            tint = if (frosted) Color(0xFF242428).copy(alpha = .62f) else Color(0xFF101010).copy(alpha = .38f),
+            frosted = frosted) {
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(onSurface = Color.White, onSurfaceVariant = Color.White.copy(alpha = .72f))) {
                     ProvideTextStyle(MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp)) {

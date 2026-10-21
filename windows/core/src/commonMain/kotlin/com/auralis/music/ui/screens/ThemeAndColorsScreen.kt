@@ -239,50 +239,16 @@ fun ThemeAndColorsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(surfaceColor)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), CircleShape)
-                        .tactileBounce()
-                        .clickable { onBack() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(Strings.back),
-                        tint = onBackground,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column {
-                    Text(
-                        text = str(Strings.theme_colors),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = onBackground,
-                        fontSize = 22.sp
-                    )
-                    Text(
-                        text = str(Strings.customize_player_interface_palette),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = onBackground.copy(alpha = 0.60f)
-                    )
-                }
+            Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                com.auralis.music.ui.components.PageHeader(str(Strings.theme_colors), onBack)
+                Text(str(Strings.customize_player_interface_palette),
+                    modifier = Modifier.padding(start = 42.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onBackground.copy(alpha = 0.60f))
             }
 
             Spacer(modifier = Modifier.height(8.dp))

@@ -1,5 +1,7 @@
 package com.auralis.music.windows.search
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.border
@@ -133,7 +135,7 @@ fun FindMusicDropdown(
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (state.query.isEmpty()) Text("What do you want to play?", fontSize = 14.sp,
+                    if (state.query.isEmpty()) Text(desktopText("What do you want to play?"), fontSize = 14.sp,
                         color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
                     BasicTextField(
                         value = state.query,
@@ -158,13 +160,13 @@ fun FindMusicDropdown(
                             }
                     )
                 }
-                if (state.query.isNotEmpty()) Icon(Icons.Default.Close, "Clear search", Modifier.size(16.dp)
+                if (state.query.isNotEmpty()) Icon(Icons.Default.Close, desktopText("Clear search"), Modifier.size(16.dp)
                     .clickable { state.clear(); focus.requestFocus() }, tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
             }
         } else
         if (compact) com.auralis.music.ui.components.IconButton(onClick = {
             if (expanded) dismiss() else { mounted = true; expanded = true }
-        }) { Icon(Icons.Default.Search, "Find music", Modifier.size(20.dp)) }
+        }) { Icon(Icons.Default.Search, desktopText("Find music"), Modifier.size(20.dp)) }
         else
         com.auralis.music.ui.components.FilledTonalButton(
             onClick = {
@@ -180,7 +182,7 @@ fun FindMusicDropdown(
         ) {
             Icon(Icons.Default.Search, null, Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
-            Text("Find music", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp))
+            Text(desktopText("Find music"), style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp))
         }
         if (mounted) {
             androidx.compose.ui.window.Popup(
@@ -344,7 +346,7 @@ private fun SearchBar(
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (query.isEmpty()) {
                     Text(
-                        text = "Search Auralis",
+                        text = desktopText("Search Auralis"),
                         style = TextStyle(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f), fontSize = 16.sp)
                     )
                 }
@@ -374,7 +376,7 @@ private fun SearchBar(
                 IconButton(onClick = onClear, modifier = Modifier.size(40.dp)) {
                     Icon(
                         Icons.Default.Close,
-                        contentDescription = "Clear search",
+                        contentDescription = desktopText("Clear search"),
                         tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                         modifier = Modifier.size(20.dp)
                     )

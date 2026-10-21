@@ -47,7 +47,7 @@ internal fun OptionsMenuSurface(maxHeight: Dp, content: @Composable () -> Unit) 
         com.auralis.music.ui.components.CoverSheetTheme {
             com.auralis.music.windows.LiquidPopupSurface(
                 modifier = Modifier.width(380.dp).heightIn(max = maxHeight)) {
-                Box(Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+                Box(Modifier.padding(top = 16.dp, bottom = 20.dp)) {
                     CompositionLocalProvider(LocalContentColor provides Color.White) { content() }
                 }
             }

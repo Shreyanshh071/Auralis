@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.foundation.lazy.LazyListState
 import com.auralis.music.domain.model.Track
 
 /** The lyrics view's text, in the app's language. */
@@ -36,7 +37,9 @@ class LyricsUiPlatform(
     val romanizedLine: @Composable (text: String, color: Color, fontSize: TextUnit, textAlign: TextAlign, modifier: Modifier) -> Unit =
         { _, _, _, _, _ -> },
     /** Desktop mouse targets use an inset rounded highlight instead of a touch ripple. */
-    val roundedMouseHover: Boolean = false
+    val roundedMouseHover: Boolean = false,
+    /** Platform wheel handling, independent of lyric row heights and synchronization format. */
+    val manualScrollModifier: @Composable (LazyListState, onUserScroll: () -> Unit) -> Modifier = { _, _ -> Modifier }
 )
 
 /** English text and no platform extras; each app provides its own [LocalLyricsUi]. */

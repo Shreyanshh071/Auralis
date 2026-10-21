@@ -25,7 +25,8 @@ object SingleInstanceApp {
         private val hwndFile: File,
         private val randomAccessFile: RandomAccessFile,
         private val channel: FileChannel,
-        private val fileLock: FileLock
+        private val fileLock: FileLock,
+        private val startTime: Long
     ) : AutoCloseable {
         @Volatile
         private var closed = false
@@ -33,7 +34,7 @@ object SingleInstanceApp {
         fun recordWindowHandle(hwnd: Long) {
             if (closed) return
             runCatching {
-                hwndFile.writeText("HWND=$hwnd\nPID=${ProcessHandle.current().pid()}\n")
+                hwndFile.writeText("HWND=$hwnd\nPID=${ProcessHandle.current().pid()}\nSTART_TIME=$startTime\n")
             }.onFailure { Log.w(TAG, "Failed to record HWND in lock file: ${it.message}") }
         }
 
@@ -70,11 +71,12 @@ object SingleInstanceApp {
                 return null
             }
             lock = fileLock
-            // Record PID immediately so it can be identified even before HWND is bound
+            val startTime = System.currentTimeMillis()
+            // Record PID and start time immediately so it can be identified even before HWND is bound
             runCatching {
-                hwndFile.writeText("PID=${ProcessHandle.current().pid()}\n")
+                hwndFile.writeText("PID=${ProcessHandle.current().pid()}\nSTART_TIME=$startTime\n")
             }
-            val appLock = Lock(lockFile, hwndFile, randomAccessFile, channel, fileLock)
+            val appLock = Lock(lockFile, hwndFile, randomAccessFile, channel, fileLock, startTime)
             Runtime.getRuntime().addShutdownHook(Thread { appLock.close() })
             appLock
         } catch (e: Exception) {
@@ -101,64 +103,104 @@ object SingleInstanceApp {
     }
 
     /**
-     * Detects and terminates any orphaned or headless background Auralis process holding [dataDir]'s lock.
-     * Called only when [focusExistingWindow] confirms no UI window is visible on screen.
+     * Detects and cleans up after terminated or dead background Auralis processes holding [dataDir]'s lock.
+     * Never terminates processes that are still alive, as they may be running in the system tray or booting.
      */
     fun recoverZombieInstance(dataDir: File): Boolean {
         val hwndFile = File(dataDir, HWND_FILE_NAME)
         val saved = readSavedInstance(hwndFile)
         val currentPid = ProcessHandle.current().pid()
         val parentPid = ProcessHandle.current().parent().map { it.pid() }.orElse(-1L)
-        var killedAny = false
 
         if (saved?.pid != null && saved.pid != currentPid && saved.pid != parentPid) {
-            runCatching {
-                val handle = ProcessHandle.of(saved.pid).orElse(null)
-                if (handle != null && handle.isAlive) {
-                    Log.w(TAG, "Found zombie Auralis process PID ${saved.pid} holding lock with no window. Forcibly terminating...")
-                    handle.destroyForcibly()
-                    runCatching { handle.onExit().get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
-                    killedAny = true
+            val handle = runCatching { ProcessHandle.of(saved.pid).orElse(null) }.getOrNull()
+            if (handle != null && handle.isAlive) {
+                val nativeUser = runCatching { NativeLibrary.getInstance("user32") }.getOrNull()
+                val isHung = if (saved.hwnd != 0L && nativeUser != null) {
+                    runCatching {
+                        nativeUser.getFunction("IsHungAppWindow").invokeInt(arrayOf(Pointer(saved.hwnd))) != 0
+                    }.getOrDefault(false)
+                } else false
+
+                if (isHung) {
+                    Log.w(TAG, "Process PID ${saved.pid} window is hung/unresponsive. Terminating hung instance.")
+                    runCatching { handle.destroyForcibly() }
+                    runCatching { hwndFile.delete() }
+                    return true
                 }
-            }.onFailure { Log.w(TAG, "Could not destroy zombie PID ${saved.pid}: ${it.message}") }
+
+                val startTime = saved.startTime ?: 0L
+                val ageMs = if (startTime > 0L) System.currentTimeMillis() - startTime else -1L
+                Log.i(TAG, "Process PID ${saved.pid} is alive (running for ${if (ageMs >= 0) "${ageMs}ms" else "unknown duration"}). Retaining running instance.")
+                return false
+            }
         }
 
-        if (killedAny) {
-            try { Thread.sleep(250) } catch (_: InterruptedException) {}
-        }
         runCatching { hwndFile.delete() }
         return true
     }
 
     /**
      * Finds and brings the existing application window to the foreground,
-     * restoring it from minimized state if needed.
+     * restoring it from minimized or system tray state if needed.
      */
-    fun focusExistingWindow(dataDir: File, windowTitle: String, maxWaitMs: Long = 1500L): Boolean {
-        val user32 = runCatching { com.sun.jna.platform.win32.User32.INSTANCE }.getOrNull() ?: return false
+    fun focusExistingWindow(dataDir: File, windowTitle: String, maxWaitMs: Long = 4000L): Boolean {
+        val user32 = runCatching { com.sun.jna.platform.win32.User32.INSTANCE }.getOrNull()
         val hwndFile = File(dataDir, HWND_FILE_NAME)
+        val restoreFile = File(dataDir, "window-restore.request")
+
+        val initialSaved = readSavedInstance(hwndFile)
+        val isAlive = if (initialSaved?.pid != null && initialSaved.pid > 0) {
+            runCatching { ProcessHandle.of(initialSaved.pid).map { it.isAlive }.orElse(false) }.getOrDefault(false)
+        } else false
+
+        if (!isAlive && initialSaved?.pid != null) {
+            // Process holding the lock has already terminated
+            return false
+        }
+
+        // Immediately signal the running primary instance to restore and focus its window
+        if (isAlive) {
+            runCatching { restoreFile.writeText(System.currentTimeMillis().toString()) }
+        }
 
         val deadline = System.currentTimeMillis() + maxWaitMs
         while (System.currentTimeMillis() <= deadline) {
             val saved = readSavedInstance(hwndFile)
             var targetHwnd: HWND? = null
-            if (saved != null && saved.hwnd != 0L) {
+
+            if (user32 != null && saved != null && saved.hwnd != 0L) {
                 val candidate = HWND(Pointer(saved.hwnd))
                 if (user32.IsWindow(candidate)) {
                     targetHwnd = candidate
                 }
             }
 
-            if (targetHwnd == null) {
+            if (user32 != null && targetHwnd == null) {
                 val found = user32.FindWindow(null, windowTitle)
                 if (found != null && user32.IsWindow(found)) {
                     targetHwnd = found
                 }
             }
 
-            if (targetHwnd != null) {
+            if (targetHwnd != null && user32 != null) {
+                runCatching { restoreFile.writeText(System.currentTimeMillis().toString()) }
                 bringToForeground(user32, targetHwnd, saved?.pid)
                 return true
+            }
+
+            // If the restore request was consumed and deleted by the primary instance, it is active and restored
+            if (isAlive && !restoreFile.exists()) {
+                if (targetHwnd != null && user32 != null) {
+                    bringToForeground(user32, targetHwnd, saved?.pid)
+                }
+                return true
+            }
+
+            // If the process holding the lock died during wait, stop waiting
+            if (saved?.pid != null && saved.pid > 0) {
+                val stillAlive = runCatching { ProcessHandle.of(saved.pid).map { it.isAlive }.orElse(false) }.getOrDefault(true)
+                if (!stillAlive) return false
             }
 
             try {
@@ -167,22 +209,30 @@ object SingleInstanceApp {
                 break
             }
         }
+
+        // Only consider successful if the restore request was actually consumed by the running instance
+        if (isAlive && !restoreFile.exists()) {
+            return true
+        }
+
         return false
     }
 
-    private data class SavedInstance(val hwnd: Long, val pid: Long?)
+    private data class SavedInstance(val hwnd: Long, val pid: Long?, val startTime: Long?)
 
     private fun readSavedInstance(hwndFile: File): SavedInstance? {
         if (!hwndFile.isFile) return null
         return runCatching {
             var hwnd: Long? = null
             var pid: Long? = null
+            var startTime: Long? = null
             hwndFile.readLines().forEach { line ->
                 if (line.startsWith("HWND=")) hwnd = line.removePrefix("HWND=").trim().toLongOrNull()
                 else if (line.startsWith("PID=")) pid = line.removePrefix("PID=").trim().toLongOrNull()
+                else if (line.startsWith("START_TIME=")) startTime = line.removePrefix("START_TIME=").trim().toLongOrNull()
             }
-            if (hwnd != null || pid != null) {
-                SavedInstance(hwnd ?: 0L, pid)
+            if (hwnd != null || pid != null || startTime != null) {
+                SavedInstance(hwnd ?: 0L, pid, startTime)
             } else null
         }.getOrNull()
     }
@@ -216,6 +266,9 @@ object SingleInstanceApp {
         } else false
 
         try {
+            // Unlock foreground rights in Windows 10/11 using simulated Alt keypress
+            nativeUser?.getFunction("keybd_event")?.invokeVoid(arrayOf(0x12, 0, 0, 0))
+            nativeUser?.getFunction("keybd_event")?.invokeVoid(arrayOf(0x12, 0, 2, 0))
             user32.BringWindowToTop(hwnd)
             user32.SetForegroundWindow(hwnd)
         } finally {

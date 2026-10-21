@@ -1,8 +1,12 @@
 package com.auralis.music.windows.dev
 
+import androidx.compose.runtime.collectAsState
+
 import androidx.compose.foundation.background
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.unit.dp
@@ -287,6 +291,33 @@ fun main(args: Array<String>) {
             listOf(androidx.compose.ui.graphics.Color(0xFF3A2440), androidx.compose.ui.graphics.Color(0xFF6B4A2E)))).padding(16.dp)) {
             com.auralis.music.windows.player.UpNextCard(previewSongs.getOrNull(1)) {}
         } },
+        // The left panel tiled around the Up Next card: short title, long title (capped at the panel width).
+        "sidebar-tiled" to { Row(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(
+            listOf(androidx.compose.ui.graphics.Color(0xFF3A2440), androidx.compose.ui.graphics.Color(0xFF6B4A2E)))).padding(8.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(24.dp)) {
+            listOf(previewSongs.getOrNull(1)?.copy(title = "Doja", artist = "Central Cee"),
+                previewSongs.getOrNull(2)?.copy(title = "we fell in love in october", artist = "girl in red"),
+                previewSongs.getOrNull(3)?.copy(title = "A very long song title that should be cut off at the panel edge", artist = "Someone")).forEach { song ->
+                val cardSize = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.DpSize.Zero) }
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                Box(Modifier.width(280.dp).fillMaxHeight()) {
+                    Box(Modifier.fillMaxSize().clip(com.auralis.music.windows.SidebarNotchShape(12.dp,
+                        if (cardSize.value.width > 0.dp) cardSize.value.width + 8.dp else 0.dp, if (cardSize.value.height > 0.dp) cardSize.value.height + 8.dp else 0.dp))
+                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = .10f)))
+                    Box(Modifier.align(androidx.compose.ui.Alignment.BottomStart).onSizeChanged {
+                        cardSize.value = with(density) { androidx.compose.ui.unit.DpSize(it.width.toDp(), it.height.toDp()) } }) {
+                        com.auralis.music.windows.player.UpNextCard(song, width = 280.dp) {}
+                    }
+                }
+            }
+        } },
+        // Settings > Typography: the font choices and the Load font file row beneath them.
+        "settings-typography" to { Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF141217)).padding(16.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+            com.auralis.music.windows.settings.SettingSearchableChoice("Body font", "Installed Windows fonts", "Default", "Default", listOf("Default" to "Default")) {}
+            com.auralis.music.windows.settings.SettingSearchableChoice("Heading font", "Installed Windows fonts", "Default", "Default", listOf("Default" to "Default")) {}
+            com.auralis.music.windows.settings.SettingAction("Load font file", "Add a TTF or OTF font to the font lists", "Choose file") {}
+        } },
         "seekbar" to { Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF8A8A8A)).padding(horizontal = 40.dp),
             contentAlignment = androidx.compose.ui.Alignment.Center) {
             com.auralis.music.ui.components.AuralisPlayerSlider(value = 0.42f, onValueChange = {}, onValueChangeFinished = {},
@@ -328,6 +359,24 @@ fun main(args: Array<String>) {
         "history" to { com.auralis.music.windows.history.HistorySheet(
             listOf(com.auralis.music.domain.model.HistoryEntry(sampleTrack, System.currentTimeMillis())), isPlaying = false,
             onTrackClick = { _, _ -> }, onRemoveFromHistory = {}, onClearHistory = {}, onDismiss = {}) },
+        "downloads" to {
+            val downloads = androidx.compose.runtime.remember {
+                val root = File(data, "downloads-preview").apply { mkdirs() }
+                val index = org.json.JSONArray()
+                previewSongs.take(3).forEachIndexed { i, track ->
+                    val file = File(root, "$i.m4a").apply { writeBytes(ByteArray(2048)) }
+                    index.put(org.json.JSONObject().put("key", "preview-$i").put("group", if (i == 0) "individual" else "playlist-$i")
+                        .put("name", listOf("Individual songs", "Favorites", "Late night")[i]).put("folder", ".")
+                        .put("track", com.auralis.music.desktop.library.TrackJson.encode(track)).put("index", i)
+                        .put("status", "COMPLETED").put("file", file.name).put("bytes", file.length()))
+                }
+                File(root, "index.json").writeText(index.toString())
+                com.auralis.music.desktop.library.DesktopDownloads(root, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()))
+            }
+            com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail, coverPalette) {
+                com.auralis.music.windows.library.DesktopDownloadsPage(null, {}, downloads)
+            }
+        },
         "stats" to { com.auralis.music.windows.history.ListeningStatsPage(stats, null, false, {}) },
         "wrapped" to { com.auralis.music.windows.history.ListeningStatsPage(stats, null, true, {}) },
         "together" to { com.auralis.music.windows.together.ListenTogetherPage(
@@ -347,7 +396,14 @@ fun main(args: Array<String>) {
         "ai-translation" to { AiLyricsTranslationScreen(onDismiss = {}) },
         "updater" to { UpdaterScreen(onDismiss = {}) },
         "about" to { AboutScreen(onDismiss = {}) },
-        "discord" to { DiscordIntegrationScreen(onDismiss = {}) },
+        "discord" to {
+            val store = com.auralis.music.windows.discord.DiscordCardPreferences.store
+            val cfg = store.settings.collectAsState().value
+            com.auralis.music.windows.discord.DiscordSettingsContent(cfg,
+                com.auralis.music.windows.discord.DiscordNow(previewSongs.firstOrNull()?.let {
+                    com.auralis.music.windows.discord.DiscordTrack(it) }, true, true, 30000, 210000),
+                "Development preview", store::update, store::reset, {})
+        },
         "youtube-account" to { YouTubeAccountScreen(onDismiss = {}) },
     )
     for ((name, content) in screens) {

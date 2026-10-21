@@ -105,7 +105,8 @@ internal fun GlassDock(
             .drawWithCache {
                 val padding = 54.dp.toPx()
                 val glassDensity = androidx.compose.ui.unit.Density(density, fontScale)
-                glassLayer.renderEffect = glassEffect.create(size.width, size.height, padding, density)
+                glassLayer.renderEffect = if (com.auralis.music.windows.dev.PerfFlags.off("dockglass")) null
+                    else glassEffect.create(size.width, size.height, padding, density)
                 onDrawWithContent {
                     // Record only the page, with blur overscan: never blur icons or sample the dock itself.
                     if (backdrop != null) {

@@ -112,7 +112,8 @@ fun ArtistScreen(
     onBack: () -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBackButton: Boolean = true
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val contentSettings by com.auralis.music.data.network.ContentSettingsSource.updates.collectAsState()
@@ -233,7 +234,7 @@ fun ArtistScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -261,7 +262,7 @@ fun ArtistScreen(
                             .background(Color.Black.copy(alpha = 0.35f))
                     }
 
-                    Box(
+                    if (showBackButton) Box(
                         modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -271,7 +272,7 @@ fun ArtistScreen(
                             tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )
-                    }
+                    } else Spacer(Modifier.size(40.dp))
 
                     Box(
                         modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) {

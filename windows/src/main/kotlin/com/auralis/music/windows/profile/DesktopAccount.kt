@@ -10,27 +10,64 @@ import kotlinx.coroutines.flow.first
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.nio.file.AtomicMoveNotSupportedException
 
 /** Passwords are never saved. The refresh token is protected by the signed-in Windows user. */
-class DesktopAccount(private val sessionFile: File, private val scope: CoroutineScope) {
+class DesktopAccount(private val sessionFile: File, private val scope: CoroutineScope,
+    private val api: FirestoreRest = FirestoreRest.fromResource(), private val restoreRetryMs: Long = 5_000L) {
     data class State(val profile: UserProfile? = null, val busy: Boolean = false, val message: String? = null, val browser: Boolean = false)
     private val mutable = MutableStateFlow(State(busy = sessionFile.isFile))
     val state = mutable.asStateFlow()
-    private val api = FirestoreRest.fromResource()
+    private var restoreJob: Job? = null
     init {
-        if (sessionFile.isFile) scope.launch(Dispatchers.IO) {
+        if (sessionFile.isFile) restoreJob = scope.launch(Dispatchers.IO) {
+            var savedToken: String? = null
             try {
-                api.restoreAccount(String(Crypt32Util.cryptUnprotectData(sessionFile.readBytes()), Charsets.UTF_8))
-                refreshProfile(); save()
+                val saved = String(Crypt32Util.cryptUnprotectData(sessionFile.readBytes()), Charsets.UTF_8)
+                // Read the old token-only format as well as the protected profile snapshot.
+                if (saved.startsWith("{")) {
+                    val snapshot = org.json.JSONObject(saved)
+                    savedToken = snapshot.getString("refreshToken")
+                    snapshot.optJSONObject("profile")?.let { p ->
+                        mutable.value = State(profile = UserProfile(p.getString("uid"), p.getString("displayName"),
+                            p.getString("email"), p.optString("avatarUrl").takeIf(String::isNotBlank), p.optBoolean("google")))
+                    }
+                } else savedToken = saved
             } catch (_: Exception) { mutable.value = State(message = "Couldn't restore your sign-in. Please sign in again.") }
+            savedToken?.let { initialToken ->
+                var token = initialToken
+                var attempt = 0
+                while (isActive) {
+                    try {
+                        api.restoreAccount(token)
+                        ensureActive()
+                        token = api.accountRefreshToken()
+                        save()
+                        refreshProfile(); save()
+                        break
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        val expired = e is FirestoreRest.ServiceException && e.status == 400 &&
+                            listOf("INVALID_REFRESH_TOKEN", "TOKEN_EXPIRED", "USER_DISABLED", "USER_NOT_FOUND").any { e.message.orEmpty().contains(it) }
+                        mutable.value = if (expired) State(message = "Your saved sign-in has expired. Please sign in again.")
+                        else mutable.value.copy(busy = false, message = "Couldn't reconnect to your account. Retrying automatically.")
+                        if (expired) break
+                        delay((restoreRetryMs * (1L shl attempt.coerceAtMost(4))).coerceAtMost(60_000L))
+                        attempt++
+                    }
+                }
+            }
         }
     }
     fun signIn(email: String, password: String, create: Boolean) {
         if (mutable.value.busy) return
+        restoreJob?.cancel()
         mutable.value = mutable.value.copy(busy = true, message = null)
         scope.launch(Dispatchers.IO) {
             try {
-                api.signInEmail(email, password, create); refreshProfile()
+                api.signInEmail(email, password, create)
+                save()
+                refreshProfile()
                 try { save() } catch (_: Exception) { mutable.value = mutable.value.copy(message = "Signed in for this session. Windows couldn't save the protected sign-in.") }
             } catch (e: Exception) { mutable.value = mutable.value.copy(busy = false, browser = false, message = errorMessage(e)) }
         }
@@ -39,18 +76,22 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
     private var googleJob: Job? = null
     fun signInGoogle() {
         if (mutable.value.busy) return
+        restoreJob?.cancel()
         mutable.value = mutable.value.copy(busy = true, browser = true, message = "Complete sign-in in your browser")
         googleJob = scope.launch(Dispatchers.IO) {
             try {
-                api.signInGoogle(DesktopGoogleLogin.idToken()); refreshProfile()
+                api.signInGoogle(DesktopGoogleLogin.idToken())
+                save()
+                refreshProfile()
                 try { save() } catch (_: Exception) { mutable.value = mutable.value.copy(message = "Signed in for this session. Windows couldn't save the protected sign-in.") }
             } catch (_: CancellationException) { mutable.value = mutable.value.copy(busy = false, browser = false, message = "Google sign-in cancelled") }
             catch (e: Exception) { mutable.value = mutable.value.copy(busy = false, browser = false, message = errorMessage(e)) }
         }
     }
     fun cancelGoogle() { googleJob?.cancel() }
-    private fun refreshProfile() {
+    private suspend fun refreshProfile() {
         val profile = api.accountProfile()
+        currentCoroutineContext().ensureActive()
         val email = profile.optString("email")
         val providers = profile.optJSONArray("providerUserInfo")
         val isGoogle = (0 until (providers?.length() ?: 0)).any {
@@ -70,17 +111,26 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         )
     }
     private fun save() {
-        val protected = Crypt32Util.cryptProtectData(api.accountRefreshToken().toByteArray(Charsets.UTF_8))
+        val snapshot = org.json.JSONObject().put("refreshToken", api.accountRefreshToken())
+        mutable.value.profile?.takeIf { it.uid == api.uid }?.let { p -> snapshot.put("profile", org.json.JSONObject().put("uid", p.uid)
+            .put("displayName", p.displayName).put("email", p.email).put("avatarUrl", p.avatarUrl.orEmpty())
+            .put("google", p.isGoogleConnected)) }
+        val protected = Crypt32Util.cryptProtectData(snapshot.toString().toByteArray(Charsets.UTF_8))
         sessionFile.parentFile?.mkdirs()
         val temporary = File(sessionFile.parentFile, sessionFile.name + ".tmp")
-        temporary.writeBytes(protected)
-        Files.move(temporary.toPath(), sessionFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        temporary.outputStream().use { it.write(protected); it.fd.sync() }
+        try {
+            Files.move(temporary.toPath(), sessionFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporary.toPath(), sessionFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
     }
     /** Dismisses the account's status line (e.g. "Signed in as …"). */
     fun clearMessage() { mutable.value = mutable.value.copy(message = null) }
 
     fun signOut() {
         if (mutable.value.busy) return
+        restoreJob?.cancel()
         mutable.value = mutable.value.copy(busy = true)
         scope.launch(Dispatchers.IO) {
             try { Files.deleteIfExists(sessionFile.toPath()); api.forgetAccount(); mutable.value = State() }

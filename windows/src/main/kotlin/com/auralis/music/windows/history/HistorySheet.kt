@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import com.auralis.music.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import com.auralis.music.ui.components.TextButton
+import com.auralis.music.windows.frostedListSurface
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.filled.PauseCircle
@@ -57,7 +58,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import com.auralis.music.ui.components.secondaryClick
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -351,104 +351,29 @@ private fun HistorySongCard(
 
     val shape = RoundedCornerShape(14.dp)
     val accentColor = MaterialTheme.colorScheme.primary
-
-    // Specular liquid glass border: crisp top highlight tapering down to subtle bottom
-    val borderBrush = if (isCurrent) {
-        Brush.verticalGradient(
-            listOf(
-                accentColor.copy(alpha = 0.90f),
-                accentColor.copy(alpha = 0.50f),
-                accentColor.copy(alpha = 0.25f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.16f + 0.14f * hoverProgress),
-                Color.White.copy(alpha = 0.07f + 0.05f * hoverProgress),
-                Color.White.copy(alpha = 0.03f + 0.02f * hoverProgress)
-            )
-        )
-    }
-
-    // Liquid glass background: deep translucent dark glass with subtle gradient depth
-    val glassBg = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = if (isCurrent) 0.10f + 0.04f * hoverProgress else 0.06f + 0.04f * hoverProgress),
-            Color(0xFF14131A).copy(alpha = if (isCurrent) 0.65f else 0.55f),
-            Color(0xFF0F0E14).copy(alpha = if (isCurrent) 0.80f else 0.70f)
-        )
-    )
+    val foreground = MaterialTheme.colorScheme.onSurface
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(58.dp)
-            .clip(shape)
-            .background(glassBg)
-            .border(
-                width = if (isCurrent) 1.5.dp else 1.dp,
-                brush = borderBrush,
-                shape = shape
-            )
+            .frostedListSurface(shape, hoverProgress, accentColor.takeIf { isCurrent })
             .hoverable(interaction)
             .secondaryClick(onMenu)
             .clickable(onClick = onPlay)
     ) {
-        // Liquid glass top specular sheen (gloss reflection line)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.25f + 0.15f * hoverProgress),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
-        // Active song liquid glass accent glow
-        if (isCurrent) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                accentColor.copy(alpha = 0.14f),
-                                accentColor.copy(alpha = 0.04f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-        }
-
-        // Hover sheen
-        if (hoverProgress > 0.01f) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(Color.White.copy(alpha = 0.04f * hoverProgress))
-            )
-        }
-
         Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Clean artwork card with its own subtle liquid glass border
+            // Artwork stays sharp above the frosted surface.
             Box(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                    .border(1.dp, foreground.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
             ) {
                 ArtworkCard(
                     sizeToConstraints = true,
@@ -467,7 +392,7 @@ private fun HistorySongCard(
                     text = track.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (isCurrent) accentColor else Color.White,
+                    color = if (isCurrent) accentColor else foreground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -475,7 +400,7 @@ private fun HistorySongCard(
                 Text(
                     text = track.artist,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.65f),
+                    color = foreground.copy(alpha = 0.65f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -499,12 +424,12 @@ private fun HistorySongCard(
                         .size(32.dp)
                         .hoverable(menuInteraction)
                         .clip(CircleShape)
-                        .background(if (menuHovered) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                        .background(if (menuHovered) foreground.copy(alpha = 0.12f) else Color.Transparent)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "Options for ${track.title}",
-                        tint = Color.White.copy(alpha = if (menuHovered) 1f else 0.75f),
+                        tint = foreground.copy(alpha = if (menuHovered) 1f else 0.75f),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -518,12 +443,12 @@ private fun HistorySongCard(
                     .size(32.dp)
                     .hoverable(removeInteraction)
                     .clip(CircleShape)
-                    .background(if (removeHovered) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                    .background(if (removeHovered) foreground.copy(alpha = 0.12f) else Color.Transparent)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = str(Strings.remove),
-                    tint = Color.White.copy(alpha = if (removeHovered) 1f else 0.65f),
+                    tint = foreground.copy(alpha = if (removeHovered) 1f else 0.65f),
                     modifier = Modifier.size(16.dp)
                 )
             }

@@ -14,7 +14,7 @@ import java.io.File
 internal object YouTubeSessionSource {
     private const val TAG = "YouTubeSessionSource"
     private val store by lazy {
-        com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "youtube-session-source.properties"))
+        com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "youtube-session-source.properties"), synchronous = true)
     }
 
     /** The listener connected from [profile]. */

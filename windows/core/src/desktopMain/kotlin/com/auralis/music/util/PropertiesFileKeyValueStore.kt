@@ -3,12 +3,15 @@ package com.auralis.music.util
 import java.io.File
 import java.util.Properties
 import java.util.concurrent.Executors
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.AtomicMoveNotSupportedException
 
 /**
  * [KeyValueStore] in a properties file (the desktop counterpart of SharedPreferences). Reads come
  * from memory; writes go to disk on a background thread, like SharedPreferences.apply().
  */
-class PropertiesFileKeyValueStore(private val file: File) : KeyValueStore {
+class PropertiesFileKeyValueStore(private val file: File, private val synchronous: Boolean = false) : KeyValueStore {
     private val values = Properties()
     private val writer = Executors.newSingleThreadExecutor { r -> Thread(r, "settings-writer").apply { isDaemon = true } }
 
@@ -18,26 +21,30 @@ class PropertiesFileKeyValueStore(private val file: File) : KeyValueStore {
 
     override fun getString(key: String, default: String): String? = synchronized(values) { values.getProperty(key, default) }
 
-    override fun putStrings(values: Map<String, String>) {
+    @Synchronized override fun putStrings(values: Map<String, String>) {
         synchronized(this.values) { values.forEach { (k, v) -> this.values.setProperty(k, v) } }
         save()
     }
 
-    override fun clear() {
+    @Synchronized override fun clear() {
         synchronized(values) { values.clear() }
         save()
     }
 
     private fun save() {
         val snapshot = synchronized(values) { Properties().also { it.putAll(values) } }
-        writer.execute {
-            runCatching {
+        val write = {
                 file.parentFile?.mkdirs()
                 val tmp = File(file.parentFile, file.name + ".tmp")
-                tmp.outputStream().use { snapshot.store(it, null) }
-                if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
-            }
+                tmp.outputStream().use { snapshot.store(it, null); if (synchronous) it.fd.sync() }
+                try {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                Unit
         }
+        if (synchronous) write() else writer.execute { runCatching { write() } }
     }
 }
 

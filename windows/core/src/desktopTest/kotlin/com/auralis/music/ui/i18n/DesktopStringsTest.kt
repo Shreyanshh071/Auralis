@@ -6,6 +6,21 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
 class DesktopStringsTest {
+    @Test fun desktopLabelsUseSharedAndDesktopTranslationsWithEnglishFallback() {
+        try {
+            DesktopStrings.install(Locale.GERMAN)
+            assertEquals("Einstellungen", desktopText("Settings"))
+            assertEquals("Globale Tastenkürzel", desktopText("Global hotkeys"))
+            assertEquals("Interface copy with no translation yet", desktopText("Interface copy with no translation yet"))
+            DesktopStrings.install(Locale.forLanguageTag("fr-CA"))
+            assertEquals("Paramètres", desktopText("Settings"))
+            assertEquals("Notifications de morceaux", desktopText("Song notifications"))
+            DesktopStrings.install(Locale.forLanguageTag("hi"))
+            assertEquals("सेटिंग्स", desktopText("Settings"))
+            assertEquals("सिस्टम टाइटल बार", desktopText("System title bar"))
+        } finally { DesktopStrings.install(Locale.ENGLISH) }
+    }
+
     @Test
     fun readsThePhonesStringsWithEscapesAndArguments() {
         DesktopStrings.install(Locale.ENGLISH)

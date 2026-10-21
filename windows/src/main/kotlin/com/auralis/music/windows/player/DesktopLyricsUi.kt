@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
@@ -11,6 +13,7 @@ import com.auralis.music.ui.lyrics.LyricsUiPlatform
 
 val DesktopLyricsUi = LyricsUiPlatform(
     roundedMouseHover = true,
+    manualScrollModifier = { state, onUserScroll -> lyricsWheelScroll(state, onUserScroll) },
     strings = DefaultLyricsUi.strings,
     backHandler = { enabled, onBack -> com.auralis.music.ui.components.PlatformBackHandler(enabled, onBack) },
     romanizedLine = { text, color, size, align, modifier ->
@@ -22,9 +25,9 @@ val DesktopLyricsUi = LyricsUiPlatform(
     },
     shareSheet = { track, text, dismiss ->
         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        AlertDialog(onDismissRequest = dismiss, title = { Text("Share lyrics") },
+        AlertDialog(onDismissRequest = dismiss, title = { Text(desktopText("Share lyrics")) },
             text = { Text("$text\n\n${track.title} — ${track.artist}") },
-            confirmButton = { TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString("$text\n\n${track.title} — ${track.artist}")); dismiss() }) { Text("Copy text") } },
-            dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
+            confirmButton = { TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString("$text\n\n${track.title} — ${track.artist}")); dismiss() }) { Text(desktopText("Copy text")) } },
+            dismissButton = { TextButton(onClick = dismiss) { Text(desktopText("Cancel")) } })
     }
 )

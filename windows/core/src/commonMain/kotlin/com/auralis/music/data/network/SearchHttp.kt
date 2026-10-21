@@ -16,6 +16,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
+/** Interactive search is independent of optional background catalogue refreshes. */
+class UserSearchRequest private constructor() : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<UserSearchRequest> {
+        suspend fun <T> run(block: suspend () -> T): T = withContext(UserSearchRequest()) { block() }
+    }
+}
+
 /** Opening an artist is an explicit foreground action, independent of import/search backoff. */
 internal class ArtistBrowseRequest private constructor() : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ArtistBrowseRequest> {
@@ -23,11 +30,19 @@ internal class ArtistBrowseRequest private constructor() : AbstractCoroutineCont
     }
 }
 
+/** Opening an album is a user action; background search cooldown must not hide its catalogue. */
+internal class AlbumBrowseRequest private constructor() : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<AlbumBrowseRequest> {
+        suspend fun <T> run(block: suspend () -> T): T = withContext(AlbumBrowseRequest()) { block() }
+    }
+}
+
 /** Bounds the entire request, closes every response, and cancels HTTP when the query changes. */
 suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
     withTimeout(budgetMs) {
         val youtube = request.url.host.contains("youtube")
-        if (youtube && YouTubeBackoff.active && currentCoroutineContext()[ArtistBrowseRequest] == null)
+        if (youtube && YouTubeBackoff.active && currentCoroutineContext()[ArtistBrowseRequest] == null &&
+            currentCoroutineContext()[AlbumBrowseRequest] == null && currentCoroutineContext()[UserSearchRequest] == null)
             throw IOException("YouTube is temporarily limiting this network")
         suspendCancellableCoroutine { continuation ->
             val call = newCall(request)

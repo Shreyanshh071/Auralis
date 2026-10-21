@@ -1,5 +1,7 @@
 package com.auralis.music.windows.library
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.Button
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.animation.core.animateFloatAsState
@@ -32,7 +34,7 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("New playlist") },
+    com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(desktopText("New playlist")) },
         text = {
             Column(Modifier.width(440.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(
@@ -42,7 +44,7 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
                     singleLine = true,
                     placeholder = {
                         Text(
-                            "Playlist name",
+                            desktopText("Playlist name"),
                             color = Color.White.copy(alpha = 0.65f),
                             fontSize = 14.sp
                         )
@@ -62,19 +64,19 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Save to", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
+                Text(desktopText("Save to"), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     DestinationCard("YouTube Music", accountName ?: "Connect an account first", remote,
                         youtubeAvailable && !busy, Modifier.weight(1f), true) { remote = true }
                     DestinationCard("This device", "Saved in Auralis", !remote, !busy, Modifier.weight(1f), false) { remote = false }
                 }
-                Text(if (remote) "Created privately in your YouTube Music account, available on your other devices."
-                    else "Stored on this computer in your Auralis library.", style = MaterialTheme.typography.bodySmall,
+                Text(desktopText(if (remote) "Created privately in your YouTube Music account, available on your other devices."
+                    else "Stored on this computer in your Auralis library."), style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.70f))
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text(desktopText("Cancel")) } },
         confirmButton = { Button(enabled = name.isNotBlank() && !busy && (!remote || youtubeAvailable), onClick = {
             busy = true; error = null
             scope.launch {
@@ -88,7 +90,7 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
             contentColor = MaterialTheme.colorScheme.onPrimary,
             disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
             disabledContentColor = Color.White.copy(alpha = 0.4f)
-        )) { Text(if (busy) "Creating…" else "Create playlist") } })
+        )) { Text(desktopText(if (busy) "Creating…" else "Create playlist")) } })
 }
 
 @Composable
@@ -161,13 +163,13 @@ private fun DestinationCard(title: String, subtitle: String, selected: Boolean, 
                     }
                 )
                 Text(
-                    text = title,
+                    text = desktopText(title),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f)
                 )
                 Text(
-                    text = subtitle,
+                    text = desktopText(subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         !enabled -> Color.White.copy(alpha = 0.3f)

@@ -99,20 +99,11 @@ fun DesktopSettings(
     onOpenProfile: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val playerSettings by stores.settings.settingsFlow.collectAsState(PlayerSettings())
-    DesktopSettingsScreen(
-        settings = playerSettings,
-        onThemeModeChange = { scope.launch { stores.settings.setThemeMode(it) } },
-        onAudioQualityChange = { scope.launch { stores.settings.setAudioQuality(it) } },
-        onToggleGaplessPlayback = { scope.launch { stores.settings.setGaplessPlayback(it) } },
-        onToggleSkipSilence = { scope.launch { stores.settings.setSkipSilence(it) } },
-        onToggleSpatialAudio = { scope.launch { stores.settings.setSpatialAudio(it) } },
-        onClearCache = { com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache() },
-        onNavigateToAccount = onOpenProfile,
-        onDismiss = onDismiss,
-        historyRepository = history,
-        searchRepository = search,
-        hasActiveTrack = hasActiveTrack
+    com.auralis.music.windows.settings.DesktopSettingsDialog(
+        stores = stores,
+        history = history,
+        search = search,
+        hasActiveTrack = hasActiveTrack,
+        onDismiss = onDismiss
     )
 }

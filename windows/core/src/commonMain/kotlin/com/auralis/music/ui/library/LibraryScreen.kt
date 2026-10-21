@@ -2013,6 +2013,11 @@ private fun PlaylistDetailView(
         BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
             // Wide windows lay songs out as a table: title, artist, album, length.
             val wideTable = maxWidth >= 720.dp
+            // The songs are the list's last items.
+            com.auralis.music.ui.components.PrefetchListArtwork(playlistListState) { index ->
+                val first = playlistListState.layoutInfo.totalItemsCount - displayedItems.size
+                displayedItems.getOrNull(index - first)?.track?.let { it.thumbnail to it }
+            }
             LazyColumn(
                 state = playlistListState,
                 modifier = Modifier

@@ -16,7 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** A page opened on top of the main pages (the phone's detail stack). */
 sealed interface BrowsePage {
-    data class Album(val album: PlaylistResult, val tracks: List<Track> = emptyList(), val isLoading: Boolean = true) : BrowsePage
+    data class Album(val album: PlaylistResult, val tracks: List<Track> = emptyList(), val isLoading: Boolean = true,
+        val loadFailed: Boolean = false) : BrowsePage
     data class Artist(val page: ArtistPage, val isLoading: Boolean = true, val loadFailed: Boolean = false) : BrowsePage
 }
 
@@ -46,9 +47,15 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
                 val enriched = if (first != null && (page.album.thumbnail.isNullOrBlank() || page.album.thumbnail!!.contains("default"))) {
                     page.album.copy(thumbnail = first.thumbnail.takeIf { it.isNotBlank() } ?: page.album.thumbnail)
                 } else page.album
-                page.copy(album = enriched, tracks = finalTracks, isLoading = false)
+                page.copy(album = enriched, tracks = finalTracks, isLoading = false, loadFailed = finalTracks.isEmpty())
             }
         }
+    }
+
+    fun retryAlbum() {
+        val page = top as? BrowsePage.Album ?: return
+        stack.removeAt(stack.lastIndex)
+        openAlbum(page.album)
     }
 
     /** A song's album: by its id when known, otherwise the best album search match for its name. */

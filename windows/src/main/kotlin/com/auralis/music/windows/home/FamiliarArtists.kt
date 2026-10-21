@@ -1,5 +1,7 @@
 package com.auralis.music.windows.home
 
+import com.auralis.music.ui.i18n.desktopText
+
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -17,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.DropdownMenu
 import com.auralis.music.ui.components.DropdownMenuItem
 import androidx.compose.material3.Icon
 import com.auralis.music.ui.components.IconButton
@@ -185,7 +186,7 @@ internal fun FamiliarArtistsRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Outlined.Person, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Familiar Artists", style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
+                Text(desktopText("Familiar Artists"), style = MaterialTheme.typography.titleLarge.copy(fontSize = 25.sp, lineHeight = 31.sp), fontWeight = FontWeight.Bold)
             }
 
             Spacer(Modifier.width(8.dp))
@@ -193,14 +194,14 @@ internal fun FamiliarArtistsRow(
                 IconButton(onClick = {
                     scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex - 3).coerceAtLeast(0)) }
                 }) {
-                    Icon(Icons.Outlined.ChevronLeft, "Previous artists")
+                    Icon(Icons.Outlined.ChevronLeft, desktopText("Previous artists"))
                 }
             }
             if (list.canScrollForward) {
                 IconButton(onClick = {
                     scope.launch { list.animateScrollToItem((list.firstVisibleItemIndex + 3).coerceAtMost(sortedArtists.take(10).lastIndex)) }
                 }) {
-                    Icon(Icons.Outlined.ChevronRight, "More artists")
+                    Icon(Icons.Outlined.ChevronRight, desktopText("More artists"))
                 }
             }
         }
@@ -254,7 +255,7 @@ private fun ArtistPoster(
             // Plays and time listened: what the ranking is made of.
             val plays = artist.totalPlays
             val playText = buildString {
-                append(if (plays == 1) "1 play" else "$plays plays")
+                append(desktopText(if (plays == 1) "%1\$s play" else "%1\$s plays", plays))
                 formatListened(artist.listenedMs)?.let { append(" · ").append(it) }
             }
             Text(playText, color = Color.White.copy(alpha = .65f), fontSize = 12.sp,
@@ -296,9 +297,14 @@ private fun GlassButton(photo: String?, posterWidth: Dp, posterHeight: Dp, left:
     val hovered by hover.collectIsHoveredAsState()
     Box(modifier.size(GlassButtonSize).clip(CircleShape).hoverable(hover).clickable(onClick = onClick),
         contentAlignment = Alignment.Center) {
-        if (photo != null) AsyncImage(photo, null, contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment,
-            modifier = Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
-                .requiredSize(posterWidth, posterHeight).offset(-left, -top).blur(6.dp))
+        // The photo pre-blurred once and shared by both buttons: blurring a whole poster-sized
+        // copy per button on every frame cost a lot of GPU time with several posters on screen.
+        val blurred by com.auralis.music.windows.player.rememberBlurredArtwork(photo, 6f / posterWidth.value.coerceAtLeast(1f))
+        blurred?.let { picture ->
+            androidx.compose.foundation.Image(picture, null, contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment,
+                modifier = Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .requiredSize(posterWidth, posterHeight).offset(-left, -top))
+        }
         Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (hovered) .6f else .4f))
             .border(0.5.dp, Color.White.copy(alpha = .08f), CircleShape))
         Icon(icon, label, Modifier.size(18.dp), tint = if (hovered && tint != Color.White) tint.copy(alpha = 1f) else tint)
@@ -308,9 +314,7 @@ private fun GlassButton(photo: String?, posterWidth: Dp, posterHeight: Dp, left:
 /** The ⋯ menu: Start radio, Add to shortcuts, Share, Save to library, Block artist (Li Music's artist menu). */
 @Composable
 internal fun ArtistMenu(artist: FamiliarArtist, expanded: Boolean, dismiss: () -> Unit, actions: FamiliarArtistActions) {
-    DropdownMenu(expanded, onDismissRequest = dismiss, shape = RoundedCornerShape(10.dp),
-        containerColor = Color(0xF0151217), shadowElevation = 12.dp, tonalElevation = 0.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .08f))) {
+    AnimatedMenu(expanded, dismiss) {
         @Composable
         fun item(text: String, icon: ImageVector, action: () -> Unit) = DropdownMenuItem(
             text = { Text(text, fontSize = 14.sp, color = Color(0xFFE8E4EB)) },
@@ -324,6 +328,54 @@ internal fun ArtistMenu(artist: FamiliarArtist, expanded: Boolean, dismiss: () -
         if (actions.inLibrary(artist)) item("Remove from library", Icons.Outlined.BookmarkRemove) { actions.toggleLibrary(artist) }
         else item("Save to library", Icons.Outlined.LibraryAdd) { actions.toggleLibrary(artist) }
         item("Block artist", Icons.Outlined.PersonOff) { actions.block(artist) }
+    }
+}
+
+/**
+ * Material's dropdown, but closing as it opens: Material 3 grows the menu in over 120ms and then
+ * drops it with a 75ms fade, which reads as no closing animation at all. Here it shrinks back into
+ * its corner by the anchor while fading, over the same time it took to open.
+ */
+@Composable
+private fun AnimatedMenu(expanded: Boolean, dismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val visibility = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    visibility.targetState = expanded
+    if (!visibility.currentState && !visibility.targetState) return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val margin = with(density) { 8.dp.roundToPx() }
+    var above by remember { mutableStateOf(false) }
+    val provider = remember(margin) {
+        object : androidx.compose.ui.window.PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: androidx.compose.ui.unit.IntRect, windowSize: androidx.compose.ui.unit.IntSize,
+                layoutDirection: androidx.compose.ui.unit.LayoutDirection, popupContentSize: androidx.compose.ui.unit.IntSize): androidx.compose.ui.unit.IntOffset {
+                // Under the button and starting at its left edge (like Material's), above it if there's no room.
+                val fitsBelow = anchorBounds.bottom + popupContentSize.height + margin <= windowSize.height
+                above = !fitsBelow
+                val x = anchorBounds.left.coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin))
+                val y = (if (fitsBelow) anchorBounds.bottom else anchorBounds.top - popupContentSize.height)
+                    .coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin))
+                return androidx.compose.ui.unit.IntOffset(x, y)
+            }
+        }
+    }
+    val origin = androidx.compose.ui.graphics.TransformOrigin(0f, if (above) 1f else 0f)
+    androidx.compose.ui.window.Popup(popupPositionProvider = provider, onDismissRequest = dismiss,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = expanded)) {
+        androidx.compose.animation.AnimatedVisibility(
+            visibleState = visibility,
+            enter = androidx.compose.animation.fadeIn(tween(90)) +
+                androidx.compose.animation.scaleIn(tween(120, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
+                    initialScale = .8f, transformOrigin = origin),
+            exit = androidx.compose.animation.fadeOut(tween(120)) +
+                androidx.compose.animation.scaleOut(tween(120, easing = androidx.compose.animation.core.FastOutLinearInEasing),
+                    targetScale = .8f, transformOrigin = origin)
+        ) {
+            androidx.compose.material3.Surface(Modifier.padding(4.dp), shape = RoundedCornerShape(10.dp),
+                color = Color(0xF0151217), shadowElevation = 12.dp, tonalElevation = 0.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .08f))) {
+                Column(Modifier.width(IntrinsicSize.Max).padding(vertical = 8.dp), content = content)
+            }
+        }
     }
 }
 

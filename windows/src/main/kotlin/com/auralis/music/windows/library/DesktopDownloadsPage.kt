@@ -1,9 +1,12 @@
 package com.auralis.music.windows.library
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.Button
 import com.auralis.music.ui.components.TextButton
 import com.auralis.music.ui.components.FilledTonalButton
+import com.auralis.music.windows.frostedListSurface
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import com.auralis.music.ui.components.clickable
@@ -27,7 +30,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -53,15 +55,16 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
     var pendingDirectoryChange by remember { mutableStateOf<File?>(null) }
     var directoryMessage by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<String?>(null) }
+    com.auralis.music.ui.components.PlatformBackHandler(enabled = selected != null) { selected = null }
     val groups = entries.groupBy { it.groupId }
     val externalFilesCount = remember(entries, directory) { downloads.countFilesOutsideCurrentRoot() }
 
     pendingDirectoryChange?.let { targetDir ->
         AlertDialog(
             onDismissRequest = { pendingDirectoryChange = null },
-            title = { Text("Transfer existing downloads?") },
+            title = { Text(desktopText("Transfer existing downloads?")) },
             text = {
-                Text("You have downloaded songs in your previous folder. Would you like to transfer them to \"${targetDir.name}\" and remove them from the previous location?")
+                Text(desktopText("You have downloaded songs in your previous folder. Would you like to transfer them to \"%1\$s\" and remove them from the previous location?", targetDir.name))
             },
             confirmButton = {
                 Button(
@@ -86,7 +89,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                 ) {
                     Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Transfer files")
+                    Text(desktopText("Transfer files"))
                 }
             },
             dismissButton = {
@@ -107,24 +110,21 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                             }
                         }
                     ) {
-                        Text("Keep in old folder")
+                        Text(desktopText("Keep in old folder"))
                     }
                     TextButton(onClick = { pendingDirectoryChange = null }) {
-                        Text("Cancel")
+                        Text(desktopText("Cancel"))
                     }
                 }
             }
         )
     }
 
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton(onClick = { if (selected == null) back() else selected = null }) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
-            }
-            Text(if (selected == null) "Downloads" else groups[selected]?.firstOrNull()?.groupName ?: "Downloads",
-                modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge)
-        }
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        com.auralis.music.ui.components.PageHeader(
+            if (selected == null) desktopText("Downloads") else groups[selected]?.firstOrNull()?.groupName ?: desktopText("Downloads"),
+            { if (selected == null) back() else selected = null }
+        )
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
@@ -138,13 +138,13 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
             ) {
                 Icon(
                     Icons.Outlined.Folder,
-                    contentDescription = "Save location",
+                    contentDescription = desktopText("Save location"),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Save location",
+                        desktopText("Save location"),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -189,7 +189,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                 ) {
                     Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (choosingDirectory) "Choosing…" else "Change folder")
+                    Text(desktopText(if (choosingDirectory) "Choosing…" else "Change folder"))
                 }
             }
         }
@@ -219,13 +219,13 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            text = if (externalFilesCount == 1) "1 song stored in previous folder"
-                            else "$externalFilesCount songs stored in previous folder",
+                            text = if (externalFilesCount == 1) desktopText("1 song stored in previous folder")
+                            else desktopText("%1\$d songs stored in previous folder", externalFilesCount),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Transfer them to ${directory.name} and remove them from the previous folder.",
+                            text = desktopText("Transfer them to %1\$s and remove them from the previous folder.", directory.name),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -261,11 +261,11 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("Transferring…")
+                            Text(desktopText("Transferring…"))
                         } else {
                             Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Transfer files")
+                            Text(desktopText("Transfer files"))
                         }
                     }
                 }
@@ -288,8 +288,8 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
             }
         }
         if (entries.isEmpty()) {
-            Text("No downloads yet", style = MaterialTheme.typography.titleLarge)
-            Text("Download a song from its menu, or download a playlist from Playlist options.")
+            Text(desktopText("No downloads yet"), style = MaterialTheme.typography.titleLarge)
+            Text(desktopText("Download a song from its menu, or download a playlist from Playlist options."))
         } else if (selected == null) {
             Text(
                 "Downloaded Folders (${groups.size})",
@@ -346,7 +346,7 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                 ) {
                     Icon(Icons.Filled.PlayArrow, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Play downloaded")
+                    Text(desktopText("Play downloaded"))
                 }
                 if (selectedGroupExternalCount > 0) {
                     FilledTonalButton(
@@ -381,13 +381,13 @@ internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: ()
                     ) {
                         Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Retry failed")
+                        Text(desktopText("Retry failed"))
                     }
                 }
                 TextButton(
                     onClick = { runCatching { selected?.let(downloads::removeGroup); selected = null }.onFailure { directoryMessage = it.message } }
                 ) {
-                    Text("Remove folder downloads")
+                    Text(desktopText("Remove folder downloads"))
                 }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -436,47 +436,13 @@ private fun DownloadFolderCard(
     val shape = RoundedCornerShape(12.dp)
     var menu by remember { mutableStateOf(false) }
 
-    val borderBrush = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.16f + 0.12f * hoverProgress),
-            Color.White.copy(alpha = 0.06f + 0.04f * hoverProgress),
-            Color.White.copy(alpha = 0.03f)
-        )
-    )
-
-    val glassBg = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.06f + 0.04f * hoverProgress),
-            Color(0xFF14131A).copy(alpha = 0.65f),
-            Color(0xFF0F0E14).copy(alpha = 0.78f)
-        )
-    )
-
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(glassBg)
-            .border(1.dp, borderBrush, shape)
+            .frostedListSurface(shape, hoverProgress)
             .hoverable(interaction)
             .clickable(onClick = onSelect)
     ) {
-        // Specular top glint line
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.22f + 0.14f * hoverProgress),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -545,21 +511,21 @@ private fun DownloadFolderCard(
                 ) {
                     Icon(
                         Icons.Outlined.MoreVert,
-                        contentDescription = "Folder options",
+                        contentDescription = desktopText("Folder options"),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                com.auralis.music.windows.GlassDropdownMenu(menu, onDismissRequest = { menu = false }) {
+                com.auralis.music.windows.GlassDropdownMenu(menu, onDismissRequest = { menu = false }, frosted = true) {
                     com.auralis.music.windows.GlassDropdownMenuItem(
-                        text = { Text("Open folder", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        text = { Text(desktopText("Open folder"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         leadingIcon = { Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp)) },
                         onClick = { menu = false; onSelect() }
                     )
                     if (groupExternalCount > 0) {
                         com.auralis.music.windows.GlassDropdownMenuItem(
-                            text = { Text("Transfer to ${directory.name}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            text = { Text(desktopText("Transfer to %1\$s", directory.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(18.dp)) },
                             onClick = { menu = false; onTransfer() }
                         )
@@ -567,13 +533,13 @@ private fun DownloadFolderCard(
                     val failed = values.count { it.status == "FAILED" }
                     if (failed > 0) {
                         com.auralis.music.windows.GlassDropdownMenuItem(
-                            text = { Text("Retry failed downloads", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            text = { Text(desktopText("Retry failed downloads"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             leadingIcon = { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)) },
                             onClick = { menu = false; onRetryFailed() }
                         )
                     }
                     com.auralis.music.windows.GlassDropdownMenuItem(
-                        text = { Text("Remove downloads", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        text = { Text(desktopText("Remove downloads"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp)) },
                         onClick = { menu = false; onRemove() }
                     )
@@ -601,47 +567,13 @@ private fun DownloadSongCard(
     )
     val shape = RoundedCornerShape(10.dp)
 
-    val borderBrush = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.14f + 0.10f * hoverProgress),
-            Color.White.copy(alpha = 0.05f + 0.03f * hoverProgress),
-            Color.White.copy(alpha = 0.02f)
-        )
-    )
-
-    val glassBg = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.05f + 0.03f * hoverProgress),
-            Color(0xFF14131A).copy(alpha = 0.60f),
-            Color(0xFF0F0E14).copy(alpha = 0.72f)
-        )
-    )
-
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(glassBg)
-            .border(1.dp, borderBrush, shape)
+            .frostedListSurface(shape, hoverProgress)
             .hoverable(interaction)
             .clickable(enabled = available, onClick = onPlay)
     ) {
-        // Specular glint
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.20f + 0.12f * hoverProgress),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
@@ -698,7 +630,7 @@ private fun DownloadSongCard(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier.height(30.dp)
                     ) {
-                        Text("Retry", style = MaterialTheme.typography.labelMedium)
+                        Text(desktopText("Retry"), style = MaterialTheme.typography.labelMedium)
                     }
                 }
 
@@ -713,7 +645,7 @@ private fun DownloadSongCard(
                 ) {
                     Icon(
                         Icons.Outlined.DeleteOutline,
-                        contentDescription = "Remove download",
+                        contentDescription = desktopText("Remove download"),
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -741,7 +673,7 @@ internal fun DownloadFolderArtwork(entries: List<DesktopDownloads.Entry>, cover:
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(cornerRadius))) {
         if (!cover.isNullOrBlank()) com.auralis.music.ui.components.ArtworkCard(
             url = cover, fallbackTrack = entries.firstOrNull()?.track, modifier = Modifier.fillMaxSize(),
-            cornerRadius = cornerRadius, contentDescription = "Playlist cover")
+            cornerRadius = cornerRadius, contentDescription = desktopText("Playlist cover"))
         else com.auralis.music.ui.library.PlaylistCoverArt(
             com.auralis.music.domain.model.Playlist("download-collage", "Downloaded songs", tracks = entries.sortedBy { it.index }.map { it.track }),
             emptyList(), cornerRadius)

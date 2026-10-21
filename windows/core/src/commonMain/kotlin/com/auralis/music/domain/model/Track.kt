@@ -23,6 +23,7 @@ data class Track(
     val source: TrackSource = TrackSource.YOUTUBE,
     val channelTitle: String? = null,
     val views: String? = null,
-    val dominantColor: Int? = null // Extracted ARGB Color integer
+    val dominantColor: Int? = null, // Extracted ARGB Color integer
+    val isMusicVideo: Boolean = false
 )
 

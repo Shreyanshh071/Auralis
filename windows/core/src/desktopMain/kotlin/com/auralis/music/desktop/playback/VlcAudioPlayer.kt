@@ -18,13 +18,21 @@ import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
  */
 class VlcAudioPlayer private constructor(
     private val factory: MediaPlayerFactory,
-    private val player: MediaPlayer,
+    @Volatile private var player: MediaPlayer,
     private val nativeLog: uk.co.caprica.vlcj.log.NativeLog?
 ) {
     enum class State { IDLE, BUFFERING, PLAYING, PAUSED, ENDED, ERROR }
 
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()
+    data class MediaState(val trackId: String?, val state: State)
+    private val _mediaState = MutableStateFlow(MediaState(null, State.IDLE))
+    val mediaState: StateFlow<MediaState> = _mediaState.asStateFlow()
+    @Volatile private var mediaTrackId: String? = null
+    private fun publishState(state: State) {
+        _state.value = state
+        _mediaState.value = MediaState(mediaTrackId, state)
+    }
     private val _positionMs = MutableStateFlow(0L)
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
     private val _lengthMs = MutableStateFlow(0L)
@@ -73,48 +81,47 @@ class VlcAudioPlayer private constructor(
     /** Called (on libVLC's thread) when the current media fails to play. */
     @Volatile var onError: (() -> Unit)? = null
 
-    init {
-        player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
-            override fun opening(mediaPlayer: MediaPlayer) { _state.value = State.BUFFERING }
-            override fun buffering(mediaPlayer: MediaPlayer, newCache: Float) {
-                if (newCache < 100f && _state.value != State.PAUSED) _state.value = State.BUFFERING
-                else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) _state.value = State.PLAYING
+    private val events = object : MediaPlayerEventAdapter() {
+            override fun opening(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return; publishState(State.BUFFERING) }
+            override fun buffering(mediaPlayer: MediaPlayer, newCache: Float) { if (mediaPlayer !== player) return;
+                if (newCache < 100f && _state.value != State.PAUSED) publishState(State.BUFFERING)
+                else if (newCache >= 100f && _state.value == State.BUFFERING && mediaPlayer.status().isPlaying) publishState(State.PLAYING)
             }
-            override fun playing(mediaPlayer: MediaPlayer) {
+            override fun playing(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return;
                 // A newly opened audio output can restore VLC's own volume; apply our saved
                 // value once it is ready, outside the native event thread.
                 mediaPlayer.submit { requestedVolume?.let { mediaPlayer.audio().setVolume((it * 100).toInt()) } }
                 if (roomStartHeld) {
                     // Readiness begins on the paused callback, after the native pause.
-                    _state.value = State.BUFFERING
+                    publishState(State.BUFFERING)
                     // Native controls must run outside the libVLC event thread.
                     mediaPlayer.submit {
                         if (roomStartHeld) mediaPlayer.controls().setPause(true)
-                        else { anchorNanos = System.nanoTime(); _state.value = State.PLAYING }
+                        else { anchorNanos = System.nanoTime(); publishState(State.PLAYING) }
                     }
                     return
                 }
                 // libVLC opens a fresh audio output per song; keep the device the user picked.
                 preferredDevice?.let { runCatching { mediaPlayer.audio().setOutputDevice(null, it) } }
                 anchorNanos = System.nanoTime()
-                _state.value = State.PLAYING
+                publishState(State.PLAYING)
             }
-            override fun paused(mediaPlayer: MediaPlayer) {
+            override fun paused(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return;
                 anchor(lastClockMs.coerceAtLeast(anchorMs))
-                _state.value = State.PAUSED
+                publishState(State.PAUSED)
             }
-            override fun stopped(mediaPlayer: MediaPlayer) {
-                if (_state.value != State.ENDED && _state.value != State.ERROR) _state.value = State.IDLE
+            override fun stopped(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return;
+                if (_state.value != State.ENDED && _state.value != State.ERROR) publishState(State.IDLE)
             }
-            override fun finished(mediaPlayer: MediaPlayer) {
-                _state.value = State.ENDED
+            override fun finished(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return;
+                publishState(State.ENDED)
                 onFinished?.invoke()
             }
-            override fun error(mediaPlayer: MediaPlayer) {
-                _state.value = State.ERROR
+            override fun error(mediaPlayer: MediaPlayer) { if (mediaPlayer !== player) return;
+                publishState(State.ERROR)
                 onError?.invoke()
             }
-            override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
+            override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) { if (mediaPlayer !== player) return;
                 // A report behind the interpolated clock by less than a seek's worth is libVLC
                 // catching up, not a jump: keep the clock where it is so lyrics never step back.
                 if (newTime < lastClockMs && lastClockMs - newTime < SEEK_THRESHOLD_MS) {
@@ -125,29 +132,73 @@ class VlcAudioPlayer private constructor(
                     anchor(newTime)
                 }
             }
-            override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) { _lengthMs.value = newLength }
-        })
+            override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) { if (mediaPlayer !== player) return; _lengthMs.value = newLength }
+    }
+    init { player.events().addMediaPlayerEventListener(events) }
+
+    @Volatile var crossfadeSeconds: Float = 0f
+    @Volatile private var fading: MediaPlayer? = null
+    @Volatile private var fadeRevision = 0L
+    private fun stopFade() {
+        fadeRevision++
+        val previous = fading; fading = null
+        if (previous != null) runCatching { previous.controls().stop(); previous.release() }
     }
 
-    fun play(url: String, startMs: Long = 0L) {
+    private val keepAlive = AudioOutputKeepAlive({ _state.value == State.PLAYING || _state.value == State.BUFFERING })
+    /** Wakes the audio device ahead of a song (see [AudioOutputKeepAlive]); returns how long it has been awake, in ms. */
+    fun warmOutput(): Long = keepAlive.warm()
+
+    @Volatile var normalizeVolume: Boolean = false
+    fun play(url: String, startMs: Long = 0L, trackId: String? = null) {
+        stopFade()
+        keepAlive.warm()
+        val outgoing = player.takeIf { crossfadeSeconds > 0 && startMs == 0L && it.status().isPlaying }
+        if (outgoing != null) {
+            outgoing.events().removeMediaPlayerEventListener(events)
+            player = factory.mediaPlayers().newMediaPlayer()
+            player.events().addMediaPlayerEventListener(events)
+            fading = outgoing
+            player.audio().setVolume(0)
+        }
+        mediaTrackId = trackId
         anchor(startMs)
         _lengthMs.value = 0L
-        _state.value = State.BUFFERING
+        publishState(State.BUFFERING)
         val options = buildList {
+            if (normalizeVolume) { add(":audio-filter=normvol"); add(":norm-max-level=2.0") }
             add(":http-user-agent=$USER_AGENT")
             // The loopback relay caches and prefetches audio; keep a smooth 800ms buffer
             // to avoid underruns on small IO fluctuations while keeping seeks responsive.
-            add(":network-caching=${if (url.startsWith("http://127.0.0.1:")) 800 else 1500}")
+            add(":network-caching=${if (url.startsWith("http://127.0.0.1:")) RELAY_CACHING_MS else 1500}")
             if (startMs > 0) add(":start-time=${startMs / 1000.0}")
         }
         if (!player.media().play(url, *options.toTypedArray())) {
             Log.w(TAG, "libVLC refused the stream")
-            _state.value = State.ERROR
+            publishState(State.ERROR)
         } else player.controls().setRate(playbackRate)
+        if (outgoing != null) {
+            val revision = fadeRevision
+            val incoming = player
+            val duration = (crossfadeSeconds.coerceIn(.2f, 12f) * 1000).toLong()
+            Thread({
+                val waiting = System.nanoTime()
+                while (fadeRevision == revision && !incoming.status().isPlaying && (System.nanoTime()-waiting)/1_000_000 < 15_000) Thread.sleep(25)
+                val started = System.nanoTime()
+                while (fadeRevision == revision) {
+                    val fraction = (((System.nanoTime()-started)/1_000_000).toFloat()/duration).coerceIn(0f,1f)
+                    val volume = requestedVolume ?: 1f
+                    runCatching { outgoing.audio().setVolume((volume*100*(1-fraction)).toInt()); incoming.audio().setVolume((volume*100*fraction).toInt()) }
+                    if (fraction >= 1f) break
+                    Thread.sleep(25)
+                }
+                if (fadeRevision == revision) { fading = null; runCatching { outgoing.controls().stop(); outgoing.release() } }
+            }, "audio-crossfade").apply { isDaemon=true;start() }
+        }
     }
 
-    fun pause() = player.controls().setPause(true)
-    fun resume() = player.controls().setPause(false)
+    fun pause() { stopFade(); player.controls().setPause(true) }
+    fun resume() { keepAlive.warm(); player.controls().setPause(false) }
     @Volatile private var roomStartHeld = false
     fun holdStartForRoom() { roomStartHeld = true }
     fun releaseRoomStart() {
@@ -157,13 +208,15 @@ class VlcAudioPlayer private constructor(
     }
 
     fun seekTo(ms: Long) {
+        stopFade()
         player.controls().setTime(ms.coerceAtLeast(0L))
         anchor(ms.coerceAtLeast(0L))
     }
 
     fun stop() {
+        stopFade()
         player.controls().stop()
-        _state.value = State.IDLE
+        publishState(State.IDLE)
         _lengthMs.value = 0L
         anchor(0L)
     }
@@ -178,6 +231,7 @@ class VlcAudioPlayer private constructor(
 
     fun setOutputDevice(id: String?) {
         preferredDevice = id
+        keepAlive.deviceName = id?.let { wanted -> outputDevices().firstOrNull { it.first == wanted }?.second }
         runCatching { player.audio().setOutputDevice(null, id ?: "") }
     }
 
@@ -190,6 +244,8 @@ class VlcAudioPlayer private constructor(
     }
 
     fun release() {
+        stopFade()
+        keepAlive.close()
         runCatching { player.release() }
         runCatching { nativeLog?.release() }
         runCatching { factory.release() }
@@ -199,6 +255,7 @@ class VlcAudioPlayer private constructor(
         private const val TAG = "VlcAudioPlayer"
         private const val MAX_INTERPOLATION_MS = 1000L
         private const val SEEK_THRESHOLD_MS = 600L
+        private val RELAY_CACHING_MS = System.getProperty("auralis.relayCachingMs")?.toIntOrNull() ?: 800
 
         /** Which libVLC was loaded: "bundled (<dir>)" or "installed VLC"; null before [createOrNull]. */
         @Volatile var loadedFrom: String? = null
@@ -210,6 +267,24 @@ class VlcAudioPlayer private constructor(
          * Finds libVLC: a copy bundled with the app (the installer's `vlc` folder, see
          * [bundledVlcDir]) first, then an installed VLC. Returns null when there is none.
          */
+        /**
+         * Without plugins.dat libVLC loads every plugin DLL at startup (each one scanned by the
+         * antivirus, under the process-wide loader lock), which measured 5-20s inside the app and
+         * held up its window. The cache stores each plugin's file time, which packaging and
+         * installing change, so it is written here, on the installed copy: when it is missing or
+         * older than any bundled file, this start rebuilds it; later starts load only what they use.
+         */
+        internal fun pluginCacheArgs(vlcDir: java.io.File): List<String> {
+            val plugins = java.io.File(vlcDir, "plugins")
+            if (!plugins.isDirectory) return emptyList()
+            val cache = java.io.File(plugins, "plugins.dat")
+            val newest = plugins.walkTopDown().filter { it.isFile && it.extension.equals("dll", true) }
+                .plus(java.io.File(vlcDir, "libvlccore.dll")).maxOfOrNull { it.lastModified() } ?: 0L
+            if (cache.isFile && cache.lastModified() >= newest) return emptyList()
+            Log.i(TAG, "Rebuilding libVLC plugin cache in ${plugins.absolutePath}")
+            return listOf("--reset-plugins-cache")
+        }
+
         fun createOrNull(bundledVlcDir: java.io.File? = null): VlcAudioPlayer? {
             val started = System.currentTimeMillis()
             return try {
@@ -223,7 +298,8 @@ class VlcAudioPlayer private constructor(
                     return null
                 }
                 Log.i(TAG, "Using libVLC: $loadedFrom")
-                val factory = MediaPlayerFactory("--no-video", "--quiet", "--intf=dummy")
+                val cacheArgs = bundledVlcDir?.let(::pluginCacheArgs).orEmpty()
+                val factory = MediaPlayerFactory("--no-video", "--quiet", "--intf=dummy", *cacheArgs.toTypedArray())
                 // libVLC's own errors (e.g. a stream it can't open) go to the app log.
                 // Kept in a field: libVLC calls back into it, so it must not be garbage collected.
                 val nativeLog = factory.application().newLog()?.apply {

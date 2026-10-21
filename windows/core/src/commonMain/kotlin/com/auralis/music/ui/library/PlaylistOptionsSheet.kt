@@ -566,7 +566,7 @@ fun PlaylistOptionsBottomSheet(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    if (!com.auralis.music.ui.components.LocalOptionsSheetInMenu.current) Spacer(modifier = Modifier.height(18.dp))
                 }
             }
         }

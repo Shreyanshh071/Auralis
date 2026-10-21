@@ -220,7 +220,7 @@ fun ImportPlaylistsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 12.dp)
         ) {
             ImportHeader(onDismiss = onDismiss)
 

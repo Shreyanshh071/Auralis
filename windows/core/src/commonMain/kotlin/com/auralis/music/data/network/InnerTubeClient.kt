@@ -124,7 +124,7 @@ open class InnerTubeClient(
                 .header("Origin", "https://music.youtube.com")
                 .build()
 
-            val body = client.searchBody(request, 15_000L)
+            val body = publicSearchBody(request)
             rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(body)))
         } catch (e: Exception) {
             kotlin.coroutines.coroutineContext.ensureActive()
@@ -136,19 +136,27 @@ open class InnerTubeClient(
         }
     }
 
+    /** Both official hosts serve public search. Retry a rejected Music route once, without login. */
+    private suspend fun publicSearchBody(request: Request): String = try {
+        client.searchBody(request, 15_000L)
+    } catch (e: java.io.IOException) {
+        kotlin.coroutines.coroutineContext.ensureActive()
+        if (kotlin.coroutines.coroutineContext[UserSearchRequest] == null ||
+            !Regex("Search HTTP (403|429|5[0-9]{2})").containsMatchIn(e.message.orEmpty())) throw e
+        val alternate = request.newBuilder().url(request.url.newBuilder().host("www.youtube.com").build()).build()
+        client.searchBody(alternate, 12_000L)
+    }
+
     /** One foreground playback lookup; a background search cooldown must not reject it locally. */
     suspend fun searchForPlayback(query: String, params: String = FILTER_SONGS): List<Track> = withContext(Dispatchers.IO) {
         cachedSearch(query.trim(), params)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
-        val builder = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
+        val request = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
             .post(createWebRemixContext(query.trim(), params).toString().toRequestBody(JSON_MEDIA_TYPE))
             .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com")
-        YouTubeSession.authHeaders("https://music.youtube.com").forEach { (name, value) -> builder.header(name, value) }
-        client.newBuilder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build()
-            .newCall(builder.build()).execute().use { response ->
-                if (!response.isSuccessful) throw java.io.IOException("Playback search HTTP ${response.code}")
-                val body = response.body?.string() ?: return@use emptyList()
-                rememberSearch(query.trim(), params, parseYtMusicSearchResults(JSONObject(body))).songs
-            }
+            .build()
+        // Matching a public recording must keep working when an optional account expires.
+        val body = UserSearchRequest.run { publicSearchBody(request) }
+        rememberSearch(query.trim(), params, parseYtMusicSearchResults(JSONObject(body))).songs
     }
 
     /** Separate cancellable transport for requests replaced on every edit of the search field. */
@@ -163,7 +171,7 @@ open class InnerTubeClient(
                 .header("Referer", "https://music.youtube.com/")
                 .header("Origin", "https://music.youtube.com")
                 .build()
-            rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(client.searchBody(request, 15_000L))))
+            rememberSearch(trimmed, params, parseYtMusicSearchResults(JSONObject(publicSearchBody(request))))
         } catch (e: Exception) {
             // Query cancellation must propagate so abandoned requests cannot publish results.
             kotlin.coroutines.coroutineContext.ensureActive()
@@ -1742,6 +1750,7 @@ open class InnerTubeClient(
                 duration = duration,
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
                 views = viewsStr,
+                isMusicVideo = cardType == "video" || card.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
                 source = TrackSource.YOUTUBE
             )
             if (songs.none { it.id == videoId }) {
@@ -2008,6 +2017,7 @@ open class InnerTubeClient(
                         duration = durationSec,
                         thumbnail = thumbUrl,
                         views = viewsStr,
+                        isMusicVideo = itemType == "video" || item.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
                         source = TrackSource.YOUTUBE
                     )
                 )

@@ -28,8 +28,9 @@ class AiTranslationDataStore(private val dataStore: DataStore<Preferences>) {
                 throw exception
             }
         }
-        .map { preferences ->
-            AiTranslationSettings(
+        .map(::readSettings)
+
+    private fun readSettings(preferences: Preferences) = AiTranslationSettings(
                 provider = preferences[PROVIDER] ?: "OpenRouter",
                 apiKey = preferences[API_KEY] ?: "",
                 model = preferences[MODEL] ?: "google/gemini-2.5-flash-lite",
@@ -38,10 +39,14 @@ class AiTranslationDataStore(private val dataStore: DataStore<Preferences>) {
                 targetLanguage = preferences[TARGET_LANGUAGE] ?: "English (US)",
                 customBaseUrl = preferences[CUSTOM_BASE_URL] ?: "https://openrouter.ai/api/v1"
             )
-        }
 
     suspend fun updateSettings(settings: AiTranslationSettings) {
+        update { settings }
+    }
+
+    suspend fun update(transform: (AiTranslationSettings) -> AiTranslationSettings) {
         dataStore.edit { preferences ->
+            val settings = transform(readSettings(preferences))
             preferences[PROVIDER] = settings.provider
             preferences[API_KEY] = settings.apiKey
             preferences[MODEL] = settings.model

@@ -42,11 +42,11 @@ import kotlin.math.sin
  * saturated, blurred copies of the cover, as Spicy Lyrics' dynamic background). Always opaque.
  */
 @Composable
-internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette) {
+internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette, motionAura: MotionAura? = null) {
     // "Dynamic" is Spicy Lyrics' full-screen background: the Kawarp warp the sidebar card uses.
     if (styleKey.equals("Dynamic", ignoreCase = true)) {
         // Include the final CSS colour filter, not just the undimmed Kawarp canvas.
-        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, AuraPresentation.FULL_PLAYER)
+        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, AuraPresentation.FULL_PLAYER, motionAura = motionAura)
         return
     }
     val style = PlayerBackgroundStyle.fromKey(styleKey)

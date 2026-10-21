@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 
 import androidx.compose.foundation.background
@@ -61,14 +63,14 @@ internal fun LibrarySidebar(entries: List<LibraryEntry>, selectedKey: String?, c
             if (!collapsed) {
                 Icon(Icons.Outlined.LibraryMusic, null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                 Spacer(Modifier.width(10.dp))
-                Text("Your Library", Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.onSurface, maxLines = 1)
+                Text(desktopText("Your Library"), Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.onSurface, maxLines = 1)
             }
             IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
                 Icon(if (collapsed) Icons.Outlined.ChevronRight else Icons.Outlined.ChevronLeft,
                     if (collapsed) "Expand your library" else "Collapse your library", tint = colors.onSurfaceVariant)
             }
         }
-        if (entries.isEmpty() && !collapsed) Text("Playlists you make, import or save show up here.",
+        if (entries.isEmpty() && !collapsed) Text(desktopText("Playlists you make, import or save show up here."),
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp, color = colors.onSurfaceVariant)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 90.dp)) {
             items(entries, key = { it.key }) { entry -> LibraryRow(entry, entry.key == selectedKey, collapsed) }

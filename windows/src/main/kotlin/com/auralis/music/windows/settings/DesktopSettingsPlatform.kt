@@ -33,7 +33,7 @@ class DesktopSettingsPlatform(
     private val search: SearchRepository,
     override val discord: DiscordControl?
 ) : SettingsPlatform {
-    override val appVersion: String = System.getProperty("jpackage.app-version") ?: "1.1.3 (dev)"
+    override val appVersion: String get() = DesktopReleaseCheck.version
     override val openSystemAppSettings: (() -> Unit)? = null
     override fun systemColorScheme(isDark: Boolean): ColorScheme? = null
     override val appLanguage = DesktopAppLanguage

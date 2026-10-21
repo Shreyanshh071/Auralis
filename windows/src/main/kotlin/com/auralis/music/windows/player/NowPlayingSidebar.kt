@@ -1,5 +1,7 @@
 package com.auralis.music.windows.player
 
+import com.auralis.music.ui.i18n.desktopText
+
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.background
@@ -41,7 +43,7 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
     onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}) {
     val queue by playback.queue.collectAsState()
     val track = queue.current ?: return
-    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, extraCards = { cardModifier ->
+    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, clock = playback.clock, extraCards = { cardModifier ->
         // Below lyrics: who made the song, then what's next (Spotify's Now Playing view, without tours).
         SidebarCreditsCard(track, library, onOpenArtist, cardModifier)
         SidebarNextInQueueCard(playback, onOpenQueue, cardModifier)
@@ -64,6 +66,7 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
     onCollapse: (() -> Unit)? = null,
     extraCards: @Composable ColumnScope.(Modifier) -> Unit = {},
+    clock: com.auralis.music.data.service.PlaybackClockSource? = null,
     lyricContent: @Composable () -> Unit) {
     BoxWithConstraints(modifier) {
     var lyricsCollapsed by remember { mutableStateOf(false) }
@@ -73,27 +76,34 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
             Column(Modifier.width(360.dp).height(440.dp).padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(track.title, Modifier.weight(1f), color = Color.White, maxLines = 1)
-                    TextButton(onClick = { lyricsWindow = false }) { Text("Close", color = Color.White) }
+                    TextButton(onClick = { lyricsWindow = false }) { Text(desktopText("Close"), color = Color.White) }
                 }
                 Box(Modifier.weight(1f)) { lyricContent() }
             }
         }
     }
-    val coverSize = minOf(maxWidth - 42.dp, maxHeight * .40f)
+    val coverSize = (maxWidth - 32.dp).coerceAtLeast(1.dp)
+    val motionAura = rememberMotionAura(track.id)
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))) {
-    ArtworkAura(palette, Modifier.fillMaxSize(), track.thumbnail)
+    if (com.auralis.music.ui.theme.LocalAppearanceSettings.current.dynamicTheme) {
+        ArtworkAura(palette, Modifier.fillMaxSize().then(com.auralis.music.windows.dev.perfSkip("aura")), track.thumbnail, motionAura = motionAura)
+    } else {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
+    }
     // Scrolls: the lyrics, credits and next-in-queue cards run below the cover.
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Now playing", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
+            Text(desktopText("Now playing"), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = .75f))
             if (onCollapse != null) IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.ChevronRight, "Collapse now playing", tint = Color.White.copy(alpha = .75f))
+                Icon(Icons.Default.ChevronRight, desktopText("Collapse now playing"), tint = Color.White.copy(alpha = .75f))
             }
         }
         // Title, artist and lyrics card share the cover's edges, even when height shrinks the cover.
-        AnimatedCover(track, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))) {
+        SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura) {
+        AnimatedCover(track, Modifier.fillMaxSize(), motionAura) {
             DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
+        }
         }
         Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
         Text(track.artist, Modifier.width(coverSize), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
@@ -145,14 +155,14 @@ internal fun SidebarLyricsCard(
             .background(Color.White.copy(alpha = .07f))) {
             Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Lyrics", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
+                Text(desktopText("Lyrics"), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
                 LyricsCardButton(onOpenWindow, Icons.Outlined.PictureInPictureAlt, "Open lyrics window")
                 LyricsCardButton(onExpand, Icons.Rounded.OpenInFull, "Expand lyrics")
                 LyricsCardButton(onToggle, Icons.Default.KeyboardArrowUp,
                     if (collapsed) "Show lyrics" else "Collapse lyrics", arrowRotation)
             }
             if (!collapsed || height > 48.dp) {
-                Box(Modifier.fillMaxWidth().height(contentHeight).clipToBounds().graphicsLayer { alpha = opacity }) {
+                Box(Modifier.fillMaxWidth().height(contentHeight).clipToBounds().then(com.auralis.music.windows.dev.perfSkip("lyrics")).graphicsLayer { alpha = opacity }) {
                     lyricContent()
                 }
             }

@@ -36,14 +36,9 @@ fun AuralisDesktopTheme(
     platformActions: PlatformActions,
     content: @Composable () -> Unit
 ) {
-    // The phone's light/dark rule; "Follow system" follows Windows' app mode.
-    val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val isDark = when (appearanceSettings.appTheme) {
-        "Light Mode", "Light" -> false
-        "Pure AMOLED Black", "AMOLED", "Midnight Velvet Dark", "Dark Mode", "Dark" -> true
-        else -> systemInDark
-    }
-    val isAmoled = appearanceSettings.appTheme == "Pure AMOLED Black" || appearanceSettings.appTheme == "AMOLED"
+    // Windows has two modes, Light and Dark (older choices are read as Dark by the settings store).
+    val isDark = appearanceSettings.appTheme != "Light Mode" && appearanceSettings.appTheme != "Light"
+    val isAmoled = false
     val isWhite = appearanceSettings.colorPalette == "White"
     val isCurated = isWhite || CuratedPalettes.any { it.id == appearanceSettings.colorPalette }
     val hasArtwork = artworkPalette != null && artworkPalette != DefaultArtworkPalette && artworkPalette.seedColor != Color.Unspecified
@@ -85,6 +80,10 @@ fun AuralisDesktopTheme(
         } else baseScheme
     }
 
+    // Switching Light and Dark blends every colour over 450ms instead of flipping in one frame.
+    // Other changes (a new song's artwork colours) still swap at once, as before.
+    val shownScheme = rememberModeCrossfade(colorScheme, isDark)
+
     val dynamicPalette = remember(artworkPalette, hasArtwork, colorScheme) {
         if (!hasArtwork || artworkPalette == null) {
             // The phone's no-artwork tints: from the scheme's own colours.
@@ -108,26 +107,74 @@ fun AuralisDesktopTheme(
         com.auralis.music.ui.components.LocalWideWindowLayout provides true,
         LocalAppearanceSettings provides appearanceSettings,
         LocalAuralisDynamicPalette provides dynamicPalette,
-        LocalDynamicThemePrimary provides colorScheme.primary,
-        LocalDynamicThemeSecondary provides colorScheme.secondary,
-        LocalDynamicThemeTertiary provides colorScheme.tertiary,
-        LocalDynamicThemeBackground provides colorScheme.background,
-        LocalDynamicThemeSurface provides colorScheme.surface,
-        LocalDynamicThemeOnBackground provides colorScheme.onBackground,
-        LocalDynamicThemeOnSurface provides colorScheme.onSurface,
+        LocalDynamicThemePrimary provides shownScheme.primary,
+        LocalDynamicThemeSecondary provides shownScheme.secondary,
+        LocalDynamicThemeTertiary provides shownScheme.tertiary,
+        LocalDynamicThemeBackground provides shownScheme.background,
+        LocalDynamicThemeSurface provides shownScheme.surface,
+        LocalDynamicThemeOnBackground provides shownScheme.onBackground,
+        LocalDynamicThemeOnSurface provides shownScheme.onSurface,
         LocalReducedMotion provides reducedMotion,
         LocalArtworkRenderer provides DesktopArtworkRenderer,
         LocalBrandImages provides DesktopBrandImages.images,
         LocalCoverSheetBackground provides DesktopCoverSheetBackground,
         LocalPlatformActions provides platformActions,
-        LocalContentColor provides colorScheme.onBackground
+        LocalContentColor provides shownScheme.onBackground
     ) {
         MaterialTheme(
-            colorScheme = colorScheme,
+            colorScheme = shownScheme,
             typography = scriptSafeTypography(DesktopTypography, Locale.getDefault()),
             content = content
         )
     }
+}
+
+/**
+ * [target], blended from the colours on screen when [isDark] flips (Light <-> Dark), so the whole
+ * app fades between modes; any other change of [target] shows at once.
+ */
+@Composable
+private fun rememberModeCrossfade(target: androidx.compose.material3.ColorScheme, isDark: Boolean): androidx.compose.material3.ColorScheme {
+    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
+    var from by remember { mutableStateOf(target) }
+    var shown by remember { mutableStateOf(target) }
+    var modeDark by remember { mutableStateOf(isDark) }
+    LaunchedEffect(isDark) {
+        if (isDark == modeDark) return@LaunchedEffect
+        modeDark = isDark
+        from = shown
+        progress.snapTo(0f)
+        progress.animateTo(1f, androidx.compose.animation.core.tween(450, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
+    val t = progress.value
+    val result = if (t >= 1f) target else blendSchemes(from, target, t)
+    androidx.compose.runtime.SideEffect { shown = result }
+    return result
+}
+
+private fun blendSchemes(a: androidx.compose.material3.ColorScheme, b: androidx.compose.material3.ColorScheme, t: Float): androidx.compose.material3.ColorScheme {
+    fun m(x: Color, y: Color) = androidx.compose.ui.graphics.lerp(x, y, t)
+    return b.copy(
+        primary = m(a.primary, b.primary), onPrimary = m(a.onPrimary, b.onPrimary),
+        primaryContainer = m(a.primaryContainer, b.primaryContainer), onPrimaryContainer = m(a.onPrimaryContainer, b.onPrimaryContainer),
+        inversePrimary = m(a.inversePrimary, b.inversePrimary),
+        secondary = m(a.secondary, b.secondary), onSecondary = m(a.onSecondary, b.onSecondary),
+        secondaryContainer = m(a.secondaryContainer, b.secondaryContainer), onSecondaryContainer = m(a.onSecondaryContainer, b.onSecondaryContainer),
+        tertiary = m(a.tertiary, b.tertiary), onTertiary = m(a.onTertiary, b.onTertiary),
+        tertiaryContainer = m(a.tertiaryContainer, b.tertiaryContainer), onTertiaryContainer = m(a.onTertiaryContainer, b.onTertiaryContainer),
+        background = m(a.background, b.background), onBackground = m(a.onBackground, b.onBackground),
+        surface = m(a.surface, b.surface), onSurface = m(a.onSurface, b.onSurface),
+        surfaceVariant = m(a.surfaceVariant, b.surfaceVariant), onSurfaceVariant = m(a.onSurfaceVariant, b.onSurfaceVariant),
+        surfaceTint = m(a.surfaceTint, b.surfaceTint), inverseSurface = m(a.inverseSurface, b.inverseSurface),
+        inverseOnSurface = m(a.inverseOnSurface, b.inverseOnSurface),
+        error = m(a.error, b.error), onError = m(a.onError, b.onError),
+        errorContainer = m(a.errorContainer, b.errorContainer), onErrorContainer = m(a.onErrorContainer, b.onErrorContainer),
+        outline = m(a.outline, b.outline), outlineVariant = m(a.outlineVariant, b.outlineVariant), scrim = m(a.scrim, b.scrim),
+        surfaceBright = m(a.surfaceBright, b.surfaceBright), surfaceDim = m(a.surfaceDim, b.surfaceDim),
+        surfaceContainer = m(a.surfaceContainer, b.surfaceContainer), surfaceContainerHigh = m(a.surfaceContainerHigh, b.surfaceContainerHigh),
+        surfaceContainerHighest = m(a.surfaceContainerHighest, b.surfaceContainerHighest),
+        surfaceContainerLow = m(a.surfaceContainerLow, b.surfaceContainerLow), surfaceContainerLowest = m(a.surfaceContainerLowest, b.surfaceContainerLowest),
+    )
 }
 
 /** Neutral desktop defaults; the phone keeps its existing colour schemes. */

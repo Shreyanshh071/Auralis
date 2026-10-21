@@ -1,0 +1,21 @@
+[
+  "Artwork and lyrics: %1$s",
+  "Playback speed: %1$s×",
+  "Artwork cache: %1$s",
+  "Lyrics cache: %1$s",
+  "Transfer to %1$s",
+  "%1$s is signed in with %2$s, the same Google account as Auralis.",
+  "Loaded %1$d models from %2$s.",
+  "Translated with %1$s.",
+  "Published release: %1$s · Installed: %2$s",
+  "You are running the latest release (%1$s).",
+  "%1$d songs stored in previous folder",
+  "Transfer them to %1$s and remove them from the previous folder.",
+  "%1$s song",
+  "%1$s play",
+  "%1$s plays",
+  "%1$s time",
+  "%1$s song played",
+  "%1$s songs played",
+  "You have downloaded songs in your previous folder. Would you like to transfer them to \"%1$s\" and remove them from the previous location?"
+]
