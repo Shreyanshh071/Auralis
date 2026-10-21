@@ -15,39 +15,23 @@ import org.junit.Test
 class NewUserRecommendationsTest {
 
     @Test
-    fun `seed artists pool contains all 9 required artists`() {
-        val expectedArtists = listOf(
-            "Tame Impala",
-            "Kanye West",
-            "Karan Aujla",
-            "Radiohead",
-            "KR\$NA",
-            "Arijit Singh",
-            "KK",
-            "Shreya Ghoshal",
-            "Atif Aslam"
-        )
-
-        assertEquals(9, NewUserSeedProvider.SEED_ARTISTS.size)
-        for (artist in expectedArtists) {
-            assertTrue("Seed pool must include $artist", NewUserSeedProvider.SEED_ARTISTS.contains(artist))
-        }
+    fun `no preselected artists or fabricated songs before the picker`() {
+        NewUserSeedProvider.setStarter(emptyList(), emptyList())
+        assertTrue(NewUserSeedProvider.SEED_ARTISTS.isEmpty())
+        assertTrue(NewUserSeedProvider.getInitialSeedTracks().isEmpty())
+        assertTrue(NewUserSeedProvider.starterRecommendations().isEmpty())
     }
 
     @Test
-    fun `initial seed tracks cover all 9 seed artists and contain no duplicates`() {
-        val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
-
-        assertTrue(seedTracks.isNotEmpty())
-        assertEquals(27, seedTracks.size)
-
-        // Verify that all 9 artists are represented
-        val artistsInTracks = seedTracks.map { it.artist }.distinct()
-        assertEquals(9, artistsInTracks.size)
-
-        // Verify no duplicate IDs or songs
-        val deduplicated = TrackDeduplicator.deduplicateTracks(seedTracks)
-        assertEquals(seedTracks.size, deduplicated.size)
+    fun `chosen artist shelves preserve choice order and exclude unrelated songs`() {
+        try {
+            NewUserSeedProvider.setStarter(listOf("Radiohead", "Tame Impala"), listOf(
+                Track("one", "Creep", "Radiohead"), Track("two", "Borderline", "Tame Impala"),
+                Track("other", "Other song", "Someone else")))
+            val shelves = NewUserSeedProvider.starterRecommendations()
+            assertEquals(listOf("Radiohead", "Tame Impala"), shelves.map { it.seedTitle })
+            assertEquals(listOf("one", "two"), shelves.flatMap { it.items }.map { it.id })
+        } finally { NewUserSeedProvider.setStarter(emptyList(), emptyList()) }
     }
 
     @Test

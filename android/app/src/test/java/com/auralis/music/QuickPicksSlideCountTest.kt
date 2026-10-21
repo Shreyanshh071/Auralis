@@ -1,7 +1,6 @@
 package com.auralis.music
 
 import com.auralis.music.domain.model.Track
-import com.auralis.music.domain.recommendations.NewUserSeedProvider
 import com.auralis.music.domain.recommendations.TrackDeduplicator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -36,7 +35,9 @@ class QuickPicksSlideCountTest {
         val artistPools = userTracks.map { mutableListOf(it) }.toMutableList()
 
         // Fallback tracks (from seed tracks / curated list)
-        val fallbackList = NewUserSeedProvider.getInitialSeedTracks().toMutableList()
+        val fallbackList = (1..24).map { i ->
+            Track("catalog$i", "Catalog song $i", "Catalog artist ${(i - 1) / 3}")
+        }.toMutableList()
 
         // Simulate fetchQuickPicks round-robin logic
         val finalQuickPicks = mutableListOf<Track>()
@@ -76,7 +77,7 @@ class QuickPicksSlideCountTest {
 
         // Absolute floor guarantee
         if (finalQuickPicks.size < 16) {
-            for (seed in NewUserSeedProvider.getInitialSeedTracks()) {
+            for (seed in fallbackList) {
                 if (seenTrackIds.add(seed.id) && finalQuickPicks.none { TrackDeduplicator.isDuplicateTrack(it, seed) }) {
                     finalQuickPicks.add(seed)
                     if (finalQuickPicks.size >= 16) break

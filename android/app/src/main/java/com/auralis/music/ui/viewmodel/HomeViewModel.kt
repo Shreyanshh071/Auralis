@@ -17,6 +17,7 @@ import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
+import com.auralis.music.domain.recommendations.SpeedDialEligibility
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicLong
@@ -51,46 +53,13 @@ data class HomeRecommendationSection(
     val tracks: List<Track> = emptyList()
 )
 
-private fun buildInitialSeedSpeedDial(): List<List<SpeedDialItem>> {
-    val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
-    val allItems = mutableListOf<SpeedDialItem>()
-    for ((idx, t) in seedTracks.take(26).withIndex()) {
-        val displayName = TitleCleaner.cleanTitle(t.title).ifBlank { t.title.trim() }
-        allItems.add(
-            SpeedDialItem(
-                id = "track-${t.id}-$idx",
-                name = displayName,
-                type = SpeedDialType.TRACK,
-                track = t.copy(title = displayName),
-                image = t.thumbnail
-            )
-        )
-    }
-
-    val pages = mutableListOf<List<SpeedDialItem>>()
-    val page0Items = allItems.take(8).toMutableList()
-    if (page0Items.isNotEmpty()) {
-        page0Items.add(
-            SpeedDialItem(
-                id = "surprise-me-0",
-                name = "Surprise Me",
-                type = SpeedDialType.SURPRISE,
-                image = null
-            )
-        )
-        pages.add(page0Items)
-    }
-    val page1Items = allItems.drop(8).take(9)
-    if (page1Items.isNotEmpty()) pages.add(page1Items)
-    val page2Items = allItems.drop(17).take(9)
-    if (page2Items.isNotEmpty()) pages.add(page2Items)
-    return pages
-}
-
 data class HomeUiState(
     val recentTracks: List<HistoryEntry> = emptyList(),
     val topPlayedTracks: List<PlayCountEntry> = emptyList(),
-    val speedDialPages: List<List<SpeedDialItem>> = buildInitialSeedSpeedDial(),
+    val speedDialPages: List<List<SpeedDialItem>> = emptyList(),
+    val starterArtistNames: List<String> = emptyList(),
+    val speedDialReady: Boolean = false,
+    val qualifiedSpeedDialTrackIds: Set<String> = emptySet(),
     val pinnedSpeedDialIds: Set<String> = emptySet(),
     val forgottenFavorites: List<Track> = emptyList(),
     val keepListening: List<Track> = emptyList(),
@@ -116,6 +85,18 @@ data class HomeUiState(
     val error: String? = null
 )
 
+/** Visibility policy also covers cached pages and optimistic pins without delaying pin feedback. */
+fun HomeUiState.forDisplay(): HomeUiState {
+    val pages = if (!speedDialReady) emptyList() else speedDialPages.map { page ->
+        page.filter { item -> item.type != SpeedDialType.TRACK ||
+            item.track?.id?.let { SpeedDialIdHelper.getCanonicalTrackId(it) } in qualifiedSpeedDialTrackIds }
+    }.filter { page -> page.any { it.type != SpeedDialType.PLACEHOLDER && it.type != SpeedDialType.SURPRISE } }
+    val shelves = if (!speedDialReady) similarRecommendations.filter { shelf ->
+        starterArtistNames.any { it.equals(shelf.artistName ?: shelf.seedTitle, ignoreCase = true) }
+    }.ifEmpty { NewUserSeedProvider.starterRecommendations() } else similarRecommendations
+    return copy(speedDialPages = pages, similarRecommendations = shelves)
+}
+
 class HomeViewModel(
     private val historyRepository: HistoryRepository,
     private val searchRepository: SearchRepository,
@@ -125,11 +106,18 @@ class HomeViewModel(
     private val defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
     private val libraryRepository: LibraryRepository? = null,
     private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null,
-    private val isOnline: StateFlow<Boolean> = com.auralis.music.data.network.ConnectivityMonitor.isOnline
+    private val isOnline: StateFlow<Boolean> = com.auralis.music.data.network.ConnectivityMonitor.isOnline,
+    private val listeningTimes: Flow<Map<String, Long>>? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private fun updateMeasuredListening(times: Map<String, Long>) {
+        val qualified = SpeedDialEligibility.qualifiedTracks(times)
+        _uiState.update { it.copy(qualifiedSpeedDialTrackIds = qualified,
+            speedDialReady = qualified.size >= SpeedDialEligibility.MIN_TRACKS) }
+    }
 
     private val artistAvatarCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
 
@@ -169,6 +157,14 @@ class HomeViewModel(
     }
 
     init {
+        listeningTimes?.let { times ->
+            viewModelScope.launch(ioDispatcher) {
+                times.collect { measured ->
+                    trackListenMs = measured
+                    updateMeasuredListening(measured)
+                }
+            }
+        }
         // Offline shows the offline state; when the network comes back the feed reloads by itself.
         _uiState.update { it.copy(isOffline = !isOnline.value) }
         viewModelScope.launch {
@@ -209,6 +205,7 @@ class HomeViewModel(
                     top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times.associate { it.trackId to it.totalMs }
                 }.distinctUntilChanged().collect { (ranked, times) ->
                     trackListenMs = times
+                    updateMeasuredListening(times)
                     mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
                         SpeedDialItem(
                             id = "playlist-${playlist.id}",
@@ -384,9 +381,10 @@ class HomeViewModel(
     /** Apply the picked artists immediately before opening Home for the first time. */
     fun applyOnboardingPicks() {
         _uiState.update { it.copy(
-            speedDialPages = buildInitialSeedSpeedDial(),
+            speedDialPages = emptyList(),
+            starterArtistNames = NewUserSeedProvider.SEED_ARTISTS,
             quickPicks = NewUserSeedProvider.getInitialSeedTracks(),
-            similarRecommendations = emptyList(), dailyDiscover = emptyList(),
+            similarRecommendations = NewUserSeedProvider.starterRecommendations(), dailyDiscover = emptyList(),
             dynamicSections = emptyList()
         ) }
         loadHomeData()
@@ -394,7 +392,7 @@ class HomeViewModel(
 
     fun loadHomeData(): kotlinx.coroutines.Job {
         // Do not display blocking skeleton if Speed Dial or recommendations are already present
-        _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty(), error = null) }
+        _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty() && it.similarRecommendations.isEmpty(), error = null) }
 
         return viewModelScope.launch(ioDispatcher) {
             try {
@@ -638,7 +636,7 @@ class HomeViewModel(
             val topPlayed = historyRepository.getTopPlayedTracks().first().map { it.track }
             val isNewUser = history.isEmpty() && topPlayed.isEmpty()
 
-            if (isNewUser) {
+            if (isNewUser || (NewUserSeedProvider.hasStarter && !SpeedDialEligibility.ready(trackListenMs))) {
                 val seedRecs = NewUserSeedProvider.fetchSeedSimilarRecommendations(searchRepository)
                 if (seedRecs.isNotEmpty()) {
                     _uiState.update { it.copy(similarRecommendations = seedRecs) }
@@ -1143,9 +1141,8 @@ class HomeViewModel(
         // 1. Add all pinned items first
         allItems.addAll(effectivePinned)
 
-        // 2. Add unpinned tracks up to limit (always backed by seed tracks so 26 slots are filled)
-        val seedTracks = NewUserSeedProvider.getInitialSeedTracks()
-        val candidateTracks = topTracks + historyTracks + fallbackCandidates + seedTracks
+        // Actual listening candidates only; starter songs and liked imports never pad this row.
+        val candidateTracks = topTracks + historyTracks
         val uniqueTracks = TrackDeduplicator.deduplicateTracks(candidateTracks)
         val trackItems = mutableListOf<SpeedDialItem>()
         for ((idx, t) in uniqueTracks.withIndex()) {

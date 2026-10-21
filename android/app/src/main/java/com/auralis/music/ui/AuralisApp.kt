@@ -532,9 +532,8 @@ fun AuralisApp(
     }
 
     val isUserLoggedIn = isFirebaseUserActive || (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
-    val isAppUnlocked = isUserLoggedIn
-
     val onboarding by com.auralis.music.data.datastore.OnboardingStore.state.collectAsState()
+    val isAppUnlocked = isUserLoggedIn || onboarding.guestAccess
     val onboardingUid = if (isUserLoggedIn) authUiState.profile.uid.ifBlank {
         try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty() } catch (_: Exception) { "" }
     } else ""
@@ -542,29 +541,22 @@ fun AuralisApp(
         if (onboarding.accountId != onboardingUid) com.auralis.music.data.datastore.OnboardingStore.bindAccount(onboardingUid)
     }
     var onboardingHasData by remember(onboardingUid) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(onboardingUid, onboarding.accountId, isUserLoggedIn, authUiState.isSyncing, onboarding.pickerDone) {
-        if (!isUserLoggedIn || onboarding.pickerDone || authUiState.isSyncing || onboarding.accountId != onboardingUid) {
+    LaunchedEffect(onboardingUid, onboarding.accountId, isAppUnlocked, authUiState.isSyncing, onboarding.pickerDone) {
+        if (!isAppUnlocked || onboarding.pickerDone || (isUserLoggedIn && authUiState.isSyncing) || onboarding.accountId != onboardingUid) {
             onboardingHasData = null
-            if (isUserLoggedIn && onboarding.pickerDone && !authUiState.isSyncing && onboarding.accountId == onboardingUid) {
+            if (isAppUnlocked && onboarding.pickerDone && !authUiState.isSyncing && onboarding.accountId == onboardingUid) {
                 homeViewModel.loadHomeData()
             }
         } else {
-            onboardingHasData = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                viewModelProvider.historyRepository.getHistory().first().isNotEmpty() ||
-                    viewModelProvider.libraryRepository.getFavoriteTracks().first().isNotEmpty() ||
-                    viewModelProvider.libraryRepository.getPlaylists().first().isNotEmpty()
-            }
-            if (onboardingHasData == true) {
-                com.auralis.music.data.datastore.OnboardingStore.skipPicker()
-                homeViewModel.loadHomeData()
-            }
+            // Restore has settled; only this account's pickerDone can skip artist selection.
+            onboardingHasData = false
         }
     }
     LaunchedEffect(onboarding.starterVersion, onboardingUid) {
-        if (onboarding.starterVersion > 0 && isUserLoggedIn) homeViewModel.applyOnboardingPicks()
+        if (onboarding.starterVersion > 0 && isAppUnlocked && onboarding.accountId == onboardingUid) homeViewModel.applyOnboardingPicks()
     }
     val onboardingStep = com.auralis.music.domain.onboarding.OnboardingFlow.step(
-        onboarding.tourSeen, isUserLoggedIn, onboarding.pickerDone, onboardingHasData)
+        onboarding.tourSeen, isAppUnlocked, onboarding.pickerDone && onboarding.accountId == onboardingUid, onboardingHasData)
     if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR) {
         com.auralis.music.ui.onboarding.AppTour {
             com.auralis.music.data.datastore.OnboardingStore.markTourSeen()
@@ -631,7 +623,8 @@ fun AuralisApp(
                 },
                 onDismissPasswordResetMessage = {
                     authVM.clearPasswordResetMessage()
-                }
+                },
+                onContinueAsGuest = { com.auralis.music.data.datastore.OnboardingStore.continueAsGuest() }
             )
         }
         return

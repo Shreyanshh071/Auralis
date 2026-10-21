@@ -232,12 +232,6 @@ fun SettingsScreen(
 
                         // ── SYSTEM & ABOUT ──
                         item(key = "hdr_system") { SettingsCategoryHeader(title = str(R.string.system_about), color = cardPrimary) }
-                        item(key = "item_tour") {
-                            SettingsRowItem(icon = Icons.Default.Info, title = "App tour",
-                                cardBackground = cardBackground, borderColor = cardBorder,
-                                textColor = cardText, iconTint = cardPrimary, iconBackground = cardIconBg,
-                                onClick = { activeDialog = SettingsDialogType.TOUR })
-                        }
                         if (searchRepository != null) item(key = "item_starter_artists") {
                             SettingsRowItem(icon = Icons.Default.MusicNote, title = "Choose your artists",
                                 cardBackground = cardBackground, borderColor = cardBorder,
@@ -570,7 +564,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    SettingsDialogType.TOUR -> com.auralis.music.ui.onboarding.AppTour { activeDialog = null }
                     SettingsDialogType.STARTER_ARTISTS -> {
                         searchRepository?.let { repository ->
                             com.auralis.music.ui.onboarding.ArtistPicker(repository) { activeDialog = null }
@@ -587,7 +580,6 @@ fun SettingsScreen(
 }
 
 private enum class SettingsDialogType {
-    TOUR,
     STARTER_ARTISTS,
     APPEARANCE,
     CONTENT,
