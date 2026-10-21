@@ -2,10 +2,8 @@ package com.auralis.music.ui.onboarding
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -19,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -35,6 +32,7 @@ import com.auralis.music.data.network.YouTubeLocales
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.screens.wrapped.WrappedBackground
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -56,24 +54,11 @@ fun AppTour(onFinish: () -> Unit) {
         else pager.animateScrollToPage(page, animationSpec = spring(dampingRatio = .92f, stiffness = 190f))
     } }
     androidx.activity.compose.BackHandler(enabled = pager.currentPage > 0) { moveTo(pager.currentPage - 1) }
-    val light = when (appearance.appTheme) { "Light Mode", "Light" -> true; "Follow system" -> !isSystemInDarkTheme(); else -> false }
-    val ink by animateColorAsState(if (light) Color(0xFF202431) else Color(0xFFF0F2F7), label = "tour ink")
-    val background by animateColorAsState(if (light) Color(0xFFF3F5FA) else Color(0xFF0B0D12), label = "tour background")
-    // Keep the surrounding canvas neutral; the real player supplies its own artwork colors.
-    val accents = listOf(Color(0xFFB8B8FF), Color(0xFFB0BEFF), Color(0xFFA8D5E2), Color(0xFFC5B7F2), Color(0xFFA7CBF1), Color(0xFFB4C4EE))
-    val accent by animateColorAsState(accents[pager.currentPage], tween(if (reduced) 0 else 500), label = "tour colour")
-    val drift = if (reduced) 0f else {
-        val motion = rememberInfiniteTransition(label = "tour atmosphere")
-        val value by motion.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "glow drift")
-        value
-    }
+    val ink = Color(0xFFF0F2F7)
+    val accent = Color(0xFFE5CB9E)
     val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Hear every detail.", "Feel every word.", "Take music with you.", "Where is your sound?")
     val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Choose your music region and language. Next, sign in and pick your artists.")
-    Box(Modifier.fillMaxSize().background(background)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.radialGradient(listOf(Color(0xFF727FB4).copy(alpha = if (light) .07f else .10f), Color.Transparent), center = center.copy(x = size.width * (.3f + drift * .4f), y = size.height * .24f), radius = size.width * 1.1f))
-            drawRect(Brush.radialGradient(listOf(Color(0xFF676F9D).copy(alpha = if (light) .04f else .055f), Color.Transparent), center = center.copy(x = size.width * (.8f - drift * .5f), y = size.height * .8f), radius = size.width))
-        }
+    WrappedBackground(animate = !reduced) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("AURALIS", color = ink, letterSpacing = 4.sp, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -86,8 +71,6 @@ fun AppTour(onFinish: () -> Unit) {
                 val active = pager.settledPage == page
                 Column(Modifier.fillMaxSize().padding(horizontal = 22.dp).graphicsLayer {
                     alpha = if (reduced) 1f else (1f - abs(offset) * .32f).coerceIn(.35f, 1f)
-                    scaleX = if (reduced) 1f else 1f - abs(offset).coerceAtMost(1f) * .025f
-                    scaleY = scaleX
                 }, horizontalAlignment = Alignment.CenterHorizontally) {
                     Spacer(Modifier.height(12.dp))
                     Text(titles[page], fontSize = 29.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, color = ink, textAlign = TextAlign.Center)
@@ -99,11 +82,11 @@ fun AppTour(onFinish: () -> Unit) {
                             0 -> Icon(androidx.compose.ui.res.painterResource(com.auralis.music.R.drawable.ic_auralis_logo), null, tint = Color.Unspecified, modifier = Modifier.size(184.dp).clip(RoundedCornerShape(32.dp)))
                             1 -> TourPlayerPreview(appearance, active, Modifier.fillMaxSize())
                             2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp), color = if (light) Color(0xFF45957F) else accent)
+                                EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp), color = accent)
                                 Text(settings.audioQuality.description, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
                             }
                             3 -> TourLyricsPreview(appearance, active, Modifier.fillMaxSize())
-                            else -> Icon(if (page == 4) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = if (light) Color(0xFF7563A4) else accent, modifier = Modifier.size(140.dp))
+                            else -> Icon(if (page == 4) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = accent, modifier = Modifier.size(140.dp))
                         }
                     }
                     Spacer(Modifier.height(16.dp))
