@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -18,6 +19,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.theme.LocalReducedMotion
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.cos
 
 // Resting bar heights, as a fraction of the available height.
 private const val IdleBar1 = 0.3f
@@ -31,15 +34,18 @@ private const val IdleBar3 = 0.2f
  * infinite transition unconditionally keeps the draw phase invalidating every
  * frame for as long as the row is on screen — including while paused — which is
  * expensive when several of these are alive in a scrolling list.
+ * [smoothMotion] opts large, standalone previews into a vsync clock with eased peaks;
+ * list indicators retain their cheaper tick rate. Both respect reduced motion.
  */
 @Composable
 fun EqualizerBars(
     isPlaying: Boolean,
     modifier: Modifier = Modifier.size(16.dp),
-    color: Color = MaterialTheme.colorScheme.primary
+    color: Color = MaterialTheme.colorScheme.primary,
+    smoothMotion: Boolean = false
 ) {
     if (isPlaying && !LocalReducedMotion.current) {
-        AnimatedEqualizerBars(modifier = modifier, color = color)
+        AnimatedEqualizerBars(modifier = modifier, color = color, smoothMotion = smoothMotion)
     } else {
         Canvas(modifier = modifier) {
             drawEqualizerBars(color, IdleBar1, IdleBar2, IdleBar3)
@@ -50,19 +56,28 @@ fun EqualizerBars(
 /**
  * The bars tick at [TickMs] instead of every vsync. They sit under the blurred dock and mini
  * player, so each redraw of the bars makes the whole screen's blur re-render: at 120 Hz that cost
- * ~13 ms a frame and made every list with a playing row lag. A meter reads fine at ~15 fps.
+ * ~13 ms a frame and made every list with a playing row lag. Small meters use ~15 fps;
+ * the standalone tour opts into frame-synced motion instead.
  */
 @Composable
 private fun AnimatedEqualizerBars(
     modifier: Modifier,
-    color: Color
+    color: Color,
+    smoothMotion: Boolean
 ) {
     var elapsedMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        val start = System.nanoTime()
-        while (true) {
-            elapsedMs = (System.nanoTime() - start) / 1_000_000
-            delay(TickMs)
+    LaunchedEffect(smoothMotion) {
+        if (smoothMotion) {
+            val start = withFrameNanos { it }
+            while (true) {
+                withFrameNanos { elapsedMs = (it - start) / 1_000_000 }
+            }
+        } else {
+            val start = System.nanoTime()
+            while (true) {
+                elapsedMs = (System.nanoTime() - start) / 1_000_000
+                delay(TickMs)
+            }
         }
     }
 
@@ -72,9 +87,9 @@ private fun AnimatedEqualizerBars(
         val t = elapsedMs
         drawEqualizerBars(
             color,
-            pingPong(t, 400, 0.2f, 0.9f),
-            pingPong(t, 550, 0.8f, 0.3f),
-            pingPong(t, 480, 0.4f, 1.0f)
+            pingPong(t, 400, 0.2f, 0.9f, smoothMotion),
+            pingPong(t, 550, 0.8f, 0.3f, smoothMotion),
+            pingPong(t, 480, 0.4f, 1.0f, smoothMotion)
         )
     }
 }
@@ -82,10 +97,11 @@ private fun AnimatedEqualizerBars(
 private const val TickMs = 66L
 
 /** Linear back-and-forth between [from] and [to], [halfMs] each way. */
-private fun pingPong(t: Long, halfMs: Int, from: Float, to: Float): Float {
+private fun pingPong(t: Long, halfMs: Int, from: Float, to: Float, smooth: Boolean): Float {
     val phase = (t % (2L * halfMs)).toFloat() / halfMs
     val f = if (phase <= 1f) phase else 2f - phase
-    return from + (to - from) * f
+    val eased = if (smooth) (1f - cos(f * PI).toFloat()) / 2f else f
+    return from + (to - from) * eased
 }
 
 private fun DrawScope.drawEqualizerBars(

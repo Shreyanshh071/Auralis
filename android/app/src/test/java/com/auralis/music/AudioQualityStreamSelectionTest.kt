@@ -56,6 +56,15 @@ class AudioQualityStreamSelectionTest {
     }
 
     @Test
+    fun highAndAutoDoNotCapAvailableBitrateAt160() {
+        val higherBitrate = createStream("https://googlevideo.com/aac_256", 256, MediaFormat.M4A)
+        val streams = youtubeLadder + higherBitrate
+        for (quality in listOf(AudioQuality.HIGH, AudioQuality.AUTO)) {
+            assertEquals(higherBitrate.content, AudioStreamResolver.selectStreamForQuality(streams, quality, null)?.content)
+        }
+    }
+
+    @Test
     fun testQualitySelection_StandardPicksAac128() {
         val selected = AudioStreamResolver.selectStreamForQuality(youtubeLadder, AudioQuality.STANDARD, null)
         assertEquals("https://googlevideo.com/aac_128", selected?.content)
