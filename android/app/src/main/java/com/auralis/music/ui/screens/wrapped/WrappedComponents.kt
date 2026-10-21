@@ -103,13 +103,14 @@ private val SheenStops = arrayOf(
 @Composable
 fun WrappedBackground(
     modifier: Modifier = Modifier,
+    animate: Boolean = true,
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     // One clock for everything; every motion uses a whole-number multiple of it, so the loop is seamless.
-    val t by rememberInfiniteTransition(label = "wrappedBackground").animateFloat(
+    val t by if (animate) rememberInfiniteTransition(label = "wrappedBackground").animateFloat(
         0f, 2f * PI.toFloat(),
         infiniteRepeatable(tween(48_000, easing = LinearEasing)), label = "clock"
-    )
+    ) else remember { androidx.compose.runtime.mutableStateOf(0f) }
 
     BoxWithConstraints(modifier.fillMaxSize().background(BaseColor)) {
         val density = LocalDensity.current

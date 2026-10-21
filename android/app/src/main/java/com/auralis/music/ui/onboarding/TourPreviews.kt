@@ -14,11 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.*
@@ -137,11 +134,14 @@ internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, 
         val density = LocalDensity.current
         val virtualWidth = with(density) { 390.dp.roundToPx() }
         val virtualHeight = with(density) { 740.dp.roundToPx() }
-        val scale = minOf(constraints.maxWidth.toFloat() / virtualWidth, constraints.maxHeight.toFloat() / virtualHeight)
+        val scale = minOf(constraints.maxWidth.toFloat() / virtualWidth, constraints.maxHeight.toFloat() / virtualHeight).coerceAtLeast(.01f)
         val width = (virtualWidth * scale).toInt().coerceAtLeast(1)
         val height = (virtualHeight * scale).toInt().coerceAtLeast(1)
-        Layout(content = {
-            CompositionLocalProvider(LocalAppearanceSettings provides previewAppearance,
+        // Measure at the real on-screen size. Scaling a larger layer after measurement made
+        // Immersive compare scaled root coordinates against unscaled cover/control dimensions.
+        Box(Modifier.size(with(density) { width.toDp() }, with(density) { height.toDp() })) {
+            CompositionLocalProvider(LocalDensity provides Density(density.density * scale, density.fontScale),
+                LocalAppearanceSettings provides previewAppearance,
                 LocalOnBackPressedDispatcherOwner provides previewBackOwner,
                 LocalPlayerDemoControls provides demoControls) {
                 Box(Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).background(Color(0xFF111015))) {
@@ -179,13 +179,9 @@ internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, 
 
                 }
             }
-        }) { children, _ ->
-            val child = children.single().measure(Constraints.fixed(virtualWidth, virtualHeight))
-            layout(width, height) {
-                child.placeWithLayer(0, 0) { scaleX = scale; scaleY = scale; transformOrigin = TransformOrigin(0f, 0f) }
-            }
         }
     }
+
     notice?.let { message ->
         androidx.compose.material3.AlertDialog(onDismissRequest = { notice = null },
             title = { Text("Player demo") }, text = { Text(message) },
