@@ -909,6 +909,8 @@ fun AuralisApp(
         com.auralis.music.ui.components.LocalSongPresentationActions provides songPresentationActions,
         com.auralis.music.ui.glass.LocalLiquidGlass provides glassContext,
         com.auralis.music.ui.glass.LocalMiniPlayerGlass provides miniGlassContext,
+        com.auralis.music.ui.player.LocalFrostedMiniPlayer provides (!appearanceSettings.pureBlackMiniPlayer &&
+            com.auralis.music.ui.player.MiniPlayerBackgrounds.isFrosted(appearanceSettings.miniPlayerBackgroundStyle)),
         com.auralis.music.ui.glass.LocalDockCollapse provides dockCollapse
     ) {
         val playerSharedScope = this

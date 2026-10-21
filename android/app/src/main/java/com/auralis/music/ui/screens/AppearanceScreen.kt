@@ -336,7 +336,7 @@ fun AppearanceScreen(
                     AppearanceClickableItem(
                         icon = Icons.Default.GridView,
                         title = str(R.string.mini_player_background_style),
-                        subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
+                        subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
                         primaryColor = primaryColor,
                         surfaceColor = surfaceColor,
                         onSurface = onSurface,
@@ -703,11 +703,11 @@ fun AppearanceScreen(
             )
         }
         AppearanceDialogType.MINI_PLAYER_BG -> {
-            val bgOptions = PlayerBackgroundStyle.entries.map { it.displayName }
+            val bgOptions = com.auralis.music.ui.player.MiniPlayerBackgrounds.options
             AppearanceOptionsDialog(
                 title = str(R.string.mini_player_background_style),
                 options = bgOptions,
-                selectedOption = PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle).displayName,
+                selectedOption = com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
                 onSelect = {
                     update { copy(miniPlayerBackgroundStyle = it) }
                     activeDialog = null

@@ -97,8 +97,9 @@ internal fun Material3MiniPlayerView(
 ) {
     val shape = RoundedCornerShape(50)
     val glass = if (isPureBlack) null else com.auralis.music.ui.glass.LocalMiniPlayerGlass.current
-    val lightGlass = glass?.isDark == false
-    val contentColor = if (lightGlass) Color(0xFF1B1B1F) else Color.White
+    val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
+    val lightGlass = if (frosted) frostedMiniPlayerContentColor() != Color.White else glass?.isDark == false
+    val contentColor = if (frosted) frostedMiniPlayerContentColor() else if (lightGlass) Color(0xFF1B1B1F) else Color.White
     val glassTint = if (lightGlass) Color.White.copy(alpha = 0.70f) else Color(0xFF101010).copy(alpha = 0.70f)
     // Tucked into the minimized glass dock: no artist line or skip buttons, so it fits the gap.
     val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
@@ -110,6 +111,7 @@ internal fun Material3MiniPlayerView(
     }
 
     val surface = when {
+        frosted -> Modifier.frostedMiniPlayer(hazeState, shape)
         glass != null -> Modifier.liquidGlass(glass, shape, tint = glassTint).clip(shape)
         isPureBlack -> Modifier.clip(shape).background(Color.Black)
         hazeState != null -> Modifier
@@ -145,7 +147,7 @@ internal fun Material3MiniPlayerView(
     ) {
         // The chosen "Mini-player background style" (Blur, Live Mesh, Gradient, ...), drawn the
         // same way the pill design draws it. Pure black and liquid glass keep their own surface.
-        if (!isPureBlack && glass == null) {
+        if (!isPureBlack && glass == null && !frosted) {
             PlayerBackground(
                 style = activeStyle,
                 artworkUrl = track.thumbnail,
