@@ -21,7 +21,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import androidx.room.withTransaction
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import com.auralis.music.domain.model.SavedArtist
@@ -276,8 +279,20 @@ class GoogleAccountSyncManager(
         }
     }
 
+    /** One Room transaction over the library, so a restore lands in one step (see [AccountLibraryRestore]). */
+    private val inTransaction: com.auralis.music.data.sync.InTransaction = { block ->
+        com.auralis.music.data.local.AuralisDatabase.getInstance(context).withTransaction { block() }
+    }
+
+    /** True while a restore runs: a backup then would send the account a half-restored library. */
+    @Volatile private var isRestoring = false
+
     /**
-     * Restores playlists, favorite tracks, and saved artists from Firebase Firestore cloud storage.
+     * Restores the account onto this phone in one pass: playlists with all their songs, liked
+     * songs, saved albums and artists (one transaction), and the listening stats (fetched at the
+     * same time, also one transaction). Before, every row was its own write, so a new phone showed
+     * playlists with 0 songs, likes arriving one by one, and stats counting up from 00:00, which
+     * only started after the whole library was in.
      */
     suspend fun restoreLibraryFromCloud(): Boolean = withContext(Dispatchers.IO) {
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
@@ -285,6 +300,8 @@ class GoogleAccountSyncManager(
         val uid = fbUser.uid
         _isSyncing.value = true
         _syncMessage.value = "Restoring library from your cloud account..."
+        isRestoring = true
+        var backupAfter = false
 
         try {
             val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
@@ -294,136 +311,80 @@ class GoogleAccountSyncManager(
             // backup) before this account's lands, so accounts never mix.
             takeOverLocalLibrary(uid)
 
-            if (!docSnap.exists()) {
-                android.util.Log.d("CloudSync", "[CloudSync] No cloud backup found for user $uid. Backing up current local library to cloud...")
-                backupLibraryToCloud()
-                _isSyncing.value = false
-                return@withContext true
-            }
+            coroutineScope {
+                // Stats don't wait for the library: both are fetched and written side by side.
+                val stats = async { com.auralis.music.data.sync.StatsCloudSync.restoreIfNeeded() }
 
-            var restoredPlaylistsCount = 0
+                if (!docSnap.exists()) {
+                    android.util.Log.d("CloudSync", "[CloudSync] No cloud backup found for user $uid. Backing up current local library to cloud...")
+                    backupAfter = true
+                } else {
+                    val cloud = com.auralis.music.data.sync.CloudLibrary.parse(docSnap.data.orEmpty())
+                    val restored = com.auralis.music.data.sync.AccountLibraryRestore.apply(libraryRepository, cloud, inTransaction)
+                    rememberAccountItems(uid, restored.addedPlaylistIds, restored.addedFavoriteIds)
+                    android.util.Log.d("CloudSync", "[CloudSync] Restored ${restored.playlists} playlists and ${restored.liked} favorites for user $uid in one pass")
 
-            // 1. Restore Playlists & Tracks
-            val rawPlaylists = docSnap.get("playlists") as? List<*>
-            if (rawPlaylists != null && rawPlaylists.isNotEmpty()) {
-                for (pObj in rawPlaylists) {
-                    val pMap = pObj as? Map<*, *> ?: continue
-                    val title = (pMap["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist"
-                    val desc = pMap["description"] as? String
-                    val coverUrl = pMap["coverUrl"] as? String
-                    val cloudPlaylistId = (pMap["id"] as? String)?.takeIf { it.isNotBlank() }
-                    val rawTracks = pMap["tracks"] as? List<*> ?: emptyList<Any>()
-
-                    val tracks = rawTracks.mapNotNull { tObj ->
-                        val tMap = tObj as? Map<*, *> ?: return@mapNotNull null
-                        val id = (tMap["id"] as? String) ?: return@mapNotNull null
-                        val tTitle = (tMap["title"] as? String) ?: "Unknown Track"
-                        val artist = (tMap["artist"] as? String) ?: "Unknown Artist"
-                        val album = tMap["album"] as? String
-                        val thumb = (tMap["thumbnail"] as? String) ?: ""
-                        val dur = (tMap["duration"] as? Number)?.toLong() ?: 0L
-                        Track(
-                            id = id,
-                            title = tTitle,
-                            artist = artist,
-                            album = album,
-                            thumbnail = thumb,
-                            duration = dur
-                        )
-                    }
-
-                    val targetPlaylist = if (cloudPlaylistId != null) {
-                        libraryRepository.restorePlaylist(cloudPlaylistId, title, desc, coverUrl)
-                    } else {
-                        libraryRepository.createPlaylist(title, desc, coverUrl)
-                    }
-
-                    if (tracks.isNotEmpty()) {
-                        libraryRepository.replacePlaylistTracks(targetPlaylist.id, tracks)
-                    }
-                    restoredPlaylistsCount++
-                }
-                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $restoredPlaylistsCount playlists with covers for user $uid")
-            }
-
-            // 2. Restore Favorites (Liked songs)
-            val rawFavorites = docSnap.get("favorites") as? List<*>
-            if (rawFavorites != null && rawFavorites.isNotEmpty()) {
-                var favCount = 0
-                for (fObj in rawFavorites) {
-                    val fMap = fObj as? Map<*, *> ?: continue
-                    val id = (fMap["id"] as? String) ?: continue
-                    val title = (fMap["title"] as? String) ?: "Unknown Track"
-                    val artist = (fMap["artist"] as? String) ?: "Unknown Artist"
-                    val album = fMap["album"] as? String
-                    val thumb = (fMap["thumbnail"] as? String) ?: ""
-                    val dur = (fMap["duration"] as? Number)?.toLong() ?: 0L
-                    val track = Track(id = id, title = title, artist = artist, album = album, thumbnail = thumb, duration = dur)
-                    libraryRepository.setFavorite(track, true)
-                    favCount++
-                }
-                android.util.Log.d("CloudSync", "[CloudSync] Successfully restored $favCount favorites for user $uid")
-            }
-
-            // 3. Restore Saved Albums
-            val rawAlbums = docSnap.get("savedAlbums") as? List<*>
-            if (rawAlbums != null && rawAlbums.isNotEmpty()) {
-                for (aObj in rawAlbums) {
-                    val aMap = aObj as? Map<*, *> ?: continue
-                    val id = (aMap["id"] as? String) ?: continue
-                    val title = (aMap["title"] as? String) ?: continue
-                    libraryRepository.saveAlbum(
-                        com.auralis.music.domain.model.SavedAlbum(
-                            id = id,
-                            title = title,
-                            artist = aMap["artist"] as? String,
-                            thumbnail = aMap["thumbnail"] as? String,
-                            trackCount = (aMap["trackCount"] as? Number)?.toInt(),
-                            savedAt = (aMap["savedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
-                        )
+                    val updated = _userProfile.value.copy(
+                        lastSyncedTimestamp = System.currentTimeMillis(),
+                        syncedPlaylistsCount = restored.playlists
                     )
+                    _userProfile.value = updated
+                    persistProfile(updated)
                 }
+                stats.await()
             }
-
-            // 4. Restore Saved Artists
-            val rawArtists = docSnap.get("savedArtists") as? List<*>
-            if (rawArtists != null && rawArtists.isNotEmpty()) {
-                for (aObj in rawArtists) {
-                    val aMap = aObj as? Map<*, *> ?: continue
-                    val id = (aMap["id"] as? String) ?: continue
-                    val name = (aMap["name"] as? String) ?: continue
-                    val thumb = aMap["thumbnail"] as? String
-                    val subs = aMap["subscribers"] as? String
-                    libraryRepository.saveArtist(com.auralis.music.domain.model.SavedArtist(id, name, thumb, subs))
-                }
-            }
-
-            val updated = _userProfile.value.copy(
-                lastSyncedTimestamp = System.currentTimeMillis(),
-                syncedPlaylistsCount = restoredPlaylistsCount
-            )
-            _userProfile.value = updated
-            persistProfile(updated)
-
-            // Signing in (e.g. after a reinstall) brings the account's listening stats back too.
-            com.auralis.music.data.sync.StatsCloudSync.restoreIfNeeded()
-            com.auralis.music.data.sync.StatsCloudSync.upload()
             _syncMessage.value = "Your cloud playlists and library were successfully restored!"
             return@withContext true
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("CloudSync", "[CloudSync Error] Restore failed: ${e.message}", e)
             _syncMessage.value = "Cloud restore notice: ${e.localizedMessage ?: e.message}"
             return@withContext false
         } finally {
+            isRestoring = false
             _isSyncing.value = false
+            if (backupAfter) backupLibraryToCloud()
+            com.auralis.music.data.sync.StatsCloudSync.upload()
+            com.auralis.music.data.sync.StatsCloudSync.startLiveUpdates()
         }
+    }
+
+    private fun accountItems(key: String): Set<String> = prefs.getStringSet(key, null)?.toSet().orEmpty()
+
+    /** Adds to the record of what the account brought onto this phone (kept across restarts). */
+    private fun rememberAccountItems(uid: String, playlists: Set<String>, favorites: Set<String>) {
+        if (playlists.isEmpty() && favorites.isEmpty()) return
+        prefs.edit()
+            .putStringSet("account_playlists_$uid", HashSet(accountItems("account_playlists_$uid") + playlists))
+            .putStringSet("account_favorites_$uid", HashSet(accountItems("account_favorites_$uid") + favorites))
+            .commit()
+    }
+
+    private fun forgetAccountItems(uid: String) {
+        prefs.edit().remove("account_playlists_$uid").remove("account_favorites_$uid").commit()
+    }
+
+    /**
+     * After signing out of [uid]: takes off this phone the playlists and liked songs that account
+     * brought here. What was here before signing in, or was made or imported here (by link,
+     * Spotify, or picking YouTube Music playlists), stays. Listening stats stay. Runs only once
+     * signed out, so the removal can never be backed up to the account.
+     */
+    suspend fun removeAccountItems(uid: String): Int = withContext(Dispatchers.IO) {
+        val current = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+        if (current != null && !current.isAnonymous) return@withContext 0
+        val removed = com.auralis.music.data.sync.AccountLibraryRestore.removeAccountItems(
+            libraryRepository, accountItems("account_playlists_$uid"), accountItems("account_favorites_$uid"), inTransaction)
+        forgetAccountItems(uid)
+        android.util.Log.i("CloudSync", "[CloudSync] Signed out: removed $removed playlists the account brought here")
+        removed
     }
 
     /**
      * Backs up local playlists, favorites, and saved artists to Firestore `/users/{uid}`.
      */
     suspend fun backupLibraryToCloud(): Boolean = withContext(Dispatchers.IO) {
-        if (isDeletingAccount || isSwitchingAccount) return@withContext false
+        if (isDeletingAccount || isSwitchingAccount || isRestoring) return@withContext false
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null } ?: return@withContext false
         if (fbUser.isAnonymous) return@withContext false
         val uid = fbUser.uid
@@ -501,6 +462,9 @@ class GoogleAccountSyncManager(
                 "schemaVersion" to 1
             )
 
+            // Signed out (or restoring) while reading: never send that library to the account.
+            val stillSignedIn = try { FirebaseAuth.getInstance().currentUser?.uid == uid } catch (_: Exception) { false }
+            if (!stillSignedIn || isRestoring) return@withContext false
             db.collection("users").document(uid).set(docData, com.google.firebase.firestore.SetOptions.merge()).await()
             android.util.Log.d("CloudSync", "[CloudSync OK] Backed up ${playlists.size} playlists & ${favorites.size} favorites to cloud for user $uid")
             
@@ -721,10 +685,17 @@ class GoogleAccountSyncManager(
         android.util.Log.i("CloudSync", "[CloudSync] Account switch: clearing the previous account's library from this phone")
         isSwitchingAccount = true
         try {
-            libraryRepository.getPlaylists().first().forEach { libraryRepository.deletePlaylist(it.id) }
-            libraryRepository.getFavoriteTracks().first().forEach { libraryRepository.setFavorite(it, false) }
-            libraryRepository.getSavedArtists().first().forEach { libraryRepository.removeArtist(it.id) }
-            libraryRepository.getSavedAlbums().first().forEach { libraryRepository.removeAlbum(it.id) }
+            val playlists = libraryRepository.getPlaylists().first()
+            val favorites = libraryRepository.getFavoriteTracks().first()
+            val artists = libraryRepository.getSavedArtists().first()
+            val albums = libraryRepository.getSavedAlbums().first()
+            inTransaction {
+                playlists.forEach { libraryRepository.deletePlaylist(it.id) }
+                favorites.forEach { libraryRepository.setFavorite(it, false) }
+                artists.forEach { libraryRepository.removeArtist(it.id) }
+                albums.forEach { libraryRepository.removeAlbum(it.id) }
+            }
+            forgetAccountItems(owner.uid)
             com.auralis.music.data.sync.StatsCloudSync.clearLocalForAccountSwitch(uid)
             owner.set(uid)
         } finally {
@@ -732,10 +703,14 @@ class GoogleAccountSyncManager(
         }
     }
 
-    /** Uploads the latest library and listens before signing out, so nothing is left behind. */
-    suspend fun flushToCloud() {
-        backupLibraryToCloud()
+    /**
+     * Uploads the latest library and listens before signing out, so nothing is left behind.
+     * Returns whether the library reached the account.
+     */
+    suspend fun flushToCloud(): Boolean {
+        val saved = backupLibraryToCloud()
         com.auralis.music.data.sync.StatsCloudSync.upload()
+        return saved
     }
 
     fun disconnectAccount() {

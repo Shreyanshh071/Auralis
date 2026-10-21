@@ -6,13 +6,13 @@ import android.util.Log
 import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.local.entity.PlaybackEventEntity
 import com.auralis.music.data.local.mapper.toEntity
-import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.StatsRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import androidx.room.withTransaction
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.sample
@@ -41,7 +41,7 @@ object StatsCloudSync {
     /** At most one upload per this interval while listening. */
     private const val UPLOAD_INTERVAL_MS = 120_000L
     /** Two listens of one song starting this close together are the same listen. */
-    private const val SAME_LISTEN_WINDOW_MS = 2_000L
+    private const val SAME_LISTEN_WINDOW_MS = CloudListens.SAME_LISTEN_WINDOW_MS
     private const val BATCH_LIMIT = 400
     /** How often a running app checks the account for listens from other devices. */
     private const val PULL_INTERVAL_MS = 15L * 60_000L
@@ -99,6 +99,7 @@ object StatsCloudSync {
     @OptIn(FlowPreview::class)
     fun start(scope: CoroutineScope) {
         if (!::appContext.isInitialized) return
+        appScope = scope
         scope.launch(Dispatchers.IO) {
             while (true) {
                 kotlinx.coroutines.delay(PULL_INTERVAL_MS)
@@ -118,38 +119,37 @@ object StatsCloudSync {
         }
     }
 
-    /** Adds the listens in these `listening/{day}` documents that aren't on this phone yet. */
+    /**
+     * Adds the listens in these `listening/{day}` documents that aren't on this phone yet, and
+     * grows the ones another device synced while they were still playing. All of it is one
+     * transaction: written a listen at a time, Stats counted up from 00:00 for as long as the
+     * restore took instead of showing the account's total at once.
+     */
     private suspend fun importDays(days: List<com.google.firebase.firestore.DocumentSnapshot>): Int {
+        val incoming = CloudListens.parse(days.mapNotNull { it.get("events") as? Map<*, *> })
+        if (incoming.isEmpty()) return 0
         val db = AuralisDatabase.getInstance(appContext)
         val dao = db.playbackEventDao()
-        var added = 0
-        for (doc in days) {
-            val events = doc.get("events") as? Map<*, *> ?: continue
-            for (raw in events.values) {
-                val e = raw as? Map<*, *> ?: continue
-                val trackId = e["t"] as? String ?: continue
-                val ts = (e["ts"] as? Number)?.toLong() ?: continue
-                val ms = (e["ms"] as? Number)?.toLong() ?: continue
-                if (trackId.isBlank() || ms <= 0L) continue
-                if (dao.countEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS) > 0) {
-                    // Another device uploads a listen as it plays (5 s, then longer): keep the longest.
-                    if (dao.growEventsNear(trackId, ts - SAME_LISTEN_WINDOW_MS, ts + SAME_LISTEN_WINDOW_MS, ms) > 0) added++
-                    continue
-                }
-                val track = Track(
-                    id = trackId,
-                    title = e["ti"] as? String ?: "Unknown Track",
-                    artist = e["ar"] as? String ?: "Unknown Artist",
-                    album = e["al"] as? String,
-                    thumbnail = e["th"] as? String ?: "",
-                    duration = (e["du"] as? Number)?.toLong() ?: 0L
-                )
-                db.trackDao().upsertTrackPreservingFavorite(track.toEntity())
-                dao.insertEvent(PlaybackEventEntity(trackId = trackId, timestamp = ts, playTimeMs = ms))
-                added++
+        var changed = 0
+        db.withTransaction {
+            val from = incoming.minOf { it.timestamp } - CloudListens.SAME_LISTEN_WINDOW_MS
+            val to = incoming.maxOf { it.timestamp } + CloudListens.SAME_LISTEN_WINDOW_MS
+            val plan = CloudListens.plan(incoming, dao.getEventsSince(from).filter { it.timestamp <= to })
+            db.trackDao().upsertTracksPreservingFavorite(plan.inserts.map { it.track.toEntity() })
+            dao.insertEvents(plan.inserts.map { PlaybackEventEntity(trackId = it.track.id, timestamp = it.timestamp, playTimeMs = it.playTimeMs) })
+            for (g in plan.grows) {
+                dao.growEventsNear(g.track.id, g.timestamp - SAME_LISTEN_WINDOW_MS, g.timestamp + SAME_LISTEN_WINDOW_MS, g.playTimeMs)
             }
+            changed = plan.changed
         }
-        return added
+        return changed
+    }
+
+    @Volatile private var appScope: CoroutineScope? = null
+
+    /** After signing in: live listens from other devices now, not at the next 15-minute check. */
+    fun startLiveUpdates() {
+        appScope?.let { listenForOtherDevices(it) }
     }
 
     @Volatile private var listenerUid: String? = null
