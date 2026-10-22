@@ -736,6 +736,11 @@ fun NowPlayingModal(
     var showSleepDialog by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
     var showAudioOutputSheet by remember { mutableStateOf(false) }
+    // Auralis Connect: signed in, the output button picks the device; this phone's own sound
+    // output (Bluetooth, speaker, quality) stays one tap further in that sheet.
+    var showConnectSheet by remember { mutableStateOf(false) }
+    val connectEnabled by com.auralis.music.data.connect.AuralisConnect.ui.collectAsState()
+    fun openOutputPicker() { if (connectEnabled.enabled) showConnectSheet = true else showAudioOutputSheet = true }
     var showTrackOptions by remember { mutableStateOf(false) }
     // Lyrics source picker for the new and old player designs (immersive has its own).
     var showLyricsProviders by remember { mutableStateOf(false) }
@@ -2064,7 +2069,7 @@ fun NowPlayingModal(
                                 imageVector = AudioOutputIcon,
                                 contentDescription = str(R.string.audio_output_quality),
                                 active = false,
-                                onClick = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true }
+                                onClick = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else openOutputPicker() }
                             )
                         }
 
@@ -2117,7 +2122,7 @@ fun NowPlayingModal(
                         queueOptionsTrack = it
                     },
                     onShowSleepDialog = { showSleepDialog = true },
-                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true },
+                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else openOutputPicker() },
                     lyricsPositionState = lyricsPositionState,
                     lyricsClockSource = lyricsClockSource,
                     onLyricsOffsetChange = onLyricsOffsetChange,
@@ -2168,7 +2173,7 @@ fun NowPlayingModal(
                         queueOptionsTrack = it
                     },
                     onShowSleepDialog = { showSleepDialog = true },
-                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else showAudioOutputSheet = true },
+                    onShowOutputPicker = { if (demoControls != null) demoControls.notice("Demo audio stays silent. The volume slider only changes the preview.") else openOutputPicker() },
                     onOpenListenTogether = onOpenListenTogether,
                     lyricsProviders = lyricsProviders,
                     lyricsProviderPicks = lyricsProviderPicks,
@@ -2188,6 +2193,13 @@ fun NowPlayingModal(
                 )
             }
         }
+
+        // Auralis Connect: which device has the audio while it isn't this phone; tap to change it.
+        com.auralis.music.ui.connect.ConnectPlayerBar(
+            accent = animatedPrimaryColor,
+            onOpen = { showConnectSheet = true },
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 6.dp)
+        )
     }
 
     // Direct Track Options Bottom Sheet
@@ -2306,6 +2318,14 @@ fun NowPlayingModal(
                 showPlaylistPicker = false
             },
             onDismiss = { showPlaylistPicker = false }
+        )
+    }
+
+    if (showConnectSheet) {
+        com.auralis.music.ui.connect.ConnectDevicePickerSheet(
+            onDismiss = { showConnectSheet = false },
+            accentColor = animatedPrimaryColor,
+            onOpenPhoneOutput = { showConnectSheet = false; showAudioOutputSheet = true }
         )
     }
 

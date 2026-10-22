@@ -93,6 +93,7 @@ internal fun Material3MiniPlayerView(
     onPreviousClick: (() -> Unit)?,
     onNextClick: (() -> Unit)?,
     onClick: () -> Unit,
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(50)
@@ -176,7 +177,9 @@ internal fun Material3MiniPlayerView(
                     modifier = if (dockSettled) Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1500) else Modifier
                 )
                 Box(Modifier.miniPlayerDockReveal(dockCollapse, horizontal = false)) {
-                    Text(
+                    if (connect?.outputLine != null) {
+                        com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(dominantColor), 12.5.sp)
+                    } else Text(
                         text = track.artist,
                         color = contentColor.copy(alpha = if (glass != null) 0.78f else 0.65f),
                         fontSize = 12.5.sp,
@@ -186,6 +189,14 @@ internal fun Material3MiniPlayerView(
                 }
             }
             Spacer(Modifier.width(4.dp))
+            if (connect?.showButton == true) Box(Modifier.miniPlayerDockReveal(dockCollapse, horizontal = true)) {
+                Box(
+                    Modifier.size(36.dp).clip(CircleShape).tactileBounce(scaleDown = 0.85f, onClick = connect.onOpen),
+                    contentAlignment = Alignment.Center
+                ) {
+                    com.auralis.music.ui.connect.ConnectDeviceButtonIcon(connect, contentColor, com.auralis.music.ui.connect.connectAccent(dominantColor), Modifier.size(19.dp))
+                }
+            }
             Box(Modifier.miniPlayerDockReveal(dockCollapse, horizontal = true)) {
             Icon(
                 imageVector = Icons.Outlined.SkipPrevious,

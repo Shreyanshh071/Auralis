@@ -109,6 +109,8 @@ kotlin {
         val desktopTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+                // Virtual time for the multi-device Connect simulations.
+                implementation(libs.kotlinx.coroutines.test)
             }
         }
     }

@@ -144,6 +144,51 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
 
     fun delete(path: String) { authenticate(); request("$endpoint/$path", "DELETE") }
 
+    // ---- Account-only calls (Auralis Connect) ------------------------------------------------
+    // These never fall back to an anonymous sign-up: without a signed-in account they fail.
+
+    @Synchronized fun authenticateAccount() {
+        if (refresh.isEmpty() || anonymous) throw ServiceException(401, "Not signed in to an account")
+        authenticate()
+    }
+
+    /** The document's fields and its update time (for a conditional write), or null if it doesn't exist. */
+    fun accountGet(path: String): Pair<JSONObject, String>? {
+        authenticateAccount()
+        return try {
+            val doc = request("$endpoint/$path", "GET")
+            decodeFields(doc.optJSONObject("fields") ?: JSONObject()) to doc.optString("updateTime")
+        } catch (e: ServiceException) { if (e.status == 404) null else throw e }
+    }
+
+    fun accountList(path: String): List<Pair<String, JSONObject>> { authenticateAccount(); return list(path) }
+
+    fun accountDelete(path: String) { authenticateAccount(); request("$endpoint/$path", "DELETE") }
+
+    /** Commits [writes] atomically and returns the server's commit time in epoch milliseconds. */
+    fun accountCommit(writes: JSONArray): Long {
+        authenticateAccount()
+        val result = request("$endpoint:commit", "POST", JSONObject().put("writes", writes))
+        return result.optString("commitTime").takeIf { it.isNotBlank() }?.let { Instant.parse(it).toEpochMilli() } ?: 0L
+    }
+
+    /**
+     * A full replacement of [path] with [fields]; [serverTimeFields] are set to the server's time.
+     * [updateTime]: only if the document is still at that version; [mustNotExist]: only if it doesn't exist.
+     */
+    fun replaceWrite(path: String, fields: JSONObject, serverTimeFields: List<String> = emptyList(),
+        updateTime: String? = null, mustNotExist: Boolean = false): JSONObject {
+        val write = JSONObject().put("update", JSONObject().put("name", "$root/$path").put("fields", encodeFields(fields)))
+        if (serverTimeFields.isNotEmpty()) write.put("updateTransforms", JSONArray().apply {
+            serverTimeFields.forEach { put(JSONObject().put("fieldPath", it).put("setToServerValue", "REQUEST_TIME")) }
+        })
+        when {
+            updateTime != null -> write.put("currentDocument", JSONObject().put("updateTime", updateTime))
+            mustNotExist -> write.put("currentDocument", JSONObject().put("exists", false))
+        }
+        return write
+    }
+
     /** Toggle only our own vote atomically, preserving other participants' concurrent votes. */
     fun transformArray(path: String, field: String, value: String, remove: Boolean) {
         authenticate()

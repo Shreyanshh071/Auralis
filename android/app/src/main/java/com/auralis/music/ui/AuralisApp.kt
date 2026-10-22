@@ -3039,9 +3039,20 @@ private fun MiniPlayerHost(
         { miniProgressState.progress }
     }
 
+    // Auralis Connect: the device button / "Playing on …" line open the device picker.
+    var showConnectPicker by remember { mutableStateOf(false) }
+    val miniConnect = com.auralis.music.ui.connect.rememberMiniConnect { showConnectPicker = true }
+    if (showConnectPicker) {
+        com.auralis.music.ui.connect.ConnectDevicePickerSheet(
+            onDismiss = { showConnectPicker = false },
+            accentColor = currentTrack.dominantColor?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+        )
+    }
+
     key(appearanceSettings.miniPlayerDesign) {
         MiniPlayer(
             track = currentTrack,
+            connect = miniConnect,
             isPlaying = if (playerUiState.currentTrack != null) playerUiState.isPlaying else audioPlayerIsPlaying,
             progressState = miniProgressState,
             progressProvider = miniProgressProvider,

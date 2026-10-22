@@ -1,0 +1,74 @@
+package com.auralis.music.ui.viewmodel
+
+import com.auralis.music.data.connect.ConnectDeviceType
+import com.auralis.music.data.connect.ConnectOutput
+import com.auralis.music.data.connect.ConnectRemoteView
+import com.auralis.music.data.service.PlaybackClockSource
+import com.auralis.music.domain.model.RepeatMode
+import com.auralis.music.domain.model.Track
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** While another device of the account plays, the player screens mirror it and this phone stays silent. */
+class ConnectOverlayTest {
+    private val local = Track(id = "local", title = "Local song", artist = "Here", duration = 200)
+    private val remoteTrack = Track(id = "remote", title = "Remote song", artist = "There", duration = 180)
+
+    private fun remote(playing: Boolean = true, at: Long = 1_000L) = ConnectRemoteView(
+        track = remoteTrack, queue = listOf(remoteTrack, local), index = 0, playing = playing, buffering = false,
+        positionMs = 61_000L, anchorLocalMs = at, durationMs = 180_000L, shuffle = true, repeat = RepeatMode.ALL, context = null,
+        output = ConnectOutput("laptop", "Laptop", ConnectDeviceType.COMPUTER, isThis = false, active = true, playing = playing)
+    )
+
+    @Test
+    fun remoteSessionReplacesWhatTheScreensShow() {
+        var now = 1_000L
+        val localState = MutableStateFlow(PlayerUiState(currentTrack = local, isPlaying = false, playbackPositionMs = 5_000L, isFavorite = true))
+        val remoteFlow = MutableStateFlow<ConnectRemoteView?>(null)
+        val shown = ConnectOverlayState(localState, remoteFlow) { now }
+        assertEquals("local", shown.value.currentTrack?.id)
+
+        remoteFlow.value = remote()
+        assertEquals("remote", shown.value.currentTrack?.id)
+        assertTrue(shown.value.isPlaying)
+        assertEquals(61_000L, shown.value.playbackPositionMs)
+        assertEquals(listOf("remote", "local"), shown.value.queue.map { it.id })
+        assertTrue(shown.value.isShuffled)
+        assertEquals(RepeatMode.ALL, shown.value.repeatMode)
+        assertFalse("the local song's like doesn't carry over", shown.value.isFavorite)
+        assertNull(shown.value.lyrics)
+
+        now = 3_500L
+        assertEquals("position keeps moving between updates", 63_500L, shown.value.playbackPositionMs)
+        assertEquals("local", localState.value.currentTrack?.id)
+
+        remoteFlow.value = null
+        assertEquals("local", shown.value.currentTrack?.id)
+    }
+
+    @Test
+    fun positionAndLyricsClockFollowTheRemoteOutput() {
+        var now = 1_000L
+        val remoteFlow = MutableStateFlow<ConnectRemoteView?>(remote())
+        val position = ConnectOverlayPosition(MutableStateFlow(0L), remoteFlow) { now }
+        val localClock = object : PlaybackClockSource {
+            override fun rawPositionMs() = 0L
+            override fun isPlaying() = false
+            override fun speed() = 1f
+        }
+        val clock = ConnectOverlayClock(localClock, remoteFlow) { now }
+        now = 2_000L
+        assertEquals(62_000L, position.value)
+        assertEquals(62_000L, clock.rawPositionMs())
+        assertTrue(clock.isPlaying())
+
+        remoteFlow.value = remote(playing = false)
+        now = 9_000L
+        assertEquals("paused: it stays put", 61_000L, position.value)
+        assertFalse(clock.isPlaying())
+    }
+}

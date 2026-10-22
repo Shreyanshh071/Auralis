@@ -68,6 +68,69 @@ service cloud.firestore {
         && request.resource.data.lastSeen is number;
     }
 
+    // ---- Auralis Connect helpers ------------------------------------------
+
+    // Signed in to this account with a real sign-in (email or Google), not an anonymous guest.
+    function isAccount(uid) {
+      return isOwner(uid) && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function validConnectDevice(deviceId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['id', 'name', 'nickname', 'platform', 'type', 'appVersion', 'canPlay', 'online', 'createdAt', 'seenAt'])
+        && d.id == deviceId && deviceId.size() <= 64
+        && d.name is string && d.name.size() <= 80
+        && (d.get('nickname', null) == null || (d.nickname is string && d.nickname.size() <= 80))
+        && d.platform in ['ANDROID', 'WINDOWS', 'WEB', 'OTHER']
+        && d.type in ['PHONE', 'TABLET', 'COMPUTER', 'SPEAKER', 'BROWSER']
+        && d.appVersion is string && d.appVersion.size() <= 40
+        && d.canPlay is bool && d.online is bool && d.createdAt is number
+        && d.seenAt == request.time;
+    }
+
+    function validConnectSession() {
+      let s = request.resource.data;
+      return s.keys().hasOnly(['version', 'ownerId', 'ownerName', 'ownerType', 'epoch', 'leaseUntil', 'track', 'playing',
+          'buffering', 'positionMs', 'positionAt', 'durationMs', 'queueRev', 'queueIndex', 'shuffle', 'repeat', 'context',
+          'transfer', 'commands', 'updatedBy', 'updatedAt'])
+        && s.version is int && s.epoch is int && s.queueRev is int
+        && s.ownerId is string && s.ownerId.size() <= 64
+        && s.ownerName is string && s.ownerName.size() <= 80
+        && s.leaseUntil is number && s.leaseUntil <= request.time.toMillis() + 120000
+        && s.playing is bool && s.buffering is bool
+        && s.positionMs is number && s.positionAt is number && s.durationMs is number
+        && s.shuffle is bool && s.repeat in ['OFF', 'ALL', 'ONE']
+        && (s.track == null || s.track is map)
+        && (s.transfer == null || (s.transfer is map && s.transfer.status in ['requested', 'ready', 'committed', 'failed']))
+        && s.commands is map && s.commands.size() <= 20
+        && s.updatedBy is string && s.updatedBy.size() <= 64
+        && s.updatedAt == request.time;
+    }
+
+    function validConnectQueue() {
+      let q = request.resource.data;
+      return q.keys().hasOnly(['rev', 'offset', 'tracks']) && q.rev is int && q.offset is int
+        && q.tracks is list && q.tracks.size() <= 100;
+    }
+
+    function connectOwnerUnchanged() {
+      return request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.epoch == resource.data.epoch;
+    }
+
+    // A new owner takes the next epoch, and only: when there was none, when the old owner's lease
+    // ran out, as the target of a pending handoff, or when the old owner hands over itself.
+    function connectOwnerChangeAllowed() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let t = before.get('transfer', null);
+      return after.epoch == before.epoch + 1 && (
+        before.ownerId == ''
+        || before.leaseUntil < request.time.toMillis()
+        || (t != null && t.status in ['requested', 'ready'] && t.to == after.ownerId && t.epoch == after.epoch)
+        || after.updatedBy == before.ownerId);
+    }
+
     // ---- User library ----------------------------------------------------
 
     match /users/{uid} {
@@ -94,6 +157,33 @@ service cloud.firestore {
           && request.resource.data.events.size() <= 3000
           && request.resource.data.updatedAt is number;
         allow delete: if isOwner(uid);
+      }
+
+      // ---- Auralis Connect (see docs/connect.md) ----
+      // Only clients signed in to this very account (never anonymous Listen Together guests)
+      // see its devices and session. Ownership comes from request.auth.uid matching the path.
+
+      // One registration per client install: name, platform, heartbeat.
+      match /connectDevices/{deviceId} {
+        allow read: if isAccount(uid);
+        allow create, update: if isAccount(uid) && validConnectDevice(deviceId);
+        allow delete: if isAccount(uid);
+      }
+
+      // `session`: the one authoritative session. `queue`: its queue window.
+      match /connect/{docId} {
+        allow get: if isAccount(uid) && docId in ['session', 'queue'];
+        allow list: if false;
+        allow create: if isAccount(uid) && (
+          (docId == 'session' && validConnectSession() && request.resource.data.version == 1
+            && request.resource.data.epoch in [0, 1])
+          || (docId == 'queue' && validConnectQueue()));
+        allow update: if isAccount(uid) && (
+          (docId == 'session' && validConnectSession()
+            && request.resource.data.version == resource.data.version + 1
+            && (connectOwnerUnchanged() || connectOwnerChangeAllowed()))
+          || (docId == 'queue' && validConnectQueue()));
+        allow delete: if isAccount(uid);
       }
 
       // No other nested collections are used under users.

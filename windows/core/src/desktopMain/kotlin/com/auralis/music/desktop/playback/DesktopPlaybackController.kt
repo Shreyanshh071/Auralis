@@ -58,6 +58,7 @@ class DesktopPlaybackController(
     private val _repeatMode = MutableStateFlow(RepeatMode.OFF)
     val repeatMode = _repeatMode.asStateFlow()
     fun cycleRepeatMode() {
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Repeat(com.auralis.music.domain.model.RepeatMode.entries[(_repeatMode.value.ordinal + 1) % RepeatMode.entries.size]))) return
         if (roomControl != null) return
         _repeatMode.value = RepeatMode.entries[(_repeatMode.value.ordinal + 1) % RepeatMode.entries.size]
         if (_repeatMode.value == RepeatMode.OFF) autoRadio.queueChanged() else autoRadio.cancelPending()
@@ -100,6 +101,88 @@ class DesktopPlaybackController(
     private fun intercepted(action: String, track: Track? = null, position: Long = 0): Boolean =
         !applyingRoom.get() && roomControl?.invoke(action, track, position) == true
 
+    // ---- Auralis Connect ----------------------------------------------------------------------
+    /**
+     * Set while signed in to an account: when another device of the account is the output, this
+     * PC's controls go there (returns true) and this PC stays silent. Rooms take precedence.
+     */
+    @Volatile var connectControl: ((com.auralis.music.data.connect.ConnectIntent) -> Boolean)? = null
+    private val applyingConnect = ThreadLocal.withInitial { false }
+    /** Runs [block] as Connect acting on this PC itself, so it isn't routed back out. */
+    fun <T> fromConnect(block: () -> T): T {
+        val before = applyingConnect.get()
+        applyingConnect.set(true)
+        return try { block() } finally { applyingConnect.set(before) }
+    }
+    private fun connect(intent: com.auralis.music.data.connect.ConnectIntent): Boolean =
+        !applyingConnect.get() && !applyingRoom.get() && roomControl == null && connectControl?.invoke(intent) == true
+
+    private val _connectRemote = MutableStateFlow<com.auralis.music.data.connect.ConnectRemoteView?>(null)
+    /** The session another device is playing, shown here silently; null when this PC is the output. */
+    val connectRemote: StateFlow<com.auralis.music.data.connect.ConnectRemoteView?> = _connectRemote.asStateFlow()
+
+    /** Shows [view] (or stops showing it): the queue on screen mirrors the other device's queue. */
+    fun showRemote(view: com.auralis.music.data.connect.ConnectRemoteView?) {
+        // In a Listen Together room the room's playback is shown, never the account's session.
+        _connectRemote.value = view?.takeIf { roomControl == null }
+        if (view == null || roomControl != null) return
+        val current = _queue.value
+        if (current.tracks.map { it.id } != view.queue.map { it.id } || current.index != view.index) {
+            _queue.value = Queue(view.queue, view.index.coerceIn(-1, view.queue.lastIndex))
+        }
+        _repeatMode.value = RepeatMode.valueOf(view.repeat.name)
+    }
+
+    /** Where a song loaded silently by Connect starts when play is pressed. */
+    @Volatile private var pendingResumeMs: Long? = null
+
+    /** Connect: replaces the queue; starts at [positionMs] when [play], otherwise waits silently there. */
+    fun connectLoad(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean) {
+        if (index !in tracks.indices) return
+        autoRadio.reset(false)
+        consecutiveFailures = 0
+        if (play) {
+            pendingResumeMs = null
+            load(Queue(tracks, index), resumeAtMs = positionMs.coerceAtLeast(0L))
+        } else {
+            loadJob?.cancel(); preloadJob?.cancel(); stallJob?.cancel()
+            _resolving.value = false
+            player.stop()
+            lengthTrackId.value = null
+            _queue.value = Queue(tracks, index)
+            pendingResumeMs = positionMs.coerceAtLeast(0L)
+            _session.value++
+        }
+    }
+
+    /** Connect: stop making sound now (also stops a song that is still being fetched from starting). */
+    fun connectSilence() {
+        if (loadJob?.isActive == true) {
+            loadJob?.cancel()
+            _resolving.value = false
+            pendingResumeMs = player.positionMs.value.takeIf { it > 0L } ?: pendingResumeMs ?: 0L
+        }
+        if (player.state.value == VlcAudioPlayer.State.PLAYING || player.state.value == VlcAudioPlayer.State.BUFFERING) player.pause()
+    }
+
+    /** Connect: play from where this PC is (or where a silently loaded song waits). */
+    fun connectPlay() {
+        when (player.state.value) {
+            VlcAudioPlayer.State.PAUSED -> player.resume()
+            VlcAudioPlayer.State.PLAYING, VlcAudioPlayer.State.BUFFERING -> Unit
+            else -> if (loadJob?.isActive != true) _queue.value.takeIf { it.current != null }?.let { load(it, resumeAtMs = pendingResumeMs ?: 0L) }
+        }
+        pendingResumeMs = null
+    }
+
+    fun setRepeatMode(mode: RepeatMode) {
+        _repeatMode.value = mode
+        if (mode == RepeatMode.OFF) autoRadio.queueChanged() else autoRadio.cancelPending()
+    }
+
+    /** Whether the upcoming songs were shuffled (what Connect reports as shuffle). */
+    val shuffleActive: Boolean get() = shuffleEngaged
+
     fun syncRoomQueue(tracks: List<Track>, index: Int) {
         if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = _queue.value.copy(tracks = tracks, index = index)
     }
@@ -124,6 +207,7 @@ class DesktopPlaybackController(
 
     /** Rearrange only upcoming songs; keep the playing track, history and stream untouched. */
     fun shuffleUpcoming() {
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(true))) return
         if (roomControl != null) return // The room host owns the shared queue order.
         val queue = _queue.value
         if (queue.current == null) return
@@ -155,7 +239,12 @@ class DesktopPlaybackController(
         if (id != null && id == _queue.value.current?.id) length else 0L
     }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 0L)
     /** Smooth playback clock for word-synced lyrics. */
-    val clock: com.auralis.music.data.service.PlaybackClockSource get() = player.clock
+    val clock: com.auralis.music.data.service.PlaybackClockSource = object : com.auralis.music.data.service.PlaybackClockSource {
+        override fun rawPositionMs(): Long = _connectRemote.value?.positionAt(System.currentTimeMillis()) ?: player.clock.rawPositionMs()
+        override fun isPlaying(): Boolean = _connectRemote.value?.let { it.playing && !it.buffering } ?: player.clock.isPlaying()
+        override fun speed(): Float = if (_connectRemote.value != null) 1f else player.clock.speed()
+        override fun isBuffering(): Boolean = _connectRemote.value?.buffering ?: player.clock.isBuffering()
+    }
     @Volatile var preloadNext: Boolean = true
     fun setRate(rate: Float) = player.setRate(rate)
     fun setNormalizeVolume(enabled: Boolean) { player.normalizeVolume = enabled }
@@ -236,7 +325,9 @@ class DesktopPlaybackController(
 
     fun playFrom(track: Track, list: List<Track>, automatic: Boolean = list.size <= 1) {
         if (intercepted("play_track", track)) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Load(list.ifEmpty { listOf(track) }, list.indexOfFirst { it.id == track.id }.coerceAtLeast(0)))) return
         autoRadio.reset(automatic)
+        pendingResumeMs = null
         val supplied = list.ifEmpty { listOf(track) }
         val unique = if (preventDuplicates) supplied.distinctBy { it.id } else supplied
         val tracks = if (stickyShuffle && shuffleEngaged) listOf(track) + unique.filter { it.id != track.id }.shuffled() else unique
@@ -247,11 +338,13 @@ class DesktopPlaybackController(
 
     fun togglePlayPause() {
         if (intercepted(if (player.state.value == VlcAudioPlayer.State.PLAYING) "pause" else "play")) return
+        _connectRemote.value?.let { remote -> if (connect(if (remote.playing) com.auralis.music.data.connect.ConnectIntent.Pause else com.auralis.music.data.connect.ConnectIntent.Play)) return }
+        if (connect(if (player.state.value == VlcAudioPlayer.State.PLAYING) com.auralis.music.data.connect.ConnectIntent.Pause else com.auralis.music.data.connect.ConnectIntent.Play)) return
         when (player.state.value) {
             VlcAudioPlayer.State.PLAYING, VlcAudioPlayer.State.BUFFERING -> player.pause()
             VlcAudioPlayer.State.PAUSED -> player.resume()
             VlcAudioPlayer.State.ENDED, VlcAudioPlayer.State.IDLE, VlcAudioPlayer.State.ERROR ->
-                _queue.value.takeIf { it.current != null }?.let { load(it) }
+                _queue.value.takeIf { it.current != null }?.let { load(it, resumeAtMs = pendingResumeMs ?: 0L); pendingResumeMs = null }
         }
     }
 
@@ -265,6 +358,7 @@ class DesktopPlaybackController(
 
     fun next() {
         if (intercepted("next")) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Next)) return
         val q = _queue.value
         val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
         if (withCurrentHeard.hasNext) load(withCurrentHeard.copy(index = withCurrentHeard.index + 1))
@@ -275,6 +369,7 @@ class DesktopPlaybackController(
     /** Like the phone: restarts the song when more than 3 seconds in, otherwise goes back one. */
     fun previous() {
         if (intercepted("previous")) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Previous)) return
         val q = _queue.value
         if (player.positionMs.value > 3000L || q.index <= 0) seekTo(0L)
         else {
@@ -283,11 +378,19 @@ class DesktopPlaybackController(
         }
     }
 
-    fun seekTo(ms: Long) { if (!intercepted("seek", position = ms)) player.seekTo(ms) }
+    fun seekTo(ms: Long) {
+        if (intercepted("seek", position = ms) || connect(com.auralis.music.data.connect.ConnectIntent.Seek(ms.coerceAtLeast(0L)))) return
+        if (pendingResumeMs != null && player.state.value == VlcAudioPlayer.State.IDLE) pendingResumeMs = ms.coerceAtLeast(0L) else player.seekTo(ms)
+    }
 
     /** Seeks [deltaMs] forward (or back when negative), within the song. */
     fun seekBy(deltaMs: Long) {
         if (_queue.value.current == null) return
+        _connectRemote.value?.let { remote ->
+            val target = (remote.positionAt(System.currentTimeMillis()) + deltaMs).coerceAtLeast(0L)
+            seekTo(if (remote.durationMs > 0L) target.coerceAtMost(remote.durationMs - 1000L) else target)
+            return
+        }
         val length = player.lengthMs.value
         val target = (player.positionMs.value + deltaMs).coerceAtLeast(0L)
         seekTo(if (length > 0L) target.coerceAtMost(length - 1000L) else target)
@@ -301,6 +404,7 @@ class DesktopPlaybackController(
     /** Puts [track] right after the playing song (or plays it when nothing is queued). */
     fun playNext(track: Track) {
         if (intercepted("recommend", track)) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.PlayNext(track))) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
         if (preventDuplicates && q.tracks.drop(q.index + 1).any { it.id == track.id }) return
@@ -311,6 +415,7 @@ class DesktopPlaybackController(
     /** Adds [track] to the end of the queue (or plays it when nothing is queued). */
     fun addToQueue(track: Track) {
         if (intercepted("recommend", track)) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Add(track))) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
         if (preventDuplicates && q.tracks.drop(q.index + 1).any { it.id == track.id }) return
@@ -322,7 +427,9 @@ class DesktopPlaybackController(
         val q = _queue.value
         if (index !in q.tracks.indices) return
         if (intercepted("play_track", q.tracks[index])) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.PlayIndex(index, q.tracks[index].id))) return
         consecutiveFailures = 0
+        pendingResumeMs = null
         val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
         load(withCurrentHeard.copy(index = index))
     }
@@ -331,6 +438,7 @@ class DesktopPlaybackController(
     fun removeAt(index: Int) {
         if (!applyingRoom.get() && roomQueueEdit?.invoke(index, null) == true) return
         if (intercepted("edit_queue")) return
+        _queue.value.tracks.getOrNull(index)?.let { if (connect(com.auralis.music.data.connect.ConnectIntent.Remove(index, it.id))) return }
         val q = _queue.value
         if (index !in q.tracks.indices || index == q.index) return
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
@@ -342,6 +450,7 @@ class DesktopPlaybackController(
     fun moveAt(from: Int, to: Int) {
         if (!applyingRoom.get() && roomQueueEdit?.invoke(from, to) == true) return
         if (intercepted("edit_queue")) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Move(from, to))) return
         val q = _queue.value
         if (from !in q.tracks.indices || to !in q.tracks.indices || from == to) return
         val order = q.tracks.indices.toMutableList().apply { add(to, removeAt(from)) }

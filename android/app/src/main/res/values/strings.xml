@@ -1257,4 +1257,27 @@
         <item>Lyrics are coming together</item>
         <item>Almost found the words</item>
     </string-array>
+
+    <!-- Auralis Connect: one listening session across the devices signed in to an account -->
+    <string name="connect_to_a_device">Connect to a device</string>
+    <string name="connect_this_phone">This phone</string>
+    <string name="connect_this_tablet">This tablet</string>
+    <string name="connect_playing_on">Playing on %1$s</string>
+    <string name="connect_paused_on">Paused on %1$s</string>
+    <string name="connect_last_played_on">Last played on %1$s</string>
+    <string name="connect_playing_on_this_device">Playing on this device</string>
+    <string name="connect_connecting_to">Connecting to %1$s…</string>
+    <string name="connect_failed_to">Couldn\'t connect to %1$s</string>
+    <string name="connect_connecting">Connecting…</string>
+    <string name="connect_couldnt_connect">Couldn\'t connect. Tap to try again.</string>
+    <string name="connect_playing">Playing</string>
+    <string name="connect_paused">Paused</string>
+    <string name="connect_unavailable">Unavailable</string>
+    <string name="connect_offline_seen">Unavailable · seen %1$s</string>
+    <string name="connect_cant_play">Can\'t play audio</string>
+    <string name="connect_current_output">Current device</string>
+    <string name="connect_sign_in">Sign in to listen across your devices.</string>
+    <string name="connect_no_other_devices">Open Auralis on another device signed in to this account to see it here.</string>
+    <string name="connect_phone_sound_output">Sound output on this phone</string>
+    <string name="connect_devices">Devices</string>
 </resources>

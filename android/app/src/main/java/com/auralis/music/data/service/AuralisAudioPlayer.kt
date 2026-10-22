@@ -1228,6 +1228,62 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     val isGuestListenTogether = MutableStateFlow(false)
 
+    // ---- Auralis Connect ------------------------------------------------------------------
+    /**
+     * Set while signed in to an account: when another device of the account is the output, this
+     * phone's controls (app, notification, headset) go there and this phone stays silent.
+     */
+    @Volatile var connectHook: com.auralis.music.data.connect.ConnectHook? = null
+    private var applyingConnect = false
+    /** Where the queue came from (album / playlist), carried along when the output moves. */
+    @Volatile var connectContext: com.auralis.music.data.connect.ConnectContext? = null
+
+    /** Runs [block] as Connect acting on this phone itself, so it isn't routed back out. */
+    fun <T> fromConnect(block: () -> T): T {
+        val before = applyingConnect
+        applyingConnect = true
+        return try { block() } finally { applyingConnect = before }
+    }
+
+    private fun connect(intent: com.auralis.music.data.connect.ConnectIntent): Boolean =
+        !applyingConnect && !isGuestListenTogether.value && connectHook?.intercept(intent) == true
+
+    /** For callers that do their own work before reaching the player (the player screen's song picks). */
+    fun connectIntercept(intent: com.auralis.music.data.connect.ConnectIntent): Boolean = connect(intent)
+
+    /**
+     * Puts [tracks] in the queue at [index] and [positionMs] without making sound, like the queue
+     * restored at launch: pressing play starts it from there.
+     */
+    fun loadSilently(tracks: List<Track>, index: Int, positionMs: Long, shuffle: Boolean, repeat: com.auralis.music.domain.model.RepeatMode) {
+        if (tracks.isEmpty() || index !in tracks.indices) return
+        stop()
+        queueGenerationId.incrementAndGet()
+        queueManager.setQueue(tracks, index, preserveOrderIfSame = false, isUserQueue = true)
+        queueManager.setRepeatMode(repeat)
+        queueManager.restoreShuffleFlag(shuffle)
+        _queueState.value = queueManager.state
+        val track = tracks[index]
+        _currentTrack.value = track
+        _playbackPositionMs.value = positionMs.coerceAtLeast(0L)
+        _durationMs.value = track.duration * 1000L
+        persistQueue()
+    }
+
+    /** Shuffle and repeat as the session had them (the queue order already reflects shuffle). */
+    fun applyConnectQueueFlags(shuffle: Boolean, repeat: com.auralis.music.domain.model.RepeatMode) {
+        queueManager.setRepeatMode(repeat)
+        queueManager.restoreShuffleFlag(shuffle)
+        _queueState.value = queueManager.state
+        persistQueue()
+    }
+
+    fun setRepeatMode(mode: com.auralis.music.domain.model.RepeatMode) {
+        _queueState.value = queueManager.setRepeatMode(mode)
+        syncUpcomingGaplessTrack()
+        persistQueue()
+    }
+
     /**
      * Whether playback should start once the song now loading is ready. False after a Listen
      * Together host pauses mid-load, so a guest doesn't start playing on its own when it finishes.
@@ -1467,6 +1523,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             )
             return
         }
+        // Signed in while another device of the account plays: the pick plays there.
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Load(newQueue.ifEmpty { listOf(track) }, if (newQueue.isEmpty()) 0 else startIndex, connectContext))) return
         val isSingleSongSelection = !preserveQueueSource && !isUserQueue && (newQueue.isEmpty() || newQueue.size == 1)
         if (isSingleSongSelection) {
             queueGenerationId.incrementAndGet()
@@ -1524,6 +1582,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] resume() blocked - user is listener in Listen Together room")
             return
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Play)) return
         val curTrack = _currentTrack.value ?: return
         // The user pressed play: that overrides a room hold, and a song still loading starts when ready.
         roomHoldActive = false
@@ -1566,6 +1625,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() blocked - user is listener in Listen Together room")
             return
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Pause)) return
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() called (isUsingExo=$isUsingExoPlayer, track=${_currentTrack.value?.title})")
         roomHoldActive = false
         syncWantsPlay = false
@@ -1594,6 +1654,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             )
             return
         }
+        connectHook?.remote()?.let { remote -> if (connect(if (remote.playing) com.auralis.music.data.connect.ConnectIntent.Pause else com.auralis.music.data.connect.ConnectIntent.Play)) return }
         if (_isPlaying.value) {
             pause()
         } else {
@@ -1611,6 +1672,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             forwardGuestControl(com.auralis.music.data.sync.GuestCommand.SEEK, positionMs)
             return
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Seek(positionMs.coerceAtLeast(0L)))) return
         val bounded = positionMs.coerceAtLeast(0L)
         _userSeekEvents.tryEmit(bounded)
         _playbackPositionMs.value = bounded
@@ -1745,6 +1807,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             forwardGuestControl(com.auralis.music.data.sync.GuestCommand.NEXT)
             return false
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Next)) return false
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() triggered (queueSize=${queueManager.state.queue.size}, currentIndex=${queueManager.state.currentIndex})")
         if (queueManager.state.queue.isNotEmpty()) {
             val nextTrack = queueManager.advanceNext(isUserSkip = true)
@@ -1774,6 +1837,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             forwardGuestControl(com.auralis.music.data.sync.GuestCommand.PREVIOUS)
             return
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Previous)) return
         val now = System.currentTimeMillis()
         val isDoubleTap = (now - lastPreviousTapMs) <= 2000L
         lastPreviousTapMs = now
@@ -1799,6 +1863,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun toggleShuffle(): com.auralis.music.domain.model.QueueState {
+        connectHook?.remote()?.let { remote -> if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(!remote.shuffle))) return queueManager.state }
         val qState = queueManager.toggleShuffle()
         _queueState.value = qState
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] toggleShuffle -> isShuffled=${qState.isShuffled}")
@@ -1808,6 +1873,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun toggleRepeat(): com.auralis.music.domain.model.RepeatMode {
+        connectHook?.remote()?.let { remote ->
+            val next = com.auralis.music.domain.model.RepeatMode.entries[(remote.repeat.ordinal + 1) % com.auralis.music.domain.model.RepeatMode.entries.size]
+            if (connect(com.auralis.music.data.connect.ConnectIntent.Repeat(next))) return next
+        }
         val nextMode = when (queueManager.state.repeatMode) {
             com.auralis.music.domain.model.RepeatMode.OFF -> com.auralis.music.domain.model.RepeatMode.ALL
             com.auralis.music.domain.model.RepeatMode.ALL -> com.auralis.music.domain.model.RepeatMode.ONE
@@ -1823,6 +1892,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int): com.auralis.music.domain.model.QueueState {
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Move(fromIndex, toIndex))) return queueManager.state
         val qState = queueManager.moveItem(fromIndex, toIndex)
         _queueState.value = qState
         syncUpcomingGaplessTrack()
@@ -1831,6 +1901,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun removeQueueItem(removeIndex: Int): com.auralis.music.domain.model.QueueState {
+        connectHook?.remote()?.queue?.getOrNull(removeIndex)?.let { song ->
+            if (connect(com.auralis.music.data.connect.ConnectIntent.Remove(removeIndex, song.id))) return queueManager.state
+        }
         val qState = queueManager.removeItem(removeIndex)
         _queueState.value = qState
         syncUpcomingGaplessTrack()
@@ -1844,6 +1917,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             tracks.forEach { guestSongSuggester?.invoke(it) }
             return
         }
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Add(tracks.first()))) { tracks.drop(1).forEach { connect(com.auralis.music.data.connect.ConnectIntent.Add(it)) }; return }
         val qState = queueManager.addToQueue(tracks)
         _queueState.value = qState
         syncUpcomingGaplessTrack()
@@ -1871,6 +1945,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             tracks.forEach { guestSongSuggester?.invoke(it) }
             return
         }
+        // Each "play next" lands right after the current song, so send them last to first.
+        if (connect(com.auralis.music.data.connect.ConnectIntent.PlayNext(tracks.last()))) { tracks.dropLast(1).asReversed().forEach { connect(com.auralis.music.data.connect.ConnectIntent.PlayNext(it)) }; return }
         val qState = queueManager.playNext(tracks)
         _queueState.value = qState
         syncUpcomingGaplessTrack()

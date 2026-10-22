@@ -55,7 +55,8 @@ private data class ReadyComponents(
     val together: com.auralis.music.windows.together.DesktopTogether,
     val discord: com.auralis.music.windows.discord.WindowsDiscordPresence,
     val listenRecorder: com.auralis.music.windows.history.DesktopListenRecorder?,
-    val recorderScope: kotlinx.coroutines.CoroutineScope
+    val recorderScope: kotlinx.coroutines.CoroutineScope,
+    val connect: com.auralis.music.windows.connect.DesktopConnect
 )
 
 fun main(args: Array<String>) {
@@ -274,7 +275,13 @@ fun main(args: Array<String>) {
         val homePlatform = com.auralis.music.desktop.home.DesktopHomePlatform(java.io.File(dataDir, "home"), stats)
 
         Log.i(TAG, "Startup components ready ${System.currentTimeMillis() - launchStarted}ms after launch;$waits")
-        ReadyComponents(sRepo, lib, hist, stats, pb, lyr, acc, flags, stores, homePlatform, together, discord, listenRecorder, recorderScope)
+        // Auralis Connect: this PC as one device of the signed-in account's listening session.
+        val connect = com.auralis.music.windows.connect.DesktopConnect(
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main),
+            acc, pb, dataDir
+        ) { com.auralis.music.windows.connect.DesktopConnect.windowShown }
+        connect.start()
+        ReadyComponents(sRepo, lib, hist, stats, pb, lyr, acc, flags, stores, homePlatform, together, discord, listenRecorder, recorderScope, connect)
     }
 
     val selfTest = SelfTest.fromArgs(args, dataDir)
@@ -289,6 +296,10 @@ fun main(args: Array<String>) {
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
         val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
         LaunchedEffect(Unit) { if (launchMinimized) windowState.isMinimized = true }
+        // Connect polls less while nobody is looking at the window.
+        LaunchedEffect(windowVisible, windowState.isMinimized) {
+            com.auralis.music.windows.connect.DesktopConnect.windowShown = windowVisible && !windowState.isMinimized
+        }
         var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         var components by remember { mutableStateOf<ReadyComponents?>(null) }
         // Shown again from the tray, the window stays cloaked until it has drawn (see setWindowCloaked).
@@ -361,7 +372,14 @@ fun main(args: Array<String>) {
                     name = "auralis-shutdown-watchdog"
                 }.start()
                 comp.recorderScope.launch {
-                    try { kotlinx.coroutines.withTimeoutOrNull(1000) { comp.together.close() } }
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(1100) {
+                            // Give up the Connect output (paused) so other devices don't wait on this PC.
+                            val leaving = launch { comp.connect.close() }
+                            comp.together.close()
+                            leaving.join()
+                        }
+                    }
                     finally {
                         runCatching { comp.listenRecorder?.close() }
                         runCatching { comp.playback?.release() }

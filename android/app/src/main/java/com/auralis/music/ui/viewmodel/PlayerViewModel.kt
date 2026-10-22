@@ -167,7 +167,9 @@ class PlayerViewModel(
     } ?: 0L
 
     private val _playbackPositionMs = MutableStateFlow(initialPlayerPosition)
-    val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+    /** Auralis Connect: set while another device of the account plays; this phone then mirrors it. */
+    private val connectRemote = com.auralis.music.data.connect.AuralisConnect.remote
+    val playbackPositionMs: StateFlow<Long> = ConnectOverlayPosition(_playbackPositionMs, connectRemote)
 
     private val _uiState = MutableStateFlow(
         audioPlayer?.let { player ->
@@ -189,7 +191,7 @@ class PlayerViewModel(
             )
         } ?: PlayerUiState()
     )
-    val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<PlayerUiState> = ConnectOverlayState(_uiState, connectRemote)
 
     private val _playerSettings = MutableStateFlow(com.auralis.music.domain.model.PlayerSettings())
     val playerSettings: StateFlow<com.auralis.music.domain.model.PlayerSettings> = _playerSettings.asStateFlow()
@@ -202,7 +204,7 @@ class PlayerViewModel(
      * lyrics UI can sample it per frame without pulling `@UnstableApi` Media3
      * types — or the whole audio player — into the composable layer.
      */
-    val playbackClockSource: com.auralis.music.data.service.PlaybackClockSource? = audioPlayer
+    val playbackClockSource: com.auralis.music.data.service.PlaybackClockSource? = audioPlayer?.let { ConnectOverlayClock(it, connectRemote) }
 
     private var sleepTimerJob: Job? = null
     private var playJob: Job? = null
@@ -669,6 +671,12 @@ class PlayerViewModel(
             audioPlayer.playTrack(track, newQueue, startIndex, isUserQueue, initialPositionMs, preserveQueueSource)
             return
         }
+        // Auralis Connect: another device of the account is playing, so the pick plays there.
+        if (audioPlayer?.connectIntercept(com.auralis.music.data.connect.ConnectIntent.Load(
+                newQueue.ifEmpty { listOf(track) }, if (newQueue.isEmpty()) 0 else startIndex,
+                sourcePlaylistTitle?.let { com.auralis.music.data.connect.ConnectContext("playlist", sourcePlaylistId.orEmpty(), it) })) == true) return
+        audioPlayer?.connectContext = sourcePlaylistTitle?.let { com.auralis.music.data.connect.ConnectContext("playlist", sourcePlaylistId.orEmpty(), it) }
+            ?: audioPlayer?.connectContext?.takeIf { preserveQueueSource }
         this.sourcePlaylistId = if (preserveQueueSource) this.sourcePlaylistId else sourcePlaylistId
         if (!preserveQueueSource) sourcePlaylistTrackIds = if (sourcePlaylistId != null) {
             (newQueue.ifEmpty { listOf(track) }).mapTo(mutableSetOf()) { it.id }

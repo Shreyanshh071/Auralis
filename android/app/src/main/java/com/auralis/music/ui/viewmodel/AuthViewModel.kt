@@ -207,6 +207,8 @@ class AuthViewModel(
             // Anything not yet backed up would stay on this phone only, owned by a signed-out account.
             val uid = syncManager.userProfile.value.uid
             val backedUp = kotlinx.coroutines.withTimeoutOrNull(8_000L) { syncManager.flushToCloud() } == true
+            // While still signed in: give up the Connect output and unregister this phone.
+            com.auralis.music.data.connect.AuralisConnect.leaveAccount()
             syncManager.disconnectAccount()
             // Then take off what the account brought here; imports and what was here before stay.
             // Only when the latest library reached the account, so no edit to those is lost.
