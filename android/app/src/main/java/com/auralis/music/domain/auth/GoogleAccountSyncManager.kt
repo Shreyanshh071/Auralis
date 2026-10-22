@@ -661,6 +661,15 @@ class GoogleAccountSyncManager(
                 chunk.forEach { batch.delete(it.reference) }
                 batch.commit().await()
             }
+            // Auralis Connect: the session, its queue and this account's device registrations.
+            com.auralis.music.data.connect.AuralisConnect.leaveAccount()
+            runCatching {
+                val connectBatch = db.batch()
+                userDoc.collection("connectDevices").get().await().documents.forEach { connectBatch.delete(it.reference) }
+                connectBatch.delete(userDoc.collection("connect").document("session"))
+                connectBatch.delete(userDoc.collection("connect").document("queue"))
+                connectBatch.commit().await()
+            }
             userDoc.delete().await()
             user.delete().await()
 

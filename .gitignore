@@ -68,3 +68,6 @@ android/app/src/main/cpp/discord/
 
 # Owner-provided desktop OAuth configuration; bundled locally, never committed.
 /windows/local-resources/
+
+# Firestore rules tests
+firestore-tests/node_modules/

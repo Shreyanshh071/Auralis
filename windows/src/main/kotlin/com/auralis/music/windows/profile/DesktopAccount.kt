@@ -128,11 +128,18 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
     /** Dismisses the account's status line (e.g. "Signed in as …"). */
     fun clearMessage() { mutable.value = mutable.value.copy(message = null) }
 
+    /** The account's Firestore access (Auralis Connect); only usable while signed in. */
+    internal val firestore: FirestoreRest get() = api
+
+    /** Runs while still signed in, just before signing out (Connect leaves the account's session). */
+    @Volatile var beforeSignOut: (suspend () -> Unit)? = null
+
     fun signOut() {
         if (mutable.value.busy) return
         restoreJob?.cancel()
         mutable.value = mutable.value.copy(busy = true)
         scope.launch(Dispatchers.IO) {
+            runCatching { withTimeoutOrNull(5_000L) { beforeSignOut?.invoke() } }
             try { Files.deleteIfExists(sessionFile.toPath()); api.forgetAccount(); mutable.value = State() }
             catch (_: Exception) { mutable.value = mutable.value.copy(busy = false, message = "Couldn't remove the saved sign-in. Try again.") }
         }

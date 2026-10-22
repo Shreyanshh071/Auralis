@@ -145,6 +145,7 @@ fun PlayerScreen(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.width(coverSize)
                     )
+                    PlayerConnectRow()
                 }
                 if (wide) {
                     Column(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -168,6 +169,28 @@ fun PlayerScreen(
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
         }
+    }
+}
+
+/** Auralis Connect in the full player: the device button and, while another device plays, where. */
+@Composable
+private fun PlayerConnectRow() {
+    val connect = com.auralis.music.windows.connect.DesktopConnect.current ?: return
+    val ui by connect.ui.collectAsState()
+    if (!ui.enabled) return
+    var menu by remember { mutableStateOf(false) }
+    val elsewhere = ui.output?.takeIf { !it.isThis }
+    Spacer(Modifier.height(10.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            IconButton(onClick = { menu = true }) {
+                Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
+                    desktopText("Connect to a device"), modifier = Modifier.size(24.dp),
+                    tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
+            }
+            com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
+        }
+        com.auralis.music.windows.connect.ConnectOutputLabel { menu = true }
     }
 }
 
@@ -225,13 +248,15 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
-    val coarsePosition = playback.positionMs.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    val coarsePosition = rememberShownPosition(playback, remote)
+    val playing = remote?.playing ?: (playerState == VlcAudioPlayer.State.PLAYING)
     // As on the phone: the view gets the position sampled every frame and interpolated between
     // libVLC's reports (rememberLyricsClock), not the raw reports (~4 a second), which made the
     // word sweep and the intro circle advance in steps.
     val positionState = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = playback.clock,
-        enabled = playerState == VlcAudioPlayer.State.PLAYING,
+        enabled = playing,
         fallbackPositionMs = coarsePosition
     )
     val data = state.lyrics
@@ -248,8 +273,8 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
                 lyrics = data,
                 positionState = positionState,
                 onSeekTo = playback::seekTo,
-                isPlaying = playerState == VlcAudioPlayer.State.PLAYING,
-                isBuffering = playerState == VlcAudioPlayer.State.BUFFERING,
+                isPlaying = playing,
+                isBuffering = remote?.buffering ?: (playerState == VlcAudioPlayer.State.BUFFERING),
                 lyricsClockSource = playback.clock,
                 track = queue.current,
                 modifier = Modifier.fillMaxSize()
@@ -264,14 +289,16 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
     val length by playback.lengthMs.collectAsState()
     val state by playback.state.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    val playing = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING)
     // The same per-frame clock as the lyrics, so the bar glides instead of jumping ~4 times a second.
     val position by com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = playback.clock,
-        enabled = state == VlcAudioPlayer.State.PLAYING,
-        fallbackPositionMs = playback.positionMs.collectAsState()
+        enabled = playing,
+        fallbackPositionMs = rememberShownPosition(playback, remote)
     )
     val queue by playback.queue.collectAsState()
-    val duration = length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
+    val duration = remote?.durationMs?.takeIf { it > 0 } ?: length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
@@ -284,13 +311,23 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
                 dragFraction?.let { playback.seekTo((it * duration).toLong()) }
                 dragFraction = null
             },
-            isPlaying = state == VlcAudioPlayer.State.PLAYING,
+            isPlaying = playing,
             currentPosMs = shown, totalDurationMs = duration,
             sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
         )
         PlayerTime(duration)
     }
+}
+
+/** This PC's position, or the other device's while it is the one playing (Auralis Connect). */
+@Composable
+private fun rememberShownPosition(
+    playback: DesktopPlaybackController,
+    remote: com.auralis.music.data.connect.ConnectRemoteView?
+): androidx.compose.runtime.State<Long> {
+    val local = playback.positionMs.collectAsState()
+    return remember(remote) { androidx.compose.runtime.derivedStateOf { remote?.positionAt(System.currentTimeMillis()) ?: local.value } }
 }
 
 @Composable
@@ -310,6 +347,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val repeat by playback.repeatMode.collectAsState()
     val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
         DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
             contentDescription = title, contentScale = scale)
@@ -326,7 +364,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
                         ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
                     }
                     IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(64.dp)) {
-                        if (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING)
+                        if (remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING))
                             ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 40.dp))
                         else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 42.dp))
                     }

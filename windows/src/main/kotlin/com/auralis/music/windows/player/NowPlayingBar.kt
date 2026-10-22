@@ -86,6 +86,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
         val repeatMode by controller.repeatMode.collectAsState()
         val roomActive by controller.roomActive.collectAsState()
         val track = queue.current
+        // Auralis Connect: another device of the account may be the one playing (this PC is silent).
+        val remote by controller.connectRemote.collectAsState()
+        var connectMenu by remember { mutableStateOf(false) }
 
         val whiteButtons = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
         // Only the cover is interactive; the song-info region has no hover highlight.
@@ -113,6 +116,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                         color = colors.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
+                    com.auralis.music.windows.connect.ConnectOutputLabel { connectMenu = true }
                 }
             }
         }
@@ -133,7 +137,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                 IconButton(onClick = controller::previous, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.SkipPrevious, contentDescription = desktopText("Previous"), modifier = Modifier.size(22.dp))
                 }
-                val busy = resolving || state == VlcAudioPlayer.State.BUFFERING
+                val busy = remote?.buffering ?: (resolving || state == VlcAudioPlayer.State.BUFFERING)
                 FilledIconButton(
                     onClick = controller::togglePlayPause,
                     enabled = enabled,
@@ -142,7 +146,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                         disabledContainerColor = Color.White.copy(alpha = .35f), disabledContentColor = Color.Black.copy(alpha = .6f)),
                     modifier = Modifier.size(32.dp)
                 ) {
-                    val showPause = state == VlcAudioPlayer.State.PLAYING || (busy && enabled)
+                    val showPause = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING || (busy && enabled))
                     Box(contentAlignment = Alignment.Center) {
                         if (busy && enabled) {
                             CircularProgressIndicator(Modifier.size(28.dp), color = Color.Black.copy(alpha = 0.6f), strokeWidth = 2.dp)
@@ -185,6 +189,19 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                 activeColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                 inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f))
             Spacer(Modifier.width(10.dp))
+            // Connect to a device: which of the account's devices plays (separate from play/pause).
+            Box {
+                val connectUi = com.auralis.music.windows.connect.DesktopConnect.current?.ui?.collectAsState()?.value
+                if (connectUi?.enabled == true) {
+                    val elsewhere = connectUi.output?.takeIf { !it.isThis }
+                    IconButton(onClick = { connectMenu = true }, modifier = Modifier.size(34.dp)) {
+                        Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
+                            desktopText("Connect to a device"),
+                            tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else iconTint, modifier = Modifier.size(20.dp))
+                    }
+                }
+                com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = connectMenu, onDismiss = { connectMenu = false })
+            }
             Box {
                 var devices by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
                 IconButton(onClick = { devices = controller.outputDevices() }, modifier = Modifier.size(34.dp)) {
@@ -229,11 +246,18 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
     val appearanceStore = com.auralis.music.data.datastore.LocalSettingsStores.current.appearance
     val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
     val state by controller.state.collectAsState()
-    val position by controller.positionMs.collectAsState()
+    val localPosition by controller.positionMs.collectAsState()
     val length by controller.lengthMs.collectAsState()
     val queue by controller.queue.collectAsState()
+    val remote by controller.connectRemote.collectAsState()
+    var remoteNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(remote) {
+        while (remote?.playing == true) { remoteNow = System.currentTimeMillis(); kotlinx.coroutines.delay(250L) }
+        remoteNow = System.currentTimeMillis()
+    }
+    val position = remote?.positionAt(remoteNow) ?: localPosition
     // Before libVLC knows the length, use the song's length from search.
-    val duration = length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
+    val duration = remote?.durationMs?.takeIf { it > 0 } ?: length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shownMs = dragFraction?.let { (it * duration).toLong() } ?: position
@@ -247,7 +271,7 @@ private fun SeekBar(controller: DesktopPlaybackController, enabled: Boolean) {
                 dragFraction?.let { controller.seekTo((it * duration).toLong()) }
                 dragFraction = null
             },
-            isPlaying = state == VlcAudioPlayer.State.PLAYING,
+            isPlaying = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING),
             currentPosMs = shownMs, totalDurationMs = duration,
             sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
             activeTrackColor = MaterialTheme.colorScheme.onSurface,

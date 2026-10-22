@@ -49,6 +49,8 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         // zemer-cipher logs through Timber; keep its lines in logcat for diagnosing downloads.
         if (timber.log.Timber.treeCount == 0) timber.log.Timber.plant(timber.log.Timber.DebugTree())
         com.zemer.cipher.ZemerCipher.initialize(this)
+        // Auralis Connect follows the signed-in account (it registers this phone; it never plays).
+        com.auralis.music.data.connect.AuralisConnect.init(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             kotlinx.coroutines.delay(1000L)
             try {

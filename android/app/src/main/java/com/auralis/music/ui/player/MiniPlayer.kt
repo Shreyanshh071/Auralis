@@ -189,6 +189,8 @@ fun MiniPlayer(
     onClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    /** Auralis Connect: the device line and button; null when signed out or nothing to connect. */
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null && queue.isEmpty()) return
@@ -485,6 +487,7 @@ fun MiniPlayer(
                     onFavoriteToggle = onFavoriteToggle,
                     onArtistClick = onArtistClick,
                     onClick = onClick,
+                    connect = connect,
                     modifier = miniPlayerModifier
                 )
             }
@@ -504,6 +507,7 @@ fun MiniPlayer(
                     onPreviousClick = onPreviousClick,
                     onNextClick = onNextClick,
                     onClick = onClick,
+                    connect = connect,
                     modifier = miniPlayerModifier
                 )
             }
@@ -523,6 +527,7 @@ fun MiniPlayer(
                     onPreviousClick = onPreviousClick,
                     onNextClick = onNextClick,
                     onClick = onClick,
+                    connect = connect,
                     modifier = miniPlayerModifier
                 )
             }
@@ -559,6 +564,7 @@ fun MiniPlayer(
                 onAddToPlaylist = onAddToPlaylist,
                 onArtistClick = onArtistClick,
                 onClick = onClick,
+                connect = connect,
                 modifier = miniPlayerModifier
             )
         }
@@ -588,6 +594,7 @@ private fun ExpandedMiniPlayerView(
     onFavoriteToggle: (() -> Unit)?,
     onArtistClick: (() -> Unit)?,
     onClick: () -> Unit,
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     val cardShape = RoundedCornerShape(22.dp)
@@ -720,12 +727,16 @@ private fun ExpandedMiniPlayerView(
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
-                    Row(
+                    if (connect?.outputLine != null) {
+                        com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(dominantColor), 13.sp)
+                    } else Row(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         AirPlayAudioIcon(
                             tint = dominantColor.copy(alpha = 0.95f),
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(13.dp).then(
+                                if (connect != null) Modifier.clickable(onClickLabel = str(R.string.connect_to_a_device), onClick = connect.onOpen) else Modifier
+                            )
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
@@ -892,6 +903,7 @@ private fun ClassicMiniPlayerView(
     onPreviousClick: (() -> Unit)?,
     onNextClick: (() -> Unit)?,
     onClick: () -> Unit,
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(12.dp)
@@ -1015,7 +1027,9 @@ private fun ClassicMiniPlayerView(
                             overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
+                        if (connect?.outputLine != null) {
+                            com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(dominantColor), 13.sp)
+                        } else Text(
                             text = track.artist,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 13.sp,
@@ -1032,6 +1046,17 @@ private fun ClassicMiniPlayerView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    if (connect?.showButton == true) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .tactileBounce(scaleDown = 0.88f, onClick = connect.onOpen),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            com.auralis.music.ui.connect.ConnectDeviceButtonIcon(connect, contentColor, com.auralis.music.ui.connect.connectAccent(dominantColor), Modifier.size(20.dp))
+                        }
+                    }
                     // Previous Track Button
                     Box(
                         modifier = Modifier
@@ -1140,6 +1165,7 @@ private fun NewMiniPlayerPillView(
     onAddToPlaylist: (() -> Unit)?,
     onArtistClick: (() -> Unit)?,
     onClick: () -> Unit,
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     val favoriteEnter = auralisIconSwapEnter()
@@ -1342,7 +1368,9 @@ private fun NewMiniPlayerPillView(
                                 )
                                 Column(modifier = Modifier.miniPlayerDockReveal(dockCollapse, horizontal = false)) {
                                 Spacer(modifier = Modifier.height(2.dp))
-                                Text(
+                                if (connect?.outputLine != null && pageTrack.id == activeTrack?.id) {
+                                    com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(animGradMid), 12.sp)
+                                } else Text(
                                     text = pageTrack.artist,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (glass != null || frosted) contentColor.copy(alpha = 0.78f) else if (isPureBlack) Color.White.copy(alpha = 0.70f) else if (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC) Color.White.copy(alpha = 0.85f) else Color(0xFFA6A698),
@@ -1371,6 +1399,19 @@ private fun NewMiniPlayerPillView(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (connect?.showButton == true) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(actionButtonBg)
+                            .then(actionButtonBorder)
+                            .tactileBounce(scaleDown = 0.85f, onClick = connect.onOpen),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        com.auralis.music.ui.connect.ConnectDeviceButtonIcon(connect, contentColor, com.auralis.music.ui.connect.connectAccent(animGradMid), Modifier.size(18.dp))
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .size(36.dp)

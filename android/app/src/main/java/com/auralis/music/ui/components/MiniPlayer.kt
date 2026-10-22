@@ -35,6 +35,7 @@ fun MiniPlayer(
     onClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
     PlayerMiniPlayer(
@@ -59,6 +60,7 @@ fun MiniPlayer(
         onClick = onClick,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
+        connect = connect,
         modifier = modifier
     )
 }
