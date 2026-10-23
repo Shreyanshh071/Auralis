@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -119,7 +120,9 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
-                    CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                    Box(Modifier.offset(y = 12.dp)) {
+                        CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                    }
                     Spacer(Modifier.height(22.dp))
                     PlayerSeekBar(playback, Modifier.width(coverSize))
                     Spacer(Modifier.height(18.dp))
