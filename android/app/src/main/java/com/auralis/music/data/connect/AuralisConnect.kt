@@ -43,6 +43,7 @@ object AuralisConnect : ConnectHook {
     private lateinit var appContext: Context
     private lateinit var player: AuralisAudioPlayer
     @Volatile private var engine: ConnectEngine? = null
+    private var backend: FirestoreConnectBackend? = null
     private var uid: String? = null
     private var listeners: List<ListenerRegistration> = emptyList()
     private var jobs: List<Job> = emptyList()
@@ -78,6 +79,17 @@ object AuralisConnect : ConnectHook {
 
     fun transferTo(deviceId: String) { engine?.transferTo(deviceId) }
 
+    /** Reconcile immediately when returning from Android background suspension. */
+    fun refresh() {
+        val e = engine ?: return
+        val b = backend ?: return
+        scope.launch {
+            try { e.onSnapshot(b.fetch()) }
+            catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
+            catch (ex: Exception) { e.onConnectionLost(ex.message) }
+        }
+    }
+
     override fun intercept(intent: ConnectIntent): Boolean {
         val e = engine ?: return false
         // Picking a song from the queue on screen plays that queue item on the output.
@@ -112,6 +124,7 @@ object AuralisConnect : ConnectHook {
         val clock = ServerClock(System::currentTimeMillis)
         val db = FirebaseFirestore.getInstance()
         val backend = FirestoreConnectBackend(db, accountUid, clock)
+        this.backend = backend
         val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis) { Log.d(TAG, it) }
         engine = e
         Log.d(TAG, "Joined the account session as ${device.name} ($deviceId)")
@@ -173,6 +186,7 @@ object AuralisConnect : ConnectHook {
     private suspend fun stopEngine(signOut: Boolean) {
         val e = engine ?: return
         engine = null
+        backend = null
         _ui.value = ConnectUi()
         _remote.value = null
         listeners.forEach { it.remove() }

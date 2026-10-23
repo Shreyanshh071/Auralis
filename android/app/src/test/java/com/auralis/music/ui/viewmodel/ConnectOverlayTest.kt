@@ -7,6 +7,9 @@ import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,6 +26,24 @@ class ConnectOverlayTest {
         positionMs = 61_000L, anchorLocalMs = at, durationMs = 180_000L, shuffle = true, repeat = RepeatMode.ALL, context = null,
         output = ConnectOutput("laptop", "Laptop", ConnectDeviceType.COMPUTER, isThis = false, active = true, playing = playing)
     )
+
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun coldSilentPhoneReceivesRemoteTrackWithoutAnyLocalPlayback() = runTest {
+        val localState = MutableStateFlow(PlayerUiState())
+        val remoteFlow = MutableStateFlow<ConnectRemoteView?>(null)
+        val shown = ConnectOverlayState(localState, remoteFlow) { 1_000L }
+        val observed = mutableListOf<PlayerUiState>()
+        backgroundScope.launch { shown.collect { observed += it } }
+        runCurrent()
+        assertNull(observed.last().currentTrack)
+        remoteFlow.value = remote()
+        runCurrent()
+        assertEquals(remoteTrack, observed.last().currentTrack)
+        assertTrue(observed.last().isPlaying)
+        assertNull(localState.value.currentTrack)
+        assertFalse(localState.value.isPlaying)
+    }
 
     @Test
     fun remoteSessionReplacesWhatTheScreensShow() {
