@@ -97,7 +97,12 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
                 // Someone else wrote first: read again and redo the step on the newer state.
                 val conflict = e.status == 409 || e.status == 412 ||
                     (e.status == 400 && e.message.orEmpty().contains("precondition", ignoreCase = true))
-                if (!conflict) throw e
+                if (!conflict) {
+                    // Rules can reject version+1 before the update-time precondition is
+                    // evaluated. Retry a 403 only when a fresh read proves contention;
+                    // a real authorization/schema rejection must remain an error.
+                    if (e.status != 403 || api.accountGet(sessionPath)?.second == doc?.second) throw e
+                }
             }
         }
         throw IllegalStateException("The session kept changing; try again")

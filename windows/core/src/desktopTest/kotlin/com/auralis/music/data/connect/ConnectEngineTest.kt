@@ -54,6 +54,24 @@ class ConnectEngineTest {
     }
 
     @Test
+    fun handoffRetriesAReadyAcknowledgementAfterTransientFailure() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(5), 0))
+        w.run(5_000)
+        phone.rejectNextReady = true
+        laptop.engine.transferTo(phone.engine.me.id)
+        w.run(15_000)
+        assertTrue(phone.log.any { it.contains("Transient acknowledgement failure") })
+        assertTrue(phone.engine.isOutput)
+        assertTrue(phone.player.playing)
+        assertFalse(laptop.player.playing)
+        assertNull(laptop.engine.ui.value.transfer)
+        assertTrue(w.doubleAudio.isEmpty())
+        assertTrue(w.server.violations.isEmpty())
+    }
+
+    @Test
     fun androidPlaysAndOtherClientsMirrorSilently() = runTest {
         val (w, phone, others) = threeDevices()
         val (laptop, desktop) = others

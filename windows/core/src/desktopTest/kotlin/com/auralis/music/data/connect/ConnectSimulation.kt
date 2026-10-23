@@ -147,6 +147,7 @@ class SimDevice(
     val localNow: () -> Long = { testScope.testScheduler.currentTime + skewMs }
     val player = FakePlayer(localNow)
     var offline = false
+    var rejectNextReady = false
     val log = mutableListOf<String>()
     val clock = ServerClock(localNow)
     private val serverNow: () -> Long = { testScope.testScheduler.currentTime }
@@ -163,6 +164,10 @@ class SimDevice(
                 delay(roundTripMs / 2)
                 check()
                 val w = block(cur) ?: return null
+                if (rejectNextReady && w.session.transfer?.status == TransferStatus.READY) {
+                    rejectNextReady = false
+                    throw IllegalStateException("Transient acknowledgement failure")
+                }
                 if (server.version != base) continue // someone else wrote first: retry on fresh state
                 server.write(w)
                 val written = server.snapshot()

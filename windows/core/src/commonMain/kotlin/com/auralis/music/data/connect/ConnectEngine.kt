@@ -220,6 +220,7 @@ class ConnectEngine(
     private val handledTransfers = LinkedHashSet<String>()
     private var startedTransfer: String? = null
     private var preparing: Job? = null
+    private var preparedTransfer: String? = null
 
     private data class Published(val local: LocalPlayback, val atLocal: Long)
     private var lastPublished: Published? = null
@@ -449,6 +450,11 @@ class ConnectEngine(
                 t.to == me.id && t.status == TransferStatus.REQUESTED && t.id !in handledTransfers -> {
                     handledTransfers += t.id
                     if (player?.canPlay != true) fail(t, "unavailable") else beginPrepare(t)
+                }
+                // Preparing is local work; acknowledging it can fail transiently. Keep
+                // retrying the acknowledgement instead of stranding a ready device.
+                t.to == me.id && t.status == TransferStatus.REQUESTED && preparedTransfer == t.id && age <= REQUEST_TIMEOUT_MS -> {
+                    if (s.ownerActive(now) && s.ownerId != me.id) markReady(t) else commitAsTarget(t, forced = false)
                 }
                 t.to == me.id && t.status == TransferStatus.READY && age > FORCE_COMMIT_MS -> commitAsTarget(t, forced = true)
                 owner && t.from == me.id && t.status == TransferStatus.READY -> commitAsOwner(t)
@@ -728,6 +734,7 @@ class ConnectEngine(
         val p = player ?: return
         val track = current?.session?.track?.toTrack()
         preparing?.cancel()
+        preparedTransfer = null
         preparing = scope.launch {
             val ok = if (track == null) true else withTimeoutOrNull(PREPARE_TIMEOUT_MS) {
                 try { p.prepare(track) } catch (e: CancellationException) { throw e } catch (_: Exception) { true }
@@ -738,8 +745,11 @@ class ConnectEngine(
                 if (tt?.id != t.id || tt.status != TransferStatus.REQUESTED) return@locked
                 when {
                     !ok -> fail(t, "unplayable")
-                    s.ownerActive(clock.now()) && s.ownerId != me.id -> markReady(t)
-                    else -> commitAsTarget(t, forced = false)
+                    else -> {
+                        preparedTransfer = t.id
+                        if (s.ownerActive(clock.now()) && s.ownerId != me.id) markReady(t)
+                        else commitAsTarget(t, forced = false)
+                    }
                 }
             }
         }

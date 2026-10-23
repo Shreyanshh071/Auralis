@@ -352,6 +352,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.auralis.music.data.connect.AuralisConnect.refresh()
         android.util.Log.d("AuralisPlayback", "[MainActivity] onResume")
         intent?.let { handleRetryIntent(it) }
     }

@@ -21,6 +21,8 @@ reproduction of any other service's internals.
   lists the account's devices: this device marked "This phone" / "This computer", the output
   ticked, offline devices seen in the last 14 days shown as unavailable. Picking one hands off.
 - Opening an app never plays anything and never takes the output.
+- A phone with no local song creates its player presentation when a remote session arrives;
+  returning to the foreground also fetches authoritative state immediately.
 
 ## Data (Firestore, account-scoped)
 
@@ -67,6 +69,10 @@ answer from the target in 15 s → `failed`. The old output silent for 5 s after
 asleep, offline) → the target commits anyway; if the old one comes back it sees the new epoch and
 stays silent. If the song never starts on the new output, it hands the output back. Volume is
 never copied between devices.
+
+Preparation acknowledgements are retried after transient write failures. Windows retries a rules
+rejection caused by concurrent session writes only after a fresh read confirms the document's
+update time changed; actual permission failures are still surfaced.
 
 ## Online / offline rules
 

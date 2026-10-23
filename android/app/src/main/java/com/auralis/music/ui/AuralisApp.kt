@@ -183,6 +183,15 @@ fun AuralisApp(
             }
         }
     }
+    // A silent controller has no local track to trigger the lazy player above.
+    // Create its presentation model when the account's remote session arrives too.
+    LaunchedEffect(viewModelProvider) {
+        com.auralis.music.data.connect.AuralisConnect.remote.collect { remote ->
+            if (remote != null && playerViewModelState == null) {
+                playerViewModelState = viewModelProvider.getPlayerViewModel()
+            }
+        }
+    }
     // Ground-truth track from the playback singleton — used as a fallback presence check
     // when the ViewModel mirror transiently becomes null during lifecycle gaps or rapid transitions.
     val audioPlayerTrack by viewModelProvider.audioPlayer.currentTrack.collectAsState()
