@@ -52,7 +52,7 @@ object MetroSpeakerLayout {
      * `respectAgentPositioning` deliberately play no part in whether it engages.
      */
     fun forAppearance(lines: List<LyricLine>, appearance: AppearanceSettings): List<MetroSpeakerStyle>? =
-        if (LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) == LyricsAnimationMode.METRO_LYRICS) {
+        if (LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) in setOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.SPICY_LYRICS)) {
             build(lines)
         } else null
 

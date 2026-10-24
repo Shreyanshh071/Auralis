@@ -20,6 +20,12 @@ class GlassDropdownMenuTest {
         assertEquals(IntOffset(610,550),glassDropdownPosition(IntRect(850,710,890,750),IntSize(900,800),IntSize(280,160),8))
         assertEquals(IntOffset(8,40),glassDropdownPosition(IntRect(4,8,36,40),IntSize(900,800),IntSize(280,160),8))
     }
+    @Test fun devicePickerOpensCentredOnTopOfItsButton() {
+        // The full player's device button, mid-window: the menu sits right above it, centred.
+        assertEquals(IntOffset(370,376),glassDropdownAbove(IntRect(450,540,490,580),IntSize(900,800),IntSize(200,160),8))
+        // No room above (button near the top): it opens below instead, still inside the window.
+        assertEquals(IntOffset(8,44),glassDropdownAbove(IntRect(4,0,36,40),IntSize(900,800),IntSize(200,160),8))
+    }
     @Test fun dropdownBlursActualBackdropAndReleasesCaptureWhenDismissed() {
         var expanded by mutableStateOf(true)
         lateinit var source: PopupGlassSource

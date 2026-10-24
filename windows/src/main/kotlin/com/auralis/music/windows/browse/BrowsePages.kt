@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,14 @@ fun BrowsePages(
     val forwardExit = com.auralis.music.ui.theme.auralisDetailForwardExit()
     val backwardEnter = com.auralis.music.ui.theme.auralisDetailBackwardEnter()
     val backwardExit = com.auralis.music.ui.theme.auralisDetailBackwardExit()
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    // A page left by Back is gone: opening it again later starts from the top.
+    val depthNow = browse.stack.size
+    var deepest by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(depthNow) }
+    androidx.compose.runtime.LaunchedEffect(depthNow) {
+        for (gone in depthNow + 1..deepest) pageStates.removeState(gone)
+        deepest = depthNow
+    }
     FloatingBrowseNavigation(onBack = back, modifier = modifier) {
         AnimatedContent(
             targetState = browse.stack.size to top,
@@ -71,7 +80,9 @@ fun BrowsePages(
             contentKey = { it.first },
             label = "browsePage",
             modifier = Modifier.fillMaxSize()
-        ) { (_, page) ->
+        ) { (depth, page) ->
+            // A page under the top keeps its scroll, so Back lands exactly where it was left.
+            pageStates.SaveableStateProvider(depth) {
             // Album, playlist and artist pages span the whole panel, as on Spotify; a centred
             // column left the artist header cut off with the background showing either side.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -126,6 +137,7 @@ fun BrowsePages(
                     modifier = Modifier.fillMaxSize(),
                     showBackButton = false
                 )
+            }
             }
             }
         }

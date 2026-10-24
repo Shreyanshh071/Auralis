@@ -73,7 +73,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             other("Load font file", "Use a TTF or OTF font", "typeface")
         }
         group("Theme & colours") {
-            other("App theme", "Light, dark or follow Windows", "dark mode light mode")
             other("Colour palette", keywords = "color accent")
             other("Dynamic theme", "Colours from the playing song's artwork", "liquidify")
         }
@@ -123,7 +122,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("IOS", keywords = "stream client extractor")
         }
         group("Lyrics source order") {
-            row("Spicy Lyrics publishable key", "Synced lyrics for YouTube Music using matching Spotify recordings", "spicy api token key")
+            row("Spicy Lyrics key override (optional)", "Works automatically with Auralis's included publishable key", "spicy api token key")
             row("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.", "providers")
         }
     }

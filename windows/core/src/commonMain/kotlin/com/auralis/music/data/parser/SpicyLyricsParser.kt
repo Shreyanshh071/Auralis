@@ -34,6 +34,13 @@ object SpicyLyricsParser {
             "spotify" -> credits += LyricsCredit("Spotify", "https://open.spotify.com/track/${recording.id}")
             else -> credits += LyricsCredit("Unknown lyrics source", "")
         }
+        val songwriters = body.optJSONArray("SongWriters")
+        if (songwriters != null) {
+            val names = (0 until songwriters.length()).mapNotNull { index ->
+                (songwriters.opt(index) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+            }.distinct()
+            if (names.isNotEmpty()) credits += LyricsCredit("Written by ${names.joinToString(", ")}", "")
+        }
         val lines = mutableListOf<LyricLine>()
         val type = body.optString("Type")
         val content = body.optJSONArray(if (type == "Static") "Lines" else "Content") ?: return null

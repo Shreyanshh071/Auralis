@@ -25,8 +25,9 @@ internal class SidebarNotchShape(private val radius: Dp, private val notchWidth:
         val nw = with(density) { notchWidth.toPx() }.coerceIn(0f, w)
         val nh = with(density) { notchHeight.toPx() }.coerceIn(0f, (h - 2 * r).coerceAtLeast(0f))
         if (nw <= 0.5f || nh <= 0.5f) return Outline.Rounded(RoundRect(0f, 0f, w, h, CornerRadius(r)))
-        // The card spans (nearly) the whole width: no lobe beside it, just a shorter panel.
-        if (w - nw < 2 * r + 1f) return Outline.Rounded(RoundRect(0f, 0f, w, h - nh, CornerRadius(r)))
+        // Only a truly full-width card removes the side tile. For a narrow remainder,
+        // shrink its corners instead of discarding the tile and leaving an empty gap.
+        if (w - nw <= .5f) return Outline.Rounded(RoundRect(0f, 0f, w, h - nh, CornerRadius(r)))
         val lobe = minOf(r, (w - nw) / 2f, nh / 2f) // corner of the part beside the card
         val inner = minOf(r, nw / 2f, nh - lobe)     // the concave corner above the card's right edge
         val top = h - nh                             // where the card's gap begins
@@ -34,8 +35,8 @@ internal class SidebarNotchShape(private val radius: Dp, private val notchWidth:
             moveTo(r, 0f)
             lineTo(w - r, 0f)
             arcTo(Rect(w - 2 * r, 0f, w, 2 * r), -90f, 90f, false)
-            lineTo(w, h - r)
-            arcTo(Rect(w - 2 * r, h - 2 * r, w, h), 0f, 90f, false)
+            lineTo(w, h - lobe)
+            arcTo(Rect(w - 2 * lobe, h - 2 * lobe, w, h), 0f, 90f, false)
             lineTo(nw + lobe, h)
             arcTo(Rect(nw, h - 2 * lobe, nw + 2 * lobe, h), 90f, 90f, false)
             lineTo(nw, top + inner)

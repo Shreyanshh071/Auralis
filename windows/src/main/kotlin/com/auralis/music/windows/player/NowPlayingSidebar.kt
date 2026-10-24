@@ -50,9 +50,10 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
     }) {
         val state by lyrics.state.collectAsState()
         val playerState by playback.state.collectAsState()
+        val remote by playback.connectRemote.collectAsState()
         val position = com.auralis.music.ui.lyrics.rememberLyricsClock(playback.clock,
-            enabled = playerState == VlcAudioPlayer.State.PLAYING,
-            fallbackPositionMs = playback.positionMs.collectAsState())
+            enabled = remote?.playing ?: (playerState == VlcAudioPlayer.State.PLAYING),
+            fallbackPositionMs = rememberShownPosition(playback, remote))
         key(track.id) {
             if (state.lyrics == null && state.isLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White.copy(alpha = .7f), modifier = Modifier.size(24.dp))

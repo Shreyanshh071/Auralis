@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,11 +58,15 @@ fun SearchSuggestionsList(
     onPlayNext: (Track) -> Unit,
     onAddToQueue: (Track) -> Unit,
     onMenuClick: (Track) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Popups wrap their rows; the full search page still fills its viewport. */
+    fillAvailableHeight: Boolean = true
 ) {
-    val animateItems = !LocalReducedMotion.current
+    // The compact popup already animates its enclosing surface. A second placement
+    // spring makes rows chase the resizing panel and feels like input lag.
+    val animateItems = fillAvailableHeight && !LocalReducedMotion.current
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxWidth().then(if (fillAvailableHeight) Modifier.fillMaxHeight() else Modifier),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {

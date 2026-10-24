@@ -135,6 +135,21 @@ class DesktopPlaybackController(
 
     /** Where a song loaded silently by Connect starts when play is pressed. */
     @Volatile private var pendingResumeMs: Long? = null
+    private data class ResumeAnchor(val trackId: String, val positionMs: Long, val atNanos: Long)
+    @Volatile private var resumeAnchor: ResumeAnchor? = null
+
+    private fun resumePosition(): Long? {
+        val anchor = resumeAnchor ?: return pendingResumeMs
+        if (anchor.trackId != _queue.value.current?.id) { resumeAnchor = null; return pendingResumeMs }
+        val reached = lengthTrackId.value == anchor.trackId &&
+            player.state.value == VlcAudioPlayer.State.PLAYING &&
+            kotlin.math.abs(player.clock.rawPositionMs() - anchor.positionMs) < 1_500L
+        if (reached || System.nanoTime() - anchor.atNanos > 20_000_000_000L) {
+            resumeAnchor = null
+            return pendingResumeMs
+        }
+        return anchor.positionMs
+    }
 
     /** Connect: replaces the queue; starts at [positionMs] when [play], otherwise waits silently there. */
     fun connectLoad(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean) {
@@ -158,9 +173,11 @@ class DesktopPlaybackController(
     /** Connect: stop making sound now (also stops a song that is still being fetched from starting). */
     fun connectSilence() {
         if (loadJob?.isActive == true) {
+            val position = resumePosition() ?: player.clock.rawPositionMs()
             loadJob?.cancel()
             _resolving.value = false
-            pendingResumeMs = player.positionMs.value.takeIf { it > 0L } ?: pendingResumeMs ?: 0L
+            pendingResumeMs = position.coerceAtLeast(0L)
+            resumeAnchor = null
         }
         if (player.state.value == VlcAudioPlayer.State.PLAYING || player.state.value == VlcAudioPlayer.State.BUFFERING) player.pause()
     }
@@ -240,10 +257,10 @@ class DesktopPlaybackController(
     }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 0L)
     /** Smooth playback clock for word-synced lyrics. */
     val clock: com.auralis.music.data.service.PlaybackClockSource = object : com.auralis.music.data.service.PlaybackClockSource {
-        override fun rawPositionMs(): Long = _connectRemote.value?.positionAt(System.currentTimeMillis()) ?: player.clock.rawPositionMs()
-        override fun isPlaying(): Boolean = _connectRemote.value?.let { it.playing && !it.buffering } ?: player.clock.isPlaying()
+        override fun rawPositionMs(): Long = _connectRemote.value?.positionAt(System.currentTimeMillis()) ?: resumePosition() ?: player.clock.rawPositionMs()
+        override fun isPlaying(): Boolean = _connectRemote.value?.let { it.playing && !it.buffering } ?: (resumePosition() == null && player.clock.isPlaying())
         override fun speed(): Float = if (_connectRemote.value != null) 1f else player.clock.speed()
-        override fun isBuffering(): Boolean = _connectRemote.value?.buffering ?: player.clock.isBuffering()
+        override fun isBuffering(): Boolean = _connectRemote.value?.buffering ?: ((resumePosition() != null && pendingResumeMs == null) || player.clock.isBuffering())
     }
     @Volatile var preloadNext: Boolean = true
     fun setRate(rate: Float) = player.setRate(rate)
@@ -380,6 +397,7 @@ class DesktopPlaybackController(
 
     fun seekTo(ms: Long) {
         if (intercepted("seek", position = ms) || connect(com.auralis.music.data.connect.ConnectIntent.Seek(ms.coerceAtLeast(0L)))) return
+        resumeAnchor?.let { resumeAnchor = it.copy(positionMs = ms.coerceAtLeast(0L), atNanos = System.nanoTime()) }
         if (pendingResumeMs != null && player.state.value == VlcAudioPlayer.State.IDLE) pendingResumeMs = ms.coerceAtLeast(0L) else player.seekTo(ms)
     }
 
@@ -431,7 +449,7 @@ class DesktopPlaybackController(
         consecutiveFailures = 0
         pendingResumeMs = null
         val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
-        load(withCurrentHeard.copy(index = index))
+        load(withCurrentHeard.copy(index = index), jumpWithinQueue = true)
     }
 
     /** Removes a song that isn't the one playing. */
@@ -488,17 +506,21 @@ class DesktopPlaybackController(
         return requested.index > current.index + 1
     }
 
-    private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
+    private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false, jumpWithinQueue: Boolean = false) {
         val current = _queue.value
-        // Retain unplayed songs only when jumping ahead by 2 or more tracks over unheard songs.
+        // Retain unplayed songs only when jumping ahead by 2 or more tracks over unheard songs in
+        // the queue itself. A song started from a list is a new queue in that list's order: judged
+        // by length alone, picking the 27th song of the 100-song playlist already playing moved the
+        // first 26 after it, so "next" became the playlist's first song.
         // Sequential advancement (next, finished) and stepping back (previous) never reorder tracks.
-        val q = if (roomControl == null && shouldRetainUnplayed(current, requested)) requested.retainUnplayed() else requested
+        val q = if (jumpWithinQueue && roomControl == null && shouldRetainUnplayed(current, requested)) requested.retainUnplayed() else requested
         val track = q.current ?: return
         if (!isRetry) startRequested = track.id to System.nanoTime()
         if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
         lengthTrackId.value = null
         _queue.value = q
+        resumeAnchor = resumeAtMs.takeIf { it > 0L }?.let { ResumeAnchor(track.id, it, System.nanoTime()) }
         autoRadio.queueChanged()
         loadJob?.cancel()
         preloadJob?.cancel()
@@ -541,7 +563,8 @@ class DesktopPlaybackController(
                 player.setVolume(_volume.value)
                 currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
-                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), resumeAtMs, track.id)
+                val startAt = resumeAnchor?.takeIf { it.trackId == track.id }?.positionMs ?: resumeAtMs
+                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), startAt, track.id)
                 lengthTrackId.value = track.id
                 if (localAudio == null) watchForStall(track)
                 if (preloadNext && q.hasNext) {

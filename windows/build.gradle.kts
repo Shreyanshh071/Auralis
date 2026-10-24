@@ -23,6 +23,10 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// The full runtime also supplies GeneratedMessageLite for NewPipe. Keeping both jars loads
+// incompatible duplicate well-known types (e.g. Timestamp) when Firestore starts its stream.
+configurations.configureEach { exclude(group = "com.google.protobuf", module = "protobuf-javalite") }
+
 dependencies {
     testImplementation(kotlin("test"))
     implementation(project(":windows-core"))
@@ -35,6 +39,9 @@ dependencies {
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
     implementation(libs.org.json)
+    implementation("com.google.api.grpc:grpc-google-cloud-firestore-v1:3.33.0")
+    implementation("io.grpc:grpc-netty-shaded:1.71.0")
+    testImplementation("io.grpc:grpc-inprocess:1.71.0")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
     implementation("net.java.dev.jna:jna-jpms:5.14.0")

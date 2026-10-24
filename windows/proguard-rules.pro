@@ -18,6 +18,10 @@
 -keep class org.mozilla.javascript.** { *; }
 -keep class org.mozilla.classfile.** { *; }
 -keep class com.google.protobuf.** { *; }
+-keep class com.google.firestore.v1.** { *; }
+-keep class io.grpc.** { *; }
+-keep class * implements io.grpc.ManagedChannelProvider { *; }
+-keep class * implements io.grpc.NameResolverProvider { *; }
 -keep class org.jsoup.** { *; }
 -keep class com.grack.nanojson.** { *; }
 

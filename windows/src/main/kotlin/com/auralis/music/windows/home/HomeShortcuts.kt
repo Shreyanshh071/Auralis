@@ -69,10 +69,21 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                 var artistMenu by remember { mutableStateOf(false) }
                 val artist = FamiliarArtist(item.name, 0, item.id, item.image)
                 val menu = { if (item.type == SpeedDialType.ARTIST && artistActions != null) artistMenu = true else onMenu(item) }
+                val playlist = playlistCovers[item.album?.id ?: item.id.removePrefix("playlist-")]
+                    ?: playlistCovers["local:${item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")}"]
+                    ?: playlistCovers[item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")]
                 Box((if (sidebar) Modifier.fillMaxWidth() else Modifier.width(292.dp)).height(if (sidebar) 56.dp else 64.dp).clip(RoundedCornerShape(12.dp))
                     .secondaryClick(menu).clickable { open(item) }) {
+                    // A library playlist's aura follows its current cover (a custom one included), not
+                    // the image saved when it was pinned.
                     ArtworkAura(com.auralis.music.ui.theme.DefaultArtworkPalette, Modifier.matchParentSize(),
-                        item.image ?: item.track?.thumbnail, AuraPresentation.SHORTCUT)
+                        playlist?.coverUrl?.takeIf { it.isNotBlank() } ?: playlist?.tracks?.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                            ?: item.image ?: item.track?.thumbnail, AuraPresentation.SHORTCUT,
+                        fallbackArtworks = remember(playlist, item.image, item.track?.thumbnail) {
+                            (listOfNotNull(item.image, item.track?.thumbnail) +
+                                playlist?.tracks.orEmpty().mapNotNull { it.thumbnail }.distinct().take(4))
+                                .filter { it.isNotBlank() }.distinct()
+                        })
                     val photoSize = if (sidebar) 44.dp else 48.dp
                     val startPad = if (collapsed) 0.dp else (if (sidebar) 6.dp else 8.dp)
                     Row(
@@ -80,9 +91,6 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.Start
                     ) {
-                        val playlist = playlistCovers[item.album?.id ?: item.id.removePrefix("playlist-")]
-                            ?: playlistCovers["local:${item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")}"]
-                            ?: playlistCovers[item.id.removePrefix("album-local:").removePrefix("album-").removePrefix("local:")]
                         if (playlist != null) Box(Modifier.size(photoSize).clip(RoundedCornerShape(8.dp))) {
                             com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 8.dp)
                         } else ShortcutPhoto(item, photoSize.value.toInt())

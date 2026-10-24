@@ -55,10 +55,22 @@ object DesktopArtworkRenderer : ArtworkRenderer {
     }
 
     fun request(context: PlatformContext, resolved: String, sizePx: Int, crossfade: Boolean, placeholderKey: String? = null) =
-        ImageRequest.Builder(context).data(resolved).size(sizePx)
+        ImageRequest.Builder(context).data(model(resolved)).size(sizePx)
             .crossfade(crossfade)
+            .apply { if (resolved.startsWith("data:")) memoryCacheKey("data-uri:${resolved.hashCode()}:${resolved.length}:$sizePx") }
             .apply { if (placeholderKey != null && placeholderKey != resolved) placeholderMemoryCacheKey(placeholderKey) }
             .build()
+
+    /**
+     * A cover embedded in the data itself (`data:image/jpeg;base64,...`, as a custom playlist cover
+     * synced from the phone is stored) has no loader in Coil and showed the music note. Hand it over
+     * as its decoded bytes; anything else is a URL or a path.
+     */
+    fun model(resolved: String): Any = if (resolved.startsWith("data:")) decodeDataUri(resolved) ?: resolved else resolved
+
+    fun decodeDataUri(uri: String): ByteArray? =
+        if (!uri.startsWith("data:") || !uri.substringBefore(',').endsWith(";base64")) null
+        else runCatching { java.util.Base64.getMimeDecoder().decode(uri.substringAfter(',')) }.getOrNull()
 
     @Composable
     override fun Draw(
@@ -97,14 +109,15 @@ object DesktopArtworkRenderer : ArtworkRenderer {
     }
 
     @Composable
-    override fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier) {
+    override fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier, alignment: Alignment) {
         val context = LocalPlatformContext.current
         AsyncImage(
             model = remember(url, crossfade) {
-                ImageRequest.Builder(context).data(url).crossfade(crossfade).build()
+                ImageRequest.Builder(context).data(model(url)).crossfade(crossfade).build()
             },
             contentDescription = contentDescription,
             contentScale = contentScale,
+            alignment = alignment,
             modifier = modifier
         )
     }

@@ -69,7 +69,8 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
         connect?.pickerOpen = expanded
         onDispose { connect?.pickerOpen = false }
     }
-    com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, frosted = true) {
+    // Opens on top of the device button it belongs to, not off to one side over the title.
+    com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, frosted = true, aboveAnchor = true) {
         com.auralis.music.windows.GlassDropdownMenuHeader(desktopText("Connect to a device"))
         val ui = connect?.ui?.collectAsState()?.value
         if (ui == null || !ui.enabled) {
@@ -86,7 +87,7 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
         if (status != null) Text(status, style = MaterialTheme.typography.bodySmall,
             color = if (t?.failed == true) Color(0xFFFF8A80) else ConnectAccent,
             modifier = Modifier.widthIn(max = 300.dp).padding16(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        ui.devices.forEach { row ->
+        ui.devices.filter { it.isThis || it.state != ConnectRowState.UNAVAILABLE }.forEach { row ->
             val subtitle = when {
                 row.state == ConnectRowState.CONNECTING -> desktopText("Connecting…")
                 row.state == ConnectRowState.FAILED -> desktopText("Couldn't connect. Tap to try again.")
@@ -133,7 +134,7 @@ private fun Modifier.padding16() = this.padding(horizontal = 16.dp, vertical = 4
 
 /** The bar's "Playing on …" line (opens the picker), shown while another device has the audio. */
 @Composable
-fun ConnectOutputLabel(onOpen: () -> Unit) {
+fun ConnectOutputLabel(showIcon: Boolean = true, interactive: Boolean = true, onOpen: () -> Unit) {
     val ui = DesktopConnect.current?.ui?.collectAsState()?.value ?: return
     val t = ui.transfer
     val text = when {
@@ -141,9 +142,12 @@ fun ConnectOutputLabel(onOpen: () -> Unit) {
         else -> connectOutputLine(ui.output)
     } ?: return
     val type = ui.output?.takeIf { t == null }?.type ?: ui.devices.firstOrNull { it.device.id == t?.deviceId }?.device?.type ?: ConnectDeviceType.COMPUTER
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onOpen)) {
-        Icon(connectIcon(type), null, Modifier.size(14.dp), tint = ConnectAccent)
-        Spacer(Modifier.width(5.dp))
+    Row(verticalAlignment = Alignment.CenterVertically,
+        modifier = if (interactive) Modifier.clickable(onClick = onOpen) else Modifier) {
+        if (showIcon) {
+            Icon(connectIcon(type), null, Modifier.size(14.dp), tint = ConnectAccent)
+            Spacer(Modifier.width(5.dp))
+        }
         Text(text, style = MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

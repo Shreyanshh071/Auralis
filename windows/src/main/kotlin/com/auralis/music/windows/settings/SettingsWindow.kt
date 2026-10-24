@@ -601,6 +601,13 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     val prefs=DesktopPreferences.store;val revision by prefs.changes.collectAsState()
     Text("Auralis · ${DesktopReleaseCheck.version}",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
     Text(desktopText("Auralis for Windows · Compose Multiplatform · VLC"))
+    SettingsGroup("Credits") {
+        TextButton({ java.awt.Desktop.getDesktop().browse(java.net.URI("https://github.com/Spikerko/spicy-lyrics")) }) {
+            Text(desktopText("Animation inspired by Spicy Lyrics"))
+        }
+        Text(desktopText("Lyrics providers and community contributors are credited alongside the lyrics they supply."),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     SettingsGroup("Updates") {
         SettingToggle("Include prereleases",checked=prefs.bool("betaUpdates"),onChecked={prefs.set("betaUpdates",it)})
         Button({busy=true;scope.launch {runCatching {withContext(Dispatchers.IO) {DesktopReleaseCheck.check(prefs.bool("betaUpdates"))}}.onSuccess {message=it.first;url=it.second}.onFailure {message=it.message.orEmpty()};busy=false}},enabled=!busy) {Text(desktopText(if(busy) "Checking…" else "Check for updates"))}

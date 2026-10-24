@@ -99,6 +99,16 @@ object LyricsValidator {
     }
 
     /**
+     * The first sung line carries genuine word timing: at least two words whose starts move
+     * forward through the line, rather than a line stamped at 0 with no timing inside it.
+     */
+    fun opensWithTimedWords(lyricsData: LyricsData?): Boolean {
+        val first = lyricsData?.lines?.firstOrNull { !it.isInstrumental && it.text.isNotBlank() } ?: return false
+        val starts = first.words.orEmpty().filter { it.word.isNotBlank() }.map { it.time }
+        return starts.size >= 2 && starts.zipWithNext().all { (a, b) -> b >= a } && starts.last() - starts.first() >= 300L
+    }
+
+    /**
      * Detects broken word timestamps within a line or lines supplied out of order.
      * Two lead lines may overlap (a refrain sung over another phrase), so the next
      * line's first word need not follow the previous line's last word.

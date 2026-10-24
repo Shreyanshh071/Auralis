@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -214,7 +216,8 @@ fun FindMusicDropdown(
                 }
                 // Use the already cached cover for the frosted backdrop. GPU readback of the
                 // whole window here stalled the event thread before the first popup frame.
-                SearchDropdownSurface(liquidify, artwork, glass = bar, modifier = Modifier.width(if (bar) 620.dp else 480.dp).height(460.dp)
+                SearchDropdownSurface(liquidify, artwork, glass = bar, modifier = Modifier.width(if (bar) 620.dp else 480.dp)
+                    .heightIn(max = 460.dp)
                     .then(Modifier.graphicsLayer {
                         // Make the very first painted frame visible, before the frame clock
                         // begins advancing the rest of the fade.
@@ -224,14 +227,15 @@ fun FindMusicDropdown(
                         scaleY = scaleX
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (bar) .5f else 1f, 0f)
                     })) {
-                    Column(Modifier.fillMaxSize().padding(top = if (bar) 8.dp else 4.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(top = if (bar) 8.dp else 4.dp)) {
                         if (!bar) SearchBar(state.query, state::onQueryChange, { submit(state.query) }, state::clear, focus,
                             Modifier.fillMaxWidth().padding(12.dp))
-                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                        Box(Modifier.fillMaxWidth()) {
                             SuggestionsOrRecent(state, currentTrackId, isPlaying,
                                 onPlay = { track, tracks -> dismiss(); onPlay(track, tracks) },
                                 onPlayNext = onPlayNext, onAddToQueue = onAddToQueue,
-                                onMenuClick = { dismiss(); onMenuClick(it) }, onSearch = ::submit)
+                                onMenuClick = { dismiss(); onMenuClick(it) }, onSearch = ::submit,
+                                fillAvailableHeight = false)
                         }
                     }
                 }
@@ -250,8 +254,18 @@ internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifie
     glass: Boolean = false,
     content: @Composable () -> Unit) {
     val light = MaterialTheme.colorScheme.onSurface.luminance() < .5f
+    val reducedMotion = com.auralis.music.ui.theme.LocalReducedMotion.current
     com.auralis.music.windows.LiquidPopupSurface(modifier,
-        tint = if (light) Color.White.copy(alpha = .42f) else Color(0xFF101010).copy(alpha = .38f), content = content)
+        tint = if (light) Color.White.copy(alpha = .42f) else Color(0xFF101010).copy(alpha = .38f)) {
+        // Animate the measured content inside the glass. Animating outside it made
+        // the glass/border jump to their final size and merely clipped them open.
+        // A spring also carries velocity when text suggestions and songs arrive apart.
+        Box(Modifier.fillMaxWidth().animateContentSize(animationSpec = if (reducedMotion)
+            androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(
+                dampingRatio = 1f, stiffness = 650f), alignment = Alignment.TopStart)) {
+            content()
+        }
+    }
 }
 
 /** The Windows pieces of the shared search UI. Text is English until the app's translations are shared. */
@@ -396,11 +410,15 @@ private fun SuggestionsOrRecent(
     onPlayNext: (com.auralis.music.domain.model.Track) -> Unit,
     onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit,
     onMenuClick: (com.auralis.music.domain.model.Track) -> Unit,
-    onSearch: (String) -> Unit = { state.search(it) }
+    onSearch: (String) -> Unit = { state.search(it) },
+    fillAvailableHeight: Boolean = true
 ) {
     val recent by state.recentQueries.collectAsState(initial = emptyList())
     if (state.query.isBlank() && recent.isEmpty()) {
-        CenteredMessage("Search for songs, albums and artists")
+        if (fillAvailableHeight) CenteredMessage("Search for songs, albums and artists")
+        else Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), contentAlignment = Alignment.Center) {
+            Text(desktopText("Search for songs, albums and artists"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+        }
         return
     }
     CompositionLocalProvider(LocalSearchUi provides DesktopSearchUi) {
@@ -409,6 +427,7 @@ private fun SuggestionsOrRecent(
             suggestions = state.suggestions,
             liveSongs = state.liveSongs,
             recentQueries = recent,
+            fillAvailableHeight = fillAvailableHeight,
             currentTrackId = currentTrackId,
             isPlaying = isPlaying,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),

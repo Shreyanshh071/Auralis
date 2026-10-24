@@ -28,7 +28,6 @@ internal fun DesktopThemesAndColours(onBack: () -> Unit) {
     }
     SettingsPage("Themes and colours", onBack) {
         item { ThemeColourPreview() }
-        item { ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } } }
         item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
         item { Text(desktopText("Artwork backgrounds follow the current song in every theme. When the player is empty, an open playlist uses its cover."),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }

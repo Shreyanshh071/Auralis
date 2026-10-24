@@ -20,28 +20,45 @@ import kotlin.test.*
 class LyricsCreditsTest {
     @Test fun cachedProvidersWithoutCreditMetadataStillIdentifyTheirSource() {
         val unison = LyricsData(SyncType.LINE_SYNC, listOf(LyricLine(0, "Test")), provider = LyricsProvider.UNISON)
-        assertEquals("Lyrics · Unison", com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison).single().label)
+        assertEquals("Lyrics from Unison", com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison).single().label)
         val supplied = listOf(LyricsCredit("Apple Music", "https://music.apple.com"))
-        assertEquals(supplied, com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison.copy(provider = LyricsProvider.SPICY_LYRICS, credits = supplied)))
+        assertEquals(listOf(LyricsCredit("Lyrics from Apple Music", "https://music.apple.com"),
+            LyricsCredit("via Spicy Lyrics", "https://spicylyrics.org")),
+            com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison.copy(provider = LyricsProvider.SPICY_LYRICS, credits = supplied)))
         assertTrue(com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(null).isEmpty())
         assertTrue(com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison.copy(provider = LyricsProvider.SPICY_LYRICS)).single().label.contains("Unknown source"))
+    }
+    @Test fun communityCreditsKeepEverySuppliedContributorAndLink() {
+        val credits = listOf(LyricsCredit("Spicy Lyrics", "https://spicylyrics.org"),
+            LyricsCredit("Uploaded by uploader", "https://spicylyrics.org/uid/123"),
+            LyricsCredit("Made by maker", "https://spicylyrics.org/uid/456"))
+        val data = LyricsData(SyncType.LINE_SYNC, listOf(LyricLine(0, "Test")),
+            provider = LyricsProvider.SPICY_LYRICS, credits = credits)
+        val displayed = com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(data)
+        assertEquals("Lyrics from Spicy Lyrics", displayed.first().label)
+        assertEquals(credits.map { it.url }, displayed.map { it.url })
+        assertEquals(credits.drop(1), displayed.drop(1))
     }
     @Test fun longCreditsWrapInsideReservedFooterAndSurviveLyricChanges() {
         val lyric = mutableStateOf("First lyric")
         val data = LyricsData(SyncType.PLAIN, emptyList(), provider = LyricsProvider.SPICY_LYRICS,
             credits = listOf(LyricsCredit("Spicy Lyrics", "https://spicylyrics.org"),
                 LyricsCredit("Uploaded by a-long-contributor-name", "https://spicylyrics.org/uid/123"),
-                LyricsCredit("Made by another-contributor", "https://spicylyrics.org/uid/456")))
+                LyricsCredit("Made by another-contributor", "https://spicylyrics.org/uid/456"),
+                LyricsCredit("Written by Song Writer", "")))
         for (width in listOf(320, 900)) {
             var footerHeight = 0
             var footerWidth = 0
             val scene = ImageComposeScene(width, 300, coroutineContext = Dispatchers.Unconfined) {
                 MaterialTheme {
+                    androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.theme.LocalAppearanceSettings provides
+                        AppearanceSettings(lyricsAnimation = LyricsAnimationMode.SPICY_LYRICS.displayName)) {
                     Column(Modifier.fillMaxSize().background(Color(0xFF763122)).padding(12.dp)) {
                         Box(Modifier.weight(1f)) { Text(lyric.value, color = Color.White) }
                         LyricsCredits(data, Modifier.onGloballyPositioned {
                             footerWidth = it.size.width; footerHeight = it.size.height
                         })
+                    }
                     }
                 }
             }
