@@ -23,6 +23,9 @@ data class AppearanceSettings(
     val playerBackgroundStyle: String = "Blur",
     val hidePlayerThumbnail: Boolean = false,
     val cropAlbumArt: Boolean = true,
+    val animatedCovers: Boolean = true,
+    val animatedCoverSource: String = "AUTO",
+    val animatedCoversWifiOnly: Boolean = false,
     val playerButtonColors: String = "Default",
     val playerSliderStyle: String = "Wavy",
     val showDownloadButton: Boolean = true,
@@ -62,7 +65,7 @@ data class AppearanceSettings(
     val showUploadedPlaylist: Boolean = true
 ) {
     val shouldUseExperimentalLyrics: Boolean
-        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation) == LyricsAnimationMode.METRO_LYRICS
+        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation) in setOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.SPICY_LYRICS)
 }
 
 enum class LyricsAnimationMode(val displayName: String) {
@@ -72,7 +75,8 @@ enum class LyricsAnimationMode(val displayName: String) {
     GLOW("Glow"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
     LYRICS_V2_FLUID("Lyrics V2 (Fluid)"),
-    METRO_LYRICS("MetroLyrics");
+    METRO_LYRICS("MetroLyrics"),
+    SPICY_LYRICS("Spicy Lyrics");
 
     companion object {
         fun fromDisplayName(name: String?): LyricsAnimationMode {
@@ -83,6 +87,7 @@ enum class LyricsAnimationMode(val displayName: String) {
                     name.contains("letter", ignoreCase = true) || name.contains("apple_v2", ignoreCase = true) -> APPLE_MUSIC_V2
                     name.contains("lyrics_v2", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("vivi", ignoreCase = true) -> LYRICS_V2_FLUID
+                    name.contains("spicy", ignoreCase = true) -> SPICY_LYRICS
                     name.contains("metro", ignoreCase = true) -> METRO_LYRICS
                     name.contains("glow", ignoreCase = true) -> GLOW
                     name.contains("apple", ignoreCase = true) -> GLOW

@@ -457,6 +457,9 @@ fun ClassicPlayerView(
                                     contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
                                     modifier = Modifier.fillMaxSize()
                                 )
+                                if (pageTrack.id == uiState.currentTrack?.id) {
+                                    AnimatedCover(pageTrack, uiState.isPlaying, Modifier.fillMaxSize())
+                                }
                             }
                         }
                     }
@@ -481,6 +484,7 @@ fun ClassicPlayerView(
                             contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
+                        AnimatedCover(displayedTrack, uiState.isPlaying, Modifier.fillMaxSize())
                     }
                 }
             } else {

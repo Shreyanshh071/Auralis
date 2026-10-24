@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.HideImage
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Palette
@@ -420,6 +421,46 @@ fun AppearanceScreen(
                     )
                 }
 
+                item(key = "animated_covers") {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.Image,
+                        title = "Animated covers",
+                        subtitle = "Loop motion artwork when available",
+                        isChecked = settings.animatedCovers,
+                        primaryColor = primaryColor, surfaceColor = surfaceColor,
+                        onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant, onPrimary = onPrimary,
+                        outline = outline, surfaceVariant = surfaceVariant,
+                        onCheckedChange = { update { copy(animatedCovers = it) } }
+                    )
+                }
+                if (settings.animatedCovers) {
+                    item(key = "animated_cover_source") {
+                        AppearanceClickableItem(
+                            icon = Icons.Default.Image,
+                            title = "Animated cover source",
+                            subtitle = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
+                            primaryColor = primaryColor, surfaceColor = surfaceColor,
+                            onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
+                            outlineVariant = outlineVariant,
+                            onClick = { activeDialog = AppearanceDialogType.ANIMATED_COVER_SOURCE }
+                        )
+                    }
+                    item(key = "animated_covers_wifi") {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.Image,
+                        title = "Load animated covers on Wi-Fi only",
+                        subtitle = "Keep still artwork when using mobile data",
+                        isChecked = settings.animatedCoversWifiOnly,
+                        primaryColor = primaryColor, surfaceColor = surfaceColor,
+                        onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
+                        outlineVariant = outlineVariant, onPrimary = onPrimary,
+                        outline = outline, surfaceVariant = surfaceVariant,
+                        onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
+                    )
+                    }
+                }
+
                 // ════ 4. LYRICS ════
                 item(key = "hdr_lyrics") { AppearanceSectionHeader(title = str(R.string.lyrics), color = primaryColor) }
                 item(key = "item_lyrics_text_position") {
@@ -757,6 +798,19 @@ fun AppearanceScreen(
                 onDismiss = { activeDialog = null }
             )
         }
+        AppearanceDialogType.ANIMATED_COVER_SOURCE -> {
+            val sources = com.auralis.music.ui.player.CanvasSource.entries
+            AppearanceOptionsDialog(
+                title = "Animated cover source",
+                options = sources.map { it.label },
+                selectedOption = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
+                onSelect = { label ->
+                    update { copy(animatedCoverSource = sources.first { it.label == label }.name) }
+                    activeDialog = null
+                },
+                onDismiss = { activeDialog = null }
+            )
+        }
         AppearanceDialogType.PLAYER_SLIDER_STYLE -> {
             PlayerSliderStyleChooserDialog(
                 selectedStyle = settings.playerSliderStyle,
@@ -978,6 +1032,7 @@ private enum class AppearanceDialogType {
     PLAYER_BG,
     PLAYER_BUTTON_COLORS,
     PLAYER_SLIDER_STYLE,
+    ANIMATED_COVER_SOURCE,
     MINI_PLAYER_SENSITIVITY,
     LYRICS_TEXT_POSITION,
     LYRICS_ANIMATION,

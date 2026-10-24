@@ -78,6 +78,7 @@ internal fun AmbientArtworkPager(
             ImageRequest.Builder(context).data(track?.thumbnail?.let { getHighResArtworkUrl(it) })
                 .size(600, 600).allowHardware(true).crossfade(true).build()
         }
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp))) {
         AsyncImage(
             model = request,
             contentDescription = track?.title,
@@ -89,5 +90,14 @@ internal fun AmbientArtworkPager(
                 alpha = 1f - offset * 0.70f
             }.clip(RoundedCornerShape(18.dp)).background(Color.Black.copy(alpha = 0.35f))
         )
+        if (track?.id == uiState.currentTrack?.id) {
+            AnimatedCover(track, uiState.isPlaying, Modifier.fillMaxSize().graphicsLayer {
+                val offset = abs((pager.currentPage - page) + pager.currentPageOffsetFraction).coerceIn(0f, 1f)
+                scaleX = 1f - offset * 0.15f
+                scaleY = scaleX
+                alpha = 1f - offset * 0.70f
+            }.clip(RoundedCornerShape(18.dp)))
+        }
+        }
     }
 }
