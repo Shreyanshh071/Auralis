@@ -5,6 +5,10 @@
     Optional gradle test filter pattern (e.g. "*SidebarLyricsCollapseTest*").
 .PARAMETER SkipTests
     Skip running tests before updating.
+.PARAMETER NoLaunch
+    Leave the updated app closed so an offline settings change can be applied before launch.
+.PARAMETER SkipStartupCache
+    Skip optional Java class archive generation; the app can generate it after launch.
 .PARAMETER Note
     A short description/name for the backup checkpoint.
 #>
@@ -12,6 +16,8 @@ param(
     [string]$TestFilter = "",
     [switch]$SkipTests,
     [switch]$ClearArtworkCache,
+    [switch]$NoLaunch,
+    [switch]$SkipStartupCache,
     [string]$Note = "auto"
 )
 
@@ -62,7 +68,10 @@ if (Test-Path $appDataDir) {
     $backupDir = "$backupBaseDir\before-$cleanNote-$timestamp\Auralis"
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
     Write-Host "==> Backing up user data to $backupDir..." -ForegroundColor Cyan
-    Copy-Item -Path "$appDataDir\*" -Destination $backupDir -Recurse -Force
+    # Lyrics are a refetchable cache with a hard provider retention limit, not backup data.
+    Get-ChildItem -LiteralPath $appDataDir | Where-Object { $_.Name -ne 'lyrics' } | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $backupDir -Recurse -Force
+    }
     $backupCount = (Get-ChildItem -Path $backupDir -Recurse -File).Count
     Write-Host "    Preserved $backupCount data files." -ForegroundColor Green
 }
@@ -118,7 +127,7 @@ Write-Host "    Saved account connections preserved." -ForegroundColor Green
 $appDir = "$appLocalDir\app"
 $archiveName = (Select-String -LiteralPath $appCfg -Pattern '-Dauralis\.cdsArchive=(\S+)').Matches | Select-Object -First 1 | ForEach-Object { $_.Groups[1].Value }
 $classList = "$appDir\auralis-classes.lst"
-if ($archiveName -and -not (Test-Path -LiteralPath "$appDir\$archiveName") -and (Test-Path -LiteralPath $classList) -and (Get-Item -LiteralPath $classList).Length -ge 200000) {
+if (-not $SkipStartupCache -and $archiveName -and -not (Test-Path -LiteralPath "$appDir\$archiveName") -and (Test-Path -LiteralPath $classList) -and (Get-Item -LiteralPath $classList).Length -ge 200000) {
     Write-Host "==> Building class archive $archiveName..." -ForegroundColor Cyan
     Get-ChildItem -LiteralPath $appDir -Filter 'auralis-cds-*.jsa*' | Where-Object { $_.Name -ne $archiveName } | ForEach-Object {
         $_.IsReadOnly = $false; Remove-Item -LiteralPath $_.FullName -Force
@@ -142,6 +151,10 @@ if ($archiveName -and -not (Test-Path -LiteralPath "$appDir\$archiveName") -and 
 }
 
 # 7. Launch Auralis
+if ($NoLaunch) {
+    Write-Host "==> Update complete. Launch skipped as requested." -ForegroundColor Green
+    exit 0
+}
 Write-Host "==> Launching $appExe on interactive desktop..." -ForegroundColor Cyan
 $shell = New-Object -ComObject "Shell.Application"
 $shell.ShellExecute($appExe, "", "", "open", 1)

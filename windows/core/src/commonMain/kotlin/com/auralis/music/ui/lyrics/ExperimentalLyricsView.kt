@@ -490,6 +490,8 @@ fun ExperimentalLyricsView(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val appearance = LocalAppearanceSettings.current
+    val spicyStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val lyricsAnchorRatio = if (spicyStyle) .48f else LYRICS_ANCHOR_RATIO
 
     val rawLines = lyrics?.lines.orEmpty()
     val effectiveLines = remember(rawLines) {
@@ -590,7 +592,7 @@ fun ExperimentalLyricsView(
     }
 
     // Continuous playback clock interpolator
-    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs) {
+    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs, spicyStyle) {
         if (effectiveLines.isEmpty()) {
             activeLineIndices = emptySet()
             return@LaunchedEffect
@@ -680,12 +682,13 @@ fun ExperimentalLyricsView(
                     activeLineIndices = forcedActive
                 }
             } else {
-                val initialActiveIndices = findExperimentalActiveLineIndices(effectiveLines, currentPos)
+                val initialActiveIndices = if (spicyStyle) SpicyLyricsPresentation.activeIndices(effectiveLines, currentPos)
+                    else findExperimentalActiveLineIndices(effectiveLines, currentPos)
 
                 // Expand to include paired lead/background lines
                 val newActiveIndices = initialActiveIndices.toMutableSet()
                 for (i in initialActiveIndices) {
-                    if (effectiveLines.getOrNull(i)?.isBackground == true) {
+                    if (!spicyStyle && effectiveLines.getOrNull(i)?.isBackground == true) {
                         for (j in i - 1 downTo 0) {
                             if (effectiveLines.getOrNull(j)?.isBackground == false) {
                                 newActiveIndices.add(j)
@@ -700,9 +703,12 @@ fun ExperimentalLyricsView(
                 }
 
                 val primaryLine = LyricsEngine.findActiveLyricIndex(effectiveLines, currentPos)
-                if (primaryLine != -1 && primaryLine != authoritativeTargetIndex) {
+                if (primaryLine != authoritativeTargetIndex) {
+                    // Before the first line (-1) the view must follow the intro too: a song change
+                    // seeds this from the previous song's end position, and keeping that through
+                    // the next song's intro left the new lyrics parked at their last lines.
                     authoritativeTargetIndex = primaryLine
-                    deferredCurrentLineIndex = primaryLine
+                    deferredCurrentLineIndex = primaryLine.coerceAtLeast(0)
                 }
             }
         }
@@ -756,7 +762,7 @@ fun ExperimentalLyricsView(
         isAutoScrollEnabled = appearance.autoScrollLyrics
     }
 
-    val activeListIndexState = remember(mergedLyricsList, hasWordTimings, isSynced) {
+    val activeListIndexState = remember(mergedLyricsList, hasWordTimings, isSynced, spicyStyle) {
         derivedStateOf {
             val isLineOnlyFallback = !hasWordTimings && isSynced
             val curPos = currentPositionState.longValue
@@ -777,8 +783,9 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
+                val scrollLine = if (spicyStyle) SpicyLyricsPresentation.scrollAnchor(effectiveLines, curPos, curIdx) else curIdx
                 val lineIdx = mergedLyricsList.indexOfFirst {
-                    it is ExperimentalLyricsListItem.Line && it.index == curIdx
+                    it is ExperimentalLyricsListItem.Line && it.index == scrollLine
                 }
                 if (lineIdx >= 0) lineIdx else 0
             }
@@ -794,7 +801,7 @@ fun ExperimentalLyricsView(
             val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIdx } ?: return@derivedStateOf false
             val viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
             if (viewportHeight <= 0) return@derivedStateOf false
-            val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
+            val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * lyricsAnchorRatio)
             val itemCenterY = item.offset + (item.size / 2f)
             kotlin.math.abs(itemCenterY - targetCenterY) < 100f
         }
@@ -828,7 +835,7 @@ fun ExperimentalLyricsView(
                 }
 
                 if (viewportHeight > 0) {
-                    val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * LYRICS_ANCHOR_RATIO)
+                    val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * lyricsAnchorRatio)
                     var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
                     if (itemInfo == null) {
                         val currentFirst = listState.firstVisibleItemIndex
@@ -879,7 +886,8 @@ fun ExperimentalLyricsView(
                                     val durationMs = (320 + kotlin.math.abs(scrollDelta) / density.density / 4f).toInt().coerceIn(320, 500)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
-                                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
+                                        animationSpec = if (spicyStyle) androidx.compose.animation.core.spring(dampingRatio = .82f, stiffness = 110f)
+                                            else tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
                                     )
                                 } else {
                                     listState.scrollBy(scrollDelta)
@@ -995,15 +1003,14 @@ fun ExperimentalLyricsView(
             }
     }
 
+    Column(modifier.fillMaxSize().padding(bottom = 12.dp)) {
     BoxWithConstraints(
         contentAlignment = Alignment.TopCenter,
-        modifier = modifier
-            .fillMaxSize()
-            .padding(bottom = 12.dp)
+        modifier = Modifier.weight(1f).fillMaxWidth()
     ) {
         val viewportHeight = maxHeight
-        val topPadding = (viewportHeight * LYRICS_ANCHOR_RATIO - 40.dp).coerceAtLeast(32.dp)
-        val bottomPadding = (viewportHeight * (1f - LYRICS_ANCHOR_RATIO) + 60.dp).coerceAtLeast(180.dp)
+        val topPadding = (viewportHeight * lyricsAnchorRatio - 40.dp).coerceAtLeast(32.dp)
+        val bottomPadding = (viewportHeight * (1f - lyricsAnchorRatio) + 60.dp).coerceAtLeast(180.dp)
 
         if (effectiveLines.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1069,7 +1076,7 @@ fun ExperimentalLyricsView(
                                         layoutInfo = listState.layoutInfo,
                                         lineIndex = listIndex,
                                         activeIndex = activeListIndexState.value,
-                                        fallbackActiveFraction = LYRICS_ANCHOR_RATIO
+                                        fallbackActiveFraction = lyricsAnchorRatio
                                     )
                                 }
                             }
@@ -1233,7 +1240,7 @@ fun ExperimentalLyricsView(
         }
 
         // Floating sync button when auto-scroll is disabled by manual scrolling or line is not centered
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = shouldShowResyncButton,
             enter = fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
@@ -1267,7 +1274,7 @@ fun ExperimentalLyricsView(
         }
 
         // Floating Action Bar for Selected Lyrics
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = isSelectionModeActive,
             enter = fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
@@ -1300,6 +1307,7 @@ fun ExperimentalLyricsView(
                 }
 
                 Button(
+                    enabled = lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS,
                     onClick = {
                         val selectedText = selectedIndices.sorted()
                             .take(5)
@@ -1330,9 +1338,11 @@ fun ExperimentalLyricsView(
             }
         }
     }
+    LyricsCredits(lyrics, Modifier.align(Alignment.Start).padding(horizontal = 16.dp, vertical = 4.dp))
+    }
 
     val shareSheet = lyricsUi.shareSheet
-    if (showShareSheet && track != null && shareSheet != null) {
+    if (showShareSheet && track != null && shareSheet != null && lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) {
         shareSheet(track, shareLyricsText) {
             showShareSheet = false
             selectedIndices.clear()
@@ -1389,11 +1399,16 @@ fun ExperimentalLyricsLine(
     val alignBackgroundCentered = line.isBackground && useAgentSides
     // Appearance > Lyrics style: MetroLyrics, Auralis (Fluid) or Apple Music (Letter by Letter).
     val animationMode = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val isSpicy = animationMode == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val hasStarted by remember(line.time, currentPositionState) { derivedStateOf { currentPositionState.value >= line.time } }
     // Trimmed text removes leading around single-line lyrics; apply the spacing preference
     // between lyric rows too, so it remains visible when a line does not wrap.
     val spacingAdjustment = (lyricsTextSize * (lyricsLineSpacing - 1.3f) / 2f).dp
-    val baseTopPadding = ((if (line.isBackground) 0.dp else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
-    val baseBottomPadding = ((if (line.isBackground) 2.dp else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
+    // The regular Spicy backing row is tight to its lead. It draws overflow instead
+    // of spending layout height on gutters (and clipping its moving glyphs).
+    val backgroundGutter = if (isSpicy) 0.dp else (lyricsTextSize * .25f).dp
+    val baseTopPadding = ((if (line.isBackground) backgroundGutter else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
+    val baseBottomPadding = ((if (line.isBackground) backgroundGutter else if (!isSynced) 4.dp else 12.dp) + spacingAdjustment).coerceAtLeast(0.dp)
     // A little extra air where the singer changes, so each speaker's lines read as one group.
     val speakerChangeGap = if (speakerSide != null && speakerStyle.isRunStart && index > 0 && !line.isBackground && isSynced) {
         MetroSpeakerChangeGap
@@ -1403,7 +1418,7 @@ fun ExperimentalLyricsLine(
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
         .then(if (mouseHover) Modifier.padding(horizontal = 8.dp, vertical = 2.dp) else Modifier)
-        .clip(RoundedCornerShape(if (mouseHover) 16.dp else 8.dp))
+        .then(if (isSpicy) Modifier else Modifier.clip(RoundedCornerShape(if (mouseHover) 16.dp else 8.dp)))
         .combinedClickable(
             interactionSource = interactionSource,
             indication = if (mouseHover) null else LocalIndication.current,
@@ -1411,8 +1426,10 @@ fun ExperimentalLyricsLine(
             onLongClick = onLongClick
         )
         .drawBehind {
-            drawRect(if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f)
-                else Color.White.copy(alpha = hoverAlpha.value))
+            val fill = if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f)
+                else Color.White.copy(alpha = hoverAlpha.value)
+            if (isSpicy) drawRoundRect(fill, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+            else drawRect(fill)
         }
         .then(
             if (speakerSide != null) {
@@ -1502,6 +1519,10 @@ fun ExperimentalLyricsLine(
         fun LineContent() {
             val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine || (mouseHover && hovered)) {
                 0f
+            } else if (isSpicy) {
+                if (!isAutoScrollEnabled) 0f else with(LocalDensity.current) {
+                    SpicyLyricsPresentation.blurSigmaPx(index, displayedCurrentLineIndex).toDp().value
+                }
             } else {
                 computeLyricsProgressiveBlur(
                     standardBlur = true,
@@ -1519,7 +1540,7 @@ fun ExperimentalLyricsLine(
 
             val animatedBlur = animateFloatAsState(
                 targetValue = targetBlur,
-                animationSpec = if (!standardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                animationSpec = if (!standardBlur) snap() else tween(durationMillis = if (isSpicy) 200 else 350, easing = FastOutSlowInEasing),
                 label = "expLineBlur"
             )
 
@@ -1539,17 +1560,21 @@ fun ExperimentalLyricsLine(
                     .then(blurModifier),
                 horizontalAlignment = agentAlignment
             ) {
-                val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
-                val activeAlpha = 1.0f
-                val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
+                val inactiveAlpha = if (isSpicy) .51f else if (line.isBackground) 0.08f else 0.20f
+                val activeAlpha = if (isSpicy) { if (line.isBackground) SpicyLyricsPresentation.BACKGROUND_ALPHA else .85f } else 1.0f
+                val focusedAlpha = if (isSpicy) .4f else if (line.isBackground) 0.50f else 0.30f
                 val targetAlpha = if (mouseHover && hovered && !isActiveLine) {
-                    0.55f
+                    if (isSpicy) activeAlpha else 0.55f
                 } else if (!isSynced) {
                     0.85f
-                } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled)) {
+                } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled && !isSpicy)) {
                     // While following playback a background line only shows beside its lead line.
                     // During a manual scroll every one is visible, so unsung ones dim like the rest.
                     activeAlpha
+                } else if (isSpicy) {
+                    // Spicy's line opacity times its text alpha: sung .497 x .85, upcoming .51 x .5.
+                    if (hasStarted) com.auralis.music.ui.lyrics.renderers.SpicyLyricsMotion.SUNG_LINE_ALPHA
+                        else com.auralis.music.ui.lyrics.renderers.SpicyLyricsMotion.UPCOMING_LINE_ALPHA
                 } else if (isAutoScrollEnabled && displayedCurrentLineIndex >= 0) {
                     when (abs(index - displayedCurrentLineIndex)) {
                         0 -> focusedAlpha
@@ -1561,8 +1586,11 @@ fun ExperimentalLyricsLine(
                     }
                 } else inactiveAlpha
 
-                val animatedAlpha by animateFloatAsState(targetAlpha, tween(250), label = "expLineAlpha")
-                val lineColor = expressiveAccent.copy(alpha = if (line.isBackground) minOf(focusedAlpha, animatedAlpha) else animatedAlpha)
+                val animatedAlpha by animateFloatAsState(targetAlpha,
+                    if (isSpicy) tween(200, easing = CubicBezierEasing(.61f, 1f, .88f, 1f)) else tween(250), label = "expLineAlpha")
+                val lineColor = expressiveAccent.copy(alpha = if (line.isBackground && !isSpicy) minOf(focusedAlpha, animatedAlpha)
+                    else if (line.isBackground && isSpicy && hasStarted && !isActiveLine) .497f * SpicyLyricsPresentation.BACKGROUND_ALPHA
+                    else animatedAlpha)
 
                 val resolvedLineText = remember(line.text, line.words) {
                     val raw = if (line.isBackground) line.text.removePrefix("(").removeSuffix(")") else line.text
@@ -1599,12 +1627,14 @@ fun ExperimentalLyricsLine(
                 val mainText = resolvedLineText
 
                 val effectiveFontSize = when {
-                    line.isBackground -> (lyricsTextSize * 0.70f).sp
+                    line.isBackground -> (lyricsTextSize * if (isSpicy) SpicyLyricsPresentation.BACKGROUND_SIZE else .70f).sp
                     !isSynced -> (22f * (lyricsTextSize / 34f)).sp
                     else -> lyricsTextSize.sp
                 }
                 val effectiveFontWeight = if (!isSynced) FontWeight.SemiBold else FontWeight.Bold
-                val effectiveLineHeight = if (line.isBackground) {
+                val effectiveLineHeight = if (isSpicy) {
+                    (effectiveFontSize.value * SpicyLyricsPresentation.LINE_HEIGHT * lyricsLineSpacing / 1.3f).sp
+                } else if (line.isBackground) {
                     (effectiveFontSize.value * lyricsLineSpacing).sp
                 } else if (!isSynced) {
                     (effectiveFontSize.value * lyricsLineSpacing).sp
@@ -1617,7 +1647,7 @@ fun ExperimentalLyricsLine(
                     fontWeight = effectiveFontWeight,
                     fontStyle = if (line.isBackground) FontStyle.Italic else FontStyle.Normal,
                     lineHeight = effectiveLineHeight,
-                    letterSpacing = if (!isSynced) (-0.3).sp else (-0.5).sp,
+                    letterSpacing = if (isSpicy) 0.sp else if (!isSynced) (-0.3).sp else (-0.5).sp,
                     textAlign = agentTextAlign,
                     fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
                     platformStyle = noFontPaddingStyle(),
@@ -1642,7 +1672,13 @@ fun ExperimentalLyricsLine(
                     presentationWordTimestamps(effectiveWords)
                 }
 
-                if (isSynced && isActiveLine && mainText.isNotBlank() &&
+                if (isSynced && isSpicy && mainText.isNotBlank()) {
+                    com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
+                        line = line.copy(text = mainText),
+                        words = if (syncType == SyncType.RICHSYNC) line.words else null,
+                        positionMs = currentPositionState, style = lyricStyle,
+                        isActive = isActiveLine, modifier = Modifier.fillMaxWidth(), inactiveColor = lineColor)
+                } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
                     animationMode == com.auralis.music.domain.model.LyricsAnimationMode.FLUID) {
                     // Auralis (Fluid), the phone's renderer: a feathered sweep, lifted words, glow on held notes.
                     com.auralis.music.ui.lyrics.renderers.FluidLyricLine(
@@ -1710,7 +1746,7 @@ fun ExperimentalLyricsLine(
         }
 
         if (line.isBackground) {
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = bgVisible,
                 enter = fadeIn(tween(durationMillis = 250, delayMillis = 100)),
                 exit = fadeOut(tween(250))

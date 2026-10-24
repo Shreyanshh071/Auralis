@@ -123,6 +123,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("IOS", keywords = "stream client extractor")
         }
         group("Lyrics source order") {
+            row("Spicy Lyrics publishable key", "Synced lyrics for YouTube Music using matching Spotify recordings", "spicy api token key")
             row("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.", "providers")
         }
     }

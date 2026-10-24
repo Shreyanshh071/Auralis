@@ -1,6 +1,7 @@
 package com.auralis.music.domain.model
 
 enum class LyricsProvider {
+    SPICY_LYRICS,
     AMLL,
     BETTER_LYRICS,
     UNISON,
@@ -87,6 +88,8 @@ data class LyricLine(
         get() = endTime ?: wordTimingEndMs
 }
 
+data class LyricsCredit(val label: String, val url: String)
+
 data class LyricsData(
     val syncType: SyncType,
     val lines: List<LyricLine>,
@@ -100,7 +103,11 @@ data class LyricsData(
     val leadingSilenceMs: Long? = null,
     val isExactVideoMatch: Boolean = false,
     val matchedVideoId: String? = null,
-    val appliedOffsetMs: Long = 0L
+    val appliedOffsetMs: Long = 0L,
+    val credits: List<LyricsCredit> = emptyList(),
+    val spotifyTrackId: String? = null,
+    /** Original API retrieval time; retained unchanged through cache copies and alignment. */
+    val fetchedAtMs: Long? = null
 ) {
     /**
      * Stated or inferred duration of the lyrics track in milliseconds.

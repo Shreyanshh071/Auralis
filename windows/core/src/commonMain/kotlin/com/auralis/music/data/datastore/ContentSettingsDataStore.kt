@@ -41,6 +41,7 @@ class ContentSettingsDataStore(private val dataStore: DataStore<Preferences>) {
         val PROXY_URL = stringPreferencesKey("proxy_url")
         val PROXY_USERNAME = stringPreferencesKey("proxy_username")
         val PROXY_PASSWORD = stringPreferencesKey("proxy_password")
+        val SPICY_LYRICS_KEY = stringPreferencesKey("spicy_lyrics_api_key")
         val DISABLED_LYRICS_PROVIDERS = stringPreferencesKey("disabled_lyrics_providers")
         val ROMANIZATION_ENABLED = booleanPreferencesKey("romanization_enabled")
         val ROMANIZED_SCRIPTS = stringPreferencesKey("romanized_scripts")
@@ -58,6 +59,7 @@ class ContentSettingsDataStore(private val dataStore: DataStore<Preferences>) {
     suspend fun update(transform: (ContentSettings) -> ContentSettings) {
         dataStore.edit { prefs ->
             val next = transform(prefs.toContentSettings())
+            prefs[SPICY_LYRICS_KEY] = next.spicyLyricsApiKey.trim()
             prefs[CONTENT_LANGUAGE] = next.contentLanguage
             prefs[CONTENT_COUNTRY] = next.contentCountry
             prefs[ADD_TO_PLAYLIST_POSITION] = next.addToPlaylistPosition.name
@@ -83,6 +85,7 @@ class ContentSettingsDataStore(private val dataStore: DataStore<Preferences>) {
     private fun Preferences.toContentSettings(): ContentSettings {
         val d = ContentSettings()
         return ContentSettings(
+            spicyLyricsApiKey = this[SPICY_LYRICS_KEY] ?: "",
             contentLanguage = this[CONTENT_LANGUAGE] ?: d.contentLanguage,
             contentCountry = this[CONTENT_COUNTRY] ?: d.contentCountry,
             addToPlaylistPosition = enumOr(this[ADD_TO_PLAYLIST_POSITION], d.addToPlaylistPosition),

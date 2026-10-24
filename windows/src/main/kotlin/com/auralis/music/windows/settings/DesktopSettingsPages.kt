@@ -85,7 +85,8 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
         item { AnimatedCoversSettings() }
         item { Text(desktopText("Lyrics"), style = MaterialTheme.typography.titleLarge) }
         item {
-            val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,
+            val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS,
+                com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,
                 com.auralis.music.domain.model.LyricsAnimationMode.FLUID, com.auralis.music.domain.model.LyricsAnimationMode.APPLE_MUSIC_V2)
             val current = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation)
                 .takeIf { it in styles } ?: com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS

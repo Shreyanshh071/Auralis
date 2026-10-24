@@ -15,14 +15,28 @@ import java.io.File
  * (the phone keeps them in its Room database). Stores the provider's answer before playback
  * alignment; the repository aligns it to the stream when loading.
  */
-class LyricsDiskCache(private val dir: File) {
+class LyricsDiskCache(private val dir: File, private val clock: () -> Long = System::currentTimeMillis) {
+
+    init {
+        // Discard expired responses on startup, including tracks that are never played again.
+        dir.listFiles()?.filter { it.extension == "json" }?.forEach { file ->
+            runCatching {
+                val json = JSONObject(file.readText())
+                if (json.optString("provider") == LyricsProvider.SPICY_LYRICS.name &&
+                    com.auralis.music.data.network.LyricsCachePolicy.isSpicyTimestampExpired(
+                        json.optLong("fetchedAtMs").takeIf { it > 0 }, clock())) file.delete()
+            }
+        }
+    }
 
     fun read(videoId: String): LyricsData? {
         val file = fileFor(videoId)
         if (!file.isFile) return null
         return try {
             val json = JSONObject(file.readText())
-            if (json.optInt("version") != VERSION) null else decode(json)
+            if (json.optInt("version") != VERSION) null else decode(json).takeUnless { data ->
+                com.auralis.music.data.network.LyricsCachePolicy.isExpired(data, clock()).also { expired -> if (expired) file.delete() }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Unreadable lyrics cache ${file.name}: ${e.message}")
             null
@@ -31,6 +45,10 @@ class LyricsDiskCache(private val dir: File) {
 
     fun write(videoId: String, lyrics: LyricsData) {
         try {
+            if (com.auralis.music.data.network.LyricsCachePolicy.isExpired(lyrics, clock())) {
+                fileFor(videoId).delete()
+                return
+            }
             dir.mkdirs()
             val file = fileFor(videoId)
             val tmp = File(dir, file.name + ".tmp")
@@ -55,6 +73,9 @@ class LyricsDiskCache(private val dir: File) {
         fun encode(data: LyricsData): JSONObject = JSONObject().apply {
             put("syncType", data.syncType.name)
             put("provider", data.provider.name)
+            put("credits", com.auralis.music.data.parser.SpicyLyricsParser.encodeCredits(data.credits))
+            putOpt("spotifyTrackId", data.spotifyTrackId)
+            putOpt("fetchedAtMs", data.fetchedAtMs)
             putOpt("plainLyrics", data.plainLyrics)
             putOpt("translatedPlainLyrics", data.translatedPlainLyrics)
             putOpt("translatedLanguage", data.translatedLanguage)
@@ -97,6 +118,9 @@ class LyricsDiskCache(private val dir: File) {
             return LyricsData(
                 syncType = SyncType.valueOf(json.getString("syncType")),
                 provider = LyricsProvider.valueOf(json.getString("provider")),
+                credits = com.auralis.music.data.parser.SpicyLyricsParser.decodeCredits(json.optJSONArray("credits")),
+                spotifyTrackId = json.optStringOrNull("spotifyTrackId"),
+                fetchedAtMs = json.optLongOrNull("fetchedAtMs"),
                 plainLyrics = json.optStringOrNull("plainLyrics"),
                 translatedPlainLyrics = json.optStringOrNull("translatedPlainLyrics"),
                 translatedLanguage = json.optStringOrNull("translatedLanguage"),

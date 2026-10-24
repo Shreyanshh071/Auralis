@@ -442,6 +442,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         })
     }
     SettingsGroup("Lyrics source order") {
+        SpicyLyricsKeySetting(stores.content)
         val available=com.auralis.music.data.network.LyricsClient.PICK_ORDER.filter {it !in setOf(LyricsProvider.LOCAL,LyricsProvider.YOUTUBE_CAPTIONS)}
         val chosen=prefs.text("lyricsPriority").split(',').mapNotNull {name->runCatching {LyricsProvider.valueOf(name)}.getOrNull()}
         SettingToggle("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.",chosen.isNotEmpty()) {prefs.set("lyricsPriority",if(it) available.joinToString(",") {p->p.name} else "")}
