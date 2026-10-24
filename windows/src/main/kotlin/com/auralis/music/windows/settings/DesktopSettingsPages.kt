@@ -66,7 +66,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
                 Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(desktopText("Themes and colours"), style = MaterialTheme.typography.titleLarge)
-                        Text("${settings.appTheme} · ${settings.colorPalette}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(settings.colorPalette, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text("›", style = MaterialTheme.typography.headlineMedium)
                 }

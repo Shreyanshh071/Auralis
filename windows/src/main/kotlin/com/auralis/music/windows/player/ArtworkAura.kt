@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
@@ -47,26 +48,39 @@ internal suspend fun loadAuraTexture(artwork: String): ImageBitmap? = withContex
     val url = auraTextureKey(artwork)
     auraTextureLoadMutexes[(url.hashCode() and Int.MAX_VALUE) % auraTextureLoadMutexes.size].withLock {
         auraTextureCache[url] ?: runCatching {
-            val decoded = if (java.io.File(url).isFile) ImageIO.read(java.io.File(url))
-            else if (url.startsWith("file:")) ImageIO.read(java.io.File(java.net.URI(url)))
+            val embedded = com.auralis.music.ui.components.DesktopArtworkRenderer.decodeDataUri(url)
+            val bytes = if (embedded != null) embedded
+            else if (url.startsWith("data:")) null
+            else if (java.io.File(url).isFile) java.io.File(url).readBytes()
+            else if (url.startsWith("file:")) java.io.File(java.net.URI(url)).readBytes()
             else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
                 .newCall(Request.Builder().url(url).build()).execute().use { response ->
                     check(response.isSuccessful)
-                    response.body?.byteStream()?.use(ImageIO::read)
+                    response.body?.bytes()
                 }
-            decoded?.let(::auraTexture)?.also { auraTextureCache[url] = it }
+            // Use the app's native decoder: ImageIO silently returns null for WebP covers.
+            bytes?.let { encoded -> Image.makeFromEncoded(encoded).use { decoded ->
+                motionAuraTexture(decoded.toComposeImageBitmap())
+            } }?.also { auraTextureCache[url] = it }
         }.getOrNull()
     }
 }
 
 @Composable
-internal fun rememberAuraCover(artwork: String?): State<ImageBitmap?> {
+internal fun rememberAuraCover(artwork: String?, fallbackArtworks: List<String> = emptyList()): State<ImageBitmap?> {
     val url = artwork?.let(::auraTextureKey)
     // Keep the decoded previous song until its replacement is ready.
     val cover = remember { mutableStateOf(url?.let { auraTextureCache[it] }) }
-    LaunchedEffect(url) {
+    LaunchedEffect(url, fallbackArtworks) {
         if (url == null) cover.value = null
-        else loadAuraTexture(url)?.let { cover.value = it }
+        val sources = (listOfNotNull(url) + fallbackArtworks).distinct()
+        if (sources.isNotEmpty()) repeat(3) { attempt ->
+            for (source in sources) {
+                val loaded = loadAuraTexture(source)
+                if (loaded != null) { cover.value = loaded; return@LaunchedEffect }
+            }
+            if (attempt < 2) kotlinx.coroutines.delay(500L * (attempt + 1))
+        }
     }
     return cover
 }
@@ -76,8 +90,9 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
     presentation: AuraPresentation = AuraPresentation.SIDEBAR,
     brightness: Float = presentation.brightness,
     saturation: Float = presentation.saturation,
-    motionAura: MotionAura? = null) {
-    val still by rememberAuraCover(artwork)
+    motionAura: MotionAura? = null,
+    fallbackArtworks: List<String> = emptyList()) {
+    val still by rememberAuraCover(artwork, fallbackArtworks)
     val moving = motionAura?.texture?.value
     val cover = moving ?: still
     val time = remember { mutableFloatStateOf(0f) }
@@ -90,29 +105,51 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
             previous = now
         }
     }
+    // A shortcut whose cover is still loading shows a quiet sheen, then its aura sweeps in from the
+    // right as it arrives (a flat grey card that popped into colour looked broken). A cover already
+    // decoded (cached) shows at once.
+    val shortcut = presentation == AuraPresentation.SHORTCUT
+    val reveal = remember { androidx.compose.animation.core.Animatable(if (cover != null) 1f else 0f) }
+    LaunchedEffect(cover != null) {
+        if (cover != null && reveal.value < 1f) reveal.animateTo(1f,
+            androidx.compose.animation.core.tween(SHORTCUT_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
     // The first decoded image shows at once. A new one (the next song, or an animated cover's next
     // colour frame) fades in over the one on screen, which stays fully opaque underneath until the
     // fade ends: a crossfade dimmed both halfway, so the sidebar pulsed with every video frame.
     if (cover == null) Box(modifier) {
         if (presentation == AuraPresentation.FULL_PLAYER && artwork != null) {
             BlurredArtworkBackground(artwork)
+        } else if (shortcut) {
+            // Waiting for this cover's colours: never a fabricated aura, just a slow sheen.
+            ShortcutLoadingSheen(time)
         } else {
             Canvas(Modifier.fillMaxSize()) {
-                val fallback = if (presentation == AuraPresentation.SHORTCUT)
-                    listOf(androidx.compose.ui.graphics.Color(0xFF4D246D), androidx.compose.ui.graphics.Color(0xFF156A78), androidx.compose.ui.graphics.Color(0xFF852755))
-                    else listOf(palette.primary, palette.secondary, palette.tertiary)
+                val fallback = listOf(palette.primary, palette.secondary, palette.tertiary)
                 drawRect(Brush.linearGradient(fallback.map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
-                if (presentation == AuraPresentation.SHORTCUT) {
-                    val phase = time.floatValue * .32f
-                    val center = androidx.compose.ui.geometry.Offset(
-                        size.width * (.5f + .35f * kotlin.math.sin(phase)),
-                        size.height * (.5f + .35f * kotlin.math.cos(phase * .7f)))
-                    drawRect(Brush.radialGradient(listOf(fallback[1].copy(alpha = .7f), androidx.compose.ui.graphics.Color.Transparent),
-                        center = center, radius = size.width.coerceAtLeast(size.height) * .8f))
-                }
             }
         }
-    } else AuraLayers(cover, modifier, fadeMs = if (moving != null) MOTION_FADE_MS else 1000) { image ->
+    } else Box(modifier) {
+      if (shortcut && reveal.value < 1f) ShortcutLoadingSheen(time)
+      AuraLayers(cover, Modifier.fillMaxSize().then(if (!shortcut) Modifier else Modifier
+          .graphicsLayer {
+              val progress = reveal.value
+              alpha = .35f + .65f * progress
+              // Its soft leading edge sweeps across from the right (drawWithContent below). Shifting
+              // the layer as well left a hard edge on the card's left side.
+              compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+          }
+          .drawWithContent {
+              drawContent()
+              val progress = reveal.value
+              if (progress < 1f) {
+                  val feather = size.width * .55f
+                  val edge = size.width - progress * (size.width + feather)
+                  drawRect(Brush.horizontalGradient(
+                      listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black),
+                      startX = edge, endX = edge + feather), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+              }
+          }), fadeMs = if (moving != null) MOTION_FADE_MS else 1000) { image ->
         val resources = remember(image, presentation, brightness, saturation) {
             AuraRenderer(image, presentation, brightness, saturation)
         }
@@ -122,11 +159,31 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
         else Canvas(Modifier.fillMaxSize()) {
             drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
         }
+      }
     }
 }
 
 /** How long each new animated-cover colour frame takes to fade in (MotionAura waits longer between frames). */
 internal const val MOTION_FADE_MS = 600
+
+/** How long a shortcut's aura takes to sweep in once its cover is ready. */
+internal const val SHORTCUT_REVEAL_MS = 1100
+
+/** A shortcut waiting for its cover: the card's dark base with a faint light drifting right to left. */
+@Composable
+private fun ShortcutLoadingSheen(time: androidx.compose.runtime.FloatState) {
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(androidx.compose.ui.graphics.Color(0xFF202024))
+        val band = size.width * .7f
+        // One pass every 2.4 s, entering at the right edge and leaving past the left.
+        val cycle = (time.floatValue / 2.4f) % 1f
+        val center = size.width + band / 2 - cycle * (size.width + band)
+        drawRect(Brush.horizontalGradient(
+            listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.White.copy(alpha = .07f),
+                androidx.compose.ui.graphics.Color.Transparent),
+            startX = center - band / 2, endX = center + band / 2))
+    }
+}
 
 /** [image] fading in on top of the previous image, which stays opaque underneath until the fade completes. */
 @Composable

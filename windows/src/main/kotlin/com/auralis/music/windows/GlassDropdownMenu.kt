@@ -29,16 +29,19 @@ import androidx.compose.ui.window.*
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, frosted: Boolean = false,
+    /** Open centred directly above the anchor (below only if there's no room), like a device picker. */
+    aboveAnchor: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
     if (!expanded) return
     val density = LocalDensity.current
     val window = LocalWindowInfo.current.containerSize
     val margin = with(density) { 8.dp.roundToPx() }
-    val provider = remember(margin) {
+    val provider = remember(margin, aboveAnchor) {
         object : PopupPositionProvider {
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
                 layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset =
-                glassDropdownPosition(anchorBounds, windowSize, popupContentSize, margin, layoutDirection)
+                if (aboveAnchor) glassDropdownAbove(anchorBounds, windowSize, popupContentSize, margin)
+                else glassDropdownPosition(anchorBounds, windowSize, popupContentSize, margin, layoutDirection)
         }
     }
     Popup(popupPositionProvider = provider, onDismissRequest = onDismissRequest,
@@ -144,6 +147,13 @@ internal fun GlassDropdownMenuHeader(
         color = Color.White.copy(alpha = 0.65f),
         modifier = modifier.padding(horizontal = 16.dp, vertical = 6.dp)
     )
+}
+
+internal fun glassDropdownAbove(anchor: IntRect, window: IntSize, popup: IntSize, margin: Int): IntOffset {
+    val x = anchor.left + anchor.width / 2 - popup.width / 2
+    val y = if (anchor.top - popup.height - margin / 2 >= margin) anchor.top - popup.height - margin / 2 else anchor.bottom + margin / 2
+    return IntOffset(x.coerceIn(margin, (window.width - popup.width - margin).coerceAtLeast(margin)),
+        y.coerceIn(margin, (window.height - popup.height - margin).coerceAtLeast(margin)))
 }
 
 internal fun glassDropdownPosition(anchor: IntRect, window: IntSize, popup: IntSize, margin: Int,

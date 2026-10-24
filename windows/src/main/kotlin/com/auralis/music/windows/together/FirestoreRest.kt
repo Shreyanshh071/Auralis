@@ -5,6 +5,11 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URI
 import java.time.Instant
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
 /** Firebase ID tokens keep the existing Firestore security rules in force (no admin credentials). */
 class FirestoreRest(private val project: String, private val apiKey: String, private val transport: ((String, String, JSONObject?, String?) -> JSONObject)? = null) {
@@ -35,6 +40,15 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
     }
     fun restoreAccount(refreshToken: String) { refresh = refreshToken; expiresAt = 0; anonymous = false; authenticate() }
     fun accountRefreshToken(): String = refresh
+
+    internal class ListenCredentials(val database: String, val bearer: String)
+
+    /** User credentials only: the stream is subject to the same account security rules. */
+    @Synchronized internal fun listenCredentials(expectedUid: String): ListenCredentials {
+        authenticate()
+        if (uid != expectedUid) throw ServiceException(401, "Signed in to another account")
+        return ListenCredentials("projects/$project/databases/(default)", token)
+    }
     fun accountProfile(): JSONObject {
         authenticate()
         return request("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=$apiKey", "POST", JSONObject().put("idToken", token), false).getJSONArray("users").getJSONObject(0)
@@ -46,6 +60,20 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
 
     private fun request(url: String, method: String, body: JSONObject? = null, bearer: Boolean = true): JSONObject {
         transport?.let { return it(url, method, body, if (bearer) token else null) }
+        if (url.startsWith("https://firestore.googleapis.com/")) {
+            val request = Request.Builder().url(url).apply {
+                if (bearer) header("Authorization", "Bearer $token")
+                method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            }.build()
+            firestoreHttp.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val message = runCatching { JSONObject(text).getJSONObject("error").getString("message") }.getOrDefault("HTTP ${response.code}")
+                    throw ServiceException(response.code, message)
+                }
+                return if (text.isBlank()) JSONObject() else if (text.trimStart().startsWith("[")) JSONObject().put("results", JSONArray(text)) else JSONObject(text)
+            }
+        }
         val connection = URI(url).toURL().openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 5000; connection.readTimeout = 8000
@@ -69,6 +97,10 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
             return if (text.isBlank()) JSONObject() else if (text.trimStart().startsWith("[")) JSONObject().put("results", JSONArray(text)) else JSONObject(text)
         } finally { connection.disconnect() }
     }
+
+    // Reuse TLS/HTTP2 connections for handoff reads and commits instead of disconnecting each one.
+    private val firestoreHttp = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
     @Synchronized fun authenticate() {
         if (token.isNotEmpty() && System.currentTimeMillis() < expiresAt) return

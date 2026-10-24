@@ -180,6 +180,8 @@ fun AuralisDesktopApp(
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
+    /** Each main page's saved state (its scroll position, for one) while another page is shown. */
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var youtubePageAccount by remember { mutableStateOf<String?>(null) }
     var youtubePageId by remember { mutableStateOf<String?>(null) }
     // Albums & singles that follow what the listener plays (see TasteReleases).
@@ -428,11 +430,7 @@ fun AuralisDesktopApp(
             stores.appearance.updateSettings(current.copy(playerBackgroundStyle = "Dynamic", lyricsTextPosition = "Left"))
             libraryFlags.putStrings(mapOf("spicy_player_defaults" to "1"))
         }
-        // The Spicy Lyrics style was removed (2026-10-12); whoever had it moves to Auralis (Fluid).
-        stores.appearance.settingsFlow.first().let { current ->
-            if (current.lyricsAnimation.contains("spicy", ignoreCase = true)) stores.appearance.updateSettings(
-                current.copy(lyricsAnimation = com.auralis.music.domain.model.LyricsAnimationMode.FLUID.displayName))
-        }
+
     }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         destination = when (stores.appearance.settingsFlow.first().defaultOpenTab) {
@@ -756,6 +754,9 @@ fun AuralisDesktopApp(
                             label = "page",
                             modifier = Modifier.fillMaxSize()
                         ) { page ->
+                        // Each page keeps its saved state (scroll included) while another is shown,
+                        // so Back returns exactly where the page was left.
+                        pageStates.SaveableStateProvider(if (page == BrowseRoute) "browse" else (page as DesktopDestination).name) {
                         if (page == BrowseRoute) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library, onBack = ::previousPage)
                         else when (page as DesktopDestination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
@@ -856,6 +857,7 @@ fun AuralisDesktopApp(
                                 onOpenListenTogether = { showTogether = true },
                                 showMessage = showUnavailable
                             )
+                        }
                         }
                         }
                         }

@@ -29,7 +29,8 @@ interface ArtworkRenderer {
 
     /** Just the image at [url] (no corners, placeholder or URL sizing), like a bare AsyncImage. */
     @Composable
-    fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier)
+    fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier,
+              alignment: Alignment = Alignment.Center)
 
     /** Starts loading artwork (url, or the track's thumbnail) that is about to scroll into view. */
     fun prefetch(items: List<Pair<String?, Track?>>, sizeToConstraints: Boolean) {}
@@ -48,7 +49,7 @@ object PlaceholderArtworkRenderer : ArtworkRenderer {
     }
 
     @Composable
-    override fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier) {}
+    override fun Image(url: String, contentDescription: String?, contentScale: ContentScale, crossfade: Boolean, modifier: Modifier, alignment: Alignment) {}
 }
 
 val LocalArtworkRenderer = staticCompositionLocalOf<ArtworkRenderer> { PlaceholderArtworkRenderer }

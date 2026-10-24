@@ -53,64 +53,6 @@ private fun ChoiceGrid(names: List<String>, selected: String, onSelect: (String)
 }
 
 @Composable
-internal fun ThemeModeCards(selected: String, onSelect: (String) -> Unit) {
-    // Two modes; anything older (Follow system, AMOLED, Midnight Velvet) is shown, and stored, as Dark.
-    val current = if (selected == "Light Mode" || selected == "Light") "Light Mode" else "Dark Mode"
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(desktopText("Theme mode"), style = MaterialTheme.typography.titleLarge)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            for (mode in listOf("Light Mode", "Dark Mode")) {
-                val active = current == mode
-                val border by androidx.compose.animation.animateColorAsState(
-                    if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, label = "modeBorder")
-                Surface(onClick = { onSelect(mode) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer, border = BorderStroke(if (active) 2.dp else 1.dp, border)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ModePreview(dark = mode == "Dark Mode", Modifier.fillMaxWidth().height(132.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(desktopText(if (mode == "Light Mode") "Light" else "Dark"), Modifier.weight(1f),
-                                style = MaterialTheme.typography.titleMedium)
-                            if (active) Icon(Icons.Rounded.CheckCircle, desktopText("Selected"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** A small Auralis window in that mode: sidebar, a row of covers and the player bar. */
-@Composable
-private fun ModePreview(dark: Boolean, modifier: Modifier) {
-    val window = if (dark) Color(0xFF141217) else Color(0xFFF4F2EC)
-    val panel = if (dark) Color(0xFF221F26) else Color(0xFFE6E2DA)
-    val line = if (dark) Color(0xFF3A3640) else Color(0xFFCFCAC0)
-    val cover = listOf(Color(0xFF984EB5), Color(0xFFD39448), Color(0xFF3A647D))
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(window).padding(8.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Column(Modifier.width(56.dp).fillMaxHeight().clip(RoundedCornerShape(8.dp)).background(panel).padding(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    repeat(4) { Box(Modifier.fillMaxWidth(if (it == 0) .8f else .6f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(line)) }
-                }
-                Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(8.dp)).background(panel).padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.fillMaxWidth(.45f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(line))
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        cover.forEach { Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(it)) }
-                    }
-                }
-            }
-            Row(Modifier.fillMaxWidth().height(18.dp).clip(RoundedCornerShape(6.dp)).background(panel).padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(cover[0]))
-                Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(line))
-            }
-        }
-    }
-}
-
-@Composable
 internal fun PaletteCards(selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(desktopText("Colour palette"), style = MaterialTheme.typography.titleLarge)

@@ -193,14 +193,21 @@ class ConnectEngine(
     companion object {
         const val LEASE_MS = 90_000L
         const val RENEW_EVERY_MS = 30_000L
-        const val HEARTBEAT_MS = 60_000L
-        const val ONLINE_WINDOW_MS = 150_000L
+        const val HEARTBEAT_MS = 10_000L
+        const val ONLINE_WINDOW_MS = 30_000L
         const val RECENT_WINDOW_MS = 14L * 86_400_000L
         const val FORGET_AFTER_MS = 30L * 86_400_000L
         const val COMMAND_TTL_MS = 30_000L
         const val PREPARE_TIMEOUT_MS = 6_000L
         const val REQUEST_TIMEOUT_MS = 15_000L
         const val FORCE_COMMIT_MS = 5_000L
+        /** Lease on a direct handoff: the target renews it with its first write, or the audio comes back. */
+        const val DIRECT_LEASE_MS = 12_000L
+        /** The most transit time a position report is credited with (a poll and a round trip). */
+        const val POSITION_SLACK_MS = 3_000L
+        const val COMMIT_RETRY_MS = 2_000L
+        /** A song skipped straight past isn't worth a stream lookup on the other devices. */
+        const val REMOTE_WARM_DELAY_MS = 1_500L
         const val READY_TIMEOUT_MS = 12_000L
         const val TRANSFER_KEEP_MS = 8_000L
         const val DRIFT_MS = 1_500L
@@ -226,13 +233,23 @@ class ConnectEngine(
     private var lastPublished: Published? = null
     private var settleUntilLocal = 0L
 
-    private data class Optimistic(val playing: Boolean?, val positionMs: Long?, val atLocal: Long, var sentVersion: Long = Long.MAX_VALUE)
+    private data class Optimistic(val playing: Boolean?, val positionMs: Long?, val atLocal: Long, var sentVersion: Long = Long.MAX_VALUE,
+                                  var commandId: String? = null)
     @Volatile private var optimistic: Optimistic? = null
 
     private data class StartWatch(val from: String?, val atLocal: Long)
     private var startWatch: StartWatch? = null
 
     private var lastHeartbeatLocal = Long.MIN_VALUE / 2
+    @Volatile private var deviceAvailable = true
+    private val presenceLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Hidden idle clients still mirror the session, but cannot receive playback. */
+    fun setDeviceAvailable(available: Boolean) {
+        if (deviceAvailable == available || stopped) return
+        deviceAvailable = available
+        scope.launch { heartbeatNow() }
+    }
     @Volatile private var stopped = false
     @Volatile private var connected = false
     private var error: String? = null
@@ -299,8 +316,22 @@ class ConnectEngine(
 
     /** Moves the output to [deviceId] (any device of the account, including this one). */
     fun transferTo(deviceId: String) {
-        scope.launch { locked { requestTransfer(deviceId) } }
+        // Show "Connecting…" the moment it's picked. The request itself waits its turn on the
+        // lock and a server round trip (2-3 s of a picker that seemed to ignore the click).
+        val u = _ui.value
+        val row = u.devices.firstOrNull { it.device.id == deviceId }
+        if (row != null && !row.isOutput && row.state != ConnectRowState.UNAVAILABLE) {
+            requested = deviceId to localNow()
+            _ui.value = u.copy(transfer = ConnectTransferUi(deviceId, row.label, failed = false),
+                devices = u.devices.map { if (it.device.id == deviceId) it.copy(state = ConnectRowState.CONNECTING) else it })
+        }
+        scope.launch {
+            try { locked { requestTransfer(deviceId) } }
+            finally { if (requested?.first == deviceId) { requested = null; lock.withLock { refreshUi() } } }
+        }
     }
+    /** A device picked here whose handoff request hasn't reached the server yet. */
+    @Volatile private var requested: Pair<String, Long>? = null
 
     /**
      * Called by the local player for a user control. Returns true when Connect handled it (sent it
@@ -378,6 +409,30 @@ class ConnectEngine(
         }
     }
 
+    /** When this client first saw the session's current position report, by its own clock. */
+    private var seenPosition = -1L
+    private var seenStamp = -1L
+    private var seenAtLocal = 0L
+    private var seenAge = 0L
+
+    /**
+     * Where the session's song is now. It counts on from when this client first saw the report,
+     * by its own clock; the writer's timestamp only adds the report's transit time (at most
+     * [POSITION_SLACK_MS]). Trusting that timestamp outright let a writer whose clock estimate was
+     * off push the position to the song's end: lyrics stuck on the last lines after a handoff.
+     */
+    private fun sessionPosition(s: ConnectSession): Long {
+        if (!s.playing || s.buffering || s.track == null) return s.positionMs.coerceAtLeast(0L)
+        // After an output disappears, restore its confirmed bookmark rather than inventing
+        // up to an entire lease's worth of listening while no device was actually playing.
+        if (!s.ownerActive(clock.now())) return s.positionMs.coerceAtLeast(0L)
+        if (s.positionMs != seenPosition || s.positionAtMs != seenStamp) return s.positionAt(clock.now())
+        // An output that went away (lease lapsed) stops where it was.
+        val lapsedFor = if (s.leaseUntilMs > 0L) (clock.now() - s.leaseUntilMs).coerceAtLeast(0L) else 0L
+        val position = s.positionMs + seenAge + (localNow() - seenAtLocal - lapsedFor).coerceAtLeast(0L)
+        return if (s.durationMs > 0L) position.coerceIn(0L, s.durationMs) else position.coerceAtLeast(0L)
+    }
+
     private fun accept(snapshot: ConnectSnapshot) {
         val known = current?.session?.version ?: -1L
         val incoming = snapshot.session?.version ?: 0L
@@ -387,7 +442,19 @@ class ConnectEngine(
         val queue = snapshot.queue?.takeIf { s == null || it.rev == s.queueRev }
             ?: current?.queue?.takeIf { s != null && it.rev == s.queueRev }
         current = ConnectSnapshot(s, queue)
-        optimistic?.let { o -> if (s != null && s.version > o.sentVersion && s.updatedBy == s.ownerId) optimistic = null }
+        if (s != null && (s.positionMs != seenPosition || s.positionAtMs != seenStamp)) {
+            seenPosition = s.positionMs
+            seenStamp = s.positionAtMs
+            seenAtLocal = localNow()
+            seenAge = (clock.now() - s.positionAtMs).coerceIn(0L, POSITION_SLACK_MS)
+        }
+        // The output's next write isn't proof it applied the control: a routine position update
+        // written before it got there brought the old position back, so a tapped lyric line jumped
+        // to another line and Play/Pause showed the wrong state. It removes a command once applied.
+        optimistic?.let { o ->
+            if (s != null && s.version > o.sentVersion && s.updatedBy == s.ownerId &&
+                (o.commandId == null || s.commands.none { it.id == o.commandId })) optimistic = null
+        }
     }
 
     private suspend fun refetch() {
@@ -415,6 +482,7 @@ class ConnectEngine(
     }
 
     private suspend fun processOnce() {
+        watchHandOver()
         val snap = current ?: return
         val s = snap.session
         val now = clock.now()
@@ -435,6 +503,10 @@ class ConnectEngine(
                     startedTransfer = t.id
                     log("Output handed to this device by ${t.from}")
                     startLocal(snap, s.playing, t.from)
+                } else if (s.track != null && player?.snapshot()?.playing != true) {
+                    // Reopening the previous output restores the account's bookmark silently.
+                    // Do this before publishing, or an empty/stale local queue overwrites it.
+                    startLocal(snap, play = false, from = null)
                 }
                 // Otherwise this client was the output before it restarted: it holds it again,
                 // silently, and plays only when asked.
@@ -457,7 +529,13 @@ class ConnectEngine(
                     if (s.ownerActive(now) && s.ownerId != me.id) markReady(t) else commitAsTarget(t, forced = false)
                 }
                 t.to == me.id && t.status == TransferStatus.READY && age > FORCE_COMMIT_MS -> commitAsTarget(t, forced = true)
-                owner && t.from == me.id && t.status == TransferStatus.READY -> commitAsOwner(t)
+                // A failed commit (offline) resumes the audio, which re-runs this at once: without a
+                // pause between tries that was an endless silence/play loop. Retry every 2 s.
+                owner && t.from == me.id && t.status == TransferStatus.READY &&
+                    (commitTried?.first != t.id || localNow() - commitTried!!.second >= COMMIT_RETRY_MS) -> {
+                    commitTried = t.id to localNow()
+                    commitAsOwner(t)
+                }
                 t.status == TransferStatus.REQUESTED && age > REQUEST_TIMEOUT_MS && (owner || t.by == me.id) -> fail(t, "timeout")
                 t.status == TransferStatus.READY && age > READY_TIMEOUT_MS && t.by == me.id -> fail(t, "timeout")
             }
@@ -469,6 +547,7 @@ class ConnectEngine(
             publish(force = false)
         } else if (ownerEpoch == null) {
             val p = player ?: return
+            warmRemoteSong(session, p)
             if (preparing?.isActive == true || !p.snapshot().playing) return
             if (session != null && session.ownerActive(clock.now()) && session.ownerId != me.id) {
                 // Never two outputs: something started audio here while another device has it.
@@ -537,9 +616,10 @@ class ConnectEngine(
         val commandsDone = s?.commands?.any { it.id in applied } == true
         val transferOld = s?.transfer?.let { !it.status.active && now - it.atMs > TRANSFER_KEEP_MS } == true
         val changed = last == null || significant(last.local, local, localNowMs - last.atLocal)
-        if (!force && !leaseDue && !commandsDone && !transferOld && !changed) return
+        val checkpointDue = local.playing && last != null && localNowMs - last.atLocal >= 5_000L
+        if (!force && !leaseDue && !commandsDone && !transferOld && !changed && !checkpointDue) return
         // Just after taking over, the song is still starting: don't publish its 0:00 as the position.
-        if (!force && !commandsDone && localNowMs < settleUntilLocal && (local.buffering || local.track?.id != s?.track?.id) && !leaseDue) return
+        if (!force && !commandsDone && localNowMs < settleUntilLocal && (local.buffering || local.track?.id != s?.track?.id)) return
         val written = update { cur ->
             val cs = cur.session ?: return@update null
             if (cs.ownerId != me.id || cs.epoch != epoch) null else stateWrite(cur, cs, local, now)
@@ -628,8 +708,8 @@ class ConnectEngine(
     private fun optimisticFor(intent: ConnectIntent, s: ConnectSession, now: Long) {
         val at = localNow()
         optimistic = when (intent) {
-            ConnectIntent.Play -> Optimistic(true, s.positionAt(now), at)
-            ConnectIntent.Pause -> Optimistic(false, s.positionAt(now), at)
+            ConnectIntent.Play -> Optimistic(true, sessionPosition(s), at)
+            ConnectIntent.Pause -> Optimistic(false, sessionPosition(s), at)
             is ConnectIntent.Seek -> Optimistic(null, intent.positionMs, at)
             else -> optimistic
         }
@@ -647,6 +727,7 @@ class ConnectEngine(
         }
         if (written != null) {
             optimistic?.sentVersion = written.session?.version ?: Long.MAX_VALUE
+            optimistic?.commandId = sent?.id
             log("Sent ${sent?.type} to ${written.session?.ownerName}")
         } else {
             optimistic = null
@@ -671,7 +752,7 @@ class ConnectEngine(
                 transfer = base.transfer?.takeIf { !it.status.active }
             )
             if (useSessionState) {
-                ConnectWrite(claimed.copy(version = base.version + 1, leaseUntilMs = now + LEASE_MS, positionMs = base.positionAt(now),
+                ConnectWrite(claimed.copy(version = base.version + 1, leaseUntilMs = now + LEASE_MS, positionMs = sessionPosition(base),
                     positionAtMs = now, playing = false, buffering = false, updatedBy = me.id))
             } else stateWrite(cur.copy(session = claimed), claimed, local, now)
         }
@@ -707,7 +788,8 @@ class ConnectEngine(
             index = tracks.indexOfFirst { it.id == track.id }
             if (index < 0) { tracks = listOf(track.toTrack()); index = 0 }
         }
-        p.load(tracks, index, s.positionAt(clock.now()), play, s.shuffle, s.repeat, s.context)
+        val handoff = s.transfer?.let { it.status == TransferStatus.COMMITTED && it.to == me.id && it.epoch == s.epoch } == true
+        p.load(tracks, index, if (handoff) s.positionMs else sessionPosition(s), play, s.shuffle, s.repeat, s.context)
         lastPublished = null
         settleUntilLocal = localNow() + SETTLE_MS
         startWatch = if (play) StartWatch(from, localNow()) else null
@@ -789,7 +871,8 @@ class ConnectEngine(
                 // Handing back a song that wouldn't start here: it was meant to be playing.
                 val w = stateWrite(cur, s, if (tt.reason == "restore") local.copy(playing = true, buffering = false) else local, now)
                 w.copy(session = w.session.copy(ownerId = t.to, ownerName = t.toName, ownerType = t.toType, epoch = t.epoch,
-                    leaseUntilMs = now + LEASE_MS, transfer = tt.copy(status = TransferStatus.COMMITTED, atMs = now)))
+                    leaseUntilMs = now + LEASE_MS, buffering = w.session.playing,
+                    transfer = tt.copy(status = TransferStatus.COMMITTED, atMs = now)))
             }
         } catch (e: Exception) {
             if (local.playing) p.play()
@@ -818,7 +901,7 @@ class ConnectEngine(
                 transfer = tt.copy(status = TransferStatus.FAILED, atMs = now, reason = "stale"), updatedBy = me.id))
             ConnectWrite(s.copy(
                 version = s.version + 1, ownerId = me.id, ownerName = myName(), ownerType = me.type, epoch = tt.epoch,
-                leaseUntilMs = now + LEASE_MS, positionMs = s.positionAt(now), positionAtMs = now,
+                leaseUntilMs = now + LEASE_MS, positionMs = sessionPosition(s), positionAtMs = now,
                 playing = s.playing && (ownerActive || s.ownerActive(now)), buffering = false,
                 transfer = tt.copy(status = TransferStatus.COMMITTED, atMs = now), updatedBy = me.id
             ))
@@ -837,19 +920,112 @@ class ConnectEngine(
         if (target.id != me.id && !available(target, now)) return
         if (target.id == me.id && player?.canPlay != true) return
         val label = labels()[target.id] ?: ConnectDeviceNames.base(target)
-        update { cur ->
+        // A pull has an extra request/commit round trip. Resolve in parallel with that request,
+        // rather than waiting for its acknowledgement before starting the returning output.
+        if (target.id == me.id) {
+            val track = current?.session?.track?.toTrack()
+            val p = player
+            if (track != null && p != null) scope.launch { runCatching { p.prepare(track) } }
+        }
+        // The output moving its own audio hands over in one write. Waiting for the target's
+        // "ready" and then committing took 3-4 s of a 7 s switch (seen PC -> phone).
+        val owned = ownerEpoch
+        if (owned != null && target.id != me.id) { handOver(target, label, owned, reason); return }
+        val written = update { cur ->
             val s = cur.session ?: ConnectSession()
             if (s.ownerId == target.id && (s.ownerActive(now) || (target.id == me.id && ownerEpoch != null))) return@update null
             if (s.transfer?.status?.active == true && s.transfer.to == target.id) return@update null
-            val t = ConnectTransfer(newId(), s.ownerId, target.id, label, target.type, s.epoch + 1, TransferStatus.REQUESTED, now, me.id, reason)
+            // Asking for this device: it already knows it can play, so the request is its "ready"
+            // and the output can hand over the moment it sees it.
+            val ready = target.id == me.id && s.ownerActive(now) && s.ownerId != me.id
+            val t = ConnectTransfer(newId(), s.ownerId, target.id, label, target.type, s.epoch + 1,
+                if (ready) TransferStatus.READY else TransferStatus.REQUESTED, now, me.id, reason)
             ConnectWrite(s.copy(version = s.version + 1, transfer = t, updatedBy = me.id))
-        }?.let { log("Asked to move the output to $label") }
+        } ?: return
+        written.session?.transfer?.takeIf { it.to == me.id }?.let { t ->
+            handledTransfers += t.id
+            preparedTransfer = t.id
+        }
+        log("Asked to move the output to $label")
     }
 
-    private suspend fun heartbeatNow() {
+    /** This output hands its audio to [target] directly: it stops first, then gives it the output. */
+    private suspend fun handOver(target: ConnectDevice, label: String, epoch: Long, reason: String) {
+        val p = player ?: return
+        val local = p.snapshot()
+        p.silence()
+        val now = clock.now()
+        val written = try {
+            update { cur ->
+                val s = cur.session ?: return@update null
+                if (s.ownerId != me.id || s.epoch != epoch) return@update null
+                // Handing back a song that wouldn't start here: it was meant to be playing.
+                val w = stateWrite(cur, s, if (reason == "restore") local.copy(playing = true, buffering = false) else local, now)
+                val t = ConnectTransfer(newId(), me.id, target.id, label, target.type, epoch + 1, TransferStatus.COMMITTED, now, me.id, reason)
+                // A short lease: the target renews it with its first write. If it never answers
+                // (closed, asleep, offline) the lease lapses and this device takes the audio back.
+                w.copy(session = w.session.copy(ownerId = target.id, ownerName = label, ownerType = target.type,
+                    epoch = epoch + 1, leaseUntilMs = now + DIRECT_LEASE_MS,
+                    buffering = w.session.playing, transfer = t))
+            }
+        } catch (e: Exception) {
+            if (local.playing) p.play()
+            throw e
+        }
+        if (written != null) {
+            ownerEpoch = null
+            lastPublished = null
+            handedOver = HandedOver(target.id, label, epoch + 1, local.playing)
+            log("Handed the output to $label")
+        } else if (ownerEpoch != null && current?.session?.ownerId == me.id && local.playing) {
+            p.play() // the handoff didn't happen: keep playing here
+        }
+    }
+
+    /** The other device's song this one last warmed, so a handoff here can start at once. */
+    private var warmedSong: String? = null
+
+    /**
+     * While another device plays, look up its current song's stream here in the background (once
+     * per song, after it has been playing a moment). Without it a handoff to this device started
+     * only after the handoff, by fetching the stream: PC -> phone was the slow direction.
+     */
+    private fun warmRemoteSong(session: ConnectSession?, p: ConnectPlayer) {
+        val track = session?.track ?: return
+        if (!p.canPlay || !session.ownerActive(clock.now()) || session.ownerId == me.id || track.id == warmedSong) return
+        warmedSong = track.id
+        scope.launch {
+            kotlinx.coroutines.delay(REMOTE_WARM_DELAY_MS)
+            if (current?.session?.track?.id == track.id && ownerEpoch == null)
+                runCatching { p.prepare(track.toTrack()) }
+        }
+    }
+
+    /** The handoff this output last tried to commit, and when. */
+    private var commitTried: Pair<String, Long>? = null
+
+    /** A direct handoff this device made, until the target answers or its short lease lapses. */
+    private data class HandedOver(val to: String, val label: String, val epoch: Long, val wasPlaying: Boolean)
+    private var handedOver: HandedOver? = null
+
+    private suspend fun watchHandOver() {
+        val h = handedOver ?: return
+        val s = current?.session
+        when {
+            s == null || s.epoch != h.epoch || s.ownerId != h.to || s.updatedBy == h.to -> handedOver = null
+            !s.ownerActive(clock.now()) -> {
+                handedOver = null
+                log("${h.label} never picked up the audio; playing here again")
+                if (claim(useSessionState = true) != null && h.wasPlaying) player?.play()
+            }
+        }
+    }
+
+    private suspend fun heartbeatNow() = presenceLock.withLock {
+        if (stopped) return@withLock
         lastHeartbeatLocal = localNow()
         try {
-            backend.heartbeat(me.copy(canPlay = player?.canPlay == true, online = true))
+            backend.heartbeat(me.copy(canPlay = player?.canPlay == true, online = deviceAvailable))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -874,8 +1050,10 @@ class ConnectEngine(
         val s = current?.session
         val labels = labels()
         val t = s?.transfer
+        val asked = requested?.takeIf { localNowMs - it.second < REQUEST_TIMEOUT_MS }
         val transferUi = when {
             t != null && t.status.active -> ConnectTransferUi(t.to, labels[t.to] ?: t.toName, failed = false)
+            asked != null -> ConnectTransferUi(asked.first, labels[asked.first] ?: "", failed = false)
             t != null && t.status == TransferStatus.FAILED && now - t.atMs < TRANSFER_KEEP_MS && (t.by == me.id || t.to == me.id) ->
                 ConnectTransferUi(t.to, labels[t.to] ?: t.toName, failed = true, reason = t.reason)
             else -> null
@@ -905,7 +1083,7 @@ class ConnectEngine(
             val active = output.active
             val o = optimistic
             val playing = o?.playing ?: (s.playing && active)
-            val position = o?.positionMs?.let { it + if (playing) (localNowMs - o.atLocal).coerceAtLeast(0L) else 0L } ?: s.positionAt(now)
+            val position = o?.positionMs?.let { it + if (playing) (localNowMs - o.atLocal).coerceAtLeast(0L) else 0L } ?: sessionPosition(s)
             ConnectRemoteView(
                 track = s.track.toTrack(),
                 queue = queue,

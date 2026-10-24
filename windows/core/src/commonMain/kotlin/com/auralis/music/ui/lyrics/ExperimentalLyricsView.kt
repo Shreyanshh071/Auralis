@@ -1519,10 +1519,6 @@ fun ExperimentalLyricsLine(
         fun LineContent() {
             val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine || (mouseHover && hovered)) {
                 0f
-            } else if (isSpicy) {
-                if (!isAutoScrollEnabled) 0f else with(LocalDensity.current) {
-                    SpicyLyricsPresentation.blurSigmaPx(index, displayedCurrentLineIndex).toDp().value
-                }
             } else {
                 computeLyricsProgressiveBlur(
                     standardBlur = true,
@@ -1540,7 +1536,7 @@ fun ExperimentalLyricsLine(
 
             val animatedBlur = animateFloatAsState(
                 targetValue = targetBlur,
-                animationSpec = if (!standardBlur) snap() else tween(durationMillis = if (isSpicy) 200 else 350, easing = FastOutSlowInEasing),
+                animationSpec = if (!standardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
                 label = "expLineBlur"
             )
 

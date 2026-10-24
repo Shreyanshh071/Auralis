@@ -263,6 +263,9 @@ private fun smartCollectionSubtitleFor(playlist: Playlist, isJobDownloading: Boo
     if (playlist.id == "smart_downloaded" && isJobDownloading) "Downloading..."
     else "${playlist.tracks.size} songs"
 
+/** Below this the playlist page switches from the song table to a plain list. */
+private val PLAYLIST_TABLE_MIN_WIDTH = 480.dp
+
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
  * "Date added ↓" sorting bar, Grid vs List toggle, Search filtering, 2-column grid or single-column list of Liked default playlist
@@ -1999,7 +2002,7 @@ private fun PlaylistDetailView(
         // 1. TOP APP BAR: Back Arrow (Left) + Search Icon (Right)
         // ================================================================
         if (!glassHero) {
-            BoxWithConstraints { if (maxWidth < 720.dp) topBar() }
+            BoxWithConstraints { if (maxWidth < PLAYLIST_TABLE_MIN_WIDTH) topBar() }
         }
 
         // Opening search brings the list to the top, where the collapsed header was.
@@ -2011,8 +2014,9 @@ private fun PlaylistDetailView(
         // 2. MAIN SCROLLABLE BODY
         // ================================================================
         BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            // Wide windows lay songs out as a table: title, artist, album, length.
-            val wideTable = maxWidth >= 720.dp
+            // Songs are laid out as a table (title, artist, album, length) down to fairly narrow
+            // windows, so the page keeps one format when the window is made smaller.
+            val wideTable = maxWidth >= PLAYLIST_TABLE_MIN_WIDTH
             // The songs are the list's last items.
             com.auralis.music.ui.components.PrefetchListArtwork(playlistListState) { index ->
                 val first = playlistListState.layoutInfo.totalItemsCount - displayedItems.size
@@ -2039,7 +2043,7 @@ private fun PlaylistDetailView(
                         if (wideTable) DesktopPlaylistHero(
                             playlist, savedAlbums,
                             "${playlist.tracks.size} tracks • $durationFormatted",
-                            searchQuery, { searchQuery = it }, onBack,
+                            searchQuery, { searchQuery = it },
                             onPlay = { displayedTracks.firstOrNull()?.let { onPlayTrack(it, displayedTracks) } },
                             onShuffle = { displayedTracks.shuffled().let { tracks -> tracks.firstOrNull()?.let { onPlayTrack(it, tracks) } } },
                             onOptions = { showOptionsMenu = true }
@@ -2596,7 +2600,17 @@ private fun PlaylistDetailView(
         }
     }
     // Floats over the hero cover in liquid glass mode.
-    if (glassHero) BoxWithConstraints { if (maxWidth < 720.dp) topBar() }
+    if (glassHero) BoxWithConstraints { if (maxWidth < PLAYLIST_TABLE_MIN_WIDTH) topBar() }
+    // The song-table layout: Back floats over the page (as on album and artist pages), so it
+    // stays reachable however far down the songs are scrolled.
+    BoxWithConstraints {
+        if (maxWidth >= PLAYLIST_TABLE_MIN_WIDTH) IconButton(onClick = onBack,
+            modifier = Modifier.padding(start = 12.dp, top = 8.dp).size(40.dp).clip(CircleShape)
+                .background(Color(0xFF202024).copy(alpha = .72f))
+                .border(1.dp, Color.White.copy(alpha = .16f), CircleShape)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, str(Strings.back), tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+    }
     }
 
     if (showOptionsMenu) {
@@ -2630,7 +2644,7 @@ private fun PlaylistDetailView(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
+fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     track: Track,
     wide: Boolean = false,
     isCurrent: Boolean,
@@ -2762,7 +2776,9 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                         .size(36.dp)
                         .onGloballyPositioned { handleTopInRoot = it.positionInRoot().y }
                         .pointerInput(isCustomSort) {
-                            detectDragGesturesAfterLongPress(
+                            // Desktop handles start on mouse movement, before the list
+                            // can turn it into scrolling while waiting for a long press.
+                            detectDragGestures(
                                 onDragStart = { offset ->
                                     currentDragStart(handleTopInRoot - currentListTop + offset.y)
                                 },

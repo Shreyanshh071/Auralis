@@ -13,6 +13,7 @@ import com.auralis.music.data.connect.ConnectPlayer
 import com.auralis.music.data.connect.ConnectQueue
 import com.auralis.music.data.connect.ConnectServerTime
 import com.auralis.music.data.connect.ConnectSnapshot
+import com.auralis.music.data.connect.ConnectTransferUi
 import com.auralis.music.data.connect.ConnectUi
 import com.auralis.music.data.connect.ConnectWrite
 import com.auralis.music.data.connect.LocalPlayback
@@ -28,6 +29,7 @@ import com.auralis.music.windows.together.FirestoreRest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,9 +59,39 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
     private val queuePath = "users/$uid/connect/queue"
     private val devicesPath = "users/$uid/connectDevices"
     @Volatile private var queueCache: ConnectQueue? = null
+    private var loggedTransferPhase: String? = null
+    @Volatile private var watchCurrent = false
 
     private fun checkAccount() {
         if (api.uid != uid) throw FirestoreRest.ServiceException(401, "Signed in to another account")
+    }
+
+    suspend fun watch(onCurrent: () -> Unit, onSnapshot: (ConnectSnapshot) -> Unit) {
+        var session: com.auralis.music.data.connect.ConnectSession? = null
+        var queue: ConnectQueue? = null
+        try { ConnectSessionListener(api, uid).events().collect { event ->
+            checkAccount()
+            when (event) {
+                is ConnectSessionListener.Event.Changed -> {
+                    val doc = event.document
+                    val fields = ConnectSessionListener.fields(doc)
+                    if (doc.name.endsWith("/connect/session")) {
+                        session = ConnectCodec.decodeSession(fields)
+                        val stamp = java.time.Instant.ofEpochSecond(doc.updateTime.seconds, doc.updateTime.nanos.toLong()).toString()
+                        polled = (toJson(fields).first to stamp) to System.currentTimeMillis()
+                    } else if (doc.name.endsWith("/connect/queue")) {
+                        queue = ConnectCodec.decodeQueue(fields)
+                        queueCache = queue
+                    }
+                    session?.let { s -> onSnapshot(ConnectSnapshot(s, queue?.takeIf { it.rev == s.queueRev })) }
+                }
+                is ConnectSessionListener.Event.Deleted -> {
+                    if (event.name.endsWith("/connect/session")) { session = null; onSnapshot(ConnectSnapshot()) }
+                    if (event.name.endsWith("/connect/queue")) { queue = null; queueCache = null }
+                }
+                ConnectSessionListener.Event.Current -> { watchCurrent = true; onCurrent() }
+            }
+        } } finally { watchCurrent = false }
     }
 
     private fun readQueue(rev: Long): ConnectQueue? {
@@ -70,16 +102,39 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
         return q?.takeIf { it.rev == rev }
     }
 
+    /** The session document as last polled, with when it was read. */
+    @Volatile private var polled: Pair<Pair<JSONObject, String>?, Long>? = null
+
     override suspend fun fetch(): ConnectSnapshot = withContext(Dispatchers.IO) {
         checkAccount()
-        val session = api.accountGet(sessionPath)?.first?.let { ConnectCodec.decodeSession(toMap(it)) }
+        val doc = api.accountGet(sessionPath)
+        polled = doc to System.currentTimeMillis()
+        val session = doc?.first?.let { ConnectCodec.decodeSession(toMap(it)) }
+        session?.transfer?.let { transfer ->
+            val phase = "${transfer.id}:${transfer.status}"
+            if (phase != loggedTransferPhase) {
+                loggedTransferPhase = phase
+                Log.i("AuralisConnect", "Observed handoff ${transfer.status} to ${transfer.toName}")
+            }
+        }
         ConnectSnapshot(session, session?.let { readQueue(it.queueRev) })
     }
 
     override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? = withContext(Dispatchers.IO) {
-        repeat(6) {
+        val started = System.currentTimeMillis()
+        var conflicts = 0
+        // A slow write is what a slow handoff from this PC looks like: say why (collisions or the network).
+        fun noteSlow() {
+            val took = System.currentTimeMillis() - started
+            if (took > 1_000L || conflicts > 0) Log.i("AuralisConnect", "Session write took ${took}ms ($conflicts collisions)")
+        }
+        repeat(6) { attempt ->
             checkAccount()
-            val doc = api.accountGet(sessionPath)
+            // A handoff step usually reacts to the poll that just arrived: write on that read
+            // instead of reading again. The update-time precondition still refuses it if stale.
+            val fresh = polled?.takeIf { attempt == 0 && (watchCurrent || System.currentTimeMillis() - it.second < 1_500L) }
+            val doc = if (fresh != null) fresh.first else api.accountGet(sessionPath)
+            polled = null
             val session = doc?.first?.let { ConnectCodec.decodeSession(toMap(it)) }
             val current = ConnectSnapshot(session, session?.let { readQueue(it.queueRev) })
             val w = block(current) ?: return@withContext null
@@ -92,11 +147,13 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
                 val commitTime = api.accountCommit(writes)
                 clock.sample(commitTime, sent, System.currentTimeMillis())
                 w.queue?.let { queueCache = it }
+                noteSlow()
                 return@withContext ConnectSnapshot(w.session, w.queue ?: current.queue)
             } catch (e: FirestoreRest.ServiceException) {
                 // Someone else wrote first: read again and redo the step on the newer state.
                 val conflict = e.status == 409 || e.status == 412 ||
                     (e.status == 400 && e.message.orEmpty().contains("precondition", ignoreCase = true))
+                conflicts++
                 if (!conflict) {
                     // Rules can reject version+1 before the update-time precondition is
                     // evaluated. Retry a 403 only when a fresh read proves contention;
@@ -156,7 +213,7 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
 }
 
 /** Connect's view of this PC's player; acts through [DesktopPlaybackController.fromConnect]. */
-class DesktopConnectPlayer(private val controller: DesktopPlaybackController, scope: CoroutineScope) : ConnectPlayer {
+class DesktopConnectPlayer(private val controller: DesktopPlaybackController, private val scope: CoroutineScope) : ConnectPlayer {
     @Volatile private var lastError: Pair<String, Long>? = null
 
     init {
@@ -170,14 +227,14 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, sc
         val resolving = controller.resolving.value
         // A Listen Together room drives this player: Connect stands aside (never silences or claims it).
         val playing = track != null && !controller.roomActive.value &&
-            (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING || resolving)
+            (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING || resolving || controller.clock.isBuffering())
         return LocalPlayback(
             track = track,
             queue = q.tracks,
             index = q.index,
             playing = playing,
-            buffering = playing && (resolving || state == VlcAudioPlayer.State.BUFFERING),
-            positionMs = controller.positionMs.value,
+            buffering = playing && (resolving || controller.clock.isBuffering()),
+            positionMs = controller.clock.rawPositionMs(),
             durationMs = controller.lengthMs.value.takeIf { it > 0L } ?: ((track?.duration ?: 0L) * 1000L),
             shuffle = controller.shuffleActive,
             repeat = RepeatMode.valueOf(controller.repeatMode.value.name),
@@ -202,27 +259,32 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, sc
         if (com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(track.id) != null) return@withContext true
         // A song from another device's own files can't be played here.
         if (track.source == TrackSource.LOCAL) return@withContext false
-        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id)
-            ?: track.id.takeIf(com.auralis.music.desktop.playback.DesktopPlaybackMatch::isVideoId)
-            ?: com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(track)
-            ?: return@withContext false
-        // Warm the stream so the song starts quickly once the handoff completes; a miss isn't fatal.
-        runCatching {
-            com.auralis.music.desktop.playback.DesktopStreamResolver.resolve(id)?.let { url ->
-                com.auralis.music.desktop.playback.LocalStreamRelay.preload(url, refresh = {
-                    com.auralis.music.desktop.playback.DesktopStreamResolver.refreshBlocking(track.id)
-                })
+        if (track.id.startsWith("unavailable:")) return@withContext false
+        // Warm the stream while the handoff completes rather than before acknowledging it: the
+        // old output stops and commits meanwhile, and the load joins this same in-flight lookup
+        // (DesktopStreamResolver shares it). A miss isn't fatal; a song that won't start is handed back.
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id)
+                    ?: track.id.takeIf(com.auralis.music.desktop.playback.DesktopPlaybackMatch::isVideoId)
+                    ?: com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(track)
+                    ?: return@runCatching
+                com.auralis.music.desktop.playback.DesktopStreamResolver.resolve(id)?.let { url ->
+                    com.auralis.music.desktop.playback.LocalStreamRelay.preload(url, refresh = {
+                        com.auralis.music.desktop.playback.DesktopStreamResolver.refreshBlocking(track.id)
+                    })
+                }
             }
         }
         true
     }
 
-    override fun play() = controller.fromConnect { controller.connectPlay() }
-    override fun pause() = controller.fromConnect { controller.connectSilence() }
-    override fun seekTo(positionMs: Long) = controller.fromConnect { controller.seekTo(positionMs) }
-    override fun next() = controller.fromConnect { controller.next() }
-    override fun previous() = controller.fromConnect { controller.previous() }
-    override fun playIndex(index: Int) = controller.fromConnect { controller.playAt(index) }
+    override fun play() { ConnectControls.mark(); controller.fromConnect { controller.connectPlay() } }
+    override fun pause() { ConnectControls.mark(); controller.fromConnect { controller.connectSilence() } }
+    override fun seekTo(positionMs: Long) { ConnectControls.mark(); controller.fromConnect { controller.seekTo(positionMs) } }
+    override fun next() { ConnectControls.mark(); controller.fromConnect { controller.next() } }
+    override fun previous() { ConnectControls.mark(); controller.fromConnect { controller.previous() } }
+    override fun playIndex(index: Int) { ConnectControls.mark(); controller.fromConnect { controller.playAt(index) } }
     // Windows shuffles the upcoming songs once; there is no unshuffle to apply.
     override fun setShuffle(on: Boolean) { if (on) controller.fromConnect { controller.shuffleUpcoming() } }
     override fun setRepeat(mode: RepeatMode) = controller.fromConnect { controller.setRepeatMode(DesktopPlaybackController.RepeatMode.valueOf(mode.name)) }
@@ -255,7 +317,7 @@ class DesktopConnect(
     private var jobs: List<Job> = emptyList()
     /** Set while the device picker is open: the device list refreshes more often. */
     @Volatile var pickerOpen = false
-        set(value) { field = value; if (value) devicesNow() }
+        set(value) { field = value; if (value) { devicesNow(); pollNow.trySend(Unit) } }
 
     fun start() {
         current = this
@@ -279,6 +341,7 @@ class DesktopConnect(
     }
 
     private fun intercept(intent: ConnectIntent): Boolean {
+        ConnectControls.mark()
         val e = engine ?: return false
         // Picking from the queue on screen (the other device's queue) plays that item there.
         if (intent is ConnectIntent.Load) {
@@ -321,7 +384,39 @@ class DesktopConnect(
         engine = e
         Log.i(TAG, "Joined the account session as ${device.name}")
         jobs = buildList {
-            add(scope.launch { e.ui.collect { u -> _ui.value = u; controller?.showRemote(u.remote?.takeIf { !e.isOutput }) } })
+            add(scope.launch(Dispatchers.IO) {
+                var retryMs = 1_000L
+                while (isActive) {
+                    try {
+                        b.watch(onCurrent = {
+                            sessionWatchCurrent = true
+                            retryMs = 1_000L
+                            Log.i(TAG, "Realtime session listener connected")
+                        }, onSnapshot = e::onSnapshot)
+                    } catch (ex: kotlinx.coroutines.CancellationException) {
+                        throw ex
+                    } catch (ex: Exception) {
+                        Log.i(TAG, "Session listener interrupted (${io.grpc.Status.fromThrowable(ex).code}); polling until reconnected")
+                    } finally {
+                        sessionWatchCurrent = false
+                        pollNow.trySend(Unit)
+                    }
+                    delay(retryMs)
+                    retryMs = (retryMs * 2).coerceAtMost(30_000L)
+                }
+            })
+            add(scope.launch {
+                var handoff: ConnectTransferUi? = null
+                e.ui.collect { u ->
+                    _ui.value = u
+                    controller?.showRemote(u.remote?.takeIf { !e.isOutput })
+                    // A handoff began (asked for here, or just seen): read again now rather than
+                    // finishing a slow poll wait; fast handoff polling starts from that read.
+                    val active = u.transfer?.takeIf { !it.failed }
+                    if (active != null && active != handoff) pollNow.trySend(Unit)
+                    handoff = active
+                }
+            })
             add(scope.launch { while (isActive) { delay(1_000L); e.tick() } })
             // The session: read from the server, never assumed (a waking PC reads it first).
             add(scope.launch(Dispatchers.IO) {
@@ -332,14 +427,14 @@ class DesktopConnect(
                         if (ex is kotlinx.coroutines.CancellationException) throw ex
                         e.onConnectionLost(ex.message)
                     }
-                    delay(pollInterval(e))
+                    withTimeoutOrNull(pollInterval(e)) { pollNow.receive() }
                 }
             })
             add(scope.launch(Dispatchers.IO) {
                 while (isActive) {
                     refreshDevices(e, b)
                     var waited = 0L
-                    while (isActive && waited < 30_000L && !(pickerOpen && waited >= 5_000L) && !devicesWanted) { delay(500L); waited += 500L }
+                    while (isActive && waited < 30_000L && !(pickerOpen && waited >= 1_000L) && !devicesWanted) { delay(500L); waited += 500L }
                     devicesWanted = false
                 }
             })
@@ -356,6 +451,9 @@ class DesktopConnect(
     }
 
     @Volatile private var devicesWanted = false
+    @Volatile private var sessionWatchCurrent = false
+    /** Cuts the session poll's wait short. */
+    private val pollNow = Channel<Unit>(Channel.CONFLATED)
     private fun devicesNow() { devicesWanted = true }
 
     private suspend fun refreshDevices(e: ConnectEngine, b: DesktopConnectBackend) {
@@ -366,18 +464,26 @@ class DesktopConnect(
 
     /**
      * Reads cost against the free Firestore quota, so polling follows what's happening:
-     * 0.4 s during a handoff, 2 s while this PC is the output (remote controls), 3 s while it
-     * shows another device's playback, 6 s otherwise; four times slower while minimised.
+     * 0.25 s during a handoff or while the picker is open, 1 s during playback on either device,
+     * 2 s while this PC is paused, 1.5 s while
+     * another device is the output (a handoff to this PC is only seen on the next read), 6 s
+     * otherwise; twice as slow while minimised.
      */
     private fun pollInterval(e: ConnectEngine): Long {
+        // Watch delivers each committed change immediately; periodic reads only reconcile it.
+        if (sessionWatchCurrent) return 30_000L
         val u = e.ui.value
-        if (u.transfer?.failed == false) return 400L
+        // Controls come in bursts (dragging the seek bar, tapping lyric lines, pause then play):
+        // after one, sent or applied here, read fast so the rest feel immediate on both devices.
+        if (u.transfer?.failed == false || pickerOpen || (ConnectControls.recent() && u.otherDevicesOnline)) return 250L
+        if (u.otherDevicesOnline) return 500L
         val base = when {
-            e.isOutput -> 2_000L
-            u.remote?.playing == true -> 3_000L
+            e.isOutput -> if (u.output?.playing == true) 1_000L else 2_000L
+            u.remote?.playing == true -> 1_000L
+            u.remote?.output?.active == true -> 1_500L
             else -> 6_000L
         }
-        return if (windowVisible() || e.isOutput) base else base * 4
+        return if (windowVisible() || e.isOutput || u.remote?.playing == true) base else base * 2
     }
 
     private suspend fun stopEngine(signOut: Boolean) {
@@ -404,4 +510,12 @@ class DesktopConnect(
             return ConnectDeviceNames.clean(native) ?: ConnectDeviceNames.clean(System.getenv("COMPUTERNAME")).orEmpty()
         }
     }
+}
+
+/** When this PC last sent or applied a Connect control (seek, play/pause, skip). */
+internal object ConnectControls {
+    private const val BURST_MS = 8_000L
+    @Volatile private var at = 0L
+    fun mark() { at = System.currentTimeMillis() }
+    fun recent(): Boolean = System.currentTimeMillis() - at < BURST_MS
 }

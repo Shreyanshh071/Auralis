@@ -21,6 +21,62 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectEngineTest {
+    @Test fun hiddenIdleDeviceStaysOfflineUntilItReturns() = runTest {
+        val (w, phone, _) = threeDevices()
+        w.run(2_000)
+        phone.engine.setDeviceAvailable(false)
+        w.run(1_000)
+        assertFalse(assertNotNull(w.server.devices["phone-1"]).online)
+        w.run(12_000)
+        assertFalse(assertNotNull(w.server.devices["phone-1"]).online)
+        phone.engine.setDeviceAvailable(true)
+        w.run(1_000)
+        assertTrue(assertNotNull(w.server.devices["phone-1"]).online)
+    }
+
+    @Test fun advancingPlaybackSavesRegularAccountBookmarks() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 0))
+        w.run(3_000)
+        val before = assertNotNull(w.server.snapshot().session).positionMs
+        w.run(7_000)
+        val after = assertNotNull(w.server.snapshot().session).positionMs
+        assertTrue(after >= before + 4_000L, "Playback must checkpoint without a manual control: $before -> $after")
+    }
+
+    @Test fun handoffStartsAtTheFrozenSourcePosition() = runTest {
+        val (w, phone, others) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 0))
+        w.run(10_000)
+        phone.user(ConnectIntent.Seek(42_000))
+        w.run(500)
+        phone.engine.transferTo(others.first.engine.me.id)
+        w.run(12_000)
+        val loaded = assertNotNull(others.first.player.lastLoadedPositionMs)
+        assertTrue(loaded in 42_000..44_000, "Network handoff time must not be added to frozen position: $loaded")
+        assertFalse(phone.player.playing)
+        assertTrue(others.first.player.playing)
+        assertTrue(w.doubleAudio.isEmpty())
+    }
+
+    @Test fun reopeningPreviousOutputRestoresItsAccountBookmarkSilently() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 1))
+        w.run(5_000)
+        phone.user(ConnectIntent.Seek(67_000))
+        w.run(500)
+        phone.engine.stop(signOut = false)
+        w.run(1_000)
+        val bookmark = assertNotNull(w.server.snapshot().session)
+        val reopened = w.device("phone-1", "Pixel 8", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        reopened.start()
+        w.run(3_000)
+        assertEquals(bookmark.track?.id, reopened.player.track?.id)
+        assertEquals(bookmark.positionMs, reopened.player.positionMs)
+        assertFalse(reopened.player.playing)
+        assertEquals(bookmark.track?.id, w.server.snapshot().session?.track?.id)
+    }
+
     private class World(val test: TestScope) {
         val server = FakeServer { test.testScheduler.currentTime }
         val devices = mutableListOf<SimDevice>()
@@ -60,7 +116,8 @@ class ConnectEngineTest {
         laptop.user(ConnectIntent.Load(songs(5), 0))
         w.run(5_000)
         phone.rejectNextReady = true
-        laptop.engine.transferTo(phone.engine.me.id)
+        // Asked from a third device, so the phone has to acknowledge before the laptop lets go.
+        others.second.engine.transferTo(phone.engine.me.id)
         w.run(15_000)
         assertTrue(phone.log.any { it.contains("Transient acknowledgement failure") })
         assertTrue(phone.engine.isOutput)
@@ -69,6 +126,44 @@ class ConnectEngineTest {
         assertNull(laptop.engine.ui.value.transfer)
         assertTrue(w.doubleAudio.isEmpty())
         assertTrue(w.server.violations.isEmpty())
+    }
+
+    @Test
+    fun theOutputHandsOverInOneStepAndAPickedDeviceIsReadyAtOnce() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(5), 0))
+        w.run(5_000)
+        // The laptop moves its own audio: no "ready" round trip, the phone starts straight away.
+        laptop.engine.transferTo(phone.engine.me.id)
+        w.run(2_500)
+        assertTrue(phone.player.playing, "the phone plays within one round trip")
+        assertFalse(laptop.player.playing)
+        assertNull(w.server.snapshot().session?.transfer?.takeIf { it.status == TransferStatus.READY })
+        // The laptop asks for the audio back: its request is already its "ready".
+        laptop.engine.transferTo(laptop.engine.me.id)
+        w.run(4_000)
+        assertTrue(laptop.player.playing, "the laptop (2 s polling) has the audio back within one poll or two")
+        assertFalse(phone.player.playing)
+        assertTrue(w.doubleAudio.isEmpty())
+        assertTrue(w.server.violations.isEmpty())
+    }
+
+    @Test
+    fun pickingADeviceShowsConnectingAtOnce() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(5), 0))
+        w.run(5_000)
+        // The laptop's writes take 2 s here: the picker must not wait for them to react.
+        laptop.engine.transferTo(phone.engine.me.id)
+        val ui = laptop.engine.ui.value
+        assertEquals(phone.engine.me.id, ui.transfer?.deviceId)
+        assertEquals(ConnectRowState.CONNECTING, ui.devices.first { it.device.id == phone.engine.me.id }.state)
+        w.run(15_000)
+        assertTrue(phone.engine.isOutput)
+        assertNull(laptop.engine.ui.value.transfer)
+        assertTrue(w.doubleAudio.isEmpty())
     }
 
     @Test
@@ -263,12 +358,16 @@ class ConnectEngineTest {
         assertEquals("phone-1", desktop.engine.ui.value.output?.deviceId)
         assertTrue(desktop.engine.ui.value.transfer?.failed == true || w.server.snapshot().session?.transfer?.status == TransferStatus.FAILED)
 
-        // A target that never answers: the request times out and nothing moves.
+        // The output hands over directly to a target that never answers (closed, asleep): its short
+        // lease lapses and the audio comes back to the phone, which plays again.
         desktop.offline = true
         phone.engine.transferTo("desktop-1")
+        w.run(1_000)
+        assertFalse(phone.player.playing, "the phone stops at once for the handoff")
         w.run(20_000)
-        assertTrue(phone.player.playing)
-        assertEquals(TransferStatus.FAILED, w.server.snapshot().session?.transfer?.status)
+        assertTrue(phone.player.playing, "the phone took its audio back")
+        assertEquals("phone-1", w.server.snapshot().session?.ownerId)
+        assertTrue(phone.log.any { it.contains("never picked up") })
         assertTrue(w.doubleAudio.isEmpty())
     }
 

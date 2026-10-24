@@ -81,8 +81,6 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
     }
 
     SettingsGroup("Theme & colours") {
-        ThemeModeCards(settings.appTheme) { update { copy(appTheme = it) } }
-        Spacer(Modifier.height(14.dp))
         PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } }
     }
 
@@ -172,8 +170,8 @@ internal fun SpicyLyricsKeySetting(store: ContentSettingsDataStore) {
     fun update(transform: ContentSettings.() -> ContentSettings) {
         scope.launch { store.update { current -> current.transform() } }
     }
-    SettingTextField("Spicy Lyrics publishable key",
-        "Create a key at developers.spicylyrics.org and enable native clients (no Origin header). Use a publishable sl_pk_ key.",
+    SettingTextField("Spicy Lyrics key override (optional)",
+        "Auralis uses its included key automatically. Leave blank, or enter your own native publishable sl_pk_ key.",
         settings.spicyLyricsApiKey, isPassword = true,
         onValue = { update { copy(spicyLyricsApiKey = it.trim()) } })
     if (settings.spicyLyricsApiKey.isNotBlank() &&

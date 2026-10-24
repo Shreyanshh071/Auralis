@@ -97,8 +97,11 @@ object LyricsAlignmentEngine {
             return MasterMatchStatus.MASTER_MISMATCH
         }
 
-        // 2. Corrupt intro check: line 1 or word 1 at <= 100ms on a substantial track
-        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(lyrics, playbackDurationMs / 1000L)) {
+        // 2. Corrupt intro check: line 1 or word 1 at <= 100ms on a substantial track.
+        // Some songs genuinely open on the first word ("I Wonder": "Find your dreams come true"
+        // at 0:00). Word-by-word timing of that opening on the same-length master is not the
+        // crowd-sourced LRC failure this guards against, which drops the intro from line text.
+        if (hasUntrustedIntro(lyrics, playbackDurationMs)) {
             return MasterMatchStatus.MASTER_MISMATCH
         }
 
@@ -214,8 +217,14 @@ object LyricsAlignmentEngine {
                 return MasterMatchStatus.MASTER_MISMATCH
             }
         } else if (qFeatures.isNotEmpty() && cFeatures.isEmpty()) {
-            // Playback explicitly requested/has a featured guest, while candidate is solo
-            return MasterMatchStatus.MASTER_MISMATCH
+            // Playback has a featured guest and the candidate names none. Most providers credit
+            // only the lead artist ("We Don't Talk Anymore" / "Charlie Puth"), so silence is not
+            // proof of a solo cut: accept a guest named among the credited artists, or the exact
+            // same length. Solo and feat. cuts can still be 2.5s apart ("Moral of the Story").
+            val credits = (candidateArtist ?: lyrics.artistName).orEmpty().lowercase()
+            if (qFeatures.none { credits.contains(it) } && !hasExactStatedDuration(lyrics, playbackDurationMs)) {
+                return MasterMatchStatus.MASTER_MISMATCH
+            }
         } else if (qFeatures.isEmpty() && cFeatures.isNotEmpty()) {
             // Playback has no explicit feature in title/artist (e.g. solo playback or clean YouTube title).
             // Reject if candidate is a known guest remix of an originally solo track.
@@ -231,6 +240,18 @@ object LyricsAlignmentEngine {
 
         // 3. Pure duration delta, overrun, and intro sanity checks
         return evaluateMasterMatch(lyrics, playbackDurationMs)
+    }
+
+    /** First sung line at ~0ms with no evidence the song really opens there; see evaluateMasterMatch. */
+    fun hasUntrustedIntro(lyrics: LyricsData, playbackDurationMs: Long): Boolean =
+        com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(lyrics, playbackDurationMs.takeIf { it > 0L }?.div(1000L)) &&
+            !(hasExactStatedDuration(lyrics, playbackDurationMs) &&
+                com.auralis.music.data.parser.LyricsValidator.opensWithTimedWords(lyrics))
+
+    /** The candidate states a length within [EXACT_MATCH_MAX_DELTA_MS] of the playing audio. */
+    private fun hasExactStatedDuration(lyrics: LyricsData, playbackDurationMs: Long): Boolean {
+        val stated = lyrics.durationMs ?: return false
+        return playbackDurationMs > 0L && stated > 0L && abs(playbackDurationMs - stated) <= EXACT_MATCH_MAX_DELTA_MS
     }
 
     /**

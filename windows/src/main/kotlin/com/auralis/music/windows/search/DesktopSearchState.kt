@@ -62,7 +62,9 @@ class DesktopSearchState(private val repository: SearchRepository, private val s
         isSearching = false
         searchFailed = false
         hasSubmitted = false
-        suggestions = emptyList()
+        // Keep still-relevant suggestions while refining a query, rather than
+        // collapsing the popup on every keystroke before the next reply arrives.
+        suggestions = suggestions.filter { it.contains(trimmed, ignoreCase = true) }
         liveSongs = liveSongCache[cacheKey] ?: reusable.take(8)
         results = SearchResults()
 

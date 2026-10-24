@@ -219,7 +219,7 @@ class LyricsClient(
         /** Settings → Content → Lyrics → provider switches. */
         fun isProviderEnabled(provider: LyricsProvider): Boolean {
             if (provider == LyricsProvider.SPICY_LYRICS && !SpicyLyricsSource.isNativeKey(
-                    com.auralis.music.data.network.ContentSettingsSource.current().spicyLyricsApiKey.trim())) return false
+                    SpicyLyricsSource.effectiveKey())) return false
             val id = settingsId(provider) ?: return true
             return id !in com.auralis.music.data.network.ContentSettingsSource.current().disabledLyricsProviders
         }
@@ -541,7 +541,8 @@ class LyricsClient(
             queryArtist: String? = null
         ): Double {
             if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData) ||
-                com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cand.lyricsData, queryDurationSec)) {
+                com.auralis.music.domain.lyrics.LyricsAlignmentEngine.hasUntrustedIntro(cand.lyricsData,
+                    queryDurationMs?.takeIf { it > 0L } ?: ((queryDurationSec ?: 0L) * 1000L))) {
                 return -1000.0
             }
             var score = cand.confidence.toDouble() // base 0 - 100
@@ -958,7 +959,7 @@ class LyricsClient(
                     .filter { cand ->
                         val lines = cand.lyricsData.lines
                         if (lines.isEmpty() || cand.confidence < 50) return@filter false
-                        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cand.lyricsData, durationSec)) return@filter false
+                        if (com.auralis.music.domain.lyrics.LyricsAlignmentEngine.hasUntrustedIntro(cand.lyricsData, queryMs)) return@filter false
                         if (com.auralis.music.data.parser.LyricsValidator.hasNonMonotonicWordTimestamps(cand.lyricsData)) return@filter false
 
                         val qVersion = com.auralis.music.data.network.TitleCleaner.extractVersion(title)

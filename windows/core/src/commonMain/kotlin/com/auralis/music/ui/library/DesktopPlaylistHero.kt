@@ -23,14 +23,12 @@ import com.auralis.music.domain.model.SavedAlbum
 /** Desktop banner; typography comes from Auralis's existing theme. */
 @Composable
 internal fun DesktopPlaylistHero(playlist: Playlist, savedAlbums: List<SavedAlbum>, subtitle: String,
-    query: String, onQuery: (String) -> Unit, onBack: () -> Unit, onPlay: () -> Unit,
+    query: String, onQuery: (String) -> Unit, onPlay: () -> Unit,
     onShuffle: () -> Unit, onOptions: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(320.dp).clip(RoundedCornerShape(0.dp))) {
         // The app owns one full-window artwork backdrop. Keeping this banner transparent
         // avoids a second cover crop and lets it follow the playing song with the track list.
-        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-        }
+        // Back floats over the page (PlaylistDetailView) so it stays reachable while scrolled.
         OutlinedTextField(query, onQuery, singleLine = true,
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).width(252.dp),
             placeholder = { Text("Search this playlist", style = MaterialTheme.typography.bodyMedium) },

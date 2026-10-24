@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -186,7 +187,15 @@ fun ArtistScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(340.dp)
+                        // Artist banners are about 2.4:1 with the face high in the frame; a fixed
+                        // 340 dp strip on a wide window cropped through the face. Follow the
+                        // banner's shape, within limits.
+                        .layout { measurable, constraints ->
+                            val height = (constraints.maxWidth / 2.4f).toInt()
+                                .coerceIn(340.dp.roundToPx(), 560.dp.roundToPx())
+                            val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(constraints.maxWidth, height))
+                            layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                        }
                 ) {
                     val isKanye = artistPage.artist.name.equals("Kanye West", ignoreCase = true) || artistPage.artist.name.equals("Ye", ignoreCase = true)
                     val defaultKanye = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
@@ -201,7 +210,9 @@ fun ArtistScreen(
                             contentDescription = artistPage.artist.name,
                             contentScale = ContentScale.Crop,
                             crossfade = true,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            // Whatever still has to be cropped comes off the bottom, not the face.
+                            alignment = androidx.compose.ui.BiasAlignment(0f, -0.5f)
                         )
                     } else {
                         Box(

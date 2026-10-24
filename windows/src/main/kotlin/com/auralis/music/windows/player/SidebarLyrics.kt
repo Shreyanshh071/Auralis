@@ -178,10 +178,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 SidebarLyricLine(line.text, activeBreak == null && index in highlighted, synced,
                     onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
-                    blur = if (!appearance.standardLyricsBlur) 0.dp else if (mode == LyricsAnimationMode.SPICY_LYRICS)
-                        with(androidx.compose.ui.platform.LocalDensity.current) {
-                            com.auralis.music.ui.lyrics.SpicyLyricsPresentation.blurSigmaPx(index, focus).toDp()
-                        } else (distance * 1.5f).coerceAtMost(4.5f).dp,
+                    blur = if (!appearance.standardLyricsBlur) 0.dp else (distance * 1.5f).coerceAtMost(4.5f).dp,
                     nextLineTime = lines.getOrNull(index + 1)?.time,
                     speakerSide = speakerStyles?.getOrNull(index)?.side)
               }
@@ -201,7 +198,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         if (hovered) VerticalScrollbar(rememberScrollbarAdapter(list),
             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 16.dp).width(5.dp))
     }
-    com.auralis.music.ui.lyrics.LyricsCredits(lyrics, Modifier.padding(horizontal = 8.dp))
+    com.auralis.music.ui.lyrics.LyricsCredits(lyrics, Modifier.padding(horizontal = 8.dp), compact = true)
     }
 }
 

@@ -17,6 +17,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SpicyLyricsTest {
+    @Test fun songwriterCreditsSurviveCacheEncodingAlongsideSyncContributors() {
+        val response = envelope()
+        response.getJSONObject("Body").put("SongWriters", org.json.JSONArray()
+            .put("Song Writer").put("Second Writer").put("Song Writer").put(" "))
+        val data = SpicyLyricsParser.parse(response, recording)!!
+        assertEquals("Written by Song Writer, Second Writer", data.credits.last().label)
+        assertEquals("", data.credits.last().url)
+        assertEquals("Uploaded by Uploader", data.credits[1].label)
+        assertEquals("Made by Maker", data.credits[2].label)
+        assertEquals(data.credits, SpicyLyricsParser.decodeCredits(SpicyLyricsParser.encodeCredits(data.credits)))
+    }
+
     private val id = "1QV6tiMFM6fSOKOGLMHYYg"
     private val query = LyricsSearchQuery("Test Song", "Test Artist - Topic", 200, "abcdefghijk", album = "Test Album")
     private val recording = SpicyRecording(id, "Test Song", "Test Artist", 200000, "Test Album")

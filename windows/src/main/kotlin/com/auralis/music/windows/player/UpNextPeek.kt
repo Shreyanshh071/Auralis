@@ -40,8 +40,8 @@ internal val UpNextPeekHeight = 56.dp
 internal val UpNextPeekGap = 8.dp
 
 /**
- * The next song in its own card just above the mini player, as wide as its cover and text need
- * (at most the left panel's [width]). [onSize] reports its size, zero while hidden, so the left
+ * The next song in its own card just above the mini player, sized to its content
+ * up to the left panel's [width]. [onSize] reports its size, zero while hidden, so the left
  * panel can tile around it.
  */
 @Composable
@@ -72,7 +72,7 @@ internal fun UpNextPeek(
     }
 }
 
-/** The card itself: [next]'s cover, title and artist, sized to them and at most [width] wide. */
+/** The card sizes to the song, bounded by the panel, which tiles around it. */
 @Composable
 internal fun UpNextCard(
     next: com.auralis.music.domain.model.Track?,

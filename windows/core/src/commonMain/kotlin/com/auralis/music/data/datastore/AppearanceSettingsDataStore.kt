@@ -118,8 +118,8 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
                 dynamicTheme = true,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
                 liquidGlass = preferences[LIQUID_GLASS] ?: false,
-                // Only Light and Dark remain; older choices (Follow system, AMOLED, Midnight Velvet) read as Dark.
-                appTheme = if (preferences[APP_THEME] in setOf("Light Mode", "Light")) "Light Mode" else "Dark Mode",
+                // The PC app is dark only (the Light/Dark picker was removed); a saved Light reads as Dark.
+                appTheme = "Dark Mode",
                 colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
 
                 miniPlayerDesign = preferences[MINI_PLAYER_DESIGN] ?: run {

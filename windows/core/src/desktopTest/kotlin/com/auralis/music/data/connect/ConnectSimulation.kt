@@ -91,7 +91,9 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
         context = context, error = if (failStart && !playing && track != null) "stream failed" else null
     )
 
+    var lastLoadedPositionMs: Long? = null
     override fun load(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean, shuffle: Boolean, repeat: RepeatMode, context: ConnectContext?) {
+        lastLoadedPositionMs = positionMs
         queue = tracks; this.index = index; this.shuffled = shuffle; this.repeatMode = repeat; this.context = context
         setPosition(positionMs)
         playing = play && !failStart

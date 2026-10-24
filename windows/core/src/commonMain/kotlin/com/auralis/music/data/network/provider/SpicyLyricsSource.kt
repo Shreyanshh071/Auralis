@@ -21,7 +21,7 @@ import kotlin.coroutines.resumeWithException
 class SpicyLyricsSource(
     private val client: OkHttpClient = NetworkClientProvider.lyricsHttpClient.newBuilder()
         .callTimeout(3, TimeUnit.SECONDS).followRedirects(false).build(),
-    private val apiKey: () -> String = { ContentSettingsSource.current().spicyLyricsApiKey },
+    private val apiKey: () -> String = { effectiveKey() },
     private val spotifyToken: suspend () -> String? = {
         SpotifySession.getValidAccessToken() ?: SpotifyPlaylistImporter().getAccessToken()
     },
@@ -123,6 +123,8 @@ class SpicyLyricsSource(
     }
 
     companion object {
+        fun effectiveKey(): String = com.auralis.music.data.network.SpicyLyricsAccess.resolve(
+            ContentSettingsSource.current().spicyLyricsApiKey)
         fun isNativeKey(key: String): Boolean = Regex("sl_pk_[A-Za-z0-9_-]+").matches(key)
     }
 }

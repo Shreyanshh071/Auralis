@@ -14,7 +14,7 @@ enum class MetroSpeakerSide { START, END, CENTER }
  * from the lyric text or line order.
  *
  * @property speakerKey normalized agent id, or `null` for a line the source left unattributed.
- * @property slot stable per-speaker ordinal (0 = first individual vocalist). `-1` for the
+ * @property slot stable per-speaker ordinal (0 = vocalist with most lead lines). `-1` for the
  *   ensemble agent and for unattributed lines.
  * @property side edge the line aligns to; `null` means "use the regular text position".
  * @property runId identifies a consecutive run of lines by the same speaker.
@@ -78,22 +78,23 @@ object MetroSpeakerLayout {
 
         // Speakers are counted from lead lines only: an ad-lib alone never makes a duet.
         val firstSeen = LinkedHashMap<String, Int>()
+        val leadCounts = mutableMapOf<String, Int>()
         lines.forEachIndexed { i, line ->
             val key = keys[i] ?: return@forEachIndexed
-            if (!line.isBackground && key != ENSEMBLE_AGENT && key !in firstSeen) {
-                firstSeen[key] = i
+            if (!line.isBackground && !line.isInstrumental && line.text.isNotBlank() && key != ENSEMBLE_AGENT) {
+                if (key !in firstSeen) firstSeen[key] = i
+                leadCounts[key] = (leadCounts[key] ?: 0) + 1
             }
         }
         if (firstSeen.size < 2) return null
 
-        // Numbered ids keep the TTML convention (v1 first, v2 second, ...) regardless of
-        // who opens the song; any other ids follow in order of first appearance.
+        // Rank once for the entire song, so sides never flip during playback or seeking.
+        // Most lead lines goes left; numbered ids and first appearance break equal counts.
         val slots = firstSeen.keys
             .sortedWith(
-                compareBy<String>(
-                    { NUMBERED_AGENT.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE },
-                    { firstSeen.getValue(it) }
-                )
+                compareByDescending<String> { leadCounts.getValue(it) }
+                    .thenBy { NUMBERED_AGENT.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE }
+                    .thenBy { firstSeen.getValue(it) }
             )
             .withIndex()
             .associate { (slot, key) -> key to slot }
@@ -114,8 +115,9 @@ object MetroSpeakerLayout {
                 side = when {
                     key == ENSEMBLE_AGENT -> MetroSpeakerSide.CENTER
                     slot < 0 -> null
-                    slot % 2 == 0 -> MetroSpeakerSide.START
-                    else -> MetroSpeakerSide.END
+                    slot == 0 -> MetroSpeakerSide.START
+                    slot == 1 -> MetroSpeakerSide.END
+                    else -> MetroSpeakerSide.CENTER
                 },
                 runId = runIds[i],
                 isRunStart = i == 0 || runIds[i - 1] != runIds[i],

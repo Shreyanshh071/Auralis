@@ -49,6 +49,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -183,17 +186,26 @@ private fun PlayerConnectRow() {
     if (!ui.enabled) return
     var menu by remember { mutableStateOf(false) }
     val elsewhere = ui.output?.takeIf { !it.isThis }
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val highlight by androidx.compose.animation.core.animateFloatAsState(
+        if (hovered || focused || menu) .12f else 0f, tween(140), label = "connectRowHover")
     Spacer(Modifier.height(10.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box {
-            IconButton(onClick = { menu = true }) {
+    Box {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                .background(Color.White.copy(alpha = highlight))
+                .hoverable(interaction)
+                .clickable { menu = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
                     desktopText("Connect to a device"), modifier = Modifier.size(24.dp),
                     tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
-            }
-            com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
+            if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
+            com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false) { menu = true }
         }
-        com.auralis.music.windows.connect.ConnectOutputLabel { menu = true }
+        com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
     }
 }
 
@@ -325,12 +337,17 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
 
 /** This PC's position, or the other device's while it is the one playing (Auralis Connect). */
 @Composable
-private fun rememberShownPosition(
+internal fun rememberShownPosition(
     playback: DesktopPlaybackController,
     remote: com.auralis.music.data.connect.ConnectRemoteView?
 ): androidx.compose.runtime.State<Long> {
     val local = playback.positionMs.collectAsState()
-    return remember(remote) { androidx.compose.runtime.derivedStateOf { remote?.positionAt(System.currentTimeMillis()) ?: local.value } }
+    return remember(playback, remote) { androidx.compose.runtime.derivedStateOf {
+        // Subscribe to local reports, but read the controller clock's held resume/seek position
+        // while the native player is loading instead of exposing its temporary zero.
+        local.value
+        remote?.positionAt(System.currentTimeMillis()) ?: playback.clock.rawPositionMs()
+    } }
 }
 
 @Composable
@@ -339,19 +356,40 @@ private fun PlayerTime(ms: Long) {
     Text(desktopText("%d:%02d").format(seconds / 60, seconds % 60), fontSize = 17.sp, color = Color.White.copy(alpha = .8f))
 }
 
+/** How long a still mouse rests on the cover before its controls and the cursor hide. */
+private const val COVER_IDLE_MS = 2_500L
+
+/** An empty cursor, for a mouse resting on the cover. */
+private val BlankCursor: PointerIcon by lazy {
+    PointerIcon(java.awt.Toolkit.getDefaultToolkit().createCustomCursor(
+        java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB), java.awt.Point(0, 0), "blank"))
+}
+
 /** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp, scale: ContentScale) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    val reveal by androidx.compose.animation.core.animateFloatAsState(if (hovered) 1f else 0f, tween(220), label = "coverControls")
+    // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
+    // way, as in a video player; the slightest movement brings both back.
+    var lastMove by remember { mutableLongStateOf(0L) }
+    var idle by remember { mutableStateOf(false) }
+    LaunchedEffect(lastMove, hovered) {
+        idle = false
+        if (hovered) { kotlinx.coroutines.delay(COVER_IDLE_MS); idle = true }
+    }
+    val reveal by androidx.compose.animation.core.animateFloatAsState(if (hovered && !idle) 1f else 0f,
+        tween(if (idle) 450 else 220), label = "coverControls")
     val state by playback.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val repeat by playback.repeatMode.collectAsState()
     val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
     val remote by playback.connectRemote.collectAsState()
-    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)) {
+    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { lastMove = System.nanoTime() }
+        .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
         DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
             contentDescription = title, contentScale = scale)
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
