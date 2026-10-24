@@ -493,9 +493,10 @@ fun ExperimentalLyricsView(
     val appearance = LocalAppearanceSettings.current
 
     val rawLines = lyrics?.lines.orEmpty()
-    val effectiveLines = remember(rawLines) {
+    val spicyStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val effectiveLines = remember(rawLines, lyrics?.provider) {
         rawLines
-            .map { com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
+            .map { if (lyrics?.provider == com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) it else com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
             .filter { it.text.isNotBlank() || it.words?.any { w -> w.word.isNotBlank() } == true }
     }
 
@@ -585,13 +586,12 @@ fun ExperimentalLyricsView(
     }
 
     // Continuous playback clock interpolator
-    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs) {
+    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs, spicyStyle) {
         if (effectiveLines.isEmpty()) {
             activeLineIndices = emptySet()
             return@LaunchedEffect
         }
 
-        var lastBasePos = positionState.value
         var lastRawPos = lyricsClockSource?.rawPositionMs() ?: positionState.value
         var rawAdvancing = false
 
@@ -627,30 +627,14 @@ fun ExperimentalLyricsView(
             // the player is ready (not buffering), and minimum dispatch time has elapsed.
             val pending = pendingSeekTarget
             val isSeekingInFlight = if (pending != null) {
-                val hasAudioReached = kotlin.math.abs(basePos - pending.targetTimeMs) <= 350L ||
-                    kotlin.math.abs(rawPos - pending.targetTimeMs) <= 350L
-                val minTimeElapsed = (now - pending.timestamp) >= 80L
-                val hasConverged = minTimeElapsed && hasAudioReached && rawAdvancing
-                // Resuming a paused song can take longer than a seek; hold the pin while
-                // playback is merely starting up, so the tapped line waits for the audio.
-                val isTimedOut = (now - pending.timestamp) > 1500L &&
-                    (rawAdvancing || !clockSourcePlaying || (now - pending.timestamp) > 6000L)
-                if (hasConverged || isTimedOut) {
-                    pendingSeekTarget = null
-                    false
-                } else {
-                    true
-                }
+                val hold = shouldHoldLyricsSeek(pending.targetTimeMs, rawPos,
+                    now - pending.timestamp, rawAdvancing, clockSourcePlaying, clockSourceBuffering)
+                if (!hold) pendingSeekTarget = null
+                hold
             } else false
 
-            if (basePos != lastBasePos) {
-                // If base position jumped significantly (e.g. user scrubbed the progress bar)
-                // and it doesn't match our pending seek target, clear the pending seek target.
-                if (pending != null && kotlin.math.abs(basePos - pending.targetTimeMs) > 1000L) {
-                    pendingSeekTarget = null
-                }
-                lastBasePos = basePos
-            }
+            // Old clock callbacks can continue briefly after seek dispatch. They must
+            // not cancel the pin or send the scroll back to the previous phrase.
 
             val currentPos = if (isSeekingInFlight && pending != null) {
                 // Pin strictly to the seek target timestamp so lyrics don't run ahead during buffering
@@ -675,12 +659,12 @@ fun ExperimentalLyricsView(
                     activeLineIndices = forcedActive
                 }
             } else {
-                val initialActiveIndices = findExperimentalActiveLineIndices(effectiveLines, currentPos)
+                val initialActiveIndices = if (spicyStyle) SpicyLyricsPresentation.activeIndices(effectiveLines, currentPos) else findExperimentalActiveLineIndices(effectiveLines, currentPos)
 
                 // Expand to include paired lead/background lines
                 val newActiveIndices = initialActiveIndices.toMutableSet()
                 for (i in initialActiveIndices) {
-                    if (effectiveLines.getOrNull(i)?.isBackground == true) {
+                    if (!spicyStyle && effectiveLines.getOrNull(i)?.isBackground == true) {
                         for (j in i - 1 downTo 0) {
                             if (effectiveLines.getOrNull(j)?.isBackground == false) {
                                 newActiveIndices.add(j)
@@ -868,10 +852,9 @@ fun ExperimentalLyricsView(
                         val scrollDelta = itemCenterY - targetCenterY
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
-                                // A small leftover delta means the target is already practically centered.
-                                // Snap it rather than running a second animation that reads as an extra scroll.
-                                if (animate && kotlin.math.abs(scrollDelta) > 48f) {
-                                    val durationMs = (180 + kotlin.math.abs(scrollDelta) / 8f).toInt().coerceIn(180, 360)
+                                // Even short corrections should ease into place instead of snapping.
+                                if (animate) {
+                                    val durationMs = (220 + kotlin.math.abs(scrollDelta) / 10f).toInt().coerceIn(220, 360)
                                     listState.animateScrollBy(
                                         value = scrollDelta,
                                         animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
@@ -1009,6 +992,8 @@ fun ExperimentalLyricsView(
                 )
             }
         } else {
+            Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -1132,6 +1117,7 @@ fun ExperimentalLyricsView(
                                                 targetTimeMs = line.time,
                                                 requestId = reqId
                                             )
+                                            currentPositionState.longValue = line.time + offsetMs
                                             authoritativeTargetIndex = index
                                             deferredCurrentLineIndex = index
                                             activeLineIndices = setOf(index)
@@ -1144,7 +1130,7 @@ fun ExperimentalLyricsView(
                                         }
                                     },
                                     onLongClick = {
-                                        if (!isSelectionModeActive) {
+                                        if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS && !isSelectionModeActive) {
                                             isSelectionModeActive = true
                                             selectedIndices.add(index)
                                         }
@@ -1200,6 +1186,11 @@ fun ExperimentalLyricsView(
                         }
                     }
                 }
+                item(key = "lyrics_credits") {
+                    LyricsCredits(lyrics, Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 20.dp))
+                }
+            }
+            }
             }
         }
 
@@ -1353,6 +1344,7 @@ internal fun ExperimentalLyricsLine(
     // Speaker-aware MetroLyrics layout (7.7). Only lines the source attributed to a vocalist in
     // a multi-speaker song carry a side; every other line (and every line of a song without
     // multi-speaker metadata) keeps the original positioning below, unchanged.
+    val isSpicyStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
     val speakerSide = speakerStyle?.side
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
@@ -1366,7 +1358,7 @@ internal fun ExperimentalLyricsLine(
     val itemModifier = modifier
         .fillMaxWidth()
         .onSizeChanged { onSizeChanged(it.height) }
-        .clip(RoundedCornerShape(8.dp))
+        .then(if (isSpicyStyle) Modifier else Modifier.clip(RoundedCornerShape(8.dp)))
         .combinedClickable(
             onClick = onClick,
             onLongClick = onLongClick
@@ -1496,10 +1488,14 @@ internal fun ExperimentalLyricsLine(
                 horizontalAlignment = agentAlignment
             ) {
                 val inactiveAlpha = if (line.isBackground) 0.08f else 0.20f
+                val hasStarted by remember(line.time, currentPositionState) { derivedStateOf { currentPositionState.value >= line.time } }
                 val activeAlpha = 1.0f
                 val focusedAlpha = if (line.isBackground) 0.50f else 0.30f
                 val targetAlpha = if (!isSynced) {
                     0.85f
+                } else if (isSpicyStyle) {
+                    if (isActiveLine) { if (line.isBackground) 1f else .85f }
+                    else if (hasStarted) .497f * (if (line.isBackground) 1f else .85f) else .51f * .35f
                 } else if (isActiveLine || (line.isBackground && isAutoScrollEnabled)) {
                     // While following playback a background line only shows beside its lead line.
                     // During a manual scroll every one is visible, so unsung ones dim like the rest.
@@ -1551,6 +1547,7 @@ internal fun ExperimentalLyricsLine(
                     }
                 }
                 val mainText = resolvedLineText
+                val isSpicy = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
 
                 val effectiveFontSize = when {
                     line.isBackground -> (lyricsTextSize * 0.70f).sp
@@ -1596,7 +1593,11 @@ internal fun ExperimentalLyricsLine(
                     presentationWordTimestamps(effectiveWords)
                 }
 
-                if (isSynced && isActiveLine && genuineWords != null && mainText.isNotBlank()) {
+                if (isSynced && isSpicy && mainText.isNotBlank()) {
+                    com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(line.copy(text = mainText),
+                        if (syncType == SyncType.RICHSYNC) line.words else null, currentPositionState,
+                        lyricStyle, isActiveLine, inactiveColor = lineColor)
+                } else if (isSynced && isActiveLine && genuineWords != null && mainText.isNotBlank()) {
                     ExperimentalWordLevelLyrics(
                         mainText = mainText,
                         words = presentationWords,

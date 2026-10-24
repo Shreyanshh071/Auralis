@@ -6,17 +6,41 @@ Spicy Lyrics v1 endpoint with its Spotify ID. Playback IDs are never changed.
 
 ## Setup
 
-1. Create an application at <https://developers.spicylyrics.org/dashboard/applications>.
-2. Enable client access and create a **publishable** `sl_pk_` key. Enable the
-   no-Origin-header option for native clients. Do not use a server secret.
-3. Android: Settings → Content → Lyrics → Spicy Lyrics publishable key.
-   Windows: Settings → Playback → Lyrics source order → Spicy Lyrics publishable key.
-4. Enable Spicy Lyrics in the provider switches. Reopen lyrics or use the Android
+Official locally configured builds include Auralis's **publishable** native-client
+key, so users do not need to enter a key on either platform. The no-Origin-header
+option must be enabled on this application key. Server secret keys are never
+bundled. Android does not expose a key field in settings. Windows retains an
+optional personal override; leaving it blank selects the included application key.
+Application and per-IP API limits still apply.
+
+Enable Spicy Lyrics in the provider switches. Reopen lyrics or use the Android
    provider picker to request it when another provider is already cached.
 
-Without a valid-looking publishable key the provider is omitted from automatic
-requests and the picker. Keys are saved in local content settings, not compiled
-into the application. Normal provider switches still apply.
+For builds from source, Android reads `SPICY_LYRICS_PUBLISHABLE_KEY` from the
+environment or ignored local build properties. Windows packages
+`windows/local-resources/spicy-lyrics.properties`, with a `publishableKey` entry.
+These local application credentials are excluded from Git. Android source builds
+must configure the key at build time. Unconfigured Windows builds can use a
+personal publishable key in Settings → Playback → Lyrics source order.
+
+On Android, select Settings → Appearance → Lyrics animation → Spicy Lyrics to use
+the native Spicy renderer. The provider and animation remain separate choices:
+other providers can supply word timing for this style. Standard blur and existing
+phone singer positioning remain in effect. On the phone, credits scroll after the
+final lyric in both classic and experimental views, with no tinted backing box.
+Their visibility follows their scroll position, independently of the playback
+controls, so scrolling back does not make the credits disappear.
+
+Android database migration 9 → 10 adds credits, Spotify recording ID, and the
+original API fetch time without deleting library data. Cache round-trips retain
+Spicy syllable boundaries; response age is never renewed by alignment or copying.
+Expired Spicy rows are rejected on read and purged at startup and periodically
+while the repository is alive. Raw lyric selection/sharing is disabled for Spicy
+API responses in both views.
+
+Without a valid included or personal publishable key the provider is omitted from
+automatic requests and the picker. Personal overrides stay in local content
+settings. Normal provider switches still apply.
 
 Spotify metadata lookup uses Auralis's existing Spotify session/token resolver.
 Its anonymous fallback may be unavailable or rejected by Spotify; a signed-in
@@ -33,9 +57,14 @@ does not select an animation. Line-only data stays line-synced; the renderer
 does not create word timestamps that the source did not supply.
 
 The Windows regular Spicy style uses per-source-syllable motion, cubic spline
-goals with damped springs, a 35% unsung / 85% lead highlight, and small index-based line blur
-rather than the other styles' deep viewport blur. Ended phrases dim at their
+goals with damped springs and a 35% unsung / 85% lead highlight. The standard
+lyrics blur setting retains Auralis's progressive viewport blur across styles.
+Ended phrases dim at their
 supplied end times. Overlapping backing vocals stay with their lead scroll group.
+On PC, singer IDs are ranked by lead-line count for the whole song: the main
+singer stays left, the second right, and further singers and ensemble lines are
+centered. Missing singer metadata retains the normal alignment; artist names
+alone never assign a singer to a lyric line.
 These presentation values target the regular Spicetify mode; browser/font
 rasterization, Simple Lyrics variants and different source timings can still
 produce visible differences. This is not a verified pixel-identical web port.
@@ -74,7 +103,17 @@ also retain the uploader and optional maker links, including after cache reloads
 Community payloads missing uploader attribution are rejected.
 
 On PC, credits stay in a reserved bottom-left footer outside the scrolling lyric
-area, with wrapping contributor links and a translucent contrast background.
+area, with wrapping contributor links drawn directly over the lyrics background.
+The footer says "Lyrics from" the actual source. Apple Music and Spotify responses
+from the Spicy API also link "via Spicy Lyrics". Community responses retain their
+linked uploader and maker. Settings → About separately acknowledges "Animation
+inspired by Spicy Lyrics", with a link to the upstream project.
+When the Spicy animation style is selected, the lyrics footer also links a UI and
+animation acknowledgement to Spikerko and contributors. Supplied `SongWriters`
+names appear as "Written by" alongside the source and sync contributor credits.
+The sidebar uses one compact row (for example, "Better Lyrics · Spicy UI:
+Spikerko+"). Long community credit lists scroll horizontally within that row;
+the fullscreen footer keeps the complete wording and wraps when needed.
 Contributor links use the response URL; missing URLs leave visible text rather
 than guessed links. Unknown sources are labelled unknown. The lyrics-copy/share
 action is disabled for Spicy API responses. The Windows updater excludes the

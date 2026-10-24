@@ -26,5 +26,8 @@ data class LyricsEntity(
      */
     val pipelineVersion: Int = 0,
     val durationMs: Long? = null,
-    val leadingSilenceMs: Long? = null
+    val leadingSilenceMs: Long? = null,
+    val creditsJson: String? = null,
+    val spotifyTrackId: String? = null,
+    val fetchedAtMs: Long? = null
 )

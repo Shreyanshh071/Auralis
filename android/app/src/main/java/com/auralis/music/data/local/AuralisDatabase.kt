@@ -25,7 +25,7 @@ import com.auralis.music.data.local.entity.*
         NegativeLyricsEntity::class,
         PlaybackEventEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)
@@ -66,6 +66,14 @@ abstract class AuralisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lyrics_cache ADD COLUMN creditsJson TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE lyrics_cache ADD COLUMN spotifyTrackId TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE lyrics_cache ADD COLUMN fetchedAtMs INTEGER DEFAULT NULL")
+            }
+        }
+
         @Volatile
         private var instance: AuralisDatabase? = null
 
@@ -76,7 +84,7 @@ abstract class AuralisDatabase : RoomDatabase() {
                     AuralisDatabase::class.java,
                     DATABASE_NAME
                 )
-                .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     // A fresh or wiped database has none of the account's listens; let them restore.

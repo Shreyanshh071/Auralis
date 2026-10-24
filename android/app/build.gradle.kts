@@ -41,7 +41,8 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "1.1.2"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = if (providers.gradleProperty("motionArtworkTests").isPresent)
+            "com.auralis.music.MotionArtworkTestRunner" else "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -50,6 +51,11 @@ android {
         val youtubeApiKey = getEnv("YOUTUBE_API_KEY", "")
         val spotifyClientId = getEnv("SPOTIFY_CLIENT_ID", "")
         val spotifyClientSecret = getEnv("SPOTIFY_CLIENT_SECRET", "")
+        val spicyPublishableKey = getEnv("SPICY_LYRICS_PUBLISHABLE_KEY", "")
+        require(spicyPublishableKey.isEmpty() || Regex("sl_pk_[A-Za-z0-9_-]+").matches(spicyPublishableKey)) {
+            "SPICY_LYRICS_PUBLISHABLE_KEY must be a native publishable key"
+        }
+        buildConfigField("String", "SPICY_LYRICS_PUBLISHABLE_KEY", "\"$spicyPublishableKey\"")
 
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$webClientId\"")
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
@@ -142,6 +148,7 @@ dependencies {
 
     // AndroidX Media3 & ExoPlayer
     implementation(libs.androidx.media3.exoplayer)
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.0")
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)

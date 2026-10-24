@@ -51,6 +51,7 @@ import com.auralis.music.ui.viewmodel.LyricsProviderStatus
 
 /** Display name of a lyrics source, as the player names it ("Lyrics by …"). */
 internal fun LyricsProvider.label(): String = when (this) {
+    LyricsProvider.SPICY_LYRICS -> "Spicy Lyrics"
     LyricsProvider.AMLL -> "AMLL"
     LyricsProvider.BETTER_LYRICS -> "BetterLyrics"
     LyricsProvider.UNISON -> "Unison"
