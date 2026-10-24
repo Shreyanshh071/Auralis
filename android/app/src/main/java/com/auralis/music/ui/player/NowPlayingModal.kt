@@ -1737,6 +1737,14 @@ fun NowPlayingModal(
                                                 // Smooth crossfade if artwork is loading asynchronously
                                                 crossfade = true
                                             )
+                                            if (isSharedArtworkActive) {
+                                                AnimatedCover(pageTrack, uiState.isPlaying, Modifier.fillMaxSize().clip(
+                                                    RoundedCornerShape(playerArtworkCorner(
+                                                        animatedVisibilityScope = animatedVisibilityScope,
+                                                        expanded = true
+                                                    ))
+                                                ))
+                                            }
                                         }
                                     }
                                 }
@@ -2194,11 +2202,12 @@ fun NowPlayingModal(
             }
         }
 
-        // Auralis Connect: which device has the audio while it isn't this phone; tap to change it.
-        com.auralis.music.ui.connect.ConnectPlayerBar(
+        // Dedicated device picker below the volume bar, available on every player design.
+        if (currentTab != NowPlayingTab.LYRICS) com.auralis.music.ui.connect.ConnectPlayerBar(
             accent = animatedPrimaryColor,
             onOpen = { showConnectSheet = true },
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 6.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 64.dp),
+            hazeState = classicLyricsHazeState
         )
     }
 

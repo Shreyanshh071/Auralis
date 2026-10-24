@@ -64,6 +64,9 @@ class AppearanceSettingsDataStore(
         val PLAYER_BG_STYLE = stringPreferencesKey("player_bg_style")
         val HIDE_PLAYER_THUMBNAIL = booleanPreferencesKey("hide_player_thumbnail")
         val CROP_ALBUM_ART = booleanPreferencesKey("crop_album_art")
+        val ANIMATED_COVERS = booleanPreferencesKey("animated_covers")
+        val ANIMATED_COVER_SOURCE = stringPreferencesKey("animated_cover_source")
+        val ANIMATED_COVERS_WIFI_ONLY = booleanPreferencesKey("animated_covers_wifi_only")
         val PLAYER_BUTTON_COLORS = stringPreferencesKey("player_button_colors")
         val PLAYER_SLIDER_STYLE = stringPreferencesKey("player_slider_style")
         val SHOW_DOWNLOAD_BUTTON = booleanPreferencesKey("show_download_button")
@@ -145,6 +148,9 @@ class AppearanceSettingsDataStore(
                 playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
+                animatedCovers = preferences[ANIMATED_COVERS] ?: true,
+                animatedCoverSource = preferences[ANIMATED_COVER_SOURCE] ?: "AUTO",
+                animatedCoversWifiOnly = preferences[ANIMATED_COVERS_WIFI_ONLY] ?: false,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",
                 playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: "Wavy") {
                     "Squiggly Waveform", "Squiggly" -> "Squiggly"
@@ -209,6 +215,9 @@ class AppearanceSettingsDataStore(
                 preferences[PLAYER_BG_STYLE] = settings.playerBackgroundStyle
                 preferences[HIDE_PLAYER_THUMBNAIL] = settings.hidePlayerThumbnail
                 preferences[CROP_ALBUM_ART] = settings.cropAlbumArt
+                preferences[ANIMATED_COVERS] = settings.animatedCovers
+                preferences[ANIMATED_COVER_SOURCE] = settings.animatedCoverSource
+                preferences[ANIMATED_COVERS_WIFI_ONLY] = settings.animatedCoversWifiOnly
                 preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors
                 preferences[PLAYER_SLIDER_STYLE] = settings.playerSliderStyle
                 preferences[SHOW_DOWNLOAD_BUTTON] = settings.showDownloadButton
