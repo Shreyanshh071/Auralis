@@ -1,6 +1,7 @@
 package com.auralis.music.data.network
 
 import android.util.Log
+import com.auralis.music.data.network.provider.SpicyLyricsSource
 import com.auralis.music.data.network.provider.AmllLyricsSource
 import com.auralis.music.data.network.provider.BetterLyricsSource
 import com.auralis.music.data.network.provider.GeniusLyricsSource
@@ -47,7 +48,8 @@ class LyricsClient(
     private val geniusSource: GeniusLyricsSource = GeniusLyricsSource(),
     private val ytMusicSource: YouTubeInnerTubeLyricsSource = YouTubeInnerTubeLyricsSource(),
     private val youLyPlusSource: YouLyPlusLyricsSource = YouLyPlusLyricsSource(),
-    private val captionsSource: YouTubeCaptionsLyricsSource = YouTubeCaptionsLyricsSource()
+    private val captionsSource: YouTubeCaptionsLyricsSource = YouTubeCaptionsLyricsSource(),
+    private val spicyLyricsSource: SpicyLyricsSource = SpicyLyricsSource()
 ) {
     companion object {
         private const val TAG = "LyricsCascade"
@@ -70,6 +72,7 @@ class LyricsClient(
 
         /** Order of the lyrics provider sheet: word sync first, plain text last. */
         internal val PICK_ORDER = listOf(
+            LyricsProvider.SPICY_LYRICS,
             LyricsProvider.BETTER_LYRICS,
             LyricsProvider.AMLL,
             LyricsProvider.PAXSENIX,
@@ -215,12 +218,14 @@ class LyricsClient(
 
         /** Settings → Content → Lyrics → provider switches. */
         internal fun isProviderEnabled(provider: LyricsProvider): Boolean {
+            if (provider == LyricsProvider.SPICY_LYRICS && !SpicyLyricsSource.isNativeKey(SpicyLyricsSource.effectiveKey())) return false
             val id = settingsId(provider) ?: return true
             return id !in com.auralis.music.data.datastore.ContentSettingsStore.value.disabledLyricsProviders
         }
 
         private fun settingsId(provider: LyricsProvider): com.auralis.music.domain.model.LyricsProviderId? =
             when (provider) {
+                LyricsProvider.SPICY_LYRICS -> com.auralis.music.domain.model.LyricsProviderId.SPICY_LYRICS
                 LyricsProvider.AMLL -> com.auralis.music.domain.model.LyricsProviderId.AMLL
                 LyricsProvider.BETTER_LYRICS -> com.auralis.music.domain.model.LyricsProviderId.BETTER_LYRICS
                 LyricsProvider.UNISON -> com.auralis.music.domain.model.LyricsProviderId.UNISON
@@ -239,6 +244,7 @@ class LyricsClient(
             }
 
         internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
+            LyricsProvider.SPICY_LYRICS -> 5
             LyricsProvider.BETTER_LYRICS -> 5
             LyricsProvider.AMLL -> 5
             LyricsProvider.PAXSENIX -> 4
@@ -666,6 +672,7 @@ class LyricsClient(
         // ── PARALLEL MULTI-PROVIDER RACE, RANKED BY TIMING FORMAT FIRST ──
         // Better Lyrics and AMLL TTML DB lead: they serve genuine syllable-level TTML.
         val primaryProviders: List<LyricsSource> = listOf(
+            spicyLyricsSource,
             betterLyricsSource,
             amllSource,
             unisonSource,
@@ -1150,7 +1157,8 @@ class LyricsClient(
             album = album,
             channelTitle = channelTitle,
             durationMs = durationMs,
-            audioLeadingSilenceMs = audioLeadingSilenceMs
+            audioLeadingSilenceMs = audioLeadingSilenceMs,
+            recordingTitle = title
         )
         return query to coreTitle
     }
@@ -1178,6 +1186,7 @@ class LyricsClient(
         audioLeadingSilenceMs: Long? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
         val source: LyricsSource = when (provider) {
+            LyricsProvider.SPICY_LYRICS -> spicyLyricsSource
             LyricsProvider.BETTER_LYRICS -> betterLyricsSource
             LyricsProvider.AMLL -> amllSource
             LyricsProvider.UNISON -> unisonSource

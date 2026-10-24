@@ -10,6 +10,7 @@ import com.auralis.music.domain.repository.LyricsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -20,7 +21,7 @@ class LyricsRepositoryImpl(
     private val negativeLyricsDao: NegativeLyricsDao? = null
 ) : LyricsRepository {
 
-    private val memoryCache = ConcurrentHashMap<String, LyricsData>()
+    private val memoryCache = com.auralis.music.data.network.LyricsResponseCache()
 
     init {
         // Purge only line-sync rows written by an older parser pipeline to allow
@@ -29,7 +30,14 @@ class LyricsRepositoryImpl(
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     lyricsDao.purgeStalePipeline(LYRICS_PIPELINE_VERSION)
+                    val now = System.currentTimeMillis()
+                    lyricsDao.purgeExpiredSpicy(now - com.auralis.music.data.network.LyricsCachePolicy.SPICY_MAX_AGE_MS, now)
                     negativeLyricsDao?.cleanExpired(System.currentTimeMillis() + 86400000L)
+                    while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                        kotlinx.coroutines.delay(60_000L)
+                        val purgeAt = System.currentTimeMillis()
+                        lyricsDao.purgeExpiredSpicy(purgeAt - com.auralis.music.data.network.LyricsCachePolicy.SPICY_MAX_AGE_MS, purgeAt)
+                    }
                 } catch (_: Exception) {}
             }
         }
@@ -106,7 +114,7 @@ class LyricsRepositoryImpl(
                         endTime = line.endTime?.let { (it + rawOffset).coerceAtLeast(0L) }
                     )
                 } else line
-                com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(unshifted)
+                if (domain.provider == LyricsProvider.SPICY_LYRICS) unshifted else com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(unshifted)
             }
             for (line in cleanedLines) {
                 val lineObj = JSONObject()
@@ -144,12 +152,16 @@ class LyricsRepositoryImpl(
                 hasWordTiming = com.auralis.music.data.parser.WordTiming.hasGenuineWordStarts(domain.lines),
                 pipelineVersion = LYRICS_PIPELINE_VERSION,
                 durationMs = domain.durationMs,
-                leadingSilenceMs = domain.leadingSilenceMs
+                leadingSilenceMs = domain.leadingSilenceMs,
+                creditsJson = com.auralis.music.data.parser.SpicyLyricsParser.encodeCredits(domain.credits).toString(),
+                spotifyTrackId = domain.spotifyTrackId,
+                fetchedAtMs = domain.fetchedAtMs
             )
         }
 
         internal fun entityToDomain(entity: LyricsEntity, queryTitle: String, queryArtist: String): LyricsData? {
             try {
+                if (entity.provider == "SPICY_LYRICS" && com.auralis.music.data.network.LyricsCachePolicy.isSpicyTimestampExpired(entity.fetchedAtMs, System.currentTimeMillis())) return null
                 val candTitle = entity.trackName
                 if (candTitle.isNullOrBlank()) {
                     return null
@@ -186,14 +198,14 @@ class LyricsRepositoryImpl(
                         wList
                     } else null
 
-                    val mergedWords = if (!rawWords.isNullOrEmpty()) {
+                    val mergedWords = if (provider == LyricsProvider.SPICY_LYRICS) rawWords else if (!rawWords.isNullOrEmpty()) {
                         com.auralis.music.data.parser.WordTiming.mergeContiguousSyllables(rawWords) ?: rawWords
                     } else null
 
                     val resolvedText = if (!mergedWords.isNullOrEmpty() && rawWords != null && mergedWords.size < rawWords.size) {
                         mergedWords.joinToString("") { it.word }.trim()
                     } else {
-                        com.auralis.music.data.parser.WordTiming.healSplitWordsInText(text)
+                        if (provider == LyricsProvider.SPICY_LYRICS) text else com.auralis.music.data.parser.WordTiming.healSplitWordsInText(text)
                     }
 
                     val baseLine = LyricLine(
@@ -206,7 +218,7 @@ class LyricsRepositoryImpl(
                         endTime = endTime,
                         agent = agent
                     )
-                    lines.add(com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(baseLine))
+                    lines.add(if (provider == LyricsProvider.SPICY_LYRICS) baseLine else com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(baseLine))
                 }
 
                 val cleanedLines = lines.filterNot { com.auralis.music.data.parser.LrcParser.isMetadataOrCreditLine(it.text) }
@@ -243,6 +255,9 @@ class LyricsRepositoryImpl(
                         artistName = candArtist,
                         durationMs = entity.durationMs,
                         leadingSilenceMs = entity.leadingSilenceMs,
+                        credits = com.auralis.music.data.parser.SpicyLyricsParser.decodeCredits(entity.creditsJson?.let { JSONArray(it) }),
+                        spotifyTrackId = entity.spotifyTrackId,
+                        fetchedAtMs = entity.fetchedAtMs,
                         isExactVideoMatch = isExactVideo,
                         matchedVideoId = if (isGenuineVideoKey) entity.trackId else null
                     ),

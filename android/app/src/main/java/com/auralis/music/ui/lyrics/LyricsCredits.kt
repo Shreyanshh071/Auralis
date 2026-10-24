@@ -1,0 +1,97 @@
+package com.auralis.music.ui.lyrics
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.auralis.music.domain.model.LyricsData
+import com.auralis.music.domain.model.LyricsCredit
+import com.auralis.music.domain.model.LyricsProvider
+import com.auralis.music.domain.model.LyricsAnimationMode
+import com.auralis.music.ui.theme.LocalAppearanceSettings
+
+/** Older providers/cache entries may identify the provider without a separate credit list. */
+fun lyricsCreditsForDisplay(lyrics: LyricsData?): List<LyricsCredit> {
+    if (lyrics == null) return emptyList()
+    if (lyrics.credits.isNotEmpty()) {
+        val source = lyrics.credits.first()
+        val providerCredit = source.copy(label = "Lyrics from ${source.label}")
+        val contributors = lyrics.credits.drop(1)
+        val viaSpicy = if (lyrics.provider == LyricsProvider.SPICY_LYRICS &&
+            source.label in setOf("Apple Music", "Spotify")) {
+            listOf(LyricsCredit("via Spicy Lyrics", "https://spicylyrics.org"))
+        } else emptyList()
+        return listOf(providerCredit) + contributors + viaSpicy
+    }
+    val name = when (lyrics.provider) {
+        LyricsProvider.SPICY_LYRICS -> "Unknown source (Spicy Lyrics API)"
+        LyricsProvider.UNISON -> "Unison"
+        LyricsProvider.AMLL -> "AMLL"
+        LyricsProvider.LRCLIB -> "LRCLIB"
+        LyricsProvider.JIOSAAVN -> "JioSaavn"
+        LyricsProvider.YOUTUBE -> "YouTube"
+        LyricsProvider.YOUTUBE_CAPTIONS -> "YouTube captions"
+        LyricsProvider.QQMUSIC -> "QQ Music"
+        LyricsProvider.NETEASE -> "NetEase"
+        else -> lyrics.provider.name.lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+    }
+    return listOf(LyricsCredit("Lyrics from $name", ""))
+}
+
+/** Stays visible with the lyrics, including previews; every supplied credit links to its source. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LyricsCredits(lyrics: LyricsData?, modifier: Modifier = Modifier, compact: Boolean = false) {
+    val sourceCredits = lyricsCreditsForDisplay(lyrics)
+    val spicyStyle = LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) == LyricsAnimationMode.SPICY_LYRICS
+    val credits = if (sourceCredits.isNotEmpty() && spicyStyle) sourceCredits + LyricsCredit(
+        if (compact) "Spicy UI: Spikerko+" else "UI & animation inspired by Spicy Lyrics · Spikerko & contributors",
+        "https://github.com/Spikerko/spicy-lyrics") else sourceCredits
+    if (credits.isEmpty()) return
+    // This is a scrolling list item, so transport visibility must not hide it.
+    val footerModifier = modifier
+    val uri = LocalUriHandler.current
+    if (compact) {
+        // One row reserves a predictable amount of sidebar space. Unusually long
+        // community names remain linked and horizontally scrollable, never clipped vertically.
+        Row(footerModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
+            .horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            credits.forEachIndexed { index, credit ->
+                if (index > 0) Text("·", fontSize = 11.sp, color = Color.White.copy(alpha = .65f))
+                val label = credit.label.removePrefix("Lyrics from ")
+                    .replace("Uploaded by ", "Upload: ").replace("Made by ", "Sync: ")
+                    .replace("Written by ", "Writer: ")
+                val linked = credit.url.startsWith("https://")
+                Text(label, style = MaterialTheme.typography.labelMedium, fontSize = 11.sp,
+                    maxLines = 1, softWrap = false, color = Color.White.copy(alpha = .88f),
+                    textDecoration = if (linked) TextDecoration.Underline else TextDecoration.None,
+                    modifier = if (linked) Modifier.clickable { uri.openUri(credit.url) } else Modifier)
+            }
+        }
+        return
+    }
+    FlowRow(footerModifier.padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        credits.forEach { credit ->
+            val linked = credit.url.startsWith("https://")
+            Text(credit.label, style = MaterialTheme.typography.labelMedium, fontSize = 12.sp,
+                color = Color.White.copy(alpha = .88f),
+                textDecoration = if (linked) TextDecoration.Underline else TextDecoration.None,
+                modifier = if (linked) Modifier.clickable { uri.openUri(credit.url) } else Modifier)
+        }
+    }
+}

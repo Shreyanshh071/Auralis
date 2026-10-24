@@ -794,6 +794,8 @@ fun SyncedLyricsView(
         val topFadePx = with(density) { 36.dp.toPx() }
         val bottomFadePx = with(density) { 90.dp.toPx() }
 
+        Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f)) {
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -965,6 +967,7 @@ fun SyncedLyricsView(
                                             }
                                         },
                                         onLongClick = {
+                                            if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) {
                                             isUserInteracting = true
                                             selectedIndices = if (isSelected) {
                                                 selectedIndices - index
@@ -975,6 +978,7 @@ fun SyncedLyricsView(
                                                     android.widget.Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), android.widget.Toast.LENGTH_SHORT).show()
                                                     selectedIndices
                                                 }
+                                            }
                                             }
                                         }
                                     )
@@ -1023,6 +1027,12 @@ fun SyncedLyricsView(
                     }
                 }
             }
+                item(key = "lyrics_credits") {
+                    LyricsCredits(lyrics, Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 20.dp))
+                }
+        }
+
+        }
         }
 
         // Floating Re-sync button when auto-scroll is disabled by manual scrolling or active line is not centered
@@ -1871,6 +1881,14 @@ private fun LyricLineRow(
                         textAlign = textAlign,
                         alignment = horizontalAlignment
                     )
+                }
+                LyricsAnimationMode.SPICY_LYRICS -> {
+                    val spicyPosition = remember(positionState, offsetMs) {
+                        derivedStateOf { positionState.value + offsetMs }
+                    }
+                    com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
+                        line, effectiveWords, spicyPosition, textStyle, isCurrent,
+                        modifier = Modifier.fillMaxWidth(), inactiveColor = effectiveLineColor)
                 }
                 LyricsAnimationMode.FLUID -> {
                     val fluidPosition = remember(positionState, offsetMs) {

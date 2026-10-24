@@ -286,6 +286,9 @@ interface SearchHistoryDao {
 
 @Dao
 interface LyricsDao {
+    @Query("DELETE FROM lyrics_cache WHERE provider = 'SPICY_LYRICS' AND (fetchedAtMs IS NULL OR fetchedAtMs <= :cutoff OR fetchedAtMs > :now)")
+    suspend fun purgeExpiredSpicy(cutoff: Long, now: Long)
+
     @Query("SELECT * FROM lyrics_cache WHERE trackId = :trackId LIMIT 1")
     suspend fun getLyrics(trackId: String): com.auralis.music.data.local.entity.LyricsEntity?
 

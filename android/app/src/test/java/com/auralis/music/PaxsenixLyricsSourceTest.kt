@@ -693,6 +693,7 @@ class PaxsenixLyricsSourceTest {
 
         // Mock DAO that returns a cached LRCLIB line-sync entry
         val mockDao = object : LyricsDao {
+            override suspend fun purgeExpiredSpicy(cutoff: Long, now: Long) {}
             val stored = mutableMapOf<String, LyricsEntity>()
 
             override suspend fun getLyrics(trackId: String): LyricsEntity? = stored[trackId]
