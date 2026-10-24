@@ -16,6 +16,7 @@ enum class ProxyType { HTTP, SOCKS }
 
 /** Lyrics providers the user can switch off (see LyricsClient.isProviderEnabled). */
 enum class LyricsProviderId(val displayName: String, val description: String) {
+    SPICY_LYRICS("Spicy Lyrics", "Synced lyrics via matching Spotify recordings; requires a publishable key"),
     LRCLIB("LRCLIB", "Open, community-synced lyrics database"),
     KUGOU("KuGou", "Large catalogue with word-timed lyrics"),
     QQMUSIC("QQ Music", "Word-timed syllables and rich lyrics from QQ Music"),
@@ -65,7 +66,9 @@ data class ContentSettings(
     val randomizeHomeOrder: Boolean = false,
     /** Length of the "Top" auto playlist. */
     val topLength: Int = 50,
-    val quickPicksMode: QuickPicksMode = QuickPicksMode.QUICK_PICKS
+    val quickPicksMode: QuickPicksMode = QuickPicksMode.QUICK_PICKS,
+    /** Publishable native-client key only. Server secrets do not belong in shipped clients. */
+    val spicyLyricsApiKey: String = ""
 ) {
     val hasProxyAuth: Boolean get() = proxyUsername.isNotBlank()
 

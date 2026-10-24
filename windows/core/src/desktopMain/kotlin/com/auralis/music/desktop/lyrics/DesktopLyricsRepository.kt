@@ -4,7 +4,6 @@ import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.domain.lyrics.LyricsAlignmentEngine
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.util.Log
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Lyrics for the desktop app: the phone's provider race (LyricsClient) and its playback
@@ -19,7 +18,7 @@ class DesktopLyricsRepository(
     companion object {
         @Volatile var preferredProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
     }
-    private val memory = ConcurrentHashMap<String, LyricsData>()
+    private val memory = com.auralis.music.data.network.LyricsResponseCache()
 
     /** Cached lyrics for [videoId], aligned to [durationMs]; null when there are none. */
     fun cached(videoId: String, durationMs: Long): LyricsData? {

@@ -52,7 +52,7 @@ object MetroSpeakerLayout {
      * `respectAgentPositioning` deliberately play no part in whether it engages.
      */
     fun forAppearance(lines: List<LyricLine>, appearance: AppearanceSettings): List<MetroSpeakerStyle>? =
-        if (LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation).let { it == LyricsAnimationMode.METRO_LYRICS || it == LyricsAnimationMode.FLUID || it == LyricsAnimationMode.APPLE_MUSIC_V2 }) {
+        if (LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation).let { it == LyricsAnimationMode.METRO_LYRICS || it == LyricsAnimationMode.SPICY_LYRICS || it == LyricsAnimationMode.FLUID || it == LyricsAnimationMode.APPLE_MUSIC_V2 }) {
             build(lines)
         } else null
 
