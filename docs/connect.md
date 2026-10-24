@@ -15,6 +15,18 @@ reproduction of any other service's internals.
 - Other clients show the session silently: the mini player and full player display the song, the
   play state and a moving seek bar, with "Playing on *device*" / "Paused on *device*". Nothing is
   played locally.
+- On Android, a live remote output keeps the mini player protected from dismissal.
+  Once the output is inactive ("Last played on"), swiping down dismisses that
+  historical session on this phone. Heartbeats do not restore the dismissed card;
+  reconnecting with a live session shows it again. The account's saved session is
+  not deleted. The gesture reads current output state, so no screen restart is needed.
+  During active remote playback, dragging down still animates the card; a dismissal
+  attempt springs back and explains that playback must move to this phone or the
+  PC app must close first. The connection is checked at release, not captured at
+  the start of the gesture.
+- The Android full-player device pill appears only for an active remote output
+  (including paused playback) or an ongoing connection attempt. Idle prompts,
+  failed attempts without an active output, and historical outputs stay hidden.
 - Controls on any client (play/pause, seek, next/previous, picking a song or a queue item, queue
   edits, shuffle, repeat) are sent to the output. Play/Pause never moves the audio.
 - "Connect to a device" (device button in the mini player / player bar, and in the full player)
@@ -35,9 +47,13 @@ users/{uid}/connect/queue               its queue window (written with the sessi
 `deviceId` is a random UUID per (install, account), never derived from hardware or the name.
 Device documents hold the platform-reported name (Android: Settings > About > Device name, else
 maker + model; Windows: the computer name via JNA), an optional nickname, platform, type, whether
-it can play, an online flag and a server-time heartbeat (`seenAt`, every 60 s). Duplicate names
+it can play, an online flag and a server-time heartbeat (`seenAt`, every 10 s, stale after 30 s). Duplicate names
 are shown as "Name", "Name (2)"…; blank names fall back to "Android phone" / "Windows computer".
 Registrations not seen for 30 days are deleted by the account's other clients.
+Android marks an idle phone offline when its activity stops, and restores availability when it
+returns or starts playback. Background audio remains available. Windows refreshes device records
+every second while its picker is open. A sudden process kill or lost network still requires the
+30-second heartbeat expiry; graceful backgrounding sends an explicit offline update.
 
 ### Session fields that make it safe
 
@@ -57,11 +73,12 @@ never replayed later) and conditional writes on Windows (REST commit with the do
 ## Handoff
 
 1. Any client writes `transfer = {to, epoch: current+1, status: requested}`.
-2. The target prepares (loads the queue, warms the stream; songs that only exist on another
-   device fail here) and marks `ready`. If there is no active output it commits itself.
+2. The target checks it can play the song (songs that only exist on another device fail here)
+   and marks `ready`, warming the stream in the background so the warm-up overlaps the rest of
+   the handoff. If there is no active output it commits itself.
 3. The current output sees `ready`, **stops its audio first**, then in one write publishes its
    exact position and hands `ownerId`/`epoch` to the target (`committed`).
-4. The target sees the commit and starts at the extrapolated position, playing or paused as the
+4. The target sees the commit and starts at the frozen source position, playing or paused as the
    session was. Every client now shows the new output; "Connecting to *device*…" until then.
 
 Failure handling: a target that can't play the song → `failed`, the old output never stopped. No
@@ -73,6 +90,10 @@ never copied between devices.
 Preparation acknowledgements are retried after transient write failures. Windows retries a rules
 rejection caused by concurrent session writes only after a fresh read confirms the document's
 update time changed; actual permission failures are still surfaced.
+Returning playback to the device that opens the picker still needs the current output's commit.
+The returning device now starts stream preparation alongside its request, before the request's
+acknowledgement. Windows reuses a healthy watch's session document for conditional writes even
+between checkpoints, and keeps Firestore HTTP connections pooled to avoid repeated TLS setup.
 
 ## Online / offline rules
 
@@ -108,14 +129,26 @@ Tests: `firestore-tests/connect.rules.test.mjs` (Firestore emulator).
 
 ## Cost (Spark / free tier)
 
-Android uses realtime listeners (one read per change). Windows has no realtime Firestore listener
-over REST, so it polls the ~1 KB session document: every 0.4 s only during a handoff, 2 s while it
-is the output (for remote controls), 3 s while showing another device's playback, 6 s otherwise,
-four times slower when minimised; the queue document is fetched only when its revision changes.
-A PC that is the output for 8 hours uses ~14 k reads; idle and visible ~600 reads/hour. The free
-tier allows 50 k reads/day, so heavy all-day use on several PCs can reach it — raise the idle
-intervals in `DesktopConnect.pollInterval` if that happens. Remote controls on a PC output take up
-to ~2 s to apply; on Android they are near-instant.
+Android uses realtime listeners (one read per change). Windows now watches the session and queue
+through Firestore's authenticated gRPC Listen stream using the signed-in user's Firebase ID token.
+Each committed change reaches the engine without waiting for a polling interval. The stream reconnects
+with backoff and refreshed credentials; sign-out cancels it. A healthy stream uses a reconciliation
+read every 30 seconds. Listener failure falls back to polling: every 250 ms during a handoff or while the device
+picker is open, 500 ms while another device is online, 1 s during playback on either device, 2 s while this PC is paused, 1.5 s while
+another output is paused, and 6 s otherwise. Opening the picker interrupts the current wait.
+Active playback polling stays responsive while minimised; paused/idle mirrors poll twice as
+slowly. The queue is fetched only when its revision changes. Active playback uses up to about
+3,600 session reads/hour per PC, plus device-list reads; several PCs running all day can exceed
+the 50 k reads/day free tier. With another device online, polling can reach 7,200 reads/hour
+per PC, plus writes and device-list reads. Network latency adds to polling and handoff round trips.
+Those high polling counts apply to the fallback path; a healthy stream uses about 120 reconciliation
+reads/hour plus reads for document changes, device lists, and reconnects.
+
+The output saves a playback checkpoint at least every five seconds while advancing, as well as
+on controls and graceful shutdown. Abrupt termination can lose the interval since the last
+confirmed checkpoint. Reopening the previous output restores the account song and bookmark
+silently before it publishes local state. Handoff commits mark playback as buffering so mirrors
+hold the paused position until the new output confirms playback.
 
 ## Deploy order
 

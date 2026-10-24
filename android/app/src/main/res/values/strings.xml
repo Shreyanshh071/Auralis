@@ -1280,4 +1280,5 @@
     <string name="connect_no_other_devices">Open Auralis on another device signed in to this account to see it here.</string>
     <string name="connect_phone_sound_output">Sound output on this phone</string>
     <string name="connect_devices">Devices</string>
+    <string name="connect_close_mini_player_blocked">Switch playback to this phone or close the PC app to close the mini player.</string>
 </resources>

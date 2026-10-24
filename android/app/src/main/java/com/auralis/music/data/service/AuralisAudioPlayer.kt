@@ -62,6 +62,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             connectedAudioDevices.addAll(devices.map { it.id })
             if (newBluetoothOutput && runtimeSettings.resumeOnBluetoothConnect &&
                 !_isSpeakerForced.value && !_isPlaying.value && !_isBuffering.value &&
+                !syncWantsPlay && audioManager.mode == android.media.AudioManager.MODE_NORMAL &&
                 _currentTrack.value != null && !isGuestListenTogether.value && !isMediaMuted()) {
                 resume()
             }
@@ -207,22 +208,17 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         try {
             val outputs = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
             val speakerDevice = outputs.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            val btDevice = outputs.firstOrNull {
-                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-            }
-
-            preferredAudioDevice = if (toSpeaker) speakerDevice else btDevice
+            // Returning from an explicit speaker override lets Android select Bluetooth/wired
+            // media routing. Never pin music to a call's transient SCO endpoint.
+            preferredAudioDevice = if (toSpeaker) speakerDevice else null
 
             // Direct ExoPlayer AudioTrack routing
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 exoPlayer.setPreferredAudioDevice(preferredAudioDevice)
             }
 
-            // Always maintain MODE_NORMAL so media streams are never degraded to telephony voice codecs
-            audioManager.mode = android.media.AudioManager.MODE_NORMAL
+            // Calls and game voice chat own the communication mode. A music route change must
+            // not reset it, disconnect their Bluetooth route, or force call audio to the speaker.
 
             Log.d("AuralisPlayback", "[AudioRoute] Switched audio route: toSpeaker=$toSpeaker (device=${preferredAudioDevice?.productName ?: "Default"})")
         } catch (e: Throwable) {

@@ -860,6 +860,7 @@ class PlayerViewModel(
     }
 
     fun closePlayer() {
+        if (connectRemote.value != null && !com.auralis.music.data.connect.AuralisConnect.dismissInactiveRemote()) return
         Log.d("AuralisPlayback", "[Action] closePlayer / stop and clear current song")
         currentPlaybackRequestId.incrementAndGet()
         playJob?.cancel()

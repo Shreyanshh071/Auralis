@@ -734,9 +734,7 @@ private fun ExpandedMiniPlayerView(
                     ) {
                         AirPlayAudioIcon(
                             tint = dominantColor.copy(alpha = 0.95f),
-                            modifier = Modifier.size(13.dp).then(
-                                if (connect != null) Modifier.clickable(onClickLabel = str(R.string.connect_to_a_device), onClick = connect.onOpen) else Modifier
-                            )
+                            modifier = Modifier.size(13.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(

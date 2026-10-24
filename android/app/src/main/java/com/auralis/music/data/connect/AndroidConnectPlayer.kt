@@ -5,8 +5,13 @@ import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.TrackSource
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** What [AuralisAudioPlayer] asks Connect before acting on a user control. */
 interface ConnectHook {
@@ -35,9 +40,9 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
             track = track,
             queue = q.queue,
             index = q.currentIndex,
-            playing = track != null && !inRoom && player.intendsToPlay(),
-            buffering = player.isBuffering.value,
-            positionMs = player.rawPositionMs(),
+            playing = track != null && !inRoom && (pendingLoad != null || player.intendsToPlay()),
+            buffering = pendingLoad != null || player.isBuffering.value,
+            positionMs = pendingLoadPosition ?: player.rawPositionMs(),
             durationMs = duration,
             shuffle = q.isShuffled,
             repeat = q.repeatMode,
@@ -46,8 +51,37 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
         )
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /** The stream warm-up started by [prepare], by track id. */
+    private var warming: Pair<String, Job>? = null
+    private var pendingLoad: Job? = null
+    private var pendingLoadPosition: Long? = null
+
     override fun load(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean, shuffle: Boolean, repeat: RepeatMode, context: ConnectContext?) {
         if (index !in tracks.indices || inRoom) return
+        pendingLoad?.cancel()
+        pendingLoad = null
+        pendingLoadPosition = null
+        val warm = warming?.takeIf { it.first == tracks[index].id && it.second.isActive }?.second
+        if (play && warm != null) {
+            // The handoff finished before the warm-up: join it rather than resolving the stream
+            // twice. Bounded under the engine's settle window, so a slow lookup just starts cold.
+            player.fromConnect { player.loadSilently(tracks, index, positionMs, shuffle, repeat) }
+            pendingLoadPosition = positionMs
+            pendingLoad = scope.launch {
+                withTimeoutOrNull(3_500L) { warm.join() }
+                val resumeAt = pendingLoadPosition ?: positionMs
+                pendingLoad = null
+                pendingLoadPosition = null
+                startLoaded(tracks, index, resumeAt, play, shuffle, repeat, context)
+            }
+            return
+        }
+        startLoaded(tracks, index, positionMs, play, shuffle, repeat, context)
+    }
+
+    private fun startLoaded(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean, shuffle: Boolean, repeat: RepeatMode, context: ConnectContext?) {
+        if (inRoom) return
         player.fromConnect {
             player.connectContext = context
             if (play) {
@@ -60,6 +94,9 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
     }
 
     override fun silence() {
+        pendingLoad?.cancel()
+        pendingLoad = null
+        pendingLoadPosition = null
         if (!inRoom && (player.intendsToPlay() || player.isPlaying.value)) player.fromConnect { player.pause() }
     }
 
@@ -68,22 +105,31 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
         if (downloaded) return true
         // A song from another device's own files can't be played here.
         if (track.source == TrackSource.LOCAL) return false
-        return withContext(Dispatchers.IO) {
-            val videoId = com.auralis.music.data.network.AudioStreamResolver.resolvePlaybackVideoId(track) ?: return@withContext false
-            // Warms the stream cache so starting after the handoff is quick; a miss here isn't fatal.
+        if (track.id.startsWith("unavailable:")) return false
+        // Warm the stream cache while the handoff completes rather than before acknowledging it:
+        // the old output stops and commits meanwhile. A miss isn't fatal; a song that won't
+        // start is handed back by the engine.
+        warming?.second?.cancel()
+        val quality = player.currentAudioQuality
+        warming = track.id to scope.launch(Dispatchers.IO) {
             runCatching {
+                val videoId = com.auralis.music.data.network.AudioStreamResolver.resolvePlaybackVideoId(track)
+                    ?: return@runCatching
                 com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(
                     videoId = videoId, title = track.title, artist = track.artist,
-                    quality = player.currentAudioQuality, context = context, duration = track.duration
+                    quality = quality, context = context, duration = track.duration
                 )
             }
-            true
         }
+        return true
     }
 
     override fun play() = player.fromConnect { player.resume() }
-    override fun pause() = player.fromConnect { player.pause() }
-    override fun seekTo(positionMs: Long) = player.fromConnect { player.seekTo(positionMs) }
+    override fun pause() = silence()
+    override fun seekTo(positionMs: Long) {
+        if (pendingLoad != null) pendingLoadPosition = positionMs
+        player.fromConnect { player.seekTo(positionMs) }
+    }
     override fun next() { player.fromConnect { player.next() } }
     override fun previous() = player.fromConnect { player.previous() }
 

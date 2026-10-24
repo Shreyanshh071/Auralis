@@ -4,9 +4,6 @@ import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -42,7 +39,6 @@ class YouTubeAudioEngine(private val context: Context) {
     private val currentRequestId = AtomicLong(0L)
     private var lastEmittedState: Int = -1
 
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
     private var wakeLock: PowerManager.WakeLock? = null
@@ -173,25 +169,6 @@ class YouTubeAudioEngine(private val context: Context) {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
                 Log.d("AuralisPlayback", "[WifiLock Released] reason=$reason")
-            }
-        } catch (_: Exception) {}
-    }
-
-    private fun requestAudioFocus() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val playbackAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-                val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(playbackAttributes)
-                    .setAcceptsDelayedFocusGain(true)
-                    .build()
-                audioManager?.requestAudioFocus(focusRequest)
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
             }
         } catch (_: Exception) {}
     }
@@ -382,18 +359,8 @@ class YouTubeAudioEngine(private val context: Context) {
                     document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
                 });
 
-                // Prevent external background visibility pauses from interrupting playback
-                if (!window._auralisPauseHooked) {
-                    window._auralisPauseHooked = true;
-                    var origMediaPause = HTMLMediaElement.prototype.pause;
-                    HTMLMediaElement.prototype.pause = function() {
-                        if (window._auralisUserPaused) {
-                            return origMediaPause.apply(this, arguments);
-                        }
-                        // Ignore background / visibility throttled pause attempts
-                        return Promise.resolve();
-                    };
-                }
+                // Chromium owns this player's audio focus. Do not override native pause or
+                // retry it: calls and transient focus loss must be allowed to suspend media.
 
                 // 2. Hide ads and overlay clutter with injected style
                 if (!document.getElementById('auralis-css')) {
@@ -537,21 +504,8 @@ class YouTubeAudioEngine(private val context: Context) {
                             enforceAudioOutput();
                             if (window.AuralisBridge) window.AuralisBridge.onStateChange(1, window._auralisRequestId, 'native_playing');
                         });
-                        var autoResumeTimer = null;
                         v.addEventListener('pause', function() {
-                            var isNearEnd = v.ended || window._auralisEnded || (v.duration > 0 && (v.duration - v.currentTime) <= 1.5);
-                            if (window._auralisUserPaused || isNearEnd) {
-                                if (autoResumeTimer) clearTimeout(autoResumeTimer);
-                                if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId, 'native_pause');
-                                return;
-                            }
-                            if (autoResumeTimer) clearTimeout(autoResumeTimer);
-                            autoResumeTimer = setTimeout(function() {
-                                var stillNearEnd = v.ended || window._auralisEnded || (v.duration > 0 && (v.duration - v.currentTime) <= 1.5);
-                                if (!window._auralisUserPaused && !stillNearEnd && v.paused) {
-                                    v.play().catch(function() {});
-                                }
-                            }, 300);
+                            if (window.AuralisBridge) window.AuralisBridge.onStateChange(2, window._auralisRequestId, 'native_pause');
                         });
                         v.addEventListener('waiting', function() {
                             if (window.AuralisBridge) window.AuralisBridge.onStateChange(3, window._auralisRequestId, 'native_waiting');
@@ -565,7 +519,6 @@ class YouTubeAudioEngine(private val context: Context) {
                                     v.muted = true;
                                     v.pause();
                                 } catch(e) {}
-                                if (autoResumeTimer) clearTimeout(autoResumeTimer);
                                 if (window.AuralisBridge) window.AuralisBridge.onStateChange(0, window._auralisRequestId, 'native_ended');
                             }
                         });
@@ -665,7 +618,6 @@ class YouTubeAudioEngine(private val context: Context) {
 
         mainHandler.post {
             if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), requestId)) return@post
-            requestAudioFocus()
             acquireWakeLock("LoadVideo_#$requestId")
             _playbackPositionMs.value = initialSeekMs
             _isBuffering.value = true
@@ -704,7 +656,6 @@ class YouTubeAudioEngine(private val context: Context) {
         Log.d("AuralisPlayback", "[Play Command #$activeReq] (Caller: User/MediaAction)")
         mainHandler.post {
             if (!acceptsWebPlaybackCallback(currentVideoId, currentRequestId.get(), activeReq)) return@post
-            requestAudioFocus()
             acquireWakeLock("UserPlay_#$activeReq")
             webView?.evaluateJavascript("if (window._auralisPlay) window._auralisPlay($activeReq, 'UserPlay');", null)
         }

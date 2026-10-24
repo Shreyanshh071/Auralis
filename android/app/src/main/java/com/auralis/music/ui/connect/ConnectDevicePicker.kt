@@ -115,7 +115,7 @@ fun ConnectDevicePickerSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
                 ) {
-                    items(ui.devices, key = { it.device.id }) { row ->
+                    items(ui.devices.filter { it.isThis || it.state != ConnectRowState.UNAVAILABLE }, key = { it.device.id }) { row ->
                         DeviceRow(row, ui, accent, cardBg) { AuralisConnect.transferTo(row.device.id) }
                     }
                 }

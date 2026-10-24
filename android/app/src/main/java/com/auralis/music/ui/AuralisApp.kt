@@ -2345,7 +2345,18 @@ fun AuralisApp(
                                 fun settleDismiss(rawVelocityY: Float) {
                                     if (!isDismissDrag && dismissOffsetY.value <= 0f) return
                                     isDismissDrag = false
-                                    if (dismissY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold) {
+                                    val wantsDismiss = dismissY > dismissThresholdPx || rawVelocityY > dismissVelocityThreshold
+                                    // Let the drag animate normally, then explain why dismissal is
+                                    // blocked and spring back. Read live state at release so a PC
+                                    // disconnecting during the gesture unlocks it immediately.
+                                    val remoteActive = com.auralis.music.data.connect.AuralisConnect.remote.value?.output?.active == true
+                                    if (wantsDismiss && remoteActive) {
+                                        com.auralis.music.ui.components.AppPillManager.showPill(
+                                            str(R.string.connect_close_mini_player_blocked),
+                                            durationMs = 4000L
+                                        )
+                                    }
+                                    if (wantsDismiss && !remoteActive) {
                                         dismissAnimationJob = coroutineScope.launch {
                                             val offscreenTarget = (collapsedBoundPx * 1.5f).coerceAtLeast(with(density) { 180.dp.toPx() })
                                             dismissOffsetY.animateTo(
@@ -2908,7 +2919,7 @@ fun AuralisApp(
                 modifier = Modifier
                     .navigationBarsPadding()
                     .padding(
-                        bottom = if (playerUiState.currentTrack != null && !isNowPlayingOpen) 125.dp else 70.dp,
+                        bottom = if (playerUiState.currentTrack != null && !isNowPlayingOpen) 149.dp else 70.dp,
                         start = 24.dp,
                         end = 24.dp
                     )
@@ -2966,11 +2977,11 @@ fun AuralisApp(
                             }
                             Text(
                                 text = pill.message,
+                                modifier = Modifier.weight(1f, fill = false),
                                 color = pillContentColor,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                lineHeight = 18.sp
                             )
                         }
                     }

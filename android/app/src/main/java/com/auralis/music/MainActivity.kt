@@ -337,6 +337,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.auralis.music.data.connect.AuralisConnect.setForeground(true)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
     }
 
@@ -373,6 +374,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        com.auralis.music.data.connect.AuralisConnect.setForeground(false)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStop")
     }
 

@@ -1,11 +1,21 @@
 package com.auralis.music.ui.connect
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material3.MaterialTheme
+import com.auralis.music.ui.theme.dynamicSurface
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -55,14 +65,14 @@ fun rememberMiniConnect(onOpen: () -> Unit): MiniConnect? {
 
 /**
  * The mini player's second line while another device plays: its icon and "Playing on …", in
- * [accent]. Tapping it opens the device picker (play/pause stays on its own button).
+ * [accent]. This is informational; the mini player's device button opens the picker.
  */
 @Composable
 fun ConnectOutputSubtitle(connect: MiniConnect, accent: Color, fontSize: TextUnit, style: TextStyle = TextStyle.Default) {
     val line = connect.outputLine ?: return
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.clickable(role = Role.Button, onClickLabel = str(R.string.connect_to_a_device), onClick = connect.onOpen)
+        modifier = Modifier
     ) {
         Icon(connectDeviceIcon(connect.outputType), null, tint = accent, modifier = Modifier.size((fontSize.value + 1).dp))
         Spacer(Modifier.width(4.dp))
@@ -71,27 +81,38 @@ fun ConnectOutputSubtitle(connect: MiniConnect, accent: Color, fontSize: TextUni
 }
 
 /**
- * The full player's device bar: shown while another device has the audio (or a handoff is under
- * way), "Playing on Laptop" / "Connecting to Laptop…". Tapping it opens the device picker.
+ * Shows an active remote output or an in-progress connection, rather than an idle prompt.
  */
 @Composable
-fun ConnectPlayerBar(accent: Color, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+fun ConnectPlayerBar(accent: Color, onOpen: () -> Unit, modifier: Modifier = Modifier, hazeState: HazeState? = null) {
     val ui by AuralisConnect.ui.collectAsState()
-    if (!ui.enabled) return
-    val t = ui.transfer
+    if (!shouldShowPlayerDevicePill(ui)) return
+    val t = ui.transfer?.takeUnless { it.failed }
     val output = ui.output
     val text = when {
         t != null && !t.failed -> str(R.string.connect_connecting_to, t.label)
         t != null -> str(R.string.connect_failed_to, t.label)
-        else -> connectOutputLine(output)
-    } ?: return
+        else -> connectOutputLine(output) ?: str(R.string.connect_to_a_device)
+    }
     val type = ui.devices.firstOrNull { it.device.id == (t?.deviceId ?: output?.deviceId) }?.device?.type ?: output?.type ?: ConnectDeviceType.PHONE
     val tint = if (t?.failed == true) Color(0xFFFF8A80) else connectAccent(accent)
+    val shape = RoundedCornerShape(32.dp)
+    val surface = MaterialTheme.dynamicSurface
+    val dark = surface.luminance() < 0.5f
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.35f))
+            .shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = if (dark) .35f else .12f),
+                spotColor = Color.Black.copy(alpha = if (dark) .45f else .18f))
+            .clip(shape)
+            .then(if (hazeState != null) Modifier.hazeEffect(
+                state = hazeState,
+                style = HazeStyle(backgroundColor = Color.Transparent,
+                    tint = HazeTint(surface.copy(alpha = if (dark) .38f else .48f)),
+                    blurRadius = 24.dp, noiseFactor = .02f)
+            ) { blurEnabled = true } else Modifier.background(surface.copy(alpha = .48f)))
+            .border(1.dp, Brush.verticalGradient(listOf(tint.copy(alpha = .50f),
+                tint.copy(alpha = .20f), tint.copy(alpha = .08f))), shape)
             .clickable(role = Role.Button, onClickLabel = str(R.string.connect_to_a_device), onClick = onOpen)
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
