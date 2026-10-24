@@ -39,6 +39,15 @@ object AuralisConnect : ConnectHook {
     private val _remote = MutableStateFlow<ConnectRemoteView?>(null)
     /** The session this phone shows while another device plays it. */
     val remote: StateFlow<ConnectRemoteView?> = _remote.asStateFlow()
+    private val remotePresentation = ConnectRemotePresentation()
+
+    /** Closing a historical mini player affects this phone only. Live outputs remain protected. */
+    fun dismissInactiveRemote(): Boolean {
+        if (engine?.ui?.value?.remote?.output?.active == true) return false
+        if (!remotePresentation.dismiss(_remote.value)) return false
+        _remote.value = null
+        return true
+    }
 
     private lateinit var appContext: Context
     private lateinit var player: AuralisAudioPlayer
@@ -48,6 +57,17 @@ object AuralisConnect : ConnectHook {
     private var listeners: List<ListenerRegistration> = emptyList()
     private var jobs: List<Job> = emptyList()
     private var started = false
+    private var foreground = false
+
+    fun setForeground(visible: Boolean) {
+        foreground = visible
+        updatePresence()
+    }
+
+    private fun updatePresence() {
+        if (!started) return
+        engine?.setDeviceAvailable(foreground || player.isPlaying.value || player.playbackRequested.value)
+    }
     private val followLock = kotlinx.coroutines.sync.Mutex()
 
     fun init(context: Context) {
@@ -127,6 +147,7 @@ object AuralisConnect : ConnectHook {
         this.backend = backend
         val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis) { Log.d(TAG, it) }
         engine = e
+        updatePresence()
         Log.d(TAG, "Joined the account session as ${device.name} ($deviceId)")
 
         var session: ConnectSession? = null
@@ -145,6 +166,7 @@ object AuralisConnect : ConnectHook {
             backend.queueRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
                 if (error != null || snap == null || snap.metadata.isFromCache || snap.metadata.hasPendingWrites()) return@addSnapshotListener
                 queue = snap.data?.let { ConnectCodec.decodeQueue(FirestoreConnectBackend.fromFirestore(it)) }
+                backend.sawQueue(queue)
                 if (session != null) deliver()
             },
             backend.devicesRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
@@ -162,7 +184,7 @@ object AuralisConnect : ConnectHook {
             scope.launch {
                 combine(e.ui, player.isGuestListenTogether) { u, guest -> u to guest }.collect { (u, guest) ->
                     _ui.value = u
-                    _remote.value = u.remote.takeIf { !guest }
+                    _remote.value = remotePresentation.present(u.remote).takeIf { !guest }
                 }
             },
             scope.launch {
@@ -177,7 +199,7 @@ object AuralisConnect : ConnectHook {
                     combine(player.currentTrack, player.isPlaying, player.isBuffering, player.queueState, player.playbackRequested) { _, _, _, _, _ -> Unit },
                     player.playbackPositionMs.sample(1_000L),
                     player.userSeekEvents
-                ).collect { e.onLocalChanged() }
+                ).collect { updatePresence(); e.onLocalChanged() }
             }
         )
         e.start()

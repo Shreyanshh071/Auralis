@@ -25,10 +25,16 @@ class FirestoreConnectBackend(
     private var sessionWrite: Triple<Long, Long, Long>? = null // version, sent, ack
     private var heartbeatWrite: Triple<String, Long, Long>? = null // device id, sent, ack
 
+    @Volatile private var queueCache: ConnectQueue? = null
+    fun sawQueue(queue: ConnectQueue?) { queueCache = queue }
+
     override suspend fun fetch(): ConnectSnapshot {
         val s = sessionRef.get(Source.SERVER).await()
-        val q = queueRef.get(Source.SERVER).await()
-        return ConnectSnapshot(s.data?.let { ConnectCodec.decodeSession(fromFirestore(it)) }, q.data?.let { ConnectCodec.decodeQueue(fromFirestore(it)) })
+        val session = s.data?.let { ConnectCodec.decodeSession(fromFirestore(it)) }
+        val queue = queueCache?.takeIf { it.rev == session?.queueRev }
+            ?: queueRef.get(Source.SERVER).await().data
+                ?.let { ConnectCodec.decodeQueue(fromFirestore(it)) }?.also { queueCache = it }
+        return ConnectSnapshot(session, queue?.takeIf { it.rev == session?.queueRev })
     }
 
     override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? {
@@ -36,11 +42,12 @@ class FirestoreConnectBackend(
         val sent = localNow()
         db.runTransaction { tx ->
             val s = tx.get(sessionRef)
-            val q = tx.get(queueRef)
-            val cur = ConnectSnapshot(
-                s.data?.let { ConnectCodec.decodeSession(fromFirestore(it)) },
-                q.data?.let { ConnectCodec.decodeQueue(fromFirestore(it)) }
-            )
+            val session = s.data?.let { ConnectCodec.decodeSession(fromFirestore(it)) }
+            // Queue revisions are published atomically with the session. Matching immutable
+            // server-confirmed data needs no second transaction read at each handoff step.
+            val queue = queueCache?.takeIf { it.rev == session?.queueRev }
+                ?: tx.get(queueRef).data?.let { ConnectCodec.decodeQueue(fromFirestore(it)) }
+            val cur = ConnectSnapshot(session, queue?.takeIf { it.rev == session?.queueRev })
             val w = block(cur)
             result = null
             if (w != null) {
@@ -50,6 +57,7 @@ class FirestoreConnectBackend(
             }
             null
         }.await()
+        result?.queue?.let { queueCache = it }
         result?.session?.let { sessionWrite = Triple(it.version, sent, localNow()) }
         return result
     }
