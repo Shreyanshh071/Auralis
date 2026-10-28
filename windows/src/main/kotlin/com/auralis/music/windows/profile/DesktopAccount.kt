@@ -161,8 +161,26 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
     suspend fun pullCloudBackup(
         library: com.auralis.music.domain.repository.LibraryRepository,
         stats: com.auralis.music.desktop.library.DesktopListeningStats
-    ): String? = withContext(Dispatchers.IO) {
-        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext null
+    ): String? = withContext(Dispatchers.IO) { supervisorScope {
+        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@supervisorScope null
+        val pullStarted = System.currentTimeMillis()
+        // Home must not queue behind the library document or wait for every historical page.
+        val listening = async {
+            var recentAdded = 0
+            if (stats.listens.value.isEmpty()) {
+                val recent = try { api.listRecentDays("users/$uid/listening") }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { emptyList() }
+                ensureActive()
+                if (mutable.value.profile?.uid != uid) return@async emptyList<Pair<String, org.json.JSONObject>>() to 0
+                recentAdded = stats.importListens(cloudListens(recent))
+            }
+            val days = api.list("users/$uid/listening")
+            ensureActive()
+            if (mutable.value.profile?.uid != uid) return@async emptyList<Pair<String, org.json.JSONObject>>() to 0
+            val added = stats.importListens(cloudListens(days))
+            days to (recentAdded + added)
+        }
         fun track(o: org.json.JSONObject) = com.auralis.music.domain.model.Track(
             id = o.optString("id"), title = o.optString("title").ifBlank { "Unknown Track" },
             artist = o.optString("artist").ifBlank { "Unknown Artist" }, album = o.optString("album").takeIf { it.isNotBlank() },
@@ -170,7 +188,14 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         fun objects(a: org.json.JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a!!.optJSONObject(it) }
 
         var playlists = 0; var liked = 0
-        val doc = api.get("users/$uid")
+        val doc = try { api.get("users/$uid") } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            // Still let independently fetched listening history populate Home.
+            try { listening.await() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
+            throw e
+        }
+        ensureActive()
+        if (mutable.value.profile?.uid != uid) return@supervisorScope null
         if (doc != null) {
             // What this PC already had: only what the pull adds is the account's, and goes on sign-out.
             val localPlaylists = library.getPlaylists().first()
@@ -178,6 +203,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             val addedPlaylists = mutableSetOf<String>()
             val addedFavorites = mutableSetOf<String>()
             val catchUpDone = syncMarks.getString("account_items_v1_$uid", "") == "1"
+            val serviceLinks = com.auralis.music.data.playlistsync.PlaylistSyncStore(
+                com.auralis.music.util.PropertiesFileKeyValueStore(File(sessionFile.parentFile, "playlist-sync.properties"), synchronous = true))
+                .links.value.filter { it.enabled }.map { it.localId }.toSet()
             for (p in objects(doc.optJSONArray("playlists"))) {
                 val title = p.optString("title").ifBlank { "Restored Playlist" }
                 val description = p.optString("description").takeIf { it.isNotBlank() }
@@ -188,6 +216,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 // twice. A same-named playlist with different songs (99 vs 100) is its own playlist.
                 if (localPlaylists.any { it.id != id && sameNameAndSongs(it, title, tracks) }) continue
                 val existedHere = id != null && localPlaylists.any { it.id == id }
+                // Service sync owns this playlist's baseline and pending edits.
+                // A stale phone/cloud backup must not erase an unuploaded song.
+                if (existedHere && id in serviceLinks) { playlists++; continue }
                 val target = if (id != null) library.restorePlaylist(id, title, description, cover) else library.createPlaylist(title, description, cover)
                 if (tracks.isNotEmpty()) library.replacePlaylistTracks(target.id, tracks)
                 if (!existedHere) addedPlaylists += target.id
@@ -218,14 +249,14 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             }
         }
         // Listening stats: one document per UTC day, events keyed "<startMs>_<trackId>".
-        val pullStarted = System.currentTimeMillis()
-        val listens = cloudListens(runCatching { api.list("users/$uid/listening") }.getOrDefault(emptyList()))
-        val newListens = stats.importListens(listens)
+        val (days, newListens) = listening.await()
+        ensureActive()
+        if (mutable.value.profile?.uid != uid) return@supervisorScope null
         syncMarks.putStrings(mapOf("pulled_at_$uid" to pullStarted.toString()))
         pulledUid = uid
-        if (doc == null && listens.isEmpty()) return@withContext null
+        if (doc == null && days.isEmpty()) return@supervisorScope null
         "Synced from your account: $playlists playlists, $liked liked songs, $newListens new listens"
-    }
+    } }
 
     private fun marks(key: String): Set<String> =
         syncMarks.getString(key, "").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()

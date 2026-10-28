@@ -1102,8 +1102,9 @@ open class InnerTubeClient(
                             .maxByOrNull { followerCount(it.subscribers) }
                 }
                 val filtered = search(artist.name, FILTER_ARTISTS).artists
-                val exactInFilter = filtered.any { it.id.startsWith("UC") && matcher.normalize(it.name) == matcher.normalize(artist.name) }
-                val match = if (exactInFilter) pick(filtered) else pick(filtered + search(artist.name).artists)
+                // The artist filter can return an exact-name fan channel. Compare
+                // the general-search artist card as well before accepting it.
+                val match = pick(filtered + search(artist.name).artists)
                 if (match != null) {
                     effectiveChannelId = match.id
                     resolvedArtist = match

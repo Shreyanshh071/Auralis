@@ -1,5 +1,8 @@
 package com.auralis.music.windows.player
 
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+
 import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.Crossfade
@@ -105,9 +108,16 @@ fun PlayerScreen(
     val preferenceRevision by prefs.changes.collectAsState()
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
+    val glassBackdrop = rememberLayerBackdrop()
+    val lyricsBackdrop = rememberLayerBackdrop()
+    val combinedBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
+    val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
+    CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
     Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
+        Box(Modifier.fillMaxSize().then(if (resyncSource.users.intValue > 0) Modifier.layerBackdrop(glassBackdrop) else Modifier)) {
+            PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
+        }
 
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
             val wide = maxWidth > 900.dp && prefs.bool("stagePlayer",true)
@@ -176,6 +186,8 @@ fun PlayerScreen(
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
         }
     }
+}
+
 }
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */

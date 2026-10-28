@@ -8,7 +8,6 @@ package com.auralis.music.ui.lyrics.renderers
 
 import com.auralis.music.ui.lyrics.toShapingClusters
 import com.auralis.music.ui.lyrics.requiresWholeRunShaping
-import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -29,14 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -80,7 +77,7 @@ private fun String.toGraphemeClusters(): List<String> = toShapingClusters()
  * Features:
  * - Sub-frame 60/120fps position interpolation with withFrameMillis.
  * - Grapheme cluster measurement via BreakIterator for complex scripts.
- * - Character-by-character native canvas drawing with BlurMaskFilter glow.
+ * - Character-by-character drawing with the measured glyphs reused for highlights.
  * - Wobble scale physics and hyphen-group crescendo dynamics.
  */
 @Composable
@@ -236,11 +233,6 @@ private fun MetroWordLevelCanvas(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val drawAsShapedRun = remember(mainText) { mainText.requiresWholeRunShaping() }
-    val glowPaint = remember {
-        android.graphics.Paint().apply {
-            isAntiAlias = true
-        }
-    }
 
     var smoothPosition by remember(lineStartTime) { mutableLongStateOf(effectivePlaybackPosition) }
     var lastAnchorPos by remember(lineStartTime) { mutableLongStateOf(effectivePlaybackPosition) }
@@ -591,13 +583,11 @@ private fun MetroWordLevelCanvas(
                             if (impactFactor > 0.01f) {
                                 val glowAlpha = (0.35f * impactFactor).coerceIn(0f, 0.4f)
                                 val baseGlowRadius = 12.dp.toPx() * impactFactor
-                                drawIntoCanvas { canvas ->
-                                    glowPaint.maskFilter = BlurMaskFilter(baseGlowRadius, BlurMaskFilter.Blur.NORMAL)
-                                    glowPaint.color = accentColor.copy(alpha = glowAlpha).toArgb()
-                                    glowPaint.textSize = lyricStyle.fontSize.toPx()
-                                    glowPaint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                                    canvas.nativeCanvas.drawText(letterLayouts[i].layoutInput.text.text, 0f, letterLayouts[i].firstBaseline, glowPaint)
-                                }
+                                // Reuse the exact shaped glyphs. Drawing a second copy with
+                                // Android's default bold font made mismatched bright blobs.
+                                drawText(letterLayouts[i], color = accentColor.copy(alpha = glowAlpha),
+                                    shadow = Shadow(accentColor.copy(alpha = glowAlpha * 0.5f),
+                                        Offset.Zero, baseGlowRadius.coerceAtMost(3.dp.toPx())))
                             }
                         }
 

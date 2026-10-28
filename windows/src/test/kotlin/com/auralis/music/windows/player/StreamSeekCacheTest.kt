@@ -50,11 +50,19 @@ class StreamSeekCacheTest {
             for (target in listOf(30_000L, 140_000L, 60_000L, 20_000L)) {
                 val start = System.nanoTime()
                 audio.seekTo(target)
-                waitFor(5000) { audio.positionMs.value >= target + 250 }
+                waitFor(5000) { audio.positionMs.value in (target + 250)..(target + 5000) }
                 val elapsed = (System.nanoTime() - start) / 1_000_000
                 println("Native muted seek to ${target / 1000}s advanced audio in ${elapsed}ms")
                 assertTrue(elapsed < 2500, "Seek should resume promptly on a throttled source")
             }
+            val rapidStart = System.nanoTime()
+            audio.seekTo(140_000L)
+            audio.seekTo(20_000L)
+            audio.seekTo(60_000L)
+            val dispatchMs = (System.nanoTime() - rapidStart) / 1_000_000L
+            assertTrue(dispatchMs < 100L, "Native seek dispatch must not block the UI: ${dispatchMs}ms")
+            waitFor(5000) { audio.positionMs.value in 60_250L..65_000L }
+            println("Rapid native seeks dispatched in ${dispatchMs}ms; latest target resumed")
         } finally { audio.release(); upstream.stop(0); executor.shutdownNow() }
     }
 

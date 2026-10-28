@@ -33,6 +33,14 @@ reproduction of any other service's internals.
   lists the account's devices: this device marked "This phone" / "This computer", the output
   ticked, offline devices seen in the last 14 days shown as unavailable. Picking one hands off.
 - Opening an app never plays anything and never takes the output.
+- Android keeps its live device connection while its task remains in Recents,
+  including when idle or controlling playback on another device. A quiet
+  connected-device foreground notification keeps the connection available.
+  Swiping the task away removes its registration and stops this service without
+  signing the account out. Reopening joins again with the same installation id.
+  Presence writes are serialized so an in-flight heartbeat cannot undo removal.
+  Android force-stop/process termination still relies on the heartbeat expiry
+  when the OS does not deliver task-removal callbacks.
 - A phone with no local song creates its player presentation when a remote session arrives;
   returning to the foreground also fetches authoritative state immediately.
 

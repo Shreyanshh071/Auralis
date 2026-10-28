@@ -53,6 +53,15 @@ class ConnectModelsTest {
         assertEquals(devices.size, labels.values.toSet().size)
     }
 
+    @Test fun matchingLaptopModelsHaveShortLabelsWithoutIdsOrAccountNames() {
+        val first = ConnectDevice("a1b2c3d4", "LOQ 15IRX9 (SHREYANSHH)", platform = ConnectPlatform.WINDOWS, type = ConnectDeviceType.COMPUTER, createdMs = 1)
+        val second = first.copy(id = "e5f6a7b8", createdMs = 2)
+        val labels = ConnectDeviceNames.labels(listOf(first, second))
+        assertEquals("LOQ 15IRX9", labels[first.id])
+        assertEquals("LOQ 15IRX9 (2)", labels[second.id])
+        assertEquals(labels, ConnectDeviceNames.labels(listOf(second, first)))
+        assertTrue(labels.values.none { it.contains("SHREYANSHH") || it.contains("a1b2c3d4") })
+    }
     @Test
     fun serverClockUsesTheTightestRoundTrip() {
         var local = 1_000L

@@ -1606,8 +1606,10 @@ private fun LyricLineRow(
         buildWordLayouts(layout, wordRanges)
     }
 
-    var textLayoutResult by remember(line) { mutableStateOf(precomputedLayout) }
-    var wordLayouts by remember(line) { mutableStateOf(precomputedWordLayouts) }
+    // Highlight masks must match the current font metrics on the very first frame.
+    // Reusing a previous active/inactive layout briefly paints displaced glyph fragments.
+    var textLayoutResult by remember(line, activeTextStyle, rowMaxWidthPx, isCurrent) { mutableStateOf(precomputedLayout) }
+    var wordLayouts by remember(line, activeTextStyle, rowMaxWidthPx, isCurrent) { mutableStateOf(precomputedWordLayouts) }
     val finishedHighlightPath = remember(line) { androidx.compose.ui.graphics.Path() }
 
     LaunchedEffect(precomputedLayout, precomputedWordLayouts) {

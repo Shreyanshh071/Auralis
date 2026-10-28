@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import com.auralis.music.data.service.AuralisAudioPlayer
 import com.auralis.music.domain.auth.GoogleAccountSyncManager
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.AuralisApp
+import com.auralis.music.ui.components.afterLaunchFrame
 import com.auralis.music.ui.theme.AuralisTheme
 import com.auralis.music.ui.theme.ArtworkPaletteCache
 import com.auralis.music.ui.theme.dynamicBackground
@@ -57,6 +59,8 @@ import com.auralis.music.ui.viewmodel.SearchViewModel
 class MainActivity : ComponentActivity() {
 
     private val launchTouchGate = com.auralis.music.ui.components.LaunchTouchGate()
+    private var launchDrawingComplete by mutableStateOf(false)
+    private var activeLaunchLogo: com.auralis.music.ui.components.LaunchLogoView? = null
 
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
         if (launchTouchGate.shouldConsume(event.actionMasked)) return true
@@ -99,9 +103,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         com.auralis.music.ui.i18n.AppLanguage.attach(this)
         super.onCreate(savedInstanceState)
-        // A recreated activity (display/text-size change) has no new system splash
-        // exit callback. Keep its restored screen instead of adding a stuck overlay.
-        if (savedInstanceState == null) showFastLaunch()
+        // Retained state means an in-process recreation; a saved Bundle alone can also
+        // mean Android killed the process, in which case the launch animation is needed.
+        val recreatingInProcess = savedInstanceState != null && lastNonConfigurationInstance != null
+        launchDrawingComplete = recreatingInProcess
+        if (!recreatingInProcess) showFastLaunch(waitForSystemSplash = savedInstanceState == null)
         else launchTouchGate.splashRemoved()
         DiscordSocialSdkInit.setEngineActivity(this)
         liveNavDestination.value = extractNavDestination(intent)
@@ -189,6 +195,21 @@ class MainActivity : ComponentActivity() {
         ArtworkPaletteCache.resetToDefault()
 
         setContent {
+            if (!launchDrawingComplete) {
+                // Let the small native logo animate without composing Home, artwork, or effects.
+                Box(Modifier.fillMaxSize().background(
+                    androidx.compose.ui.graphics.Color(getColor(R.color.launch_background))))
+                return@setContent
+            }
+            DisposableEffect(Unit) {
+                val logo = activeLaunchLogo
+                val cancel = logo?.let {
+                    findViewById<android.view.View>(android.R.id.content).afterLaunchFrame {
+                        it.contentReady()
+                    }
+                }
+                onDispose { cancel?.invoke() }
+            }
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
                 initial = remember { appearanceDataStore.getInitialSettings() }
             )
@@ -379,6 +400,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) {
+            com.auralis.music.data.connect.AuralisConnect.onTaskRemoved()
+        }
         android.util.Log.d("AuralisPlayback", "[MainActivity] onDestroy - Activity destroyed, background service and player remain intact")
         super.onDestroy()
     }
@@ -413,17 +437,22 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    /** Shows the first Home frame without waiting for image downloads or decoding. */
-    private fun showFastLaunch() {
+    /** Draw the logo first, then keep its final shape over the first actual app frame. */
+    private fun showFastLaunch(waitForSystemSplash: Boolean) {
         val startMs = android.os.SystemClock.uptimeMillis()
         val content = findViewById<android.view.View>(android.R.id.content)
         val decor = window.decorView as android.view.ViewGroup
         // Keep one fixed icon size across the system/app splash handoff. Android's
         // starting-window icon surface can otherwise resize when handed to the activity.
-        val launchLogo = com.auralis.music.ui.components.LaunchLogoView(this) {
+        val launchLogo = com.auralis.music.ui.components.LaunchLogoView(
+            this, onDrawingComplete = { launchDrawingComplete = true }
+        ) {
+            launchDrawingComplete = true
+            activeLaunchLogo = null
             launchTouchGate.splashRemoved()
             Log.d("AuralisStartup", "Home revealed ${android.os.SystemClock.uptimeMillis() - startMs}ms after launch setup")
         }
+        activeLaunchLogo = launchLogo
         decor.addView(launchLogo, android.view.ViewGroup.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -431,12 +460,20 @@ class MainActivity : ComponentActivity() {
         content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 content.viewTreeObserver.removeOnPreDrawListener(this)
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) launchLogo.post { launchLogo.reveal() }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !waitForSystemSplash) {
+                    // A restored activity may not get an Android splash-exit callback. Let any
+                    // default starting-window fade finish before drawing our own visible mark.
+                    launchLogo.postDelayed({ launchLogo.reveal() }, if (waitForSystemSplash) 0L else 250L)
+                } else {
+                    // Android does not promise an exit callback when no starting splash
+                    // was shown (for example some launcher/task restoration paths).
+                    launchLogo.postDelayed({ launchLogo.reveal() }, 1_000L)
+                }
                 return true
             }
         })
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && waitForSystemSplash) {
             splashScreen.setOnExitAnimationListener { splashView ->
                 splashView.remove()
                 launchLogo.reveal()

@@ -24,33 +24,38 @@ object SpicyLyricsPresentation {
         return result
     }
 
-    private fun presentationEnd(lines: List<LyricLine>, index: Int): Long? {
+    internal fun presentationEnd(lines: List<LyricLine>, index: Int): Long? {
         val line = lines[index]
-        line.effectiveEndTime?.let { return it }
+        // A provider's paragraph end can precede a held harmony/syllable end.
+        // Keep every genuine timed vocal alive until its own final word finishes.
+        val wordEnd = line.words?.mapNotNull { word ->
+            listOfNotNull(word.endTime, word.syllables?.mapNotNull { it.endTime }?.maxOrNull()).maxOrNull()
+        }?.maxOrNull()
+        listOfNotNull(line.endTime, wordEnd).maxOrNull()?.let { return it }
         // LRC supplies starts, not ends. Highlight the whole line until the next
         // distinct timestamp; never manufacture word timing or extend a timed vocal rest.
         if (!line.words.isNullOrEmpty()) return null
         return lines.asSequence().drop(index + 1).firstOrNull { it.time > line.time }?.time ?: Long.MAX_VALUE
     }
 
-    fun activeIndices(lines: List<LyricLine>, positionMs: Long): Set<Int> = lines.indices.filterTo(linkedSetOf()) {
-        val end = presentationEnd(lines, it)
-        positionMs >= lines[it].time && end != null && positionMs < end
-    }
+    fun activeIndices(lines: List<LyricLine>, positionMs: Long): Set<Int> = SpicyVocalTimeline(lines).activeIndices(positionMs)
 
     fun scrollAnchor(lines: List<LyricLine>, positionMs: Long, fallback: Int): Int {
-        val active = activeIndices(lines, positionMs).toList()
-        if (active.isEmpty()) return leadIndex(lines, fallback)
-        val front = active.maxOf { leadIndex(lines, it) }
-        val leads = active.filter { !lines[it].isBackground || leadIndex(lines, it) == front }
-            .map { leadIndex(lines, it) }.distinct()
-        val first = leads.first()
-        val following = (first + 1 until lines.size).filter { !lines[it].isBackground }.getOrNull(1)
-        var groupEnd = lines[first].effectiveEndTime ?: lines[first].time
-        for (index in first + 1 until lines.size) {
-            if (!lines[index].isBackground) break
-            groupEnd = maxOf(groupEnd, lines[index].effectiveEndTime ?: lines[index].time)
-        }
-        return if (following == null || groupEnd <= lines[following].time || leads.last() - first <= 1) first else leads.last()
+        // Follow the newest started lead, even when an earlier harmony outlasts
+        // it. Ending one of several active lines must never scroll backwards.
+        // A seek still resolves entirely from its requested playback timestamp.
+        val latest = lines.indexOfLast { it.time <= positionMs && !it.isBackground }
+        return if (latest >= 0) latest else leadIndex(lines, fallback)
+    }
+}
+
+/** Resolve nested syllable ends once per lyric delivery, never once per frame
+ * for each simultaneously displayed panel. */
+class SpicyVocalTimeline(private val lines: List<LyricLine>) {
+    private val ends = lines.indices.map { SpicyLyricsPresentation.presentationEnd(lines, it) }
+
+    fun activeIndices(positionMs: Long): Set<Int> = lines.indices.filterTo(linkedSetOf()) {
+        val end = ends[it]
+        positionMs >= lines[it].time && end != null && positionMs < end
     }
 }

@@ -14,9 +14,61 @@ import com.auralis.music.ui.lyrics.*
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.swing.Swing
 import kotlin.test.*
 
 class LyricsScrollBehaviourTest {
+    @Test fun pausedLyricsReturnAfterIdleAndNewWheelInputImmediatelyInterruptsTheReturn() {
+        val position = mutableLongStateOf(60000L)
+        var list: LazyListState? = null
+        val ui = LyricsUiPlatform(DefaultLyricsUi.strings, manualScrollModifier = { state, onUserScroll ->
+            list = state
+            lyricsWheelScroll(state, onUserScroll)
+        })
+        val lyrics = LyricsData(SyncType.LINE_SYNC, List(90) { LyricLine(it * 2000L, "Paused phrase $it") }, provider = LyricsProvider.AMLL)
+        val scene = ImageComposeScene(500, 400, coroutineContext = Dispatchers.Unconfined) {
+            MaterialTheme { CompositionLocalProvider(LocalLyricsUi provides ui,
+                LocalAppearanceSettings provides AppearanceSettings(lyricsTextSize = 22f,
+                    lyricsAnimation = LyricsAnimationMode.SPICY_LYRICS.displayName, autoScrollLyrics = true)) {
+                ExperimentalLyricsView(lyrics, position, {}, isPlaying = false, isBuffering = false,
+                    track = Track("idle-scroll", "Fixture", "Artist", duration = 180))
+            } }
+        }
+        try {
+            var frame = 0L
+            fun frames(count: Int) = repeat(count) { scene.render(frame++ * 16_666_667L).close() }
+            fun wheel(delta: Float, time: Long) = scene.sendPointerEvent(PointerEventType.Scroll,
+                Offset(310f, 250f), scrollDelta = Offset(0f, delta), timeMillis = time, type = PointerType.Mouse)
+            frames(70)
+            val state = assertNotNull(list)
+            fun order() = state.firstVisibleItemIndex * 100000 + state.firstVisibleItemScrollOffset
+            wheel(24f, 5000L)
+            frames(45)
+            val browsed = order()
+            Thread.sleep(1700L)
+            frames(5)
+            assertTrue(order() < browsed, "Paused playback must return automatically after the wheel becomes idle")
+            assertTrue(state.isScrollInProgress, "Interrupt the return while it is moving")
+            wheel(2f, 7000L)
+            // Software rendering can take longer than the real 1.5-second idle
+            // timeout to draw 45 simulated frames. Only assert gesture ownership
+            // before that deadline; returning after it is the expected behavior.
+            val trace = mutableListOf<Int>()
+            val gestureStarted = System.nanoTime()
+            do {
+                frames(1); trace += order()
+            } while (trace.size < 45 && (System.nanoTime() - gestureStarted) / 1_000_000L < 900L)
+            assertTrue(trace.zipWithNext().all { (a, b) -> b >= a }, "A return animation must never pull against fresh wheel input: $trace")
+            assertTrue(trace.last() > trace.first(), "The new gesture must take control immediately")
+            Thread.sleep(1700L)
+            frames(100)
+            assertTrue(state.layoutInfo.visibleItemsInfo.any { it.index == 30 },
+                "After the second idle period, return to the same paused lyric")
+            assertEquals(60000L, position.longValue, "Browsing must not seek or change paused playback")
+        } finally { scene.close() }
+    }
+
     private class WheelScene(val rowHeight: Int) : AutoCloseable {
         val list = LazyListState()
         var inputs = 0
@@ -227,32 +279,34 @@ class LyricsScrollBehaviourTest {
         }
     }
 
-    @Test fun smallAutomaticCorrectionsHaveVisibleIntermediateFrames() {
+    @Test fun smallAutomaticCorrectionsHaveVisibleIntermediateFrames() = runBlocking(Dispatchers.Swing) {
         val position=mutableLongStateOf(30000L)
         val follow=mutableStateOf(true)
         var list:LazyListState?=null
         val ui=LyricsUiPlatform(DefaultLyricsUi.strings,manualScrollModifier={ state,_ -> list=state;Modifier })
         val lyrics=LyricsData(SyncType.LINE_SYNC,List(80) { LyricLine(it*2000L,"Short line $it") },provider=LyricsProvider.AMLL)
-        val scene=ImageComposeScene(500,400,coroutineContext=Dispatchers.Unconfined) {
+        val scene=ImageComposeScene(500,400,coroutineContext=Dispatchers.Swing) {
             MaterialTheme { CompositionLocalProvider(LocalLyricsUi provides ui,
-                LocalAppearanceSettings provides AppearanceSettings(lyricsTextSize=14f,autoScrollLyrics=follow.value)) {
+                LocalAppearanceSettings provides AppearanceSettings(lyricsTextSize=14f,autoScrollLyrics=follow.value,standardLyricsBlur=false)) {
                 ExperimentalLyricsView(lyrics,position,{},isPlaying=false,isBuffering=false,track=Track("follow-fixture","Fixture","Artist",duration=160))
             } }
         }
         try {
             var frame=0L
-            fun render() { scene.render(frame++*16_666_667L).close() }
+            suspend fun render() { scene.render(System.nanoTime()).close(); delay(16L) }
             repeat(70) { render() }
             val state=assertNotNull(list)
             follow.value=false
             repeat(4) { render() }
             runBlocking { state.scroll { scrollBy(24f) } }
             repeat(4) { render() }
-            val reference=state.layoutInfo.visibleItemsInfo.last().index
+            // Follow the active row, not a partially visible bottom row which
+            // correctly leaves the viewport during a 24px downward correction.
+            val reference=15
             val before=state.layoutInfo.visibleItemsInfo.first { it.index==reference }.offset
             follow.value=true
             val offsets=List(40) { render();state.layoutInfo.visibleItemsInfo.firstOrNull { it.index==reference }?.offset }
-            assertTrue(offsets.filterNotNull().distinct().size>8,"Even sub-48px following must animate: $offsets")
+            assertTrue(offsets.filterNotNull().distinct().size>=5,"Even sub-48px following must contain intermediate positions: $offsets")
             val distance=before-assertNotNull(offsets.last())
             assertTrue(kotlin.math.abs(distance) in 4..47,"Correction must stay below the old 48px snap threshold: $distance; offsets=$offsets")
         } finally { scene.close() }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -18,10 +19,17 @@ import java.util.concurrent.ConcurrentHashMap
 class LyricsRepositoryImpl(
     private val lyricsClient: LyricsClient,
     private val lyricsDao: LyricsDao? = null,
-    private val negativeLyricsDao: NegativeLyricsDao? = null
+    private val negativeLyricsDao: NegativeLyricsDao? = null,
+    private val spicyEnabled: () -> Boolean = { LyricsClient.isProviderEnabled(LyricsProvider.SPICY_LYRICS) },
+    private val spicyLookup: suspend (com.auralis.music.data.network.provider.LyricsSearchQuery) -> LyricsData? = { q ->
+        lyricsClient.searchProvider(LyricsProvider.SPICY_LYRICS, q.title, q.artist, q.durationSec,
+            q.videoId, q.album, q.channelTitle, q.durationMs, q.audioLeadingSilenceMs, q.spotifyId)
+    },
+    private val clock: () -> Long = System::currentTimeMillis
 ) : LyricsRepository {
 
     private val memoryCache = com.auralis.music.data.network.LyricsResponseCache()
+    private val spicyAttempts = mutableMapOf<String, Long>()
 
     init {
         // Purge only line-sync rows written by an older parser pipeline to allow
@@ -44,6 +52,11 @@ class LyricsRepositoryImpl(
     }
 
     companion object {
+        internal fun chooseSpicy(current: LyricsData?, candidate: LyricsData?): LyricsData? {
+            if (candidate == null || candidate.lines.isEmpty() || candidate.provider != LyricsProvider.SPICY_LYRICS) return current
+            if (LyricsClient.tierOf(candidate) < LyricsClient.TIER_LINE) return current
+            return if (current != null && LyricsClient.tierOf(current) > LyricsClient.tierOf(candidate)) current else candidate
+        }
         private const val NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours TTL
 
         /**
@@ -100,13 +113,30 @@ class LyricsRepositoryImpl(
             } else networkResult
         }
 
+        private fun encodeWord(word: LyricWord): JSONObject = JSONObject().apply {
+            put("word", word.word)
+            put("time", word.time)
+            word.duration?.let { put("duration", it) }
+            if (word.isBackground) put("isBackground", true)
+            word.syllables?.let { parts -> put("syllables", JSONArray().apply { parts.forEach { put(encodeWord(it)) } }) }
+        }
+
+        private fun decodeWord(json: JSONObject, depth: Int = 0): LyricWord {
+            require(depth < 16) { "Invalid nested lyric timing" }
+            val parts = json.optJSONArray("syllables")
+            return LyricWord(json.getString("word"), json.getLong("time"),
+                if (json.has("duration") && !json.isNull("duration")) json.getLong("duration") else null,
+                json.optBoolean("isBackground", false),
+                parts?.let { (0 until it.length()).map { index -> decodeWord(it.getJSONObject(index), depth + 1) } })
+        }
+
         internal fun domainToEntity(trackKey: String, domain: LyricsData, title: String, artist: String): LyricsEntity {
             val linesArray = JSONArray()
             val rawOffset = -domain.appliedOffsetMs
             val cleanedLines = domain.lines.map { line ->
                 val unshifted = if (rawOffset != 0L) {
                     val shiftedWords = line.words?.map { w ->
-                        w.copy(time = (w.time + rawOffset).coerceAtLeast(0L))
+                        w.shiftedBy(rawOffset)
                     }
                     line.copy(
                         time = (line.time + rawOffset).coerceAtLeast(0L),
@@ -129,12 +159,7 @@ class LyricsRepositoryImpl(
                 if (!line.words.isNullOrEmpty()) {
                     val wordsArray = JSONArray()
                     for (w in line.words) {
-                        val wObj = JSONObject()
-                        wObj.put("word", w.word)
-                        wObj.put("time", w.time)
-                        if (w.duration != null) wObj.put("duration", w.duration)
-                        if (w.isBackground) wObj.put("isBackground", true)
-                        wordsArray.put(wObj)
+                        wordsArray.put(encodeWord(w))
                     }
                     lineObj.put("words", wordsArray)
                 }
@@ -186,14 +211,7 @@ class LyricsRepositoryImpl(
                         val wList = mutableListOf<LyricWord>()
                         for (j in 0 until wordsArray.length()) {
                             val wObj = wordsArray.getJSONObject(j)
-                            wList.add(
-                                LyricWord(
-                                    word = wObj.getString("word"),
-                                    time = wObj.getLong("time"),
-                                    duration = if (wObj.has("duration")) wObj.getLong("duration") else null,
-                                    isBackground = wObj.optBoolean("isBackground", false)
-                                )
-                            )
+                            wList.add(decodeWord(wObj))
                         }
                         wList
                     } else null
@@ -498,6 +516,43 @@ class LyricsRepositoryImpl(
         } catch (e: Exception) {
             android.util.Log.w("AuralisLyrics", "[useLyrics] Error writing to DB: ${e.message}")
         }
+    }
+
+    override suspend fun upgradeSpicy(
+        title: String, artist: String, durationSec: Long?, videoId: String?, album: String?,
+        channelTitle: String?, durationMs: Long?, audioLeadingSilenceMs: Long?, spotifyId: String?
+    ): LyricsData? {
+        if (!spicyEnabled()) return null
+        val existing = getCachedLyrics(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
+        if (existing?.provider == LyricsProvider.SPICY_LYRICS && existing.fetchedAtMs?.let {
+                clock() - it in 0 until 24 * 60 * 60_000L
+            } == true) return existing
+        val attemptKey = listOf(videoId, spotifyId, title, artist, durationMs).joinToString("|")
+        synchronized(spicyAttempts) {
+            val last = spicyAttempts[attemptKey]
+            if (last != null && clock() - last < 5 * 60_000L) return null
+            if (spicyAttempts.size >= 512) spicyAttempts.clear()
+            spicyAttempts[attemptKey] = clock()
+        }
+        val result = try {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                spicyLookup(com.auralis.music.data.network.provider.LyricsSearchQuery(title, artist, durationSec,
+                    videoId, album, channelTitle, durationMs, spotifyId = spotifyId, audioLeadingSilenceMs = audioLeadingSilenceMs))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            synchronized(spicyAttempts) { spicyAttempts.remove(attemptKey) }
+            throw e
+        } catch (_: Exception) { null } ?: return null
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val playbackMs = durationMs?.takeIf { it > 0 } ?: (durationSec ?: 0) * 1000L
+        if (!com.auralis.music.domain.lyrics.LyricsAlignmentEngine.isAcceptableMasterMatch(result, playbackMs,
+                title, result.trackName, channelTitle, videoId, audioLeadingSilenceMs, artist, result.artistName)) return null
+        val current = getCachedLyrics(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
+        val selected = chooseSpicy(current, result)
+        if (selected !== result) return null
+        val aligned = if (playbackMs > 0) com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(result, playbackMs, audioLeadingSilenceMs) else result
+        useLyrics(aligned, title, artist, durationSec, videoId)
+        return aligned
     }
 
     override suspend fun enrichSpeakerMetadata(

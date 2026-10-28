@@ -23,9 +23,9 @@ import java.awt.MouseInfo
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-internal fun OptionsMenuPopup(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+internal fun OptionsMenuPopup(onDismiss: () -> Unit, anchorPosition: IntOffset? = null, content: @Composable () -> Unit) {
     val invocation = LocalMenuInvocationAnchor.current
-    val point = remember { invocation?.point ?: pointerInWindow() }
+    val point = remember(anchorPosition) { anchorPosition ?: invocation?.point ?: pointerInWindow() }
     val provider = remember(point) {
         object : PopupPositionProvider {
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,

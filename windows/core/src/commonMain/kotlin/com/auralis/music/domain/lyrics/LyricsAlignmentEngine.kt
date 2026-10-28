@@ -404,7 +404,7 @@ object LyricsAlignmentEngine {
         val alignedLines = lyrics.lines.map { line ->
             val shiftedTime = (line.time + deltaOffsetMs).coerceAtLeast(0L)
             val shiftedWords = line.words?.map { word ->
-                word.copy(time = (word.time + deltaOffsetMs).coerceAtLeast(0L))
+                word.shiftedBy(deltaOffsetMs)
             }
             line.copy(
                 time = shiftedTime,

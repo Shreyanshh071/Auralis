@@ -35,6 +35,7 @@ class SpicyLyricsSource(
     }
     @Volatile private var blockedUntil = 0L
     @Volatile private var blockedKey = ""
+    @Volatile private var metadataBlockedUntil = 0L
 
     override suspend fun search(query: LyricsSearchQuery): LyricsCandidate? = withContext(Dispatchers.IO) {
         val key = apiKey().trim()
@@ -46,9 +47,12 @@ class SpicyLyricsSource(
             val response = fetch(request)
             if (response.code == 429 || response.code == 401 || response.code == 403) {
                 blockedKey = key
-                blockedUntil = clock() + (response.retryAfter ?: 60L).coerceIn(1L, 3600L) * 1000L
+                blockedUntil = response.retryUntil()
             }
-            if (response.code != 200) return@withContext null
+            if (response.code != 200) {
+                com.auralis.music.util.Log.w("SpicyLyrics", "Lyrics lookup returned HTTP ${response.code}")
+                return@withContext null
+            }
             val lyrics = SpicyLyricsParser.parse(JSONObject(response.body), recording)?.copy(fetchedAtMs = clock()) ?: return@withContext null
             // A cross-service match is never an exact YouTube-video match.
             LyricsCandidate(lyrics, 95, lyrics.syncType, provider)
@@ -65,8 +69,31 @@ class SpicyLyricsSource(
         val identity = listOf(query.videoId, query.spotifyId, query.recordingTitle ?: query.title,
             query.artist, query.album, query.durationMs, query.durationSec, query.isrc)
         synchronized(matches) { matches[identity] }?.takeIf { it.expires > clock() }?.let { return it.recording }
-        val token = spotifyToken()?.takeIf { it.isNotBlank() } ?: return null
+        if (clock() < metadataBlockedUntil) return null
         val id = SpicyRecordingMatcher.spotifyId(query.spotifyId) ?: SpicyRecordingMatcher.spotifyId(query.videoId)
+            ?: RecordingMatches.matchedVideoIds.entries.firstOrNull {
+                it.value == query.videoId && SpicyRecordingMatcher.spotifyId(it.key) != null
+            }?.key?.let(SpicyRecordingMatcher::spotifyId)
+        if (id != null) {
+            val embed = fetch(Request.Builder().url("https://open.spotify.com/embed/track/$id")
+                .header("Accept", "text/html").build())
+            if (embed.code == 429) {
+                metadataBlockedUntil = embed.retryUntil()
+                return null
+            }
+            if (embed.code == 200) {
+                val recording = SpicySpotifyMetadata.fromEmbed(embed.body, id)
+                if (recording != null) {
+                    if (!SpicyRecordingMatcher.matches(query, recording)) return null
+                    synchronized(matches) { matches[identity] = Cached(recording, clock() + 86_400_000L) }
+                    return recording
+                }
+            }
+        }
+        val token = spotifyToken()?.takeIf { it.isNotBlank() } ?: run {
+            com.auralis.music.util.Log.w("SpicyLyrics", "Spotify metadata token unavailable; recording match cannot proceed")
+            return null
+        }
         val url = if (id != null) "https://api.spotify.com/v1/tracks/$id".toHttpUrl() else {
             if (query.title.isBlank() || query.artist.isBlank()) return null
             val search = if (!query.isrc.isNullOrBlank()) "isrc:${query.isrc}" else "${query.title} ${query.artist}"
@@ -75,7 +102,11 @@ class SpicyLyricsSource(
                 .addQueryParameter("limit", "10").build()
         }
         val response = fetch(Request.Builder().url(url).header("Authorization", "Bearer $token").build())
-        if (response.code != 200) return null
+        if (response.code != 200) {
+            if (response.code == 429) metadataBlockedUntil = response.retryUntil()
+            com.auralis.music.util.Log.w("SpicyLyrics", "Spotify metadata lookup returned HTTP ${response.code}")
+            return null
+        }
         val json = JSONObject(response.body)
         val candidates = if (id != null) listOfNotNull(parseRecording(json)) else {
             val items = json.optJSONObject("tracks")?.optJSONArray("items") ?: return null
@@ -102,6 +133,11 @@ class SpicyLyricsSource(
     }
 
     private data class Reply(val code: Int, val body: String, val retryAfter: Long?)
+    private fun Reply.retryUntil(): Long {
+        val now = clock()
+        val wait = TimeUnit.SECONDS.toMillis((retryAfter ?: 60L).coerceAtLeast(1L))
+        return now + wait.coerceAtMost(Long.MAX_VALUE - now)
+    }
     private suspend fun fetch(request: Request): Reply = suspendCancellableCoroutine { continuation ->
         val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }

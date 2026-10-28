@@ -42,8 +42,14 @@ data class LyricWord(
     val word: String,
     val time: Long,             // Milliseconds offset from song start (provider-supplied)
     val duration: Long? = null, // Provider-supplied length in ms; null = no end timestamp
-    val isBackground: Boolean = false
+    val isBackground: Boolean = false,
+    /** Original timed pieces of a joined written word; never inferred from its spelling. */
+    val syllables: List<LyricWord>? = null
 ) {
+    fun shiftedBy(offsetMs: Long): LyricWord = copy(
+        time = (time + offsetMs).coerceAtLeast(0L),
+        syllables = syllables?.map { it.shiftedBy(offsetMs) }
+    )
     /** End of the sung word, or `null` when the provider gave no end timestamp. */
     val endTime: Long?
         get() = duration?.let { time + it }

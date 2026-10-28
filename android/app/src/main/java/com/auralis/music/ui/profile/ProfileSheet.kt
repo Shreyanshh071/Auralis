@@ -1,23 +1,18 @@
 package com.auralis.music.ui.profile
 
+import com.auralis.music.ui.components.*
+import androidx.compose.material.icons.filled.WarningAmber
+import com.auralis.music.data.datastore.DiscordRpcDataStore
+import com.auralis.music.domain.model.DiscordRpcSettings
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.clickable
 import com.auralis.music.ui.theme.AuralisPushedPage
 import com.auralis.music.ui.theme.auralisPushParent
-import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.rememberPushProgress
-import com.auralis.music.ui.theme.dynamicPrimary
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,62 +21,33 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -91,9 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.ui.components.ArtworkCard
-import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.AuthUiState
-import com.auralis.music.ui.components.bottomChromePadding
 
 val PROFILE_LIME: Color
     @Composable get() = MaterialTheme.colorScheme.primary
@@ -101,14 +65,15 @@ val PROFILE_CARD_BG: Color
     @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 /**
- * Pure YouTube Playlist Importer & Account Sheet.
- * Direct Google OAuth 2.0 via Firebase Auth with `https://www.googleapis.com/auth/youtube.readonly` scope.
- * The Bearer token is kept in-memory to call the YouTube Data API v3.
+ * Native profile overview with live integrations and account management.
+ * Account management and playlist imports open as pushed pages.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSheet(
     authUiState: AuthUiState,
+    playlistsCount: Int = 0,
+    savedTracksCount: Int = 0,
     onImportYouTubePlaylist: (String) -> Unit = {},
     /** Playlists picked from the signed-in YouTube Music library (Profile > YouTube account). */
     onImportYouTubeLibraryPlaylists: (List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) -> Unit = {},
@@ -178,406 +143,120 @@ fun ProfileSheet(
     }
     val subPagePush = rememberPushProgress(subPage != null)
 
-    val themePrimary = MaterialTheme.dynamicPrimary
-    val themeBackground = MaterialTheme.dynamicBackground
+    val discordStore = remember { DiscordRpcDataStore(context) }
+    val discord by discordStore.settingsFlow.collectAsState(initial = DiscordRpcSettings())
+    val youtubeLabel by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
+    var showDisconnectDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val connected = profile.isGoogleConnected || profile.accessToken != null
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(themeBackground)
-            .auralisPushParent(subPagePush)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState())
+    AccountPageTheme {
+        AccountPage(
+            title = str(R.string.profile_account),
+            modifier = modifier.auralisPushParent(subPagePush),
+            actions = {
+                IconButton(onClick = { isSettingsOpen = true }) {
+                    Icon(Icons.Default.Settings, str(R.string.settings), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, str(R.string.close), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         ) {
-            // ── TOP HEADER (WITH COMPACT PADDING) ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = str(R.string.profile_account),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 20.sp
-                )
+            AccountPanel(padding = 20.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { isSettingsOpen = true },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = str(R.string.settings),
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = str(R.string.close),
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // ── USER PROFILE CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (profile.avatarUrl != null) {
-                        ArtworkCard(
-                            url = profile.avatarUrl,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                            cornerRadius = 23.dp,
-                            contentDescription = profile.displayName
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(30.dp)
-                            )
+                    Box(Modifier.size(64.dp).clip(CircleShape)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                        .background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+                        if (profile.avatarUrl != null) {
+                            ArtworkCard(url = profile.avatarUrl, modifier = Modifier.fillMaxSize(),
+                                cornerRadius = 32.dp, contentDescription = profile.displayName)
+                        } else {
+                            Text(profile.displayName.firstOrNull()?.uppercase() ?: "A",
+                                fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = profile.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = profile.email,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        if (profile.isGoogleConnected) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF16A34A).copy(alpha = 0.15f))
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF16A34A),
-                                    modifier = Modifier.size(11.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = str(R.string.cloud_backup_active),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF16A34A),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(profile.displayName.ifBlank { str(R.string.account_ui_listener) },
+                            fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (profile.email.isNotBlank()) Text(profile.email,
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(6.dp))
+                        AccountBadge(str(if (connected && playerSettings.cloudSyncEnabled)
+                            R.string.account_ui_cloud_active else R.string.account_ui_local_library))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── DISCORD INTEGRATION CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.2.dp, Color(0xFF5865F2).copy(alpha = 0.65f), RoundedCornerShape(18.dp))
-                    .clickable { isDiscordIntegrationOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF5865F2).copy(alpha = 0.18f))
-                                .border(1.dp, Color(0xFF5865F2).copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = com.auralis.music.R.drawable.ic_discord),
-                                contentDescription = str(R.string.discord),
-                                tint = Color(0xFF5865F2),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Text(
-                                text = str(R.string.discord_integration),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = str(R.string.connect_rich_presence_display_song_activ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_discord_integration),
-                        tint = Color(0xFF5865F2),
-                        modifier = Modifier.size(20.dp)
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AccountSectionLabel(str(R.string.account_ui_integrations))
+                AccountPanel(padding = 0.dp) {
+                    AccountRow(str(R.string.account_ui_discord_presence),
+                        str(if (discord.isLoggedIn && discord.enableRichPresence)
+                            R.string.account_ui_discord_sharing else R.string.connect_rich_presence_display_song_activ),
+                        onClick = { isDiscordIntegrationOpen = true },
+                        icon = { AccountGlyph {
+                            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_discord), null,
+                                modifier = Modifier.size(20.dp))
+                        } })
+                    AccountDivider()
+                    AccountRow(str(R.string.youtube_account),
+                        if (youTubeSignedIn) youtubeLabel.ifBlank { str(R.string.signed_in) } +
+                            " · " + str(R.string.age_restricted_songs_unlocked)
+                        else str(R.string.sign_in_to_download_age_restricted_songs),
+                        onClick = { isYouTubeAccountOpen = true },
+                        icon = { AccountGlyph(Icons.Default.PlayArrow) })
+                    AccountDivider()
+                    AccountRow(str(R.string.import_playlists), str(R.string.from_youtube_music_or_spotify),
+                        onClick = { isImportPlaylistsOpen = true }, icon = { AccountGlyph(Icons.Default.SwapHoriz) })
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── YOUTUBE ACCOUNT CARD (age-restricted songs) ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                    .clickable { isYouTubeAccountOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF0033).copy(alpha = 0.16f))
-                                .border(1.dp, Color(0xFFFF0033).copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (youTubeSignedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                                contentDescription = str(R.string.youtube),
-                                tint = Color(0xFFFF0033),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column {
-                            Text(
-                                text = str(R.string.youtube_account),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = if (youTubeSignedIn) str(R.string.age_restricted_songs_unlocked)
-                                else str(R.string.sign_in_to_download_age_restricted_songs),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_youtube_account),
-                        tint = Color(0xFFFF0033),
-                        modifier = Modifier.size(20.dp)
-                    )
+            if (connected) {
+                AccountPanel(padding = 0.dp) {
+                    AccountRow(str(R.string.disconnect_account), str(R.string.account_ui_disconnect_description),
+                        onClick = { showDisconnectDialog = true },
+                        icon = { AccountGlyph(Icons.AutoMirrored.Filled.ExitToApp) })
+                    AccountDivider()
+                    AccountRow(str(R.string.account_ui_delete_data), str(R.string.account_ui_delete_description),
+                        onClick = { onClearDeleteAccountError(); showDeleteDialog = true },
+                        icon = { AccountGlyph(Icons.Default.Delete) },
+                        trailing = { Icon(Icons.Default.WarningAmber, null,
+                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) })
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── IMPORT PLAYLISTS CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                    .clickable { isImportPlaylistsOpen = true }
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Link,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = str(R.string.import_playlists),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = str(R.string.from_youtube_music_or_spotify),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = str(R.string.open_import_playlists),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── DISCONNECT BUTTON ──
-            if (profile.isGoogleConnected || profile.accessToken != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFEF4444).copy(alpha = 0.12f))
-                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-                        .tactileBounce(scaleDown = 0.96f) { onDisconnect() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = str(R.string.disconnect_account),
-                            color = Color(0xFFEF4444),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                // ── DELETE ACCOUNT ──
-                var showDeleteDialog by remember { mutableStateOf(false) }
-                Text(
-                    text = str(R.string.delete_account),
-                    color = Color(0xFFEF4444).copy(alpha = 0.85f),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 10.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onClearDeleteAccountError(); showDeleteDialog = true }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-                if (showDeleteDialog) {
-                    DeleteAccountDialog(
-                        needsPassword = deleteAccountNeedsPassword,
-                        isDeleting = authUiState.isDeletingAccount,
-                        error = authUiState.deleteAccountError,
-                        onConfirm = onDeleteAccount,
-                        onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.padding(bottomChromePadding(includeNavigationBar = false)))
+            Text(str(R.string.account_ui_version, com.auralis.music.BuildConfig.VERSION_NAME),
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally))
         }
+        if (showDisconnectDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDisconnectDialog = false },
+                icon = { Icon(Icons.Default.WarningAmber, contentDescription = null) },
+                title = { Text(str(R.string.account_ui_disconnect_confirmation_title)) },
+                text = { Text(str(R.string.account_ui_disconnect_confirmation_message)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDisconnectDialog = false
+                        onDisconnect()
+                    }) {
+                        Text(str(R.string.disconnect_account), color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDisconnectDialog = false }) {
+                        Text(str(R.string.cancel))
+                    }
+                }
+            )
+        }
+        if (showDeleteDialog) DeleteAccountDialog(
+            needsPassword = deleteAccountNeedsPassword, isDeleting = authUiState.isDeletingAccount,
+            error = authUiState.deleteAccountError, onConfirm = onDeleteAccount,
+            onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false })
     }
 
     AuralisPushedPage(page = subPage) { page ->

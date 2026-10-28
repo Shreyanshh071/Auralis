@@ -13,14 +13,15 @@ import org.jetbrains.skia.RuntimeShaderBuilder
 /** Compiled once per dock, filters rebuilt only on size/density changes. */
 internal class DockGlassEffect : AutoCloseable {
     private val effect = RuntimeEffect.makeForShader(DockLensShader)
-    fun create(width: Float, height: Float, padding: Float, density: Float, cornerRadius: Float = height / 2f): androidx.compose.ui.graphics.RenderEffect {
+    fun create(width: Float, height: Float, padding: Float, density: Float, cornerRadius: Float = height / 2f,
+        blurDp: Float = 18f, lensHeightDp: Float = 20f, lensAmountDp: Float = 28f): androidx.compose.ui.graphics.RenderEffect {
         return RuntimeShaderBuilder(effect).use { builder ->
             builder.uniform("size", width, height)
             builder.uniform("offset", -padding, -padding)
             val radius = cornerRadius.coerceAtMost(minOf(width, height) / 2f)
             builder.uniform("cornerRadii", radius, radius, radius, radius)
-            builder.uniform("refractionHeight", 20f * density)
-            builder.uniform("refractionAmount", -28f * density)
+            builder.uniform("refractionHeight", lensHeightDp * density)
+            builder.uniform("refractionAmount", -lensAmountDp * density)
             builder.uniform("depthEffect", 1f)
             builder.uniform("chromaticAberration", 1f)
             // Android's vibrancy(): saturation 1.5, applied before blur and refraction.
@@ -32,7 +33,7 @@ internal class DockGlassEffect : AutoCloseable {
                 0f, 0f, 0f, 1f, 0f
             )).use { saturation ->
                 ImageFilter.makeColorFilter(saturation, null, null).use { vibrant ->
-                    ImageFilter.makeBlur(18f * density, 18f * density, FilterTileMode.CLAMP, vibrant).use { blur ->
+                    ImageFilter.makeBlur(blurDp * density, blurDp * density, FilterTileMode.CLAMP, vibrant).use { blur ->
                         ImageFilter.makeRuntimeShader(builder, "content", blur).asComposeRenderEffect()
                     }
                 }

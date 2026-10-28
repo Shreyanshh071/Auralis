@@ -35,7 +35,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /** A local, silent demo clock; never connects to the audio service. */
 @Composable
-private fun rememberTourClock(running: Boolean, restartKey: String, durationMs: Long, startMs: Long = 1200L): MutableState<Long> {
+internal fun rememberTourClock(running: Boolean, restartKey: String, durationMs: Long, startMs: Long = 1200L): MutableState<Long> {
     val position = remember(restartKey) { mutableStateOf(startMs) }
     LaunchedEffect(running, restartKey) {
         if (!running) return@LaunchedEffect
@@ -68,7 +68,7 @@ internal fun TourLyricsPreview(appearance: AppearanceSettings, active: Boolean, 
             Text(appearance.lyricsAnimation, color = Color.White.copy(alpha = .5f), fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(18.dp))
             key(appearance.lyricsAnimation) {
                 SyncedLyricsView(lyrics = lyrics, positionState = position, onSeekTo = { position.value = it },
-                    isPlaying = active && !reduced, lyricsMode = LyricsMode.CINEMA,
+                    isPlaying = !reduced, lyricsMode = LyricsMode.CINEMA,
                     standardLyricsBlur = appearance.standardLyricsBlur,
                     modifier = Modifier.fillMaxWidth().weight(1f))
             }
@@ -146,7 +146,7 @@ internal fun TourPlayerPreview(appearance: AppearanceSettings, active: Boolean, 
                 Box(Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)).background(Color(0xFF111015))) {
                     Crossfade(targetState = appearance.playerDesign to resetVersion, animationSpec = tween(if (reduced) 0 else 260), label = "player design preview") { (design, _) ->
                         CompositionLocalProvider(LocalAppearanceSettings provides previewAppearance.copy(playerDesign = design, newPlayerDesign = design != "Old player")) {
-                        NowPlayingModal(uiState = PlayerUiState(currentTrack = track, isPlaying = playing && active,
+                        NowPlayingModal(uiState = PlayerUiState(currentTrack = track, isPlaying = playing,
                             durationMs = track.duration * 1000, queue = queue, currentIndex = currentIndex,
                             lyrics = lyrics, isLoadingLyrics = loadingLyrics, isFavorite = track.id in favorites,
                             isShuffled = shuffled, repeatMode = repeat, sleepTimerSeconds = timerSeconds),

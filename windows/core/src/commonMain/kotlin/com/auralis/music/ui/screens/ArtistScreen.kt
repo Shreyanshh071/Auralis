@@ -33,6 +33,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -41,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.Playlist
@@ -205,14 +205,22 @@ fun ArtistScreen(
                         else -> rawBanner
                     }
                     if (!banner.isNullOrBlank()) {
+                        // Artist artwork can be a portrait or a wide banner. Album-art URL
+                        // upgrades request a square crop, so keep this image's original shape.
                         LocalArtworkRenderer.current.Image(
-                            url = getHighResArtworkUrl(banner) ?: banner,
-                            contentDescription = artistPage.artist.name,
+                            url = banner,
+                            contentDescription = null,
                             contentScale = ContentScale.Crop,
                             crossfade = true,
+                            modifier = Modifier.fillMaxSize().blur(32.dp)
+                        )
+                        LocalArtworkRenderer.current.Image(
+                            url = banner,
+                            contentDescription = artistPage.artist.name,
+                            contentScale = ContentScale.Fit,
+                            crossfade = true,
                             modifier = Modifier.fillMaxSize(),
-                            // Whatever still has to be cropped comes off the bottom, not the face.
-                            alignment = androidx.compose.ui.BiasAlignment(0f, -0.5f)
+                            alignment = Alignment.Center
                         )
                     } else {
                         Box(

@@ -40,12 +40,19 @@ internal fun PlayerUiState.withRemote(remote: ConnectRemoteView, nowMs: Long): P
 internal class ConnectOverlayState(
     private val local: StateFlow<PlayerUiState>,
     private val remote: StateFlow<ConnectRemoteView?>,
+    private val remoteLyrics: StateFlow<PlayerUiState> = local,
     private val now: () -> Long = System::currentTimeMillis
 ) : StateFlow<PlayerUiState> {
-    override val value: PlayerUiState get() = remote.value?.let { local.value.withRemote(it, now()) } ?: local.value
+    override val value: PlayerUiState get() = remote.value?.let {
+        val lyrics = remoteLyrics.value
+        local.value.withRemote(it, now()).copy(
+            lyrics = lyrics.lyrics.takeIf { _ -> lyrics.currentTrack?.id == it.track.id },
+            isLoadingLyrics = lyrics.isLoadingLyrics && lyrics.currentTrack?.id == it.track.id
+        )
+    } ?: local.value
     override val replayCache: List<PlayerUiState> get() = listOf(value)
     override suspend fun collect(collector: FlowCollector<PlayerUiState>): Nothing {
-        combine(local, remote) { _, _ -> value }.distinctUntilChanged().collect(collector)
+        combine(local, remote, remoteLyrics) { _, _, _ -> value }.distinctUntilChanged().collect(collector)
         awaitCancellation()
     }
 }

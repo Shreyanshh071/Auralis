@@ -11,6 +11,25 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
+import androidx.compose.animation.core.CubicBezierEasing
+
+/** CSS dotGroup entry and pre-hidden exit from Spicy's Mixed.css. */
+object LyricsDotsTransition {
+    private val enter = CubicBezierEasing(.25f, .1f, .25f, 1f)
+    private val exitTimes = floatArrayOf(0f, .094f, .18f, .433f, .514f, .559f, .60f, .639f, .676f, .723f, .767f, .85f, .927f, 1f)
+    private val exitValues = floatArrayOf(0f, -.006f, -.029f, -.157f, -.185f, -.189f, -.182f, -.163f, -.133f, -.074f, .006f, .238f, .566f, 1f)
+    fun scale(elapsedMs: Long, remainingMs: Long): Float {
+        if (elapsedMs < 0 || remainingMs <= 100) return 0f
+        // Upstream pre-hides 500 ms before the next vocal, then runs a 400 ms exit.
+        if (remainingMs >= 500) return enter.transform((elapsedMs / 300f).coerceIn(0f, 1f))
+        val t = (500f - remainingMs) / 400f
+        val i = (1 until exitTimes.size).first { t <= exitTimes[it] }
+        val p = (t - exitTimes[i - 1]) / (exitTimes[i] - exitTimes[i - 1])
+        return 1f - (exitValues[i - 1] + (exitValues[i] - exitValues[i - 1]) * p)
+    }
+    fun alpha(elapsedMs: Long, remainingMs: Long): Float =
+        if (remainingMs <= 0) 0f else (elapsedMs / 140f).coerceIn(0f, 1f)
+}
 
 /** Natural cubic spline through three animation keys. */
 private class DotCurve(private val middle: Float, private val start: Float, private val peak: Float, private val end: Float) {
@@ -55,7 +74,6 @@ private class DotMotion {
     val scales = Array(3) { DotSpring(.7f, .6f) }
     val lifts = Array(3) { DotSpring(1.25f, .4f) }
     val opacities = Array(3) { DotSpring(1f, .5f) }
-    val group = DotSpring(5f, .7f)
     private var previous: Long? = null
     fun update(progress: Float, elapsedMs: Long, remainingMs: Long) {
         val delta = previous?.let { elapsedMs - it }
@@ -68,14 +86,6 @@ private class DotMotion {
             lifts[i].step(dotLift.at(q), seconds, reset)
             opacities[i].step(dotOpacity.at(q).coerceIn(.35f, 1f), seconds, reset)
         }
-        val groupTarget = when {
-            remainingMs <= 0L -> 0f
-            remainingMs < 75L -> 1.15f * remainingMs / 75f
-            remainingMs < 200L -> 1f + .15f * (200L - remainingMs) / 125f
-            elapsedMs < 200L -> 1.05f * elapsedMs.coerceAtLeast(0L) / 200f
-            else -> 1f
-        }
-        group.step(groupTarget, seconds, reset)
     }
 }
 
@@ -91,14 +101,19 @@ fun LyricsDots(
     compact: Boolean = false
 ) {
     val motion = remember { DotMotion() }
-    val gap = dotSize * .75f
+    // Keep the existing row's breathing room while making the visible dots subtly smaller.
+    val diameter = dotSize * .92f
+    val gap = diameter * .75f
     Canvas(modifier.size(width = dotSize * 3 + gap * 2 + 8.dp, height = dotSize * if (compact) 1.5f else 2.5f)) {
-        motion.update(progress, elapsedMs, remainingMs)
-        val d = dotSize.toPx()
+        // The three source dot intervals finish 550 ms early, ahead of pre-hide.
+        val duration = elapsedMs + remainingMs
+        val dotProgress = if (duration > 550L) (elapsedMs.toFloat() / (duration - 550L)).coerceIn(0f, 1f) else progress
+        motion.update(dotProgress, elapsedMs, remainingMs)
+        val d = diameter.toPx()
         val g = gap.toPx()
         val startX = (size.width - (d * 3 + g * 2)) / 2f + d / 2f
-        val groupAlpha = (elapsedMs / 500f).coerceIn(0f, 1f) * (remainingMs / 75f).coerceIn(0f, 1f)
-        scale(motion.group.value.coerceAtLeast(0f)) {
+        val groupAlpha = LyricsDotsTransition.alpha(elapsedMs, remainingMs)
+        scale(LyricsDotsTransition.scale(elapsedMs, remainingMs)) {
             for (i in 0 until 3) {
                 // Compact rows remove space below the dots while retaining their lift room above.
                 val centre = Offset(startX + i * (d + g), (if (compact) d else size.height / 2f) + motion.lifts[i].value * d * 2.5f)

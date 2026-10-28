@@ -12,6 +12,12 @@ import java.io.File
 import kotlin.test.*
 
 class DesktopPlaybackSessionTest {
+    @Test fun freshProfileHasNoRestoredSongOrPalette() {
+        DesktopPlaybackSessionStore.init(tempDir())
+        assertNull(DesktopPlaybackSessionStore.currentSession())
+        assertNull(DesktopArtworkPaletteStore.lastPalette())
+    }
+
     private fun tempDir(): File {
         val dir = File.createTempFile("auralis-session-test", "").apply { delete(); mkdirs() }
         dir.deleteOnExit()

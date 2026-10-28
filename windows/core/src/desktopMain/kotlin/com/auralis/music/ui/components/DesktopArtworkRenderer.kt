@@ -101,6 +101,7 @@ object DesktopArtworkRenderer : ArtworkRenderer {
                     model = request,
                     contentDescription = contentDescription,
                     contentScale = contentScale,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                     onState = { failed = it is AsyncImagePainter.State.Error },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -117,6 +118,7 @@ object DesktopArtworkRenderer : ArtworkRenderer {
             },
             contentDescription = contentDescription,
             contentScale = contentScale,
+            filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
             alignment = alignment,
             modifier = modifier
         )

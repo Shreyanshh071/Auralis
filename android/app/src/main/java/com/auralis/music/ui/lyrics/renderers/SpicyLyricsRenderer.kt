@@ -266,9 +266,13 @@ fun SpicyLyricsLine(
     val measurer = rememberTextMeasurer()
     var layout by remember(line.text, style) { mutableStateOf<TextLayoutResult?>(null) }
     var frameNanos by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) withFrameNanos { frameNanos = it } }
+    val motionActive = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+    LaunchedEffect(motionActive) {
+        if (motionActive) while (true) withFrameNanos { frameNanos = it }
+    }
     val groups = remember(line.text, words) {
-        val spans = LyricsEngine.mapWordsToLineSpans(line.text, words)
+        val displayed = SpicyBackingText.displayWords(line.text, words, line.isBackground)
+        val spans = LyricsEngine.mapWordsToLineSpans(line.text, displayed?.flatMap { it.syllables ?: listOf(it) })
         // A source syllable is an animation unit, even inside a written word.
         // Combining all syllables first loses the motion of a held final syllable.
         spans.mapNotNull { span ->
@@ -369,9 +373,9 @@ fun SpicyLyricsLine(
             // The clock is read only in drawing: paragraph measurement and rasterization stay cached.
             val now = positionMs.value
             val frame = frameNanos
-            val dt = if (clock.lastFrame < 0) 0f else ((frame - clock.lastFrame) / 1e9f).coerceIn(0f, .1f)
-            // A seek moves the song clock far from the frame clock: land on the goals at once.
-            val snap = clock.lastFrame < 0 || abs((now - clock.lastPosition) - dt * 1000f) > 250f
+            val step = SpicyFrameTiming.sample(clock.lastFrame, frame, clock.lastPosition, now)
+            val dt = step.seconds
+            val snap = step.reset
             clock.lastFrame = frame
             clock.lastPosition = now
             val fontPx = style.fontSize.toPx()

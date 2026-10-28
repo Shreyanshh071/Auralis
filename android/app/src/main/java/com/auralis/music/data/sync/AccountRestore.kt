@@ -92,7 +92,8 @@ object AccountLibraryRestore {
      * songs, and every like. Restoring one row at a time showed playlists with 0 songs that filled
      * in later, and likes arriving one by one.
      */
-    suspend fun apply(library: LibraryRepository, cloud: CloudLibrary, inTransaction: InTransaction): RestoredLibrary {
+    suspend fun apply(library: LibraryRepository, cloud: CloudLibrary, inTransaction: InTransaction,
+        serviceLinkedPlaylistIds: Set<String> = emptySet()): RestoredLibrary {
         // What this phone had before: only what the restore adds is the account's (removed on sign-out).
         val localPlaylistIds = library.getPlaylists().first().map { it.id }.toSet()
         val localFavoriteIds = library.getFavoriteTracks().first().map { it.id }.toSet()
@@ -101,6 +102,7 @@ object AccountLibraryRestore {
         var liked = 0
         inTransaction {
             for (p in cloud.playlists) {
+                if (p.id in localPlaylistIds && p.id in serviceLinkedPlaylistIds) continue
                 val target = if (p.id != null) library.restorePlaylist(p.id, p.title, p.description, p.coverUrl)
                 else library.createPlaylist(p.title, p.description, p.coverUrl)
                 if (p.tracks.isNotEmpty()) library.replacePlaylistTracks(target.id, p.tracks)

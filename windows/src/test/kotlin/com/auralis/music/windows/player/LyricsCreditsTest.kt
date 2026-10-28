@@ -18,6 +18,36 @@ import java.io.File
 import kotlin.test.*
 
 class LyricsCreditsTest {
+    @Test fun compactSourceStaysAtTheSameInsetWithAndWithoutSpicyCredit() {
+        val bottoms = listOf(LyricsAnimationMode.SPICY_LYRICS, LyricsAnimationMode.AURALIS).map { mode ->
+            val data = LyricsData(SyncType.PLAIN, listOf(LyricLine(0, "Preview")), provider = LyricsProvider.LRCLIB)
+            val scene = ImageComposeScene(340, 320, coroutineContext = Dispatchers.Unconfined) {
+                MaterialTheme {
+                    androidx.compose.runtime.CompositionLocalProvider(com.auralis.music.ui.theme.LocalAppearanceSettings provides
+                        AppearanceSettings(lyricsAnimation = mode.displayName)) {
+                        Box(Modifier.fillMaxSize().background(Color.Black)) {
+                            SidebarLyricsView(data, mutableStateOf(0L), {})
+                        }
+                    }
+                }
+            }
+            try {
+                repeat(8) { scene.render(it * 16_666_667L).close() }
+                val bytes = scene.render(150_000_000L).use { image ->
+                    image.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes }
+                }
+                val image = javax.imageio.ImageIO.read(bytes.inputStream())
+                val bottom = (270 until 320).lastOrNull { y ->
+                    (12 until 53).any { x -> (image.getRGB(x, y) and 255) > 100 }
+                }
+                assertNotNull(bottom)
+                assertTrue(320 - bottom >= 12, "Source credit needs a visible bottom inset")
+                bottom
+            } finally { scene.close() }
+        }
+        assertEquals(bottoms.first(), bottoms.last(), "Changing lyrics UI must not move the source credit")
+    }
+
     @Test fun cachedProvidersWithoutCreditMetadataStillIdentifyTheirSource() {
         val unison = LyricsData(SyncType.LINE_SYNC, listOf(LyricLine(0, "Test")), provider = LyricsProvider.UNISON)
         assertEquals("Lyrics from Unison", com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison).single().label)

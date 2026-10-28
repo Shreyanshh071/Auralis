@@ -39,11 +39,20 @@ internal class YouTubeMusicClient(
             }
         }
 
-    companion object { const val ORIGIN = "https://music.youtube.com" }
+    companion object {
+        const val ORIGIN = "https://music.youtube.com"
+        private val scopes = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, YouTubeScope>>()
+        @Volatile private var publicScope: Pair<Long, YouTubeScope>? = null
+    }
     var scope = YouTubeScope(authUser = authUser); private set
 
     suspend fun resolveScope() = withContext(Dispatchers.IO) {
         check(YouTubeSession.hasAuthCookies(cookie)) { "Sign in to YouTube Music to load your library." }
+        val scopeKey = youtubeHomeAccountKey(cookie, scope.authUser)
+        scopes[scopeKey]?.takeIf { transport == null && System.currentTimeMillis() - it.first in 0..300_000L }?.let {
+            scope = it.second
+            return@withContext
+        }
         val loggedOut = Regex("\"LOGGED_IN\"\\s*:\\s*false")
         var html = send("$ORIGIN/?authuser=${scope.authUser}", null, headers())
         // Google rotated the sign-in cookie in the browser: renew from the profile the listener
@@ -60,6 +69,22 @@ internal class YouTubeMusicClient(
             "Your YouTube session has expired. Please reconnect your browser profile."
         }
         scope = parseYouTubeScope(html)
+        // Login/library sync already resolved this selected account. Home can reuse that
+        // context instead of fetching and parsing YouTube's full HTML again.
+        if (scopes.size > 16) scopes.clear()
+        if (transport == null) scopes[scopeKey] = System.currentTimeMillis() to scope
+    }
+
+    /** Public Home uses its own visitor context and never requires an account. */
+    suspend fun resolvePublicScope() = withContext(Dispatchers.IO) {
+        check(!YouTubeSession.hasAuthCookies(cookie))
+        publicScope?.takeIf { transport == null && System.currentTimeMillis() - it.first in 0..300_000L }?.let {
+            scope = it.second
+            return@withContext
+        }
+        scope = parseYouTubeScope(send("$ORIGIN/", null, headers()))
+            .copy(pageId = null, dataSyncId = null, authUser = "0")
+        if (transport == null) publicScope = System.currentTimeMillis() to scope
     }
 
     private fun headers(): Map<String, String> {
@@ -73,9 +98,11 @@ internal class YouTubeMusicClient(
                 "$scheme ${timestamp}_$digest"
             } }.joinToString(" ")
         return buildMap {
-            put("Cookie", cookie); put("Authorization", authorization)
+            if (cookie.isNotBlank()) put("Cookie", cookie)
+            if (authorization.isNotBlank()) put("Authorization", authorization)
             put("Origin", ORIGIN); put("X-Origin", ORIGIN); put("Referer", "$ORIGIN/")
-            put("X-Goog-AuthUser", scope.authUser); put("X-Youtube-Bootstrap-Logged-In", "true")
+            if (YouTubeSession.hasAuthCookies(cookie)) put("X-Goog-AuthUser", scope.authUser)
+            put("X-Youtube-Bootstrap-Logged-In", YouTubeSession.hasAuthCookies(cookie).toString())
             put("X-YouTube-Client-Name", "67"); put("X-YouTube-Client-Version", scope.version)
             put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0.0.0 Safari/537.36")
             scope.pageId?.let { put("X-Goog-PageId", it) }
@@ -85,7 +112,7 @@ internal class YouTubeMusicClient(
         }
     }
 
-    private suspend fun post(endpoint: String, extras: JSONObject = JSONObject()): JSONObject = withContext(Dispatchers.IO) {
+    internal suspend fun post(endpoint: String, extras: JSONObject = JSONObject()): JSONObject = withContext(Dispatchers.IO) {
         val hl = ContentLocale.hl()
         val gl = ContentLocale.gl()
         val client = JSONObject().put("clientName", "WEB_REMIX").put("clientVersion", scope.version)
@@ -105,6 +132,18 @@ internal class YouTubeMusicClient(
 
     suspend fun browseHome(browseId: String = "FEmusic_home", continuation: String? = null): JSONObject =
         post("browse", if (continuation == null) JSONObject().put("browseId", browseId) else JSONObject().put("continuation", continuation))
+
+    /** Music's filtered artist results, scoped to the selected account when connected. */
+    suspend fun searchArtists(query: String): List<com.auralis.music.domain.model.Artist> {
+        val root = post("search", JSONObject().put("query", query)
+            .put("params", com.auralis.music.data.network.InnerTubeClient.FILTER_ARTISTS))
+        val artists = mutableListOf<com.auralis.music.domain.model.Artist>()
+        val parser = com.auralis.music.data.network.InnerTubeClient()
+        youtubeNodes(root, "musicResponsiveListItemRenderer").forEach {
+            parser.parseMusicListItem(it, mutableListOf(), artists, mutableListOf(), mutableListOf())
+        }
+        return artists.distinctBy { it.id }
+    }
 
     /**
      * The account's subscription to an artist, read off the artist page's subscribe button: the
@@ -164,6 +203,15 @@ internal class YouTubeMusicClient(
         } while (token != null)
         return values.values.toList()
     }
+}
+
+/** Stable across routine cookie rotation; includes the selected account and never exposes cookies. */
+internal fun youtubeHomeAccountKey(cookie: String, authUser: String): String {
+    val cookies = YouTubeSession.parseCookies(cookie)
+    val identity = listOf(authUser, cookies["SAPISID"] ?: cookies["__Secure-3PAPISID"].orEmpty(),
+        cookies["LOGIN_INFO"].orEmpty()).joinToString("|")
+    return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 }
 
 /** Only cookies returned by YouTube itself are merged; browser profiles are not reread. */

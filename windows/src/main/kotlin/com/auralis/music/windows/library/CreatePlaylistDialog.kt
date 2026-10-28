@@ -28,10 +28,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String?, onDismiss: () -> Unit,
-    onCreate: suspend (String, Boolean) -> Unit) {
+    onCreate: suspend (String, Boolean) -> Unit, onSyncRequested: (() -> Unit)? = null) {
     var name by remember { mutableStateOf("") }
     var remote by remember { mutableStateOf(youtubeAvailable) }
     var busy by remember { mutableStateOf(false) }
+    var setupSync by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(desktopText("New playlist")) },
@@ -73,6 +74,10 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
                 Text(desktopText(if (remote) "Created privately in your YouTube Music account, available on your other devices."
                     else "Stored on this computer in your Auralis library."), style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.70f))
+                if (onSyncRequested != null) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(setupSync, { setupSync = it }, enabled = !busy)
+                    Text("Set up two-way playlist sync after creating", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
@@ -80,7 +85,7 @@ internal fun CreatePlaylistDialog(youtubeAvailable: Boolean, accountName: String
         confirmButton = { Button(enabled = name.isNotBlank() && !busy && (!remote || youtubeAvailable), onClick = {
             busy = true; error = null
             scope.launch {
-                try { onCreate(name.trim(), remote); onDismiss() }
+                try { onCreate(name.trim(), remote); onDismiss(); if (setupSync) onSyncRequested?.invoke() }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = e.message ?: "Could not create the playlist. Check your library before trying again." }
                 finally { busy = false }

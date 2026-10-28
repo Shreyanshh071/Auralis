@@ -9,12 +9,15 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 
@@ -45,10 +48,14 @@ fun rememberPushProgress(pushed: Boolean): State<Float> = animateFloatAsState(
  * Draw-phase only, so it never recomposes the parent. Place it after the parent's
  * background so the backdrop stays opaque and nothing beneath shows through.
  */
-fun Modifier.auralisPushParent(progress: State<Float>): Modifier = graphicsLayer {
-    val p = progress.value
-    translationX = -size.width / 8f * p
-    alpha = 1f - p
+fun Modifier.auralisPushParent(progress: State<Float>): Modifier = composed {
+    // This backdrop must stay outside the fading/moving layer. Otherwise two
+    // translucent pages briefly expose Home underneath the profile/settings stack.
+    background(MaterialTheme.colorScheme.background).graphicsLayer {
+        val p = progress.value
+        translationX = -size.width / 8f * p
+        alpha = 1f - p
+    }
 }
 
 /**

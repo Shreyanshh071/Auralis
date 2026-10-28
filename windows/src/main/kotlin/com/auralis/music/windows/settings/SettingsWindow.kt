@@ -176,6 +176,12 @@ internal fun SettingsPopupOverlay(modifier: Modifier = Modifier, onDismiss: () -
 @Composable
 internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepository?, search: SearchRepository?, discordControl: Any?, onDismiss: () -> Unit, initialTab: SettingsTab = SettingsTab.GENERAL) {
     var selected by remember { mutableStateOf(initialTab) }
+    var displayed by remember { mutableStateOf(initialTab) }
+    LaunchedEffect(selected) {
+        // Paint the selected navigation row/header before composing a new pane.
+        withFrameNanos { }
+        displayed = selected
+    }
     var filter by remember { mutableStateOf("") }
     var jump by remember { mutableStateOf<SettingJump?>(null) }
     val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
@@ -205,7 +211,7 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
             Column(Modifier.fillMaxWidth().verticalScroll(navScroll), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 matches.forEach { tab ->
                     val active = selected == tab
-                    Surface(onClick = { selected = tab; jump = null; filter = "" }, shape = RoundedCornerShape(10.dp),
+                    SettingsHoverSurface(onClick = { selected = tab; jump = null; filter = "" }, shape = RoundedCornerShape(10.dp),
                         color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = .13f) else Color.Transparent,
                         contentColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) {
                         Row(Modifier.fillMaxWidth().heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 10.dp),
@@ -236,17 +242,19 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
             if (searching) SettingsSearchResults(results, ::open)
-            else CompositionLocalProvider(LocalSettingJump provides jump) { if (selected == SettingsTab.DISCORD) {
+            else CompositionLocalProvider(LocalSettingJump provides jump) { if (displayed == SettingsTab.DISCORD) {
                 val config by DiscordCardPreferences.store.settings.collectAsState()
                 val presence = discordControl as? WindowsDiscordPresence
                 val now = presence?.now?.collectAsState()?.value ?: DiscordNow()
                 val status = presence?.status?.collectAsState()?.value ?: "Open Discord desktop to connect."
                 DiscordSettingsContent(config, now, status, DiscordCardPreferences.store::update, DiscordCardPreferences.store::reset, onDismiss, embedded = true)
-            } else key(selected) {
+            } else key(displayed) {
                 val scroll = rememberScrollState()
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                val entrance = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { entrance.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
+                Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = entrance.value }) {
                 Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                    when (selected) {
+                    when (displayed) {
                         SettingsTab.GENERAL -> GeneralPane(stores)
                         SettingsTab.APPEARANCE -> { DesktopAppearanceExtras(); AppearanceSettingsPane(stores.appearance) }
                         SettingsTab.PLAYBACK -> PlaybackPane(stores)
@@ -277,7 +285,7 @@ private fun ColumnScope.SettingsSearchResults(results: List<SettingEntry>, onOpe
             if (results.isEmpty()) Text(desktopText("No settings match your search."), Modifier.padding(vertical = 12.dp),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             results.forEach { entry ->
-                Surface(onClick = { onOpen(entry) }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
+                SettingsHoverSurface(onClick = { onOpen(entry) }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -381,17 +389,17 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     SettingsGroup("Interface") {
         SettingSlider("Interface zoom", prefs.number("zoom", 1.0).toFloat(), .75f..1.5f, { "${(it*100).toInt()}%" }) { prefs.set("zoom", it.toDouble()) }
         SettingSlider("Corner roundness", prefs.number("roundness",12.0).toFloat(), 0f..28f, { "${it.toInt()} dp" }) { prefs.set("roundness",it.toDouble()) }
-        var accent by remember { mutableStateOf(prefs.text("accent")) }
-        OutlinedTextField(accent, { value -> accent = value; if (value.isBlank() || value.matches(Regex("#[A-Fa-f0-9]{6}"))) prefs.set("accent", value) },
-            Modifier.fillMaxWidth(), label = { Text(desktopText("Custom accent · #RRGGBB (empty uses theme)")) }, singleLine = true)
         SettingToggle("Open player on play", "Expand the main player when a new playback session starts", prefs.bool("openPlayer")) { prefs.set("openPlayer", it) }
-        SettingToggle("Artwork background", "Use album colours behind the app", prefs.bool("artworkBackground", true)) { prefs.set("artworkBackground",it) }
         SettingSlider("Background tint",prefs.number("backgroundTint",0.0).toFloat(),0f..0.4f,{"${(it*100).toInt()}%"}) {prefs.set("backgroundTint",it.toDouble())}
         SettingToggle("Stage player", "Show cover and lyrics side by side in the main player",prefs.bool("stagePlayer",true)) {prefs.set("stagePlayer",it)}
         SettingToggle("Tabbed player", "Switch between lyrics and queue; turn off to show both",prefs.bool("tabbedPlayer",true)) {prefs.set("tabbedPlayer",it)}
     }
     SettingsGroup("Typography") {
-        val fonts = remember(revision.optInt("fontRevision")) { listOf("Default") + java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.toList() }
+        val fonts by produceState(listOf("Default"), revision.optInt("fontRevision")) {
+            value = withContext(Dispatchers.IO) {
+                listOf("Default") + java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.toList()
+            }
+        }
         for ((key, label) in listOf("bodyFont" to "Body font", "headingFont" to "Heading font")) {
             SettingSearchableChoice(label, "Installed Windows fonts", prefs.text(key,"Default"), prefs.text(key,"Default"), fonts.map { it to it }) { prefs.set(key,it) }
         }
@@ -589,8 +597,11 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     SettingsGroup("Caches") {
         var refresh by remember {mutableStateOf(0)}; var message by remember {mutableStateOf("")}
-        val bytes=remember(refresh) {DesktopCaches.imageBytes()+DesktopCaches.lyricsBytes()}
-        Text(desktopText("Artwork and lyrics: %1\$s", com.auralis.music.util.formatBytes(bytes)))
+        val bytes by produceState<Long?>(null, refresh) {
+            value = withContext(Dispatchers.IO) { DesktopCaches.imageBytes() + DesktopCaches.lyricsBytes() }
+        }
+        Text(if (bytes == null) desktopText("Calculating cache size…") else
+            desktopText("Artwork and lyrics: %1\$s", com.auralis.music.util.formatBytes(bytes!!)))
         Button({scope.launch {withContext(Dispatchers.IO) {DesktopCaches.clearImages();DesktopCaches.clearLyrics();com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache()};refresh++;message="Caches cleared. Downloads and accounts are preserved."}}) {Text(desktopText("Clear caches"))}
         Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
     }

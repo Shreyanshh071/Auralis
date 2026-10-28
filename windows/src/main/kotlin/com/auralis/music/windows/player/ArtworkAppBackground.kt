@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
@@ -31,6 +32,11 @@ internal fun ArtworkAppBackground(artwork: String?, palette: ArtworkPalette, mod
     val surfaces = if (artwork == null) base else base.withArtworkSurfaces(tint)
     Box(modifier.fillMaxSize().background(tint)) {
         if (artwork != null) Box(Modifier.fillMaxSize().then(com.auralis.music.windows.dev.perfSkip("background"))) {
+            // The saved palette is available before cover decoding (and while offline).
+            // First-time users have no artwork, so retain the neutral base above.
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(
+                listOf(palette.primary, palette.secondary, palette.tertiary)
+            )))
             BlurredArtworkBackground(artwork, blurRadius = 48.dp, brightness = .68f, artworkScale = 1.10f)
         }
         Box(Modifier.fillMaxSize().background(base.primary.copy(alpha=preferences.number("backgroundTint",0.0).toFloat().coerceIn(0f,.4f))))

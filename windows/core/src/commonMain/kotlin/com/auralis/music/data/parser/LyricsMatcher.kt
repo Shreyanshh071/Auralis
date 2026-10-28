@@ -60,7 +60,7 @@ object LyricsMatcher {
         val alignedLines = lyricsData.lines.map { line ->
             val shiftedTime = (line.time + offsetMs).coerceAtLeast(0L)
             val shiftedWords = line.words?.map { word ->
-                word.copy(time = (word.time + offsetMs).coerceAtLeast(0L))
+                word.shiftedBy(offsetMs)
             }
             line.copy(time = shiftedTime, words = shiftedWords)
         }

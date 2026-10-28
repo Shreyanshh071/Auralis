@@ -5,6 +5,8 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Connect on Firestore, scoped to one account: `users/{uid}/connect/{session,queue}` and
@@ -24,6 +26,7 @@ class FirestoreConnectBackend(
     /** Local send / acknowledge times of our latest writes, matched to the server time when it arrives. */
     private var sessionWrite: Triple<Long, Long, Long>? = null // version, sent, ack
     private var heartbeatWrite: Triple<String, Long, Long>? = null // device id, sent, ack
+    private val presenceWrites = Mutex()
 
     @Volatile private var queueCache: ConnectQueue? = null
     fun sawQueue(queue: ConnectQueue?) { queueCache = queue }
@@ -62,14 +65,17 @@ class FirestoreConnectBackend(
         return result
     }
 
-    override suspend fun heartbeat(device: ConnectDevice) {
+    override suspend fun heartbeat(device: ConnectDevice) = presenceWrites.withLock {
         val sent = localNow()
         devicesRef.document(device.id).set(toFirestore(ConnectCodec.encodeDevice(device))).await()
         heartbeatWrite = Triple(device.id, sent, localNow())
     }
 
-    override suspend fun removeDevice(id: String) {
+    override suspend fun removeDevice(id: String) = presenceWrites.withLock {
+        // A heartbeat already awaiting acknowledgement must finish before deletion,
+        // otherwise swiping the task away can briefly re-register the closed phone.
         devicesRef.document(id).delete().await()
+        Unit
     }
 
     /** A server snapshot of the session: samples the server clock if it is our own write. */

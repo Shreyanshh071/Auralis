@@ -9,20 +9,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OnboardingFlowTest {
-    @Test fun `tour is installation scoped while artist choices are account scoped`() {
-        assertEquals(Step.TOUR, OnboardingFlow.step(false, true, true, true))
+    @Test fun `returning users skip tour even when installation has no tour flag`() {
+        assertEquals(Step.APP, OnboardingFlow.step(false, true, true, true))
         assertEquals(Step.APP, OnboardingFlow.step(true, true, true, null))
         assertEquals(Step.PICK_ARTISTS, OnboardingFlow.step(true, true, false, false))
         assertEquals(Step.SIGN_IN, OnboardingFlow.step(true, false, true, true))
     }
+    @Test fun `signed out never shows tour for any cached onboarding state`() {
+        for (seen in listOf(false, true)) for (picked in listOf(false, true)) {
+            for (history in listOf(null, false, true)) {
+                assertEquals(Step.SIGN_IN, OnboardingFlow.step(seen, false, picked, history))
+            }
+        }
+    }
+
+    @Test fun `missing tour flag cannot interrupt restore or returning listener`() {
+        assertEquals(Step.SETTLING, OnboardingFlow.step(false, true, false, null))
+        assertEquals(Step.APP, OnboardingFlow.step(false, true, false, true))
+        assertEquals(Step.APP, OnboardingFlow.step(false, true, true, null))
+    }
+
     @Test fun `regional and international artist suggestions interleave without duplicates`() {
         val regional = listOf(Artist("a", "A"), Artist("b", "B"))
         val international = listOf(Artist("c", "C"), Artist("a2", "A"))
         assertEquals(listOf("A", "C", "B"), OnboardingFlow.suggestions(regional, international).map { it.name })
     }
 
-    @Test fun `first install runs tour then login then picks`() {
-        assertEquals(Step.TOUR, OnboardingFlow.step(false, false, false, null))
+    @Test fun `first install signs in and restores before newcomer tour and picks`() {
+        assertEquals(Step.SIGN_IN, OnboardingFlow.step(false, false, false, null))
+        assertEquals(Step.SETTLING, OnboardingFlow.step(false, true, false, null))
+        assertEquals(Step.TOUR, OnboardingFlow.step(false, true, false, false))
         assertEquals(Step.SIGN_IN, OnboardingFlow.step(true, false, false, null))
         assertEquals(Step.SETTLING, OnboardingFlow.step(true, true, false, null))
         assertEquals(Step.PICK_ARTISTS, OnboardingFlow.step(true, true, false, false))

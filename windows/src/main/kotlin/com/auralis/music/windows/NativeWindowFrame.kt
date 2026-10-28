@@ -37,6 +37,18 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
     /** The title bar's search field: inside the drag area, but clicks must reach it. */
     @Volatile var searchBounds: Rect = Rect.Zero
     @Volatile var onTaskbarMessage: ((Int, Long) -> Boolean)? = null
+    var fullscreen: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            val style = user.GetWindowLong(hwnd, WinUser.GWL_STYLE)
+            user.SetWindowLong(hwnd, WinUser.GWL_STYLE, if (value)
+                style and (WinUser.WS_CAPTION or WinUser.WS_THICKFRAME).inv()
+                else style or WinUser.WS_CAPTION or WinUser.WS_THICKFRAME)
+            refreshFrame()
+            window.invalidate()
+            window.validate()
+        }
     private val renderPause = MinimisedRenderPause(window)
     /** The caption button under the press (Windows' own buttons capture until release), or 0. */
     private var pressedButton = 0
@@ -116,10 +128,10 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                     root && onTaskbarMessage?.invoke(message, w.toLong()) == true -> LRESULT(0)
                     // AWT's undecorated peer suppresses these messages itself. Let Windows draw,
                     // measure and operate the caption when the system title bar is selected.
-                    root && systemDecorated && (message == 0x0083 || message == 0x0084 ||
+                    root && systemDecorated && !fullscreen && (message == 0x0083 || message == 0x0084 ||
                         message == 0x0085 || message == 0x0086 || message in 0x00A0..0x00AD) ->
                         user.DefWindowProc(current, message, w, l)
-                    !root && systemDecorated && message == 0x0084 ->
+                    !root && systemDecorated && !fullscreen && message == 0x0084 ->
                         user.CallWindowProc(previous, current, message, w, l)
                     root && message == 0x0005 -> { // WM_SIZE: see MinimisedRenderPause.
                         if (w.toInt() == 1) renderPause.minimised(true)
@@ -171,7 +183,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         user.CallWindowProc(previous, current, message, w, l)
                     }
                     root && message == 0x0083 -> { // WM_NCCALCSIZE: draw our bar in the client area.
-                        if (isMaximized()) {
+                        if (!fullscreen && isMaximized()) {
                             val info = WinUser.MONITORINFO()
                             user.GetMonitorInfo(user.MonitorFromWindow(hwnd, 2), info)
                             val rect = Pointer(l.toLong()) // first RECT in NCCALCSIZE_PARAMS
@@ -193,7 +205,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         if (hit != 1) LRESULT(if (root) hit.toLong() else -1L) // HTTRANSPARENT
                         else user.CallWindowProc(previous, current, message, w, l)
                     }
-                    root && message == 0x0024 -> { // WM_GETMINMAXINFO, including secondary monitors.
+                    root && !fullscreen && message == 0x0024 -> { // WM_GETMINMAXINFO, including secondary monitors.
                         val result = user.CallWindowProc(previous, current, message, w, l)
                         val info = WinUser.MONITORINFO()
                         user.GetMonitorInfo(user.MonitorFromWindow(hwnd, 2), info)
@@ -221,6 +233,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
     }
 
     private fun hitTest(screenX: Int, screenY: Int): Int {
+        if (fullscreen) return 1
         val rect = RECT()
         user.GetWindowRect(hwnd, rect)
         val x = screenX - rect.left

@@ -224,6 +224,7 @@ class ConnectEngine(
     @Volatile private var ownerEpoch: Long? = null
     private var devices: List<ConnectDevice> = emptyList()
     private val applied = LinkedHashSet<String>()
+    private val realtimeSeeks = LinkedHashSet<String>()
     private val handledTransfers = LinkedHashSet<String>()
     private var startedTransfer: String? = null
     private var preparing: Job? = null
@@ -232,6 +233,10 @@ class ConnectEngine(
     private data class Published(val local: LocalPlayback, val atLocal: Long)
     private var lastPublished: Published? = null
     private var settleUntilLocal = 0L
+    private var localSeekRevision = 0L
+    private var publishedSeekRevision = 0L
+    private var pendingSeek: Pair<ConnectIntent.Seek, Optimistic?>? = null
+    private var sendingSeek = false
 
     private data class Optimistic(val playing: Boolean?, val positionMs: Long?, val atLocal: Long, var sentVersion: Long = Long.MAX_VALUE,
                                   var commandId: String? = null)
@@ -272,7 +277,12 @@ class ConnectEngine(
 
     /** A server-confirmed snapshot (never one served from a local cache). */
     fun onSnapshot(snapshot: ConnectSnapshot) {
-        scope.launch { locked { accept(snapshot); connected = true; error = null } }
+        scope.launch {
+            // An output may be awaiting its own position write. An already committed
+            // seek must reach the player without waiting for that network round trip.
+            applyRealtimeSeeks(snapshot)
+            locked { accept(snapshot); connected = true; error = null }
+        }
     }
 
     fun onDevices(list: List<ConnectDevice>) {
@@ -293,6 +303,12 @@ class ConnectEngine(
         scope.launch { locked { localPending = false } }
     }
     @Volatile private var localPending = false
+
+    /** Explicit seeks must bypass drift detection, even when only a few milliseconds apart. */
+    fun onLocalSeek() {
+        localSeekRevision++
+        onLocalChanged()
+    }
 
     /** Connection trouble reported by the platform (listener error, failed poll). */
     fun onConnectionLost(message: String?) {
@@ -345,7 +361,9 @@ class ConnectEngine(
         if (s.ownerActive(now)) {
             if (s.track == null && intent !is ConnectIntent.Load) return false
             optimisticFor(intent, s, now)
-            scope.launch { locked { sendCommand(intent) } }
+            val feedback = optimistic
+            if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
+            else scope.launch { locked { sendCommand(intent, feedback) } }
             return true
         }
         if (s.track == null) return false
@@ -612,19 +630,43 @@ class ConnectEngine(
         val now = clock.now()
         val s = current?.session
         val last = lastPublished
+        val seekRevision = localSeekRevision
+        val explicitSeek = seekRevision != publishedSeekRevision
         val leaseDue = s == null || s.leaseUntilMs - now < LEASE_MS - RENEW_EVERY_MS
         val commandsDone = s?.commands?.any { it.id in applied } == true
         val transferOld = s?.transfer?.let { !it.status.active && now - it.atMs > TRANSFER_KEEP_MS } == true
         val changed = last == null || significant(last.local, local, localNowMs - last.atLocal)
         val checkpointDue = local.playing && last != null && localNowMs - last.atLocal >= 5_000L
-        if (!force && !leaseDue && !commandsDone && !transferOld && !changed && !checkpointDue) return
+        if (!force && !explicitSeek && !leaseDue && !commandsDone && !transferOld && !changed && !checkpointDue) return
         // Just after taking over, the song is still starting: don't publish its 0:00 as the position.
         if (!force && !commandsDone && localNowMs < settleUntilLocal && (local.buffering || local.track?.id != s?.track?.id)) return
         val written = update { cur ->
             val cs = cur.session ?: return@update null
             if (cs.ownerId != me.id || cs.epoch != epoch) null else stateWrite(cur, cs, local, now)
         }
-        if (written != null) lastPublished = Published(local, localNowMs)
+        if (written != null) {
+            lastPublished = Published(local, localNowMs)
+            publishedSeekRevision = seekRevision
+        }
+    }
+
+    private fun applyRealtimeSeeks(snapshot: ConnectSnapshot) {
+        if (stopped) return
+        val epoch = ownerEpoch ?: return
+        val known = current?.session ?: return
+        val s = snapshot.session ?: return
+        val p = player ?: return
+        if (s.version < known.version || s.ownerId != me.id || s.epoch != epoch ||
+            !s.ownerActive(clock.now()) || s.transfer?.status?.active == true ||
+            known.transfer?.status?.active == true || s.track?.id != p.snapshot().track?.id) return
+        val pending = s.commands.filter { it.id !in applied && it.id !in realtimeSeeks }
+        // Track/queue controls retain their strict ordering on the main state lock.
+        if (pending.isEmpty() || pending.any { it.type != ConnectCommandType.SEEK }) return
+        if (clock.now() - pending.last().atMs > COMMAND_TTL_MS) return
+        pending.forEach { realtimeSeeks += it.id }
+        while (realtimeSeeks.size > 200) realtimeSeeks.remove(realtimeSeeks.first())
+        log("Applying realtime SEEK from ${pending.last().from}")
+        p.seekTo(pending.last().positionMs.coerceAtLeast(0L))
     }
 
     private fun applyCommands(s: ConnectSession, now: Long) {
@@ -633,6 +675,7 @@ class ConnectEngine(
         if (pending.isEmpty()) return
         for (c in pending) {
             applied += c.id
+            if (realtimeSeeks.remove(c.id)) continue
             if (now - c.atMs > COMMAND_TTL_MS) { log("Dropping a stale ${c.type} from ${c.from}"); continue }
             log("Applying ${c.type} from ${c.from}")
             execute(c, p)
@@ -716,7 +759,24 @@ class ConnectEngine(
         refreshUi()
     }
 
-    private suspend fun sendCommand(intent: ConnectIntent) {
+    private fun sendLatestSeek(intent: ConnectIntent.Seek) {
+        pendingSeek = intent to optimistic
+        if (sendingSeek) return
+        sendingSeek = true
+        scope.launch {
+            try {
+                while (pendingSeek != null && !stopped) {
+                    locked {
+                        val latest = pendingSeek ?: return@locked
+                        pendingSeek = null
+                        sendCommand(latest.first, latest.second)
+                    }
+                }
+            } finally { sendingSeek = false }
+        }
+    }
+
+    private suspend fun sendCommand(intent: ConnectIntent, feedback: Optimistic? = optimistic) {
         val now = clock.now()
         var sent: ConnectCommand? = null
         val written = update { cur ->
@@ -726,11 +786,15 @@ class ConnectEngine(
             ConnectWrite(s.copy(version = s.version + 1, commands = (s.commands + cmd).takeLast(MAX_COMMANDS), updatedBy = me.id))
         }
         if (written != null) {
-            optimistic?.sentVersion = written.session?.version ?: Long.MAX_VALUE
-            optimistic?.commandId = sent?.id
+            // A later tap may already be on screen while this write is in flight.
+            // Only the feedback for this command may be acknowledged by its result.
+            if (optimistic === feedback) {
+                feedback?.sentVersion = written.session?.version ?: Long.MAX_VALUE
+                feedback?.commandId = sent?.id
+            }
             log("Sent ${sent?.type} to ${written.session?.ownerName}")
         } else {
-            optimistic = null
+            if (optimistic === feedback) optimistic = null
             log("Control not sent: the output changed")
         }
     }

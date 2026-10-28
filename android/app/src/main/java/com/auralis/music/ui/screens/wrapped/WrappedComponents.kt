@@ -16,12 +16,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,8 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -104,10 +116,14 @@ private val SheenStops = arrayOf(
 fun WrappedBackground(
     modifier: Modifier = Modifier,
     animate: Boolean = true,
+    cacheRotatingScene: Boolean = false,
+    rotationDegrees: () -> Float = { 0f },
+    linesReveal: () -> Float = { 0f },
+    detailsOpacity: () -> Float = { 1f },
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     // One clock for everything; every motion uses a whole-number multiple of it, so the loop is seamless.
-    val t by if (animate) rememberInfiniteTransition(label = "wrappedBackground").animateFloat(
+    val t by if (animate && !cacheRotatingScene) rememberInfiniteTransition(label = "wrappedBackground").animateFloat(
         0f, 2f * PI.toFloat(),
         infiniteRepeatable(tween(48_000, easing = LinearEasing)), label = "clock"
     ) else remember { androidx.compose.runtime.mutableStateOf(0f) }
@@ -125,31 +141,106 @@ fun WrappedBackground(
             }
         }
 
-        // The clock is read only inside the draw lambda, so the background moves without recomposing.
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            Glows.forEach { g ->
-                val center = Offset(
-                    w * (g.cx + g.ax * sin(t * g.fx + g.px)),
-                    h * (g.cy + g.ay * sin(t * g.fy + g.py))
-                )
-                val radius = w * g.radius * (1f + 0.15f * sin(t * (g.fx + g.fy) + g.px))
-                drawCircle(Brush.radialGradient(*g.stops, center = center, radius = radius), radius, center)
+        // Reuse gradient shaders and contour geometry across animation frames.
+        val glowBrushes = remember(widthPx, heightPx) {
+            Glows.map { g -> Brush.radialGradient(*g.stops, center = Offset.Zero, radius = widthPx * g.radius) }
+        }
+        fun createContours() = List(7) { index ->
+                val y = heightPx * (.12f + index * .13f)
+                PathMeasure().apply {
+                    setPath(Path().apply {
+                        moveTo(-widthPx * .65f, y + heightPx * .22f)
+                        cubicTo(widthPx * .1f, y - heightPx * .18f, widthPx * .75f, y + heightPx * .22f,
+                            widthPx * 1.65f, y - heightPx * .12f)
+                    }, false)
+                }
             }
+        val contours = remember(widthPx, heightPx) { createContours() }
+        val contourSegment = remember { Path() }
 
-            // Sheen: a wide, faint diagonal light passing across twice per loop.
-            val sweep = ((t / (2f * PI.toFloat())) * 2f) % 1f
-            val shift = (sweep * 3f - 1.5f) * w
-            drawRect(
-                Brush.linearGradient(
-                    *SheenStops,
-                    start = Offset(shift - w, shift * 0.6f),
-                    end = Offset(shift + w, shift * 0.6f + h)
+        // The clock is read only inside the draw lambda, so the background moves without recomposing.
+        val sceneModifier = if (cacheRotatingScene) {
+            // Cover every corner while rotating; only this layer's transform changes per frame.
+            val diagonal = kotlin.math.sqrt(widthPx * widthPx + heightPx * heightPx)
+            Modifier.requiredSize(with(density) { diagonal.toDp() }).align(Alignment.Center)
+                .graphicsLayer {
+                    rotationZ = rotationDegrees()
+                }
+        } else Modifier.fillMaxSize()
+        fun DrawScope.drawScene(time: Float, reveal: Float, opacity: Float,
+            brushes: List<Brush> = glowBrushes, paths: List<PathMeasure> = contours, segment: Path = contourSegment) {
+            val w = widthPx
+            val h = heightPx
+            withTransform({
+                if (cacheRotatingScene) translate((size.width - w) / 2f, (size.height - h) / 2f)
+                else rotate(rotationDegrees())
+            }) {
+                Glows.forEachIndexed { index, g ->
+                    val center = Offset(
+                        w * (g.cx + g.ax * sin(time * g.fx + g.px)),
+                        h * (g.cy + g.ay * sin(time * g.fy + g.py))
+                    )
+                    val pulse = 1f + 0.15f * sin(time * (g.fx + g.fy) + g.px)
+                    withTransform({
+                        translate(center.x, center.y)
+                        scale(pulse, pulse, pivot = Offset.Zero)
+                    }) {
+                        drawCircle(brushes[index], w * g.radius, Offset.Zero)
+                    }
+                }
+
+                // Sheen: a wide, faint diagonal light passing across twice per loop.
+                val sweep = ((time / (2f * PI.toFloat())) * 2f) % 1f
+                val shift = (sweep * 3f - 1.5f) * w
+                drawRect(
+                    Brush.linearGradient(
+                        *SheenStops,
+                        start = Offset(shift - w, shift * 0.6f),
+                        end = Offset(shift + w, shift * 0.6f + h)
+                    )
                 )
-            )
 
-            drawPoints(dots, PointMode.Points, Color.White.copy(alpha = 0.035f), strokeWidth = 3f, cap = StrokeCap.Round)
+                // Orbiting contour lines trace in one after another after the logo finishes.
+                if (reveal > 0f) {
+                    paths.forEachIndexed { index, measure ->
+                        val amount = (reveal * 1.75f - index * .125f).coerceIn(0f, 1f)
+                        if (amount > 0f) {
+                            segment.reset()
+                            measure.getSegment(0f, measure.length * amount, segment)
+                            drawPath(segment, Color(0xFFE5CB9E).copy(alpha = .075f), style = Stroke(1.dp.toPx(), cap = StrokeCap.Round))
+                        }
+                    }
+                }
+                drawPoints(dots, PointMode.Points, Color.White.copy(alpha = 0.035f * opacity), strokeWidth = 3f, cap = StrokeCap.Round)
+            }
+        }
+        // Offscreen compositing is not a persistent pixel cache: Android can replay all
+        // six translucent gradients into its framebuffer on every rotation. Rasterize the
+        // completed scene once; rotating this texture has a bounded, small GPU cost.
+        val sceneComplete by remember(cacheRotatingScene, linesReveal, detailsOpacity) {
+            derivedStateOf { cacheRotatingScene && linesReveal() >= 1f && detailsOpacity() >= 1f }
+        }
+        val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+        var raster by remember(widthPx, heightPx) { mutableStateOf<ImageBitmap?>(null) }
+        LaunchedEffect(cacheRotatingScene, widthPx, heightPx, density, layoutDirection) {
+            if (!cacheRotatingScene) return@LaunchedEffect
+            // Prepare pixels during the intro, away from the UI thread. Half resolution
+            // preserves the soft glows while avoiding a full-screen texture upload hitch.
+            raster = withContext(Dispatchers.Default) {
+                val diagonal = kotlin.math.ceil(kotlin.math.sqrt(widthPx * widthPx + heightPx * heightPx)).toInt()
+                val bitmap = ImageBitmap((diagonal + 1) / 2, (diagonal + 1) / 2)
+                val canvas = Canvas(bitmap).apply { scale(.5f, .5f) }
+                val brushes = Glows.map { g -> Brush.radialGradient(*g.stops, center = Offset.Zero, radius = widthPx * g.radius) }
+                CanvasDrawScope().draw(density, layoutDirection, canvas, Size(diagonal.toFloat(), diagonal.toFloat())) {
+                    drawScene(0f, 1f, 1f, brushes, createContours(), Path())
+                }
+                bitmap
+            }
+        }
+        Canvas(sceneModifier) {
+            val image = if (sceneComplete) raster else null
+            if (image == null) drawScene(t, linesReveal().coerceIn(0f, 1f), detailsOpacity().coerceIn(0f, 1f))
+            else drawImage(image, dstSize = IntSize(size.width.toInt(), size.height.toInt()))
         }
         Box(Modifier.fillMaxSize(), content = content)
     }

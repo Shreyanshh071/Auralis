@@ -68,6 +68,7 @@ val LocalAuralisDynamicPalette = compositionLocalOf {
 }
 
 val LocalDynamicThemePrimary = compositionLocalOf { Color.Unspecified }
+val LocalDynamicThemeEnabled = compositionLocalOf { false }
 val LocalDynamicThemeSecondary = compositionLocalOf { Color.Unspecified }
 val LocalDynamicThemeTertiary = compositionLocalOf { Color.Unspecified }
 val LocalDynamicThemeBackground = compositionLocalOf { Color.Unspecified }
@@ -1118,6 +1119,7 @@ fun AuralisTheme(
 
     CompositionLocalProvider(
         LocalAppearanceSettings provides appearanceSettings,
+        LocalDynamicThemeEnabled provides isDynamic,
         LocalAuralisDynamicPalette provides dynamicPalette,
         LocalDynamicThemePrimary provides colorScheme.primary,
         LocalDynamicThemeSecondary provides colorScheme.secondary,

@@ -68,7 +68,19 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
     companion object {
         private const val TAG = "LyricsDiskCache"
         /** Bump when the stored shape or the meaning of a field changes. */
-        private const val VERSION = 1
+        private const val VERSION = 2
+
+        private fun encodeWord(w: LyricWord): JSONObject = JSONObject().apply {
+            put("word", w.word); put("time", w.time)
+            putOpt("duration", w.duration); put("isBackground", w.isBackground)
+            w.syllables?.let { parts -> put("syllables", JSONArray().apply { parts.forEach { put(encodeWord(it)) } }) }
+        }
+
+        private fun decodeWord(w: JSONObject): LyricWord = LyricWord(
+            word = w.getString("word"), time = w.getLong("time"),
+            duration = w.optLongOrNull("duration"), isBackground = w.optBoolean("isBackground"),
+            syllables = w.optJSONArray("syllables")?.let { parts -> List(parts.length()) { decodeWord(parts.getJSONObject(it)) } }
+        )
 
         fun encode(data: LyricsData): JSONObject = JSONObject().apply {
             put("syncType", data.syncType.name)
@@ -99,12 +111,7 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
                         line.words?.let { words ->
                             put("words", JSONArray().apply {
                                 words.forEach { w ->
-                                    put(JSONObject().apply {
-                                        put("word", w.word)
-                                        put("time", w.time)
-                                        putOpt("duration", w.duration)
-                                        put("isBackground", w.isBackground)
-                                    })
+                                    put(encodeWord(w))
                                 }
                             })
                         }
@@ -144,12 +151,7 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
                         words = l.optJSONArray("words")?.let { words ->
                             List(words.length()) { j ->
                                 val w = words.getJSONObject(j)
-                                LyricWord(
-                                    word = w.getString("word"),
-                                    time = w.getLong("time"),
-                                    duration = w.optLongOrNull("duration"),
-                                    isBackground = w.optBoolean("isBackground")
-                                )
+                                decodeWord(w)
                             }
                         }
                     )

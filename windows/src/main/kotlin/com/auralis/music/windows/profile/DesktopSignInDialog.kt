@@ -333,7 +333,7 @@ internal fun DesktopSignInDialog(
                     // 1. TOP OPTION: SIGN IN WITH GOOGLE
                     // ─────────────────────────────────────────────────────────────
                     if (selectedTab == SignInFilterTab.GOOGLE_EMAIL && accountState.profile == null) SectionHeading("Auralis account",
-                        "Sign in with Google or your email and password to sync playlists, likes and stats.")
+                        "Sign in to bring your phone’s personalized feed to your desktop, with your playlists, likes and listening stats synced across devices.")
                     if (selectedTab != SignInFilterTab.YOUTUBE && accountState.profile == null) {
                         Surface(
                             shape = MaterialTheme.shapes.medium,
@@ -491,7 +491,7 @@ internal fun DesktopSignInDialog(
                     if (selectedTab != SignInFilterTab.GOOGLE_EMAIL) {
 
                         SectionHeading("YouTube Music",
-                            "Sign in with Google in a window Auralis opens, or use a browser where you're already signed in.")
+                            "Sign in to play songs that require a YouTube account, including restricted songs your account is eligible to access. This also connects your YouTube Music mixes and library. Use the Google window Auralis opens or a browser where you're already signed in.")
                         // Sign in with Google for YouTube Music: a browser window with Auralis's own profile
                         // opens on Google's account chooser (or email and password); when YouTube Music loads
                         // signed in there, the session comes straight into Auralis and the window closes.

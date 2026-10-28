@@ -36,7 +36,7 @@ object WordTiming {
      */
     fun hasGenuineWordTiming(lines: List<LyricLine>): Boolean =
         lines.any { line ->
-            !line.isInstrumental && (line.words?.count { it.duration != null } ?: 0) >= 2
+            !line.isInstrumental && (line.words?.flatMap { it.syllables ?: listOf(it) }?.count { it.duration != null } ?: 0) >= 2
         }
 
     /**
@@ -49,9 +49,10 @@ object WordTiming {
      */
     fun hasGenuineWordStarts(lines: List<LyricLine>): Boolean =
         lines.any { line ->
+            val parts = line.words?.flatMap { it.syllables ?: listOf(it) }
             !line.isInstrumental &&
-                (line.words?.size ?: 0) >= 2 &&
-                (line.words?.distinctBy { it.time }?.size ?: 0) >= 2
+                (parts?.size ?: 0) >= 2 &&
+                (parts?.distinctBy { it.time }?.size ?: 0) >= 2
         }
 
     /**
@@ -404,6 +405,7 @@ object WordTiming {
      * Divides word duration proportionally across the split parts to keep karaoke sweeping/highlighting natural.
      */
     fun splitMergedLyricWord(word: LyricWord): List<LyricWord> {
+        if (!word.syllables.isNullOrEmpty()) return listOf(word)
         val parts = splitAccidentalMergedWord(word.word)
         if (parts.size <= 1) return listOf(word)
 
@@ -434,7 +436,8 @@ object WordTiming {
                 word.copy(
                     word = partText,
                     time = currentStart,
-                    duration = partDuration
+                    duration = partDuration,
+                    syllables = null
                 )
             )
 
@@ -449,6 +452,11 @@ object WordTiming {
      * Splits accidental merged words across both text and word-synced timestamps of a [LyricLine].
      */
     fun splitMergedWordsInLine(line: LyricLine): LyricLine {
+        if (line.words?.any { !it.syllables.isNullOrEmpty() } == true) {
+            val joined = line.words.joinToString("") { it.word }.trim()
+            return if (joined.filterNot(Char::isWhitespace) == line.text.filterNot(Char::isWhitespace))
+                line.copy(text = joined) else line
+        }
         val mergedWords = mergeContiguousSyllables(line.words)
         val joinedText = mergedWords?.joinToString("") { it.word }?.trim()
         // Timed spans can split one written word into syllables. When the spans
@@ -621,7 +629,10 @@ object WordTiming {
                 acc = acc.copy(
                     word = combinedText,
                     time = startTime,
-                    duration = combinedDuration
+                    duration = combinedDuration,
+                    syllables = (acc.syllables ?: listOf(acc.copy(syllables = null))).mapIndexed { index, part ->
+                        if (index == (acc.syllables?.lastIndex ?: 0)) part.copy(word = part.word.trimEnd()) else part
+                    } + (curr.syllables ?: listOf(curr.copy(syllables = null)))
                 )
                 lastPiece = curr.word
             } else {

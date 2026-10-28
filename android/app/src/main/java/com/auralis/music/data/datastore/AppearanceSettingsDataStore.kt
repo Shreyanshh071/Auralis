@@ -43,6 +43,100 @@ class AppearanceSettingsDataStore(
     }
 
     companion object {
+        /** Shared by startup and persisted preferences so fresh installs use one default profile. */
+        internal fun fromPreferences(preferences: Preferences): AppearanceSettings {
+            val defaults = AppearanceSettings()
+            val legacyExpLyrics = preferences[EXPERIMENTAL_LYRICS] ?: defaults.experimentalLyrics
+            val storedAnimation = preferences[LYRICS_ANIMATION]
+            val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
+                LyricsAnimationMode.METRO_LYRICS.displayName
+            } else {
+                storedAnimation ?: defaults.lyricsAnimation
+            }
+
+            return AppearanceSettings(
+                highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: defaults.highRefreshRate,
+                landscapeScaling = preferences[LANDSCAPE_SCALING] ?: defaults.landscapeScaling,
+                dynamicTheme = preferences[DYNAMIC_THEME] ?: defaults.dynamicTheme,
+                dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: defaults.dynamicIconColors,
+                liquidGlass = preferences[LIQUID_GLASS] ?: defaults.liquidGlass,
+                appTheme = preferences[APP_THEME] ?: defaults.appTheme,
+                colorPalette = preferences[COLOR_PALETTE] ?: defaults.colorPalette,
+
+                miniPlayerDesign = preferences[MINI_PLAYER_DESIGN] ?: run {
+                    when (preferences[NEW_MINI_PLAYER_DESIGN]) {
+                        false -> "Classic mini player"
+                        true -> "New mini player"
+                        null -> defaults.miniPlayerDesign
+                    }
+                },
+                pureBlackMiniPlayer = preferences[PURE_BLACK_MINI_PLAYER] ?: defaults.pureBlackMiniPlayer,
+                newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: defaults.newMiniPlayerDesign,
+                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: defaults.miniPlayerBackgroundStyle,
+
+                playerDesign = preferences[PLAYER_DESIGN] ?: run {
+                    when (preferences[NEW_PLAYER_DESIGN]) {
+                        false -> "Old player"
+                        true -> "New player"
+                        null -> defaults.playerDesign
+                    }
+                },
+                newPlayerDesign = (preferences[PLAYER_DESIGN] ?: run {
+                    when (preferences[NEW_PLAYER_DESIGN]) {
+                        false -> "Old player"
+                        true -> "New player"
+                        null -> defaults.playerDesign
+                    }
+                }) != "Old player",
+                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: defaults.playerBackgroundStyle,
+                hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: defaults.hidePlayerThumbnail,
+                cropAlbumArt = preferences[CROP_ALBUM_ART] ?: defaults.cropAlbumArt,
+                animatedCovers = preferences[ANIMATED_COVERS] ?: defaults.animatedCovers,
+                animatedCoverSource = preferences[ANIMATED_COVER_SOURCE] ?: defaults.animatedCoverSource,
+                animatedCoversWifiOnly = preferences[ANIMATED_COVERS_WIFI_ONLY] ?: defaults.animatedCoversWifiOnly,
+                playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: defaults.playerButtonColors,
+                playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: defaults.playerSliderStyle) {
+                    "Squiggly Waveform", "Squiggly" -> "Squiggly"
+                    "Thin Line", "Slim" -> "Slim"
+                    "Default" -> "Default"
+                    "Wavy", "Neon Glow" -> "Wavy"
+                    else -> defaults.playerSliderStyle
+                },
+                showDownloadButton = preferences[SHOW_DOWNLOAD_BUTTON] ?: defaults.showDownloadButton,
+                enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: defaults.enableSwipeToChangeSong,
+                miniPlayerSwipeSensitivity = preferences[MINI_PLAYER_SWIPE_SENSITIVITY] ?: defaults.miniPlayerSwipeSensitivity,
+
+                experimentalLyrics = legacyExpLyrics,
+                lyricsTextPosition = preferences[LYRICS_TEXT_POSITION] ?: defaults.lyricsTextPosition,
+                respectAgentPositioning = preferences[RESPECT_AGENT_POSITIONING] ?: defaults.respectAgentPositioning,
+                changeLyricsOnTap = preferences[CHANGE_LYRICS_ON_TAP] ?: defaults.changeLyricsOnTap,
+                autoScrollLyrics = preferences[AUTO_SCROLL_LYRICS] ?: defaults.autoScrollLyrics,
+                hideStatusBarOnFullscreen = preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] ?: defaults.hideStatusBarOnFullscreen,
+                lyricsAnimation = resolvedAnimation,
+                enableGlowingLyricsEffect = preferences[ENABLE_GLOWING_LYRICS] ?: defaults.enableGlowingLyricsEffect,
+                standardLyricsBlur = preferences[STANDARD_LYRICS_BLUR] ?: defaults.standardLyricsBlur,
+                lyricsTextSize = preferences[LYRICS_TEXT_SIZE] ?: defaults.lyricsTextSize,
+                lyricsLineSpacing = preferences[LYRICS_LINE_SPACING] ?: defaults.lyricsLineSpacing,
+
+                defaultOpenTab = preferences[DEFAULT_OPEN_TAB] ?: defaults.defaultOpenTab,
+                defaultLibraryChip = preferences[DEFAULT_LIBRARY_CHIP] ?: defaults.defaultLibraryChip,
+                swipeLeftQueueRightPlayNext = preferences[SWIPE_LEFT_QUEUE_RIGHT_PLAY_NEXT] ?: defaults.swipeLeftQueueRightPlayNext,
+                swipeToRemoveSongFromPlaylist = preferences[SWIPE_TO_REMOVE_SONG_FROM_PLAYLIST] ?: defaults.swipeToRemoveSongFromPlaylist,
+                slimBottomNavigationBar = preferences[SLIM_BOTTOM_NAV_BAR] ?: defaults.slimBottomNavigationBar,
+                listenTogetherInTopBar = preferences[LISTEN_TOGETHER_IN_TOP_BAR] ?: defaults.listenTogetherInTopBar,
+                gridCellSize = preferences[GRID_CELL_SIZE] ?: defaults.gridCellSize,
+                displayDensity = preferences[DISPLAY_DENSITY] ?: defaults.displayDensity,
+
+                showLikedPlaylist = preferences[SHOW_LIKED_PLAYLIST] ?: defaults.showLikedPlaylist,
+                showDownloadedPlaylist = preferences[SHOW_DOWNLOADED_PLAYLIST] ?: defaults.showDownloadedPlaylist,
+                showTopPlaylist = preferences[SHOW_TOP_PLAYLIST] ?: defaults.showTopPlaylist,
+                showWeeklyMostPlaylist = preferences[SHOW_WEEKLY_MOST_PLAYLIST] ?: defaults.showWeeklyMostPlaylist,
+                showMonthlyMostPlaylist = preferences[SHOW_MONTHLY_MOST_PLAYLIST] ?: defaults.showMonthlyMostPlaylist,
+                showCachedPlaylist = preferences[SHOW_CACHED_PLAYLIST] ?: defaults.showCachedPlaylist,
+                showUploadedPlaylist = preferences[SHOW_UPLOADED_PLAYLIST] ?: defaults.showUploadedPlaylist
+            )
+        }
+
         // Theme
         val HIGH_REFRESH_RATE = booleanPreferencesKey("high_refresh_rate")
         val LANDSCAPE_SCALING = booleanPreferencesKey("landscape_scaling")
@@ -114,85 +208,7 @@ class AppearanceSettingsDataStore(
                 throw exception
             }
         }
-        .map { preferences ->
-            val legacyExpLyrics = preferences[EXPERIMENTAL_LYRICS] ?: false
-            val storedAnimation = preferences[LYRICS_ANIMATION]
-            val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
-                LyricsAnimationMode.METRO_LYRICS.displayName
-            } else {
-                storedAnimation ?: LyricsAnimationMode.METRO_LYRICS.displayName
-            }
-
-            AppearanceSettings(
-                highRefreshRate = preferences[HIGH_REFRESH_RATE] ?: true,
-                landscapeScaling = preferences[LANDSCAPE_SCALING] ?: false,
-                dynamicTheme = preferences[DYNAMIC_THEME] ?: true,
-                dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: true,
-                liquidGlass = preferences[LIQUID_GLASS] ?: false,
-                appTheme = preferences[APP_THEME] ?: "Follow system",
-                colorPalette = preferences[COLOR_PALETTE] ?: "Dynamic",
-
-                miniPlayerDesign = preferences[MINI_PLAYER_DESIGN] ?: run {
-                    if (preferences[NEW_MINI_PLAYER_DESIGN] == false) "Classic mini player" else "New mini player"
-                },
-                pureBlackMiniPlayer = preferences[PURE_BLACK_MINI_PLAYER] ?: false,
-                newMiniPlayerDesign = preferences[NEW_MINI_PLAYER_DESIGN] ?: true,
-                miniPlayerBackgroundStyle = preferences[MINI_PLAYER_BG_STYLE] ?: "Blur",
-
-                playerDesign = preferences[PLAYER_DESIGN] ?: run {
-                    if (preferences[NEW_PLAYER_DESIGN] == false) "Old player" else "New player"
-                },
-                newPlayerDesign = (preferences[PLAYER_DESIGN] ?: run {
-                    if (preferences[NEW_PLAYER_DESIGN] == false) "Old player" else "New player"
-                }) != "Old player",
-                playerBackgroundStyle = preferences[PLAYER_BG_STYLE] ?: "Blur",
-                hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: false,
-                cropAlbumArt = preferences[CROP_ALBUM_ART] ?: true,
-                animatedCovers = preferences[ANIMATED_COVERS] ?: true,
-                animatedCoverSource = preferences[ANIMATED_COVER_SOURCE] ?: "AUTO",
-                animatedCoversWifiOnly = preferences[ANIMATED_COVERS_WIFI_ONLY] ?: false,
-                playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: "Default",
-                playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: "Wavy") {
-                    "Squiggly Waveform", "Squiggly" -> "Squiggly"
-                    "Thin Line", "Slim" -> "Slim"
-                    "Default" -> "Default"
-                    "Wavy", "Neon Glow" -> "Wavy"
-                    else -> "Wavy"
-                },
-                showDownloadButton = preferences[SHOW_DOWNLOAD_BUTTON] ?: true,
-                enableSwipeToChangeSong = preferences[ENABLE_SWIPE_TO_CHANGE_SONG] ?: true,
-                miniPlayerSwipeSensitivity = preferences[MINI_PLAYER_SWIPE_SENSITIVITY] ?: 73,
-
-                experimentalLyrics = legacyExpLyrics,
-                lyricsTextPosition = preferences[LYRICS_TEXT_POSITION] ?: "Centre",
-                respectAgentPositioning = preferences[RESPECT_AGENT_POSITIONING] ?: true,
-                changeLyricsOnTap = preferences[CHANGE_LYRICS_ON_TAP] ?: true,
-                autoScrollLyrics = preferences[AUTO_SCROLL_LYRICS] ?: true,
-                hideStatusBarOnFullscreen = preferences[HIDE_STATUS_BAR_ON_FULLSCREEN] ?: false,
-                lyricsAnimation = resolvedAnimation,
-                enableGlowingLyricsEffect = preferences[ENABLE_GLOWING_LYRICS] ?: false,
-                standardLyricsBlur = preferences[STANDARD_LYRICS_BLUR] ?: true,
-                lyricsTextSize = preferences[LYRICS_TEXT_SIZE] ?: 22f,
-                lyricsLineSpacing = preferences[LYRICS_LINE_SPACING] ?: 1.3f,
-
-                defaultOpenTab = preferences[DEFAULT_OPEN_TAB] ?: "Home",
-                defaultLibraryChip = preferences[DEFAULT_LIBRARY_CHIP] ?: "Library",
-                swipeLeftQueueRightPlayNext = preferences[SWIPE_LEFT_QUEUE_RIGHT_PLAY_NEXT] ?: true,
-                swipeToRemoveSongFromPlaylist = preferences[SWIPE_TO_REMOVE_SONG_FROM_PLAYLIST] ?: true,
-                slimBottomNavigationBar = preferences[SLIM_BOTTOM_NAV_BAR] ?: false,
-                listenTogetherInTopBar = preferences[LISTEN_TOGETHER_IN_TOP_BAR] ?: true,
-                gridCellSize = preferences[GRID_CELL_SIZE] ?: "Small",
-                displayDensity = preferences[DISPLAY_DENSITY] ?: "Native (100%)",
-
-                showLikedPlaylist = preferences[SHOW_LIKED_PLAYLIST] ?: true,
-                showDownloadedPlaylist = preferences[SHOW_DOWNLOADED_PLAYLIST] ?: true,
-                showTopPlaylist = preferences[SHOW_TOP_PLAYLIST] ?: true,
-                showWeeklyMostPlaylist = preferences[SHOW_WEEKLY_MOST_PLAYLIST] ?: true,
-                showMonthlyMostPlaylist = preferences[SHOW_MONTHLY_MOST_PLAYLIST] ?: true,
-                showCachedPlaylist = preferences[SHOW_CACHED_PLAYLIST] ?: true,
-                showUploadedPlaylist = preferences[SHOW_UPLOADED_PLAYLIST] ?: true
-            )
-        }
+        .map { preferences -> fromPreferences(preferences) }
 
     suspend fun updateSettings(settings: AppearanceSettings) {
         try {

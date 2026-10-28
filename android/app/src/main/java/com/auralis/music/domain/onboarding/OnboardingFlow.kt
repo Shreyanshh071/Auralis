@@ -24,11 +24,11 @@ object OnboardingFlow {
         pickerDone: Boolean,
         hasListeningData: Boolean?
     ): Step = when {
-        !tourSeen -> Step.TOUR
         !signedIn -> Step.SIGN_IN
         pickerDone -> Step.APP
         hasListeningData == null -> Step.SETTLING
         hasListeningData -> Step.APP
+        !tourSeen -> Step.TOUR
         else -> Step.PICK_ARTISTS
     }
 

@@ -127,7 +127,7 @@ class DesktopPlaybackController(
         _connectRemote.value = view?.takeIf { roomControl == null }
         if (view == null || roomControl != null) return
         val current = _queue.value
-        if (current.tracks.map { it.id } != view.queue.map { it.id } || current.index != view.index) {
+        if (current.tracks != view.queue || current.index != view.index) {
             _queue.value = Queue(view.queue, view.index.coerceIn(-1, view.queue.lastIndex))
         }
         _repeatMode.value = RepeatMode.valueOf(view.repeat.name)
@@ -277,6 +277,9 @@ class DesktopPlaybackController(
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val errors: SharedFlow<String> = _errors
 
+    private val _seekEvents = MutableSharedFlow<Long>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val seekEvents: SharedFlow<Long> = _seekEvents
+
     private var loadJob: Job? = null
     /** Songs that failed in a row; stops auto-skipping when a whole list fails (e.g. offline). */
     private var consecutiveFailures = 0
@@ -399,6 +402,7 @@ class DesktopPlaybackController(
         if (intercepted("seek", position = ms) || connect(com.auralis.music.data.connect.ConnectIntent.Seek(ms.coerceAtLeast(0L)))) return
         resumeAnchor?.let { resumeAnchor = it.copy(positionMs = ms.coerceAtLeast(0L), atNanos = System.nanoTime()) }
         if (pendingResumeMs != null && player.state.value == VlcAudioPlayer.State.IDLE) pendingResumeMs = ms.coerceAtLeast(0L) else player.seekTo(ms)
+        _seekEvents.tryEmit(ms.coerceAtLeast(0L))
     }
 
     /** Seeks [deltaMs] forward (or back when negative), within the song. */

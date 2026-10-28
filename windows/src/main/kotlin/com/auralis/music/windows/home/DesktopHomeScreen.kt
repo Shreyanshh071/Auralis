@@ -18,6 +18,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.alpha
 
 import androidx.compose.foundation.*
@@ -73,6 +76,9 @@ internal fun DesktopHomeScreen(
     modifier: Modifier = Modifier,
     findMusic: (@Composable () -> Unit)? = null,
     onRefresh: () -> Unit = {},
+    youtubeConnected: Boolean = false,
+    newcomer: Boolean = false,
+    onConnectYouTube: () -> Unit = {},
     recentsGrid: Boolean = false,
     onToggleRecents: () -> Unit = {},
     loadingMore: Boolean = false,
@@ -99,11 +105,14 @@ internal fun DesktopHomeScreen(
     val scroll = rememberLazyListState()
     val recentsScroll = rememberLazyListState()
     val loadingScroll = rememberLazyListState()
+    // Share the entrance between both login routes. Remember revealed rows so playback,
+    // portrait updates and scrolling back to a shelf never restart its animation.
+    val revealedSections = remember(newcomer, youtubeConnected) { HomeFeedEntrance() }
     val scrollHover = remember { MutableInteractionSource() }
     val scrollHovered by scrollHover.collectIsHoveredAsState()
     val scrollbarAlpha by animateFloatAsState(if (scrollHovered) 1f else 0f, tween(160))
     val recents = remember(serviceRecents, content.recents) {
-        val raw = serviceRecents?.takeIf { it.isNotEmpty() } ?: content.recents
+        val raw = serviceRecents ?: content.recents
         com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(raw)
     }
     val shelves = serviceShelves ?: buildList {
@@ -132,7 +141,21 @@ internal fun DesktopHomeScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)) {
             item("greeting") { HomeGreeting(greetingName, greetingPalette) }
-            item("recents") {
+            if (newcomer && !youtubeConnected) item("welcome") {
+                Surface(color = colors.surfaceContainerHigh, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(desktopText("Make yourself at home"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(desktopText("Connect YouTube Music for your mixes and favourites, or start playing. Auralis learns what you like as you listen."),
+                                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Button(onClick = onConnectYouTube) { Text(desktopText("Connect YouTube Music")) }
+                    }
+                }
+            }
+            if (recents.isNotEmpty()) item("recents") {
+                HomeFeedReveal("recents", revealedSections, Modifier.animateItem(fadeInSpec = null), 0) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeHeading(desktopText("Recents"), null, trailing = {
                         if (findMusic != null) findMusic() else IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, desktopText("Find music")) }
@@ -157,12 +180,17 @@ internal fun DesktopHomeScreen(
                         }
                     }
                 }
+                }
             }
-            if (familiarArtists.size >= 3) item("familiar-artists") {
+            if (familiarArtists.size >= MIN_FAMILIAR_ARTISTS) item("familiar-artists") {
+                HomeFeedReveal("familiar-artists", revealedSections, Modifier.animateItem(fadeInSpec = null), 1) {
                 FamiliarArtistsRow(familiarArtists, onOpenFamiliarArtist, familiarActions ?: FamiliarArtistActions(
                     { null }, { false }, {}, {}, { false }, {}, {}, { false }, {}, {}))
+                }
             } else if (quickPicks.isNotEmpty()) item("most-played") {
+                HomeFeedReveal("most-played", revealedSections, Modifier.animateItem(fadeInSpec = null), 1) {
                 QuickPicksGrid(quickPicks, currentTrackId, isPlaying, favoriteIds, onPlay, onMenu, onToggleFavorite)
+                }
             }
             if (serviceLoading && shelves.isEmpty()) item("loading") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -173,11 +201,15 @@ internal fun DesktopHomeScreen(
                 }
             }
             items(shelves, key = { it.id }) { shelf ->
+                HomeFeedReveal("shelf:${shelf.id}", revealedSections, Modifier.animateItem(fadeInSpec = null), 2) {
                 HomeCarousel(shelf, currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu, playlistCovers)
+                }
             }
             if (libraryShelf.isNotEmpty() && shelves.none { it.title.equals("From your library", true) }) item("library") {
+                HomeFeedReveal("library", revealedSections, Modifier.animateItem(fadeInSpec = null), 3) {
                 HomeCarousel(DesktopHomeShelf("library", "From your library", albums = libraryShelf),
                     currentTrackId, isPlaying, onPlay, onAlbum, onMenu, onAlbumMenu, playlistCovers)
+                }
             }
             if (serviceError != null || (serviceShelves == null && state.error != null)) item("error") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -195,6 +227,30 @@ internal fun DesktopHomeScreen(
         }
         VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(6.dp).alpha(scrollbarAlpha))
     }
+}
+
+private class HomeFeedEntrance {
+    val revealed = mutableSetOf<String>()
+}
+
+/** Render at final size immediately; fade and lift only the pixels, never delay the feed. */
+@Composable
+private fun HomeFeedReveal(
+    id: String,
+    session: HomeFeedEntrance,
+    modifier: Modifier = Modifier,
+    order: Int = 0,
+    content: @Composable () -> Unit
+) {
+    val entrance = remember(session, id) { Animatable(if (id in session.revealed) 1f else 0f) }
+    LaunchedEffect(session, id) {
+        if (session.revealed.add(id)) entrance.animateTo(1f,
+            tween(durationMillis = 360, delayMillis = order.coerceIn(0, 3) * 45, easing = FastOutSlowInEasing))
+    }
+    Box(modifier.fillMaxWidth().graphicsLayer {
+        alpha = entrance.value
+        translationY = (1f - entrance.value) * 16.dp.toPx()
+    }) { content() }
 }
 
 @Composable

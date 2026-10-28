@@ -1,5 +1,7 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.*
+import androidx.compose.ui.text.style.TextOverflow
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -9,9 +11,8 @@ import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,41 +21,35 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,7 +58,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.theme.dynamicBackground
 import kotlinx.coroutines.CompletableDeferred
@@ -95,149 +89,90 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
         if (isSigningIn) isSigningIn = false else onDismiss()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
+    AccountPageTheme {
         if (isSigningIn) {
-            YouTubeSignInWebView(
-                onSignedIn = { isSigningIn = false },
-                onCancel = { isSigningIn = false }
-            )
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding().navigationBarsPadding()) {
+                YouTubeSignInWebView(onSignedIn = { isSigningIn = false }, onCancel = { isSigningIn = false })
+            }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
+            AccountPage(title = str(R.string.youtube_account), onBack = onDismiss) {
+                AccountPanel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AccountGlyph(Icons.Default.PlayArrow)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(if (signedIn) accountLabel.ifBlank { str(R.string.youtube_account) }
+                                else str(R.string.not_signed_in_to_youtube), fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(str(R.string.youtube_music_account), fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        AccountBadge(str(if (signedIn) R.string.account_ui_connected else R.string.account_ui_unlinked))
                     }
-                    Text(
-                        text = str(R.string.youtube_account),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 20.sp
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(1.2.dp, YOUTUBE_RED.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-                        .padding(16.dp)
-                ) {
-                    Column {
+                    Spacer(Modifier.height(16.dp))
+                    AccountPanel(padding = 12.dp) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(YOUTUBE_RED.copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (signedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = YOUTUBE_RED,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = if (signedIn) str(R.string.signed_in_to_youtube) else str(R.string.not_signed_in_to_youtube),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 15.sp
-                                )
-                                if (signedIn && accountLabel.isNotBlank()) {
-                                    Text(
-                                        text = accountLabel,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
+                            Icon(Icons.Default.Verified, null, modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(10.dp))
+                            Text(str(R.string.account_ui_age_access), fontSize = 12.sp, lineHeight = 18.sp)
                         }
-
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = if (signedIn) {
-                                str(R.string.your_youtube_account_is_connected_you_ca)
-                            } else {
-                                "Signing in to a YouTube account is required to download age-restricted music. It also lets you directly import your YouTube Music playlists—including private ones—without having to make them public."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
-                        )
-
-                        Spacer(Modifier.height(16.dp))
-                        if (signedIn) {
-                            OutlinedButton(
-                                onClick = { signOutOfYouTube() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(str(R.string.sign_out_of_youtube), color = MaterialTheme.colorScheme.error)
-                            }
-                        } else {
-                            Button(
-                                onClick = { isSigningIn = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = YOUTUBE_RED, contentColor = Color.White),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(str(R.string.sign_in_to_youtube), fontWeight = FontWeight.SemiBold)
-                            }
+                        Spacer(Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LibraryMusic, null, modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(10.dp))
+                            Text(str(R.string.account_ui_private_import), fontSize = 12.sp, lineHeight = 18.sp)
                         }
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp).padding(top = 2.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.your_youtube_sign_in_stays_on_this_devic),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
+                AccountPanel {
+                    Row(verticalAlignment = Alignment.Top) {
+                        AccountGlyph(Icons.Default.Security)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(str(R.string.account_ui_device_auth), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(str(R.string.your_youtube_sign_in_stays_on_this_devic), fontSize = 12.sp,
+                                lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                if (signedIn) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AccountAction(str(R.string.switch_account), Icons.Default.SwapHoriz,
+                            onClick = { isSigningIn = true }, modifier = Modifier.heightIn(min = 52.dp))
+                        OutlinedButton(
+                            onClick = { signOutOfYouTube() },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            shape = AccountButtonShape,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ExitToApp, null, modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+                            Spacer(Modifier.width(8.dp))
+                            Text(str(R.string.sign_out_of_youtube), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                } else {
+                    AccountAction(str(R.string.sign_in_to_youtube), Icons.Default.PlayArrow,
+                        onClick = { isSigningIn = true })
                 }
             }
         }
     }
 }
 
-
-
 /** Forgets the session and removes YouTube/Google cookies without touching other WebView cookies. */
-private fun signOutOfYouTube() {
+internal fun signOutOfYouTube() {
     YouTubeSession.signOut()
     val manager = CookieManager.getInstance()
     for (site in listOf("https://music.youtube.com", "https://www.youtube.com", "https://accounts.google.com", "https://www.google.com")) {

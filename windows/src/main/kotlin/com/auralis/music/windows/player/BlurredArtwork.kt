@@ -39,7 +39,13 @@ internal fun decodeArtwork(url: String): BufferedImage? = runCatching {
     else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
         .newCall(Request.Builder().url(url).build()).execute().use { response ->
             check(response.isSuccessful)
-            response.body?.byteStream()?.use(ImageIO::read)
+            response.body?.bytes()?.let { bytes ->
+                org.jetbrains.skia.Image.makeFromEncoded(bytes).use { image ->
+                    image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)?.use { png ->
+                        ImageIO.read(png.bytes.inputStream())
+                    }
+                }
+            }
         }
 }.getOrNull()
 
@@ -77,7 +83,15 @@ internal fun rememberBlurredArtwork(artwork: String?, blurFraction: Float): Stat
     val cached = remember { mutableStateOf(artwork?.let { blurredCache[blurredKey(it, blurFraction)] }) }
     LaunchedEffect(artwork, blurFraction) {
         if (artwork == null) cached.value = null
-        else loadBlurredArtwork(artwork, blurFraction)?.let { cached.value = it }
+        else {
+            var attempt = 0
+            while (true) {
+                val loaded = loadBlurredArtwork(artwork, blurFraction)
+                if (loaded != null) { cached.value = loaded; break }
+                kotlinx.coroutines.delay(minOf(30_000L, 1000L shl attempt.coerceAtMost(5)))
+                attempt++
+            }
+        }
     }
     return cached
 }

@@ -145,6 +145,7 @@ fun ImportPlaylistsScreen(
                 Text("Import playlists", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.Bold)
                 IconButton(onDismiss, Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Close") }
             }
+            com.auralis.music.ui.library.PlaylistImportSyncToggle()
             Text("Bring your music into Auralis.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .08f)).padding(4.dp)) {
                 listOf("Accounts", "By link").forEachIndexed { index, label ->
@@ -223,6 +224,7 @@ fun ImportPlaylistsScreen(
                 .padding(horizontal = 12.dp)
         ) {
             ImportHeader(onDismiss = onDismiss)
+            com.auralis.music.ui.library.PlaylistImportSyncToggle()
 
             Spacer(Modifier.height(14.dp))
 

@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -51,23 +52,33 @@ import com.auralis.music.ui.lyrics.LyricsIntervalIndicator
 import com.auralis.music.ui.lyrics.instrumentalBreakWindows
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.lyrics.presentationWordTimestamps
+import com.auralis.music.ui.lyrics.smoothCenterLyric
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 
 /** Compact sidebar layout using the same genuine word timing and renderer as the full player. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs, lineGap: androidx.compose.ui.unit.Dp = 0.dp) {
+internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs, lineGap: androidx.compose.ui.unit.Dp = 0.dp,
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()) {
     val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
     CompositionLocalProvider(LocalAppearanceSettings provides settings) {
-    SidebarLyricsContent(lyrics, position, onSeek, durationMs, lineGap)
+    SidebarLyricsContent(lyrics, position, onSeek, durationMs, lineGap, listState)
     }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?, lineGap: androidx.compose.ui.unit.Dp) {
+private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?, lineGap: androidx.compose.ui.unit.Dp,
+    list: androidx.compose.foundation.lazy.LazyListState) {
     val appearance = LocalAppearanceSettings.current
+    val popupControlsInset = LocalMiniPopupControlsInset.current
     val mode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
     val lines = remember(lyrics) {
         lyrics?.lines?.takeIf { it.isNotEmpty() }
@@ -80,6 +91,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         return
     }
     val synced = lyrics?.syncType != SyncType.PLAIN
+    val spicyVocalTimeline = remember(lines) { com.auralis.music.ui.lyrics.SpicyVocalTimeline(lines) }
     // Duets: each singer's lines keep to their side, as in the full player.
     val speakerStyles = remember(lines, appearance.lyricsAnimation) {
         com.auralis.music.ui.lyrics.MetroSpeakerLayout.forAppearance(lines, appearance)
@@ -91,7 +103,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         // Fullscreen keeps the current phrase lit through ordinary breaths, without
         // extending any word timestamps. Preserve its paired lead/background display too.
         if (synced && mode == LyricsAnimationMode.SPICY_LYRICS) {
-            com.auralis.music.ui.lyrics.SpicyLyricsPresentation.activeIndices(lines, position.value)
+            spicyVocalTimeline.activeIndices(position.value)
         } else if (synced) {
             val visual = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, position.value)
             visual.toMutableSet().apply {
@@ -102,11 +114,14 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         } else emptySet()
     } }
     // Same intro countdown the full player shows before the first synced line.
-    val introDurationMs = if (synced) lines.first().time.takeIf { it >= 1500L } ?: 0L else 0L
+    val introDurationMs = if (synced) (lines.firstOrNull { mode != LyricsAnimationMode.SPICY_LYRICS || !it.isBackground }?.time ?: 0L).takeIf {
+        it >= if (mode == LyricsAnimationMode.SPICY_LYRICS) com.auralis.music.ui.lyrics.SPICY_INTERLUDE_MINIMUM_MS else 1500L
+    } ?: 0L else 0L
     val introActive by remember(introDurationMs) { derivedStateOf { introDurationMs > 0L && position.value < introDurationMs } }
     val introTime = remember { derivedStateOf { position.value.coerceAtLeast(0L) } }
-    val breaks = remember(lines, synced, durationMs) {
-        if (synced) instrumentalBreakWindows(lines, durationMs) else emptyMap()
+    val breaks = remember(lines, synced, durationMs, mode) {
+        if (!synced) emptyMap() else if (mode == LyricsAnimationMode.SPICY_LYRICS)
+            com.auralis.music.ui.lyrics.spicyInterludeWindows(lines) else instrumentalBreakWindows(lines, durationMs)
     }
     val activeBreak by remember(breaks) { derivedStateOf {
         breaks.entries.firstOrNull { position.value >= it.value.first && position.value < it.value.second }?.key
@@ -117,48 +132,62 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         if (anchor < 0) 0 else anchor + breaks.keys.count { it < anchor } +
             (if (introDurationMs > 0L) 1 else 0) + (if (activeBreak != null) 1 else 0)
     } }
-    val list = rememberLazyListState()
+    val rowHeights = remember(lines, breaks) { mutableMapOf<Int, Int>() }
+    val followingMotion = remember(lines) { com.auralis.music.ui.lyrics.LyricsScrollSpring() }
+    val rowGapPx = with(androidx.compose.ui.platform.LocalDensity.current) { lineGap.roundToPx() }
     var manualScroll by remember { mutableLongStateOf(0L) }
+    var followingScrollJob by remember { mutableStateOf<Job?>(null) }
+    val followingScope = rememberCoroutineScope()
+    val beginManualScroll: () -> Unit = {
+        followingScrollJob?.cancel()
+        followingMotion.reset()
+        manualScroll = System.currentTimeMillis()
+    }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(scrollTarget, manualScroll, lines, breaks, appearance.autoScrollLyrics) {
-        if (!appearance.autoScrollLyrics) return@LaunchedEffect
-        val remaining = 3000L - (System.currentTimeMillis() - manualScroll)
-        if (remaining > 0) delay(remaining)
-        val offset = -(list.layoutInfo.viewportSize.height * .30f).toInt()
-        // A far jump lands at once; animating across most of the song is what left it adrift.
-        if (kotlin.math.abs(scrollTarget - list.firstVisibleItemIndex) > 8) list.scrollToItem(scrollTarget, offset)
-        else list.animateScrollToItem(scrollTarget, offset)
-    }
-    // Self-correcting: the line being sung is always back on screen within a second of the user
-    // leaving the list alone (it was left showing the song's end after closing the full player).
     LaunchedEffect(lines, breaks, appearance.autoScrollLyrics) {
         if (!appearance.autoScrollLyrics) return@LaunchedEffect
-        while (true) {
-            delay(1000L)
-            if (System.currentTimeMillis() - manualScroll < 3000L || list.isScrollInProgress) continue
-            val target = scrollTarget
-            val height = list.layoutInfo.viewportSize.height
-            val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target }
-            // Off screen, or pushed far from its place (the card's upper third, e.g. at the bottom).
-            if (item == null) list.scrollToItem(target, -(height * .30f).toInt())
-            else if (kotlin.math.abs(item.offset - height * .30f) > height * .25f &&
-                // The last lines can't reach the upper third: only move when the list can.
-                (if (item.offset > height * .30f) list.canScrollForward else list.canScrollBackward))
-                list.animateScrollToItem(target, -(height * .30f).toInt())
+        var firstAnchor = true
+        snapshotFlow { Triple(scrollTarget, manualScroll, list.layoutInfo.viewportSize) }
+            .distinctUntilChanged().collectLatest { (target, lastInput, viewport) ->
+            followingScrollJob?.cancel()
+            val remaining = 1500L - (System.currentTimeMillis() - lastInput)
+            if (remaining > 0) delay(remaining)
+            snapshotFlow { list.isScrollInProgress }.first { !it }
+            if (viewport.height <= 0) return@collectLatest
+            val motion = followingScope.launch {
+            val offset = -(viewport.height * .30f).toInt()
+            if (firstAnchor && lastInput == 0L) {
+                list.scrollToItem(target, offset)
+                withFrameNanos { }
+                val info = list.layoutInfo
+                info.visibleItemsInfo.firstOrNull { it.index == target }?.let { item ->
+                    val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * .30f
+                    list.scroll { scrollBy(item.offset + item.size / 2f - anchor) }
+                }
+            } else list.smoothCenterLyric(target, .30f, rowHeights, followingMotion)
+            firstAnchor = false
+            }
+            followingScrollJob = motion
+            try { motion.join() } finally { motion.cancel() }
         }
     }
     Column(Modifier.fillMaxSize()) {
-    Box(Modifier.weight(1f).hoverable(hover)) {
-        LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+    BoxWithConstraints(Modifier.weight(1f).hoverable(hover)) {
+        // Let the same anchor be reachable at the first and final phrase too;
+        // eight pixels of padding pinned those rows against the viewport edges.
+        LazyColumn(state = list, contentPadding = PaddingValues(start = 8.dp, end = 8.dp,
+                top = maxHeight * .30f, bottom = maxHeight * .70f),
             verticalArrangement = Arrangement.spacedBy(lineGap),
             modifier = Modifier.fillMaxSize()
-                .onPointerEvent(PointerEventType.Scroll) { manualScroll = System.currentTimeMillis() }
+                .then(lyricsWheelScroll(list, beginManualScroll))
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
+                    drawRect(Color.Transparent, blendMode = BlendMode.Clear)
                     drawContent()
+                    val lyricBottom = (size.height - (popupControlsInset?.value?.toPx() ?: 0f)).coerceAtLeast(1f)
                     drawRect(Brush.verticalGradient(0f to Color.Transparent, .04f to Color.Black,
-                        .80f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+                        .80f to Color.Black, 1f to Color.Transparent, endY = lyricBottom), blendMode = BlendMode.DstIn)
                 }) {
             if (introDurationMs > 0L) item(key = "intro") {
                 androidx.compose.animation.AnimatedVisibility(introActive, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -175,31 +204,50 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 val focus = if (active >= 0) active else 0
                 // Every lyrics style, as in the full player (it was Metro only, so the setting did nothing here).
                 val distance = if (synced) kotlin.math.abs(index - focus) else 0
-                SidebarLyricLine(line.text, activeBreak == null && index in highlighted, synced,
-                    onClick = { if (synced) { manualScroll = 0; onSeek(line.time) } },
+                val listIndex = index + breaks.keys.count { it < index } + if (introDurationMs > 0L) 1 else 0
+                Box(Modifier.onSizeChanged { rowHeights[listIndex] = it.height + rowGapPx }) {
+                SidebarLyricLine(line.text, (activeBreak == null || mode == LyricsAnimationMode.SPICY_LYRICS) && index in highlighted, synced,
+                    onClick = { if (synced) { followingMotion.reset(); manualScroll = 0; onSeek(line.time) } },
                     line = line, position = position, syncType = lyrics?.syncType ?: SyncType.PLAIN,
                     blur = if (!appearance.standardLyricsBlur) 0.dp else (distance * 1.5f).coerceAtMost(4.5f).dp,
                     nextLineTime = lines.getOrNull(index + 1)?.time,
                     speakerSide = speakerStyles?.getOrNull(index)?.side)
+                }
               }
               breaks[index]?.let { (start, end) ->
                 item(key = "break-$start-$end") {
-                    LyricsIntervalIndicator(start, end, position.value,
-                        visible = position.value >= start && position.value < end,
-                        isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS,
-                        dotsAlignment = Alignment.Start, dotSize = 12.dp, compact = true,
-                        modifier = Modifier.padding(horizontal = 10.dp),
+                    SidebarRestIndicator(start, end, position, mode,
                         onSkip = { if (appearance.changeLyricsOnTap) { manualScroll = 0; onSeek(end) } })
                 }
               }
             }
-            item { Spacer(Modifier.height(80.dp)) }
         }
         if (hovered) VerticalScrollbar(rememberScrollbarAdapter(list),
             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 16.dp).width(5.dp))
     }
-    com.auralis.music.ui.lyrics.LyricsCredits(lyrics, Modifier.padding(horizontal = 8.dp), compact = true)
+    // Linked credits have a larger touch target than a plain provider label. Reserve a
+    // fixed footer and align its first line at the top, so removing Spicy's link cannot
+    // move the provider down or make the lyric viewport grow by eight pixels.
+    Box(Modifier.fillMaxWidth().height(36.dp).offset {
+        androidx.compose.ui.unit.IntOffset(0, -(popupControlsInset?.value?.roundToPx() ?: 0))
+    }.padding(horizontal = 8.dp), contentAlignment = Alignment.TopStart) {
+        com.auralis.music.ui.lyrics.LyricsCredits(lyrics, compact = true)
     }
+    }
+}
+
+/** Keep the frame-rate clock read out of the LazyColumn's item composition. */
+@Composable
+private fun SidebarRestIndicator(start: Long, end: Long, position: State<Long>, mode: LyricsAnimationMode, onSkip: () -> Unit) {
+    val visible by remember(start, end, position) { derivedStateOf { position.value in start until end } }
+    val indicatorPosition by remember(start, end, position) {
+        derivedStateOf { position.value.coerceIn(start - 300L, end + 1L) }
+    }
+    // Retain the indicator across its exit so its existing fade/shrink can finish.
+    LyricsIntervalIndicator(start, end, indicatorPosition, visible = visible,
+        isMetroLyrics = mode == LyricsAnimationMode.METRO_LYRICS,
+        dotsAlignment = Alignment.Start, dotSize = 12.dp, compact = true,
+        modifier = Modifier.padding(horizontal = 10.dp), onSkip = onSkip)
 }
 
 @Composable
@@ -254,10 +302,14 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
                 end = if (speakerSide == com.auralis.music.ui.lyrics.MetroSpeakerSide.START) sideInset else 0.dp)
             .graphicsLayer {
                 // Hover changes drawing properties, keeping text layout and the layer stable.
+                compositingStrategy = CompositingStrategy.Offscreen
                 this.alpha = alpha.value
                 val radius = blurAmount.value.toPx()
                 renderEffect = if (radius > .1f) BlurEffect(radius, radius, TileMode.Decal) else null
                 clip = false
+            }.drawWithContent {
+                drawRect(Color.Transparent, blendMode = BlendMode.Clear)
+                drawContent()
             }) {
         val textSize = LocalAppearanceSettings.current.lyricsTextSize * (24f / 22f) * if (isSpicy && line?.isBackground == true) .70f else 1f
         val lineHeight = textSize * LocalAppearanceSettings.current.lyricsLineSpacing * if (isSpicy) (1.1818182f / 1.3f) else 1f
@@ -271,6 +323,7 @@ internal fun SidebarLyricLine(text: String, active: Boolean, synced: Boolean, on
             com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(line.copy(text = text),
                 words = if (syncType == SyncType.RICHSYNC) line.words else null,
                 positionMs = position, style = lyricStyle, isActive = active,
+                nextLineTime = nextLineTime,
                 inactiveColor = Color.White.copy(alpha = if (!started) .35f else if (line.isBackground) 1f else .85f))
         } else if (synced && line != null && position != null && animationMode == LyricsAnimationMode.FLUID) {
             FluidLyricLine(line!!.copy(text = text),

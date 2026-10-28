@@ -3,7 +3,7 @@ package com.auralis.music.domain.model
 data class AppearanceSettings(
     // ── Theme ──
     val highRefreshRate: Boolean = true,
-    val landscapeScaling: Boolean = false,
+    val landscapeScaling: Boolean = true,
     val dynamicTheme: Boolean = true,
     val dynamicIconColors: Boolean = true,
     val appTheme: String = "Follow system",
@@ -15,11 +15,11 @@ data class AppearanceSettings(
     val miniPlayerDesign: String = "New mini player",
     val pureBlackMiniPlayer: Boolean = false,
     val newMiniPlayerDesign: Boolean = true,
-    val miniPlayerBackgroundStyle: String = "Blur",
+    val miniPlayerBackgroundStyle: String = "Live Mesh",
 
     // ── Player ──
-    val playerDesign: String = "New player",
-    val newPlayerDesign: Boolean = true,
+    val playerDesign: String = "Old player",
+    val newPlayerDesign: Boolean = false,
     val playerBackgroundStyle: String = "Blur",
     val hidePlayerThumbnail: Boolean = false,
     val cropAlbumArt: Boolean = true,
@@ -39,7 +39,7 @@ data class AppearanceSettings(
     val changeLyricsOnTap: Boolean = true,
     val autoScrollLyrics: Boolean = true,
     val hideStatusBarOnFullscreen: Boolean = false,
-    val lyricsAnimation: String = LyricsAnimationMode.METRO_LYRICS.displayName,
+    val lyricsAnimation: String = LyricsAnimationMode.SPICY_LYRICS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
     val standardLyricsBlur: Boolean = true,
     val lyricsTextSize: Float = 22f,
@@ -49,7 +49,7 @@ data class AppearanceSettings(
     val defaultOpenTab: String = "Home",
     val defaultLibraryChip: String = "Library",
     val swipeLeftQueueRightPlayNext: Boolean = true,
-    val swipeToRemoveSongFromPlaylist: Boolean = true,
+    val swipeToRemoveSongFromPlaylist: Boolean = false,
     val slimBottomNavigationBar: Boolean = false,
     val listenTogetherInTopBar: Boolean = true,
     val gridCellSize: String = "Small",
@@ -58,9 +58,9 @@ data class AppearanceSettings(
     // ── Auto playlists ──
     val showLikedPlaylist: Boolean = true,
     val showDownloadedPlaylist: Boolean = true,
-    val showTopPlaylist: Boolean = true,
-    val showWeeklyMostPlaylist: Boolean = true,
-    val showMonthlyMostPlaylist: Boolean = true,
+    val showTopPlaylist: Boolean = false,
+    val showWeeklyMostPlaylist: Boolean = false,
+    val showMonthlyMostPlaylist: Boolean = false,
     val showCachedPlaylist: Boolean = true,
     val showUploadedPlaylist: Boolean = true
 ) {

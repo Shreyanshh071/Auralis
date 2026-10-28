@@ -9,13 +9,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.AudioStream
@@ -41,7 +36,7 @@ object DesktopStreamResolver {
     private const val EXTRACTION_BUDGET_MS = 15000L
     private const val MAX_ATTEMPTS = 2
     /** How long one extraction may take before another starts beside it. */
-    private const val HEDGE_MS = 2500L
+    private const val HEDGE_MS = 1200L
     private const val MAX_PARALLEL = 3
     // libVLC sends this user agent too (VlcAudioPlayer).
     private const val PROBE_USER_AGENT =
@@ -119,10 +114,10 @@ object DesktopStreamResolver {
     suspend fun resolve(videoId: String): String? {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
         if (!DesktopPlaybackMatch.isVideoId(target)) return null
-        cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L) return it.url }
+        cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L && !hostBlocked(it.url)) return it.url }
         val created = lookups.async(start = CoroutineStart.LAZY) { lookUp(target) }
         val shared = inFlight.putIfAbsent(target, created)
-        if (shared != null) return shared.await()
+        if (shared != null) { created.cancel(); return shared.await() }
         created.invokeOnCompletion { inFlight.remove(target, created) }
         created.start()
         return created.await()
@@ -167,12 +162,14 @@ object DesktopStreamResolver {
                     val host = hostOf(url)
                     Log.w(TAG, "Stream for $target refused (HTTP 403) from $host on attempt $attempt; trying alternate stream")
                     markHostFailed(url)
-                } else {
+                } else if (DesktopStreamProbe.playable(status)) {
                     val host = hostOf(url)
                     val client = Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1)
                     Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (extract ${extractMs}ms, check ${probeMs}ms; attempt $attempt, check $status, itag ${stream.itag} ${stream.format?.mimeType} from $host client $client)")
                     cache[target] = Cached(url, expiryOf(url))
                     return@withContext url
+                } else {
+                    Log.w(TAG, "Stream for $target failed its audio check ($status); trying alternate stream")
                 }
             }
         }
@@ -187,38 +184,11 @@ object DesktopStreamResolver {
      * starts beside it (up to [MAX_PARALLEL]), and the first good answer wins; a failed one is
      * replaced at once rather than after it ends the whole attempt.
      */
-    private suspend fun extractHedged(target: String): List<AudioStream>? = coroutineScope {
-        val answers = Channel<List<AudioStream>>(Channel.UNLIMITED)
-        var started = 0
-        var answered = 0
-        fun startOne() {
-            started++
-            launch(Dispatchers.IO) { answers.send(runInterruptible { extractStreams(target) }.orEmpty()) }
-        }
-        val deadline = System.currentTimeMillis() + EXTRACTION_BUDGET_MS
-        startOne()
-        val result = run {
-            while (answered < started) {
-                val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) return@run null
-                val wait = if (started < MAX_PARALLEL) minOf(HEDGE_MS, remaining) else remaining
-                val received = withTimeoutOrNull(wait) { answers.receive() }
-                if (received == null) {
-                    // Nothing back in time: let another extraction run beside the slow one.
-                    if (started < MAX_PARALLEL) { Log.d(TAG, "Extraction for $target is slow; starting another"); startOne() }
-                    continue
-                }
-                answered++
-                if (received.isNotEmpty()) return@run received
-                if (ageRestricted.containsKey(target)) return@run null
-                // This one failed: replace it straight away while there is budget for more.
-                if (started < MAX_PARALLEL) startOne()
-            }
-            null
-        }
-        coroutineContext.cancelChildren()
-        result
-    }
+    private suspend fun extractHedged(target: String): List<AudioStream>? = hedgedStreamLookup(
+        workers = lookups, hedgeMs = HEDGE_MS, budgetMs = EXTRACTION_BUDGET_MS, maxAttempts = MAX_PARALLEL,
+        stop = { ageRestricted.containsKey(target) },
+        onHedge = { Log.d(TAG, "Extraction for $target is slow; starting another") }
+    ) { runInterruptible { extractStreams(target) }?.takeIf { it.isNotEmpty() } }
 
     private fun extractStreams(target: String): List<AudioStream>? = try {
         ensureInitialized()
@@ -238,24 +208,8 @@ object DesktopStreamResolver {
     }
 
     /** HTTP status for the first two bytes of [url]; -1 when the check itself couldn't run. */
-    private fun probe(url: String): Int = try {
-        // The check fetches the song's first relay block rather than two bytes: the same round
-        // trip, and the relay starts from it instead of asking YouTube for it again.
-        val request = okhttp3.Request.Builder()
-            .url(url)
-            .header("User-Agent", PROBE_USER_AGENT)
-            .header("Range", "bytes=0-${LocalStreamRelay.FIRST_BLOCK_BYTES - 1}")
-            .header("Accept-Encoding", "identity")
-            .build()
-        probeClient.newCall(request).execute().use { response ->
-            if (response.code == 206 && response.header("Content-Range")?.startsWith("bytes 0-") == true) {
-                runCatching { response.body?.bytes() }.getOrNull()?.let { LocalStreamRelay.offerFirstBlock(url, it) }
-            }
-            response.code
-        }
-    } catch (e: Exception) {
-        -1
-    }
+    private fun probe(url: String): Int = DesktopStreamProbe.check(
+        probeClient, url, PROBE_USER_AGENT, LocalStreamRelay::offerFirstBlock)
 
     private val probeClient by lazy {
         com.auralis.music.data.network.NetworkClientProvider.okHttpClient.newBuilder()

@@ -327,7 +327,8 @@ class GoogleAccountSyncManager(
                     backupAfter = true
                 } else {
                     val cloud = com.auralis.music.data.sync.CloudLibrary.parse(docSnap.data.orEmpty())
-                    val restored = com.auralis.music.data.sync.AccountLibraryRestore.apply(libraryRepository, cloud, inTransaction)
+                    val restored = com.auralis.music.data.sync.AccountLibraryRestore.apply(libraryRepository, cloud, inTransaction,
+                        com.auralis.music.data.playlistsync.AndroidPlaylistSync.protectedPlaylistIds(context))
                     rememberAccountItems(uid, restored.addedPlaylistIds, restored.addedFavoriteIds)
                     android.util.Log.d("CloudSync", "[CloudSync] Restored ${restored.playlists} playlists and ${restored.liked} favorites for user $uid in one pass")
 
@@ -744,6 +745,7 @@ class GoogleAccountSyncManager(
         )
         _userProfile.value = reset
         _remotePlaylists.value = emptyList()
+        _isSyncing.value = false
         persistProfile(reset)
         prefs.edit().putBoolean("has_completed_onboarding", false).apply()
         try {

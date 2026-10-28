@@ -75,9 +75,15 @@ internal object GameOverlayOptOut {
         return call(0x73BF8338, handle, profile, OVERLAY_SETTING, setting) == 0 && setting.getInt(SETTING_CURRENT) == NOT_A_GAME
     }
 
+    private fun Session.frameSync(profile: Pointer): Int? {
+        val setting = struct(SETTING_SIZE)
+        return if (call(0x73BF8338, handle, profile, NvidiaFramePresentation.SETTING, setting) == 0)
+            setting.getInt(SETTING_CURRENT) else null
+    }
+
     /** True when an NVIDIA driver is present and Auralis.exe isn't marked yet (read only). */
     private fun nvidiaNeeded(): Boolean = runCatching {
-        session { s -> s.profile()?.let { !s.flagSet(it) } ?: true } ?: false
+        session { s -> s.profile()?.let { !s.flagSet(it) || NvidiaFramePresentation.repair(s.frameSync(it)) != null } ?: true } ?: false
     }.getOrDefault(false)
 
     /** RivaTuner's profile for Auralis.exe, when RivaTuner is installed. */
@@ -145,13 +151,19 @@ internal object GameOverlayOptOut {
                 check(s.call(0x4347A9DE, s.handle, profile, application) == 0) { "Application not added" }
                 profile
             }
-            if (s.flagSet(profile)) return@session 0
-            val setting = struct(SETTING_SIZE).apply { setInt(SETTING_ID, OVERLAY_SETTING); setInt(SETTING_CURRENT, NOT_A_GAME) }
-            val set = s.call(0x577DD202, s.handle, profile, setting)
-            check(set == 0) { "Setting not set (NVAPI status $set)" }
+            val changes = buildMap {
+                if (!s.flagSet(profile)) put(OVERLAY_SETTING, NOT_A_GAME)
+                NvidiaFramePresentation.repair(s.frameSync(profile))?.let { put(NvidiaFramePresentation.SETTING, it) }
+            }
+            if (changes.isEmpty()) return@session 0
+            for ((id, value) in changes) {
+                val setting = struct(SETTING_SIZE).apply { setInt(SETTING_ID, id); setInt(SETTING_CURRENT, value) }
+                val set = s.call(0x577DD202, s.handle, profile, setting)
+                check(set == 0) { "Auralis driver setting not set (NVAPI status $set)" }
+            }
             val saved = s.call(0xFCBC7E14.toInt(), s.handle)
             check(saved == 0) { "Settings not saved (NVAPI status $saved)" }
-            Log.i(TAG, "NVIDIA overlay marked off for $EXE")
+            Log.i(TAG, "NVIDIA app-specific rendering profile updated for $EXE")
             0
         } ?: 0
     }.onFailure { Log.w(TAG, "NVIDIA overlay change failed: ${it.message}") }.getOrDefault(1)

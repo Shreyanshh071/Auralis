@@ -16,6 +16,60 @@ import javax.imageio.ImageIO
 import kotlin.test.*
 
 class PlayerBackgroundStartupTest {
+    @Test fun webpCoverLoadsForBothBlurredBackgroundAndPalette() {
+        val bitmap = org.jetbrains.skia.Bitmap().apply {
+            allocN32Pixels(16, 16)
+            erase(0xFF8C40AA.toInt())
+        }
+        val bytes = org.jetbrains.skia.Image.makeFromBitmap(bitmap).use { image ->
+            image.encodeToData(EncodedImageFormat.WEBP)!!.use { it.bytes }
+        }
+        bitmap.close()
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/cover.webp") { exchange ->
+            exchange.responseHeaders.add("Content-Type", "image/webp")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/cover.webp"
+            assertNotNull(decodeArtwork(url), "WebP must decode for the browsing background")
+            val palette = com.auralis.music.windows.settings.loadAndExtractPalette(url)
+            assertFalse(palette.isDefault, "WebP must also produce the sidebar's album palette")
+        } finally { server.stop(0) }
+    }
+
+    @Test fun returningUserHasColoursBeforeArtworkLoadsWhileNewUserStaysNeutral() {
+        val palette = com.auralis.music.ui.theme.ArtworkPalette(
+            androidx.compose.ui.graphics.Color(0xFF8C40AA),
+            androidx.compose.ui.graphics.Color(0xFF8C40AA),
+            androidx.compose.ui.graphics.Color(0xFF8C40AA)
+        )
+        fun pixel(artwork: String?): Int {
+            val scene = ImageComposeScene(320, 180, coroutineContext = Dispatchers.Unconfined) {
+                androidx.compose.material3.MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme()) {
+                    ArtworkAppBackground(artwork, palette) {}
+                }
+            }
+            return try {
+                val bytes = scene.render(0L).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes } }
+                val name = if (artwork == null) "new-user" else "returning-user"
+                File("build/screens/player-background-startup/$name.png").apply { parentFile.mkdirs(); writeBytes(bytes) }
+                ImageIO.read(bytes.inputStream()).getRGB(160, 90)
+            } finally { scene.close() }
+        }
+        val returning = pixel("file:///missing-auralis-cover.png")
+        val red = returning ushr 16 and 255
+        val green = returning ushr 8 and 255
+        val blue = returning and 255
+        assertTrue(red > green + 30 && blue > green + 40,
+            "Saved album colours must render before the image loads: $red,$green,$blue")
+        val fresh = pixel(null)
+        assertTrue(kotlin.math.abs((fresh ushr 16 and 255) - (fresh and 255)) < 20,
+            "A user who has never played music should retain the neutral background")
+    }
+
     private fun purpleCover(): File {
         val directory = File("build/screens/player-background-startup").apply { mkdirs() }
         val file = File.createTempFile("purple-", ".png", directory)

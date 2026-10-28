@@ -74,7 +74,7 @@ fun Modifier.clickable(
 ): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     TrackHover(source, enabled)
-    foundationClickable(source, LocalIndication.current, enabled, onClickLabel, role, onClick)
+    foundationClickable(source, SmoothHoverIndication, enabled, onClickLabel, role, onClick)
 }
 
 fun Modifier.clickable(
@@ -98,7 +98,7 @@ fun Modifier.toggleable(
 ): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     TrackHover(source, enabled)
-    foundationToggleable(value, source, LocalIndication.current, enabled, role, onValueChange)
+    foundationToggleable(value, source, SmoothHoverIndication, enabled, role, onValueChange)
 }
 
 fun Modifier.toggleable(
@@ -122,7 +122,7 @@ fun Modifier.selectable(
 ): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     TrackHover(source, enabled)
-    foundationSelectable(selected, source, LocalIndication.current, enabled, role, onClick)
+    foundationSelectable(selected, source, SmoothHoverIndication, enabled, role, onClick)
 }
 
 fun Modifier.selectable(

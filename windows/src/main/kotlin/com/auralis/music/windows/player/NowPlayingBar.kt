@@ -100,15 +100,19 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                 .padding(vertical = 6.dp)
         ) {
             DesktopArtwork(track?.thumbnail, Modifier.size(56.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
-                .clickable(enabled = track != null, onClick = onOpenPlayer), 10.dp, "Open player")
+                .clickable(enabled = track != null, onClick = onOpenPlayer).coverExpandCue(), 10.dp, "Open player")
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f, fill = false)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     track?.title ?: "Nothing playing",
+                    modifier = Modifier.weight(1f, fill = false),
                     style = MaterialTheme.typography.titleMedium,
                     color = if (track != null) colors.onSurface else colors.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
+                if (track != null) PlayerPlaylistButton(track)
+                }
                 if (track != null) {
                     Text(
                         track.artist,
@@ -204,7 +208,13 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             }
             Box {
                 var devices by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
-                IconButton(onClick = { devices = controller.outputDevices() }, modifier = Modifier.size(34.dp)) {
+                androidx.compose.runtime.LaunchedEffect(devices != null) {
+                    while (devices != null) {
+                        devices = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { controller.outputDevices() }
+                        kotlinx.coroutines.delay(2_000L)
+                    }
+                }
+                IconButton(onClick = { devices = emptyList() }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.Headphones, desktopText("Sound output"), tint = iconTint, modifier = Modifier.size(20.dp))
                 }
                 com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }, frosted = true) {
@@ -212,9 +222,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                     val chosen = controller.outputDevice
                     // libVLC lists Windows' default as an empty id; show it as "Windows default".
                     devices.orEmpty().forEach { (id, name) ->
-                        val selected = if (chosen == null) id.isEmpty() else id == chosen
+                        val selected = if (chosen == null || devices.orEmpty().none { it.first == chosen }) id.isEmpty() else id == chosen
                         com.auralis.music.windows.GlassDropdownMenuItem(
-                            text = { Text(if (id.isEmpty()) "Windows default" else name, maxLines = 1) },
+                            text = { Text(name, maxLines = 2) },
                             leadingIcon = {
                                 val isHeadphones = name.contains("headphone", ignoreCase = true) || name.contains("buds", ignoreCase = true) || name.contains("airpod", ignoreCase = true)
                                 Icon(
@@ -228,7 +238,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                             onClick = { controller.setOutputDevice(id.ifEmpty { null }); devices = null }
                         )
                     }
-                    if (devices.isNullOrEmpty()) com.auralis.music.windows.GlassDropdownMenuItem(text = { Text(desktopText("No outputs found")) }, onClick = { devices = null }, enabled = false)
+                    if (devices.isNullOrEmpty()) com.auralis.music.windows.GlassDropdownMenuItem(text = { Text(desktopText("Loading…")) }, onClick = {}, enabled = false)
                 }
             }
             IconButton(onClick = onOpenLyrics, enabled = track != null, modifier = Modifier.size(34.dp)) {
