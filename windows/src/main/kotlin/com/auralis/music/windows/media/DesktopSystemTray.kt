@@ -3,31 +3,50 @@ package com.auralis.music.windows.media
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
 import java.awt.*
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.imageio.ImageIO
 
 /** Uses Windows' native tray through AWT; never stops audio when hidden. */
-internal class DesktopSystemTray(private val onOpen: () -> Unit, private val onQuit: () -> Unit) : AutoCloseable {
+internal class DesktopSystemTray(
+    private val onOpen: () -> Unit,
+    private val onQuit: () -> Unit,
+    private val pointerLocation: () -> Point? = { MouseInfo.getPointerInfo()?.location }
+) : AutoCloseable {
     private var icon: TrayIcon? = null
+    private var menu: DesktopTrayMenu? = null
     val available get() = icon != null
     fun install() {
         check(EventQueue.isDispatchThread())
+        if (available) return
         if (!SystemTray.isSupported()) return
         runCatching {
             val image = trayImage() ?: return
-            val menu = PopupMenu().apply {
-                add(MenuItem("Open Auralis").apply { addActionListener { onOpen() } })
-                addSeparator()
-                add(MenuItem("Quit Auralis").apply { addActionListener { onQuit() } })
+            val popup = DesktopTrayMenu(onOpen, onQuit)
+            menu = popup
+            fun showMenu(e: MouseEvent) {
+                if (!e.isPopupTrigger) return
+                // Windows tray events use physical pixels. MouseInfo supplies AWT's logical
+                // screen coordinates, matching JWindow even at 125/150% or mixed monitor DPI.
+                popup.showAt(pointerLocation() ?: e.locationOnScreen)
             }
-            val tray = TrayIcon(image, "Auralis", menu).apply {
+            val tray = TrayIcon(image, "Auralis").apply {
                 // The multi-resolution tile supplies each tray size; AWT's own resize blurs it.
                 isImageAutoSize = false
-                addActionListener { onOpen() }
+                addActionListener { popup.dismiss(); onOpen() }
+                addMouseListener(object : MouseAdapter() {
+                    override fun mousePressed(e: MouseEvent) = showMenu(e)
+                    override fun mouseReleased(e: MouseEvent) = showMenu(e)
+                })
             }
             SystemTray.getSystemTray().add(tray)
             icon = tray
             Log.i("AuralisTray", "Windows tray installed")
-        }.onFailure { Log.w("AuralisTray", "Tray unavailable: ${it.message}") }
+        }.onFailure {
+            menu?.close()
+            menu = null
+            Log.w("AuralisTray", "Tray unavailable: ${it.message}")
+        }
     }
     /**
      * The Auralis tile drawn for each tray size, with the knot smaller than in the taskbar tiles
@@ -42,6 +61,8 @@ internal class DesktopSystemTray(private val onOpen: () -> Unit, private val onQ
         return java.awt.image.BaseMultiResolutionImage(tiles.indexOfFirst { it.width >= base }.coerceAtLeast(0), *tiles.toTypedArray())
     }
     override fun close() {
+        menu?.close()
+        menu = null
         icon?.let { SystemTray.getSystemTray().remove(it) }
         icon = null
     }
