@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MiniPlayerBackgroundsTest {
+    @Test fun `every chosen background is independent of the global glass theme`() {
+        for (key in MiniPlayerBackgrounds.options + "Apple Music") {
+            val settings = com.auralis.music.domain.model.AppearanceSettings(miniPlayerBackgroundStyle = key)
+            val expected = when {
+                MiniPlayerBackgrounds.isFrosted(key) -> MiniPlayerBackgrounds.Surface.FROSTED
+                PlayerBackgroundStyle.fromKey(key) == PlayerBackgroundStyle.APPLE_MUSIC -> MiniPlayerBackgrounds.Surface.LIQUID_GLASS
+                else -> MiniPlayerBackgrounds.Surface.ARTWORK
+            }
+            for (glass in listOf(false, true)) {
+                assertEquals("$key with glass=$glass", expected, MiniPlayerBackgrounds.surface(settings.copy(liquidGlass = glass)))
+                assertEquals(MiniPlayerBackgrounds.Surface.PURE_BLACK,
+                    MiniPlayerBackgrounds.surface(settings.copy(liquidGlass = glass, pureBlackMiniPlayer = true)))
+            }
+        }
+    }
     @Test fun `frosted blur is an additional choice distinct from artwork blur`() {
         assertTrue(MiniPlayerBackgrounds.options.contains("Frosted blur"))
         assertTrue(MiniPlayerBackgrounds.options.contains("Blur"))

@@ -511,6 +511,24 @@ fun AuralisApp(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    var syncPlaylistId by remember { mutableStateOf<String?>(null) }
+    val playlistSync = remember(viewModelProvider.libraryRepository) {
+        com.auralis.music.data.playlistsync.AndroidPlaylistSync.create(context, viewModelProvider.libraryRepository)
+    }
+    LaunchedEffect(playlistSync) { playlistSync.start(coroutineScope) }
+    var playlistCreationRequest by remember { mutableStateOf<com.auralis.music.ui.library.PlaylistCreationRequest?>(null) }
+    val importSyncChoice = remember { com.auralis.music.ui.library.ImportSyncChoice() }
+    SideEffect {
+        importSyncChoice.changed = { libraryViewModelState?.syncOnImport = it }
+        libraryViewModelState?.let { vm ->
+            vm.syncOnImport = importSyncChoice.enabled
+            vm.onPlaylistImported = { id ->
+                try { playlistSync.enable(id) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { com.auralis.music.ui.components.AppPillManager.showPill("Imported. Sync could not start: ${e.message}") }
+            }
+        }
+    }
 
     // ── Dedicated Background Audio Engine Host ──
     val needsWebView by (playerViewModelState?.getAudioPlayer()?.needsWebView?.collectAsState()
@@ -577,12 +595,75 @@ fun AuralisApp(
     }
     val onboardingStep = com.auralis.music.domain.onboarding.OnboardingFlow.step(
         onboarding.tourSeen, isAppUnlocked, onboarding.pickerDone && onboarding.accountId == onboardingUid, onboardingHasData)
-    if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR) {
-        com.auralis.music.ui.onboarding.AppTour {
-            com.auralis.music.data.datastore.OnboardingStore.markTourSeen()
+    // Keeps the welcome screen mounted through its own exit animation instead of cutting to the
+    // app the instant sign-in succeeds, so unlocking reads as one smooth motion. The delay here
+    // matches the AnimatedVisibility exit's own duration below.
+    val wantsWelcome = !isAppUnlocked && onboardingStep != com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR
+    var showWelcomeScreen by remember { mutableStateOf(wantsWelcome) }
+    LaunchedEffect(isAppUnlocked, wantsWelcome) {
+        if (isAppUnlocked) {
+            if (showWelcomeScreen) {
+                kotlinx.coroutines.delay(420L)
+                showWelcomeScreen = false
+            }
+        } else {
+            showWelcomeScreen = wantsWelcome
+        }
+    }
+
+    if (showWelcomeScreen || wantsWelcome || onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground)) {
+            if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.TOUR) {
+                // Keep the incoming tour mounted while sign-in fades away, so its logo
+                // and background animation continue without restarting at the handoff.
+                androidx.compose.runtime.key(onboardingUid) {
+                    com.auralis.music.ui.onboarding.AppTour(homeUiState = homeUiState) {
+                        com.auralis.music.data.datastore.OnboardingStore.markTourSeen()
+                    }
+                }
+            }
+            if (showWelcomeScreen || wantsWelcome) {
+                val authVM = obtainAuthViewModel()
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !isAppUnlocked,
+                    modifier = Modifier.fillMaxSize(),
+                    enter = androidx.compose.animation.fadeIn(tween(220)),
+                    exit = androidx.compose.animation.fadeOut(
+                        animationSpec = tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    ) + androidx.compose.animation.scaleOut(
+                        targetScale = 1.08f,
+                        animationSpec = tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    )
+                ) {
+                    com.auralis.music.ui.onboarding.WelcomeScreen(
+                        authUiState = authUiState,
+                        onContinueWithGoogle = {
+                            val act = context.findActivity()
+                            if (act != null) {
+                                authVM.signInWithGoogle(act)
+                            } else {
+                                android.widget.Toast.makeText(context, str(R.string.activity_not_found_for_google_sign_in), android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onSignUpWithEmail = { email, password, name ->
+                            authVM.signUpWithEmail(email, password, name) {}
+                        },
+                        onSignInWithEmail = { email, password ->
+                            authVM.signInWithEmail(email, password) {}
+                        },
+                        onSendPasswordReset = { email ->
+                            authVM.sendPasswordResetEmail(email)
+                        },
+                        onDismissPasswordResetMessage = {
+                            authVM.clearPasswordResetMessage()
+                        }
+                    )
+                }
+            }
         }
         return
     }
+
     if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.SETTLING) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.dynamicBackground), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -591,61 +672,6 @@ fun AuralisApp(
     }
     if (onboardingStep == com.auralis.music.domain.onboarding.OnboardingFlow.Step.PICK_ARTISTS) {
         com.auralis.music.ui.onboarding.ArtistPicker(viewModelProvider.searchRepository) {}
-        return
-    }
-
-    // Keeps the welcome screen mounted through its own exit animation instead of cutting to the
-    // app the instant sign-in succeeds, so unlocking reads as one smooth motion. The delay here
-    // matches the AnimatedVisibility exit's own duration below.
-    var showWelcomeScreen by remember { mutableStateOf(!isAppUnlocked) }
-    LaunchedEffect(isAppUnlocked) {
-        if (isAppUnlocked) {
-            if (showWelcomeScreen) {
-                kotlinx.coroutines.delay(420L)
-                showWelcomeScreen = false
-            }
-        } else {
-            showWelcomeScreen = true
-        }
-    }
-
-    if (showWelcomeScreen) {
-        val authVM = obtainAuthViewModel()
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !isAppUnlocked,
-            modifier = Modifier.fillMaxSize(),
-            enter = androidx.compose.animation.fadeIn(tween(220)),
-            exit = androidx.compose.animation.fadeOut(
-                animationSpec = tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            ) + androidx.compose.animation.scaleOut(
-                targetScale = 1.08f,
-                animationSpec = tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            )
-        ) {
-            com.auralis.music.ui.onboarding.WelcomeScreen(
-                authUiState = authUiState,
-                onContinueWithGoogle = {
-                    val act = context.findActivity()
-                    if (act != null) {
-                        authVM.signInWithGoogle(act)
-                    } else {
-                        android.widget.Toast.makeText(context, str(R.string.activity_not_found_for_google_sign_in), android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onSignUpWithEmail = { email, password, name ->
-                    authVM.signUpWithEmail(email, password, name) {}
-                },
-                onSignInWithEmail = { email, password ->
-                    authVM.signInWithEmail(email, password) {}
-                },
-                onSendPasswordReset = { email ->
-                    authVM.sendPasswordResetEmail(email)
-                },
-                onDismissPasswordResetMessage = {
-                    authVM.clearPasswordResetMessage()
-                }
-            )
-        }
         return
     }
 
@@ -821,9 +847,8 @@ fun AuralisApp(
     // minimizes the dock and tucks the mini player into the dock row.
     val glassEnabled = appearanceSettings.liquidGlass
     // "Liquid glass" as the mini-player background style: glass on the mini player only.
-    val miniPlayerGlass = !appearanceSettings.pureBlackMiniPlayer &&
-        com.auralis.music.ui.player.PlayerBackgroundStyle.fromKey(appearanceSettings.miniPlayerBackgroundStyle) ==
-        com.auralis.music.ui.player.PlayerBackgroundStyle.APPLE_MUSIC
+    val miniPlayerSurface = com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(appearanceSettings)
+    val miniPlayerGlass = miniPlayerSurface == com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS
     // The pages are recorded for glass whenever anything is drawing it.
     val recordGlassBackdrop = glassEnabled || miniPlayerGlass
     val transitionProgress = remember { Animatable(1f) }
@@ -841,6 +866,7 @@ fun AuralisApp(
                 drawContent()
             }
         }
+    val dockMinimize = remember { com.auralis.music.ui.glass.DockMinimizeState() }
     val glassBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(onDraw = glassBackdropDraw)
     // Overlays drawn over the pages (Stats, Profile/Settings, History, Listen Together) get their
     // own recordings, layered on top: otherwise the glass kept showing the page underneath them.
@@ -851,7 +877,6 @@ fun AuralisApp(
     val combinedGlassBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(
         glassBackdrop, profileGlassBackdrop, historyGlassBackdrop, togetherGlassBackdrop
     )
-    val dockMinimize = remember { com.auralis.music.ui.glass.DockMinimizeState() }
     val glassIsDark = MaterialTheme.dynamicSurface.luminance() < 0.5f
     // Only the pill mini player can tuck into the dock row.
     // New and Material3 have compact forms that fit beside the minimized dock, so scrolling
@@ -873,8 +898,7 @@ fun AuralisApp(
         com.auralis.music.ui.glass.LiquidGlassContext(combinedGlassBackdrop, glassIsDark, dockCollapse)
     }
     val glassContext = if (glassEnabled) anyGlassContext else null
-    // The mini player is glass only when its own background style says so: the glass theme
-    // presets that style but never overrides a Blur/Gradient/etc. the user picked afterwards.
+    // The selected mini-player background applies in both expanded and tucked forms.
     val miniGlassContext = if (miniPlayerGlass) anyGlassContext else null
     chromeCollapse[0] = dockCollapse
     LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
@@ -918,13 +942,28 @@ fun AuralisApp(
     ) {
     CompositionLocalProvider(
         LocalBottomChrome provides mainBottomChrome,
+          com.auralis.music.ui.library.LocalPlaylistCreation provides { playlistCreationRequest = it },
+          com.auralis.music.ui.library.LocalImportSyncChoice provides importSyncChoice,
+        com.auralis.music.ui.library.LocalPlaylistSync provides { playlist -> syncPlaylistId = playlist.id },
+        com.auralis.music.ui.library.LocalPlaylistSyncCreate provides { title -> coroutineScope.launch {
+            val created = viewModelProvider.libraryRepository.createPlaylist(title)
+            syncPlaylistId = created.id
+        } },
         com.auralis.music.ui.components.LocalSongPresentationActions provides songPresentationActions,
         com.auralis.music.ui.glass.LocalLiquidGlass provides glassContext,
         com.auralis.music.ui.glass.LocalMiniPlayerGlass provides miniGlassContext,
-        com.auralis.music.ui.player.LocalFrostedMiniPlayer provides (!appearanceSettings.pureBlackMiniPlayer &&
-            com.auralis.music.ui.player.MiniPlayerBackgrounds.isFrosted(appearanceSettings.miniPlayerBackgroundStyle)),
+        com.auralis.music.ui.player.LocalFrostedMiniPlayer provides
+            (miniPlayerSurface == com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.FROSTED),
         com.auralis.music.ui.glass.LocalDockCollapse provides dockCollapse
     ) {
+        val syncPlaylists by viewModelProvider.libraryRepository.getPlaylists().collectAsState(emptyList())
+          playlistCreationRequest?.let { request ->
+              com.auralis.music.ui.library.PlaylistCreationDialog(viewModelProvider.libraryRepository, playlistSync, request,
+                  onCreated = { playlistCreationRequest = null }, onDismiss = { playlistCreationRequest = null })
+          }
+        syncPlaylists.firstOrNull { it.id == syncPlaylistId }?.let { playlist ->
+            com.auralis.music.ui.library.PlaylistSyncDialog(playlist, playlistSync) { syncPlaylistId = null }
+        }
         val playerSharedScope = this
         val hazeState = remember { dev.chrisbanes.haze.HazeState() }
         // Whatever's directly under an overlay pill: the content pages normally, or the open
@@ -1798,6 +1837,8 @@ fun AuralisApp(
                 val libVM = obtainLibraryViewModel()
                 ProfileSheet(
                     authUiState = authUiState,
+                    playlistsCount = libraryUiState.playlists.size,
+                    savedTracksCount = libraryUiState.favorites.size,
                     playerSettings = playerSettings,
                     onThemeModeChange = { obtainPlayerViewModel().updateThemeMode(it) },
                     onAudioQualityChange = { obtainPlayerViewModel().updateAudioQuality(it) },

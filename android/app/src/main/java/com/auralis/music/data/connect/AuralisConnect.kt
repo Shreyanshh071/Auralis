@@ -57,16 +57,62 @@ object AuralisConnect : ConnectHook {
     private var listeners: List<ListenerRegistration> = emptyList()
     private var jobs: List<Job> = emptyList()
     private var started = false
-    private var foreground = false
+    private val presence = ConnectTaskPresence()
+    private var presenceServiceRequested = false
 
     fun setForeground(visible: Boolean) {
-        foreground = visible
+        presence.foreground(visible)
+        if (visible) scope.launch {
+            followLock.withLock {
+                uid?.takeIf { engine == null && presence.taskPresent }?.let(::startEngine)
+                syncPresenceService()
+            }
+        }
         updatePresence()
+    }
+
+    internal fun shouldRunPresenceService(): Boolean = uid != null && presence.taskPresent
+
+    internal fun presenceServiceChanged(running: Boolean) {
+        presence.service(running)
+        if (!running) presenceServiceRequested = false
+        updatePresence()
+    }
+
+    private fun syncPresenceService() {
+        if (!::appContext.isInitialized) return
+        val intent = android.content.Intent(appContext, com.auralis.music.service.ConnectPresenceService::class.java)
+        if (!shouldRunPresenceService()) {
+            presenceServiceRequested = false
+            appContext.stopService(intent)
+        } else if (presence.visible && !presenceServiceRequested) {
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
+                presenceServiceRequested = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not keep Connect available in the background", e)
+            }
+        }
+    }
+
+    /** Removing the task is an explicit close, independently of music-on-task-clear settings. */
+    fun onTaskRemoved() {
+        presence.removeTask()
+        updatePresence()
+        scope.launch {
+            followLock.withLock {
+                if (!presence.taskPresent) {
+                    // Remove registration, not authentication. Reopening joins with the same id.
+                    stopEngine(signOut = true)
+                    syncPresenceService()
+                }
+            }
+        }
     }
 
     private fun updatePresence() {
         if (!started) return
-        engine?.setDeviceAvailable(foreground || player.isPlaying.value || player.playbackRequested.value)
+        engine?.setDeviceAvailable(presence.available)
     }
     private val followLock = kotlinx.coroutines.sync.Mutex()
 
@@ -88,13 +134,42 @@ object AuralisConnect : ConnectHook {
         // Another account (or none): the old account's session is gone from this phone right away.
         stopEngine(signOut = false)
         uid = newUid
-        if (newUid != null) startEngine(newUid)
+        if (newUid != null && presence.taskPresent) startEngine(newUid)
+        syncPresenceService()
     }
 
     /** Before signing out: give up the output and remove this phone from the account's devices. */
     suspend fun leaveAccount() = followLock.withLock {
         withTimeoutOrNull(5_000L) { stopEngine(signOut = true) }
         uid = null
+        syncPresenceService()
+    }
+
+    /** Detach now; best-effort server cleanup belongs to the captured old engine. */
+    fun disconnectLocally() {
+        val oldEngine = engine
+        engine = null
+        backend = null
+        uid = null
+        syncPresenceService()
+        _ui.value = ConnectUi()
+        _remote.value = null
+        listeners.forEach { it.remove() }
+        listeners = emptyList()
+        jobs.forEach { it.cancel() }
+        jobs = emptyList()
+        if (oldEngine?.isOutput == true && ::player.isInitialized) {
+            player.fromConnect { player.pause() }
+        }
+        if (oldEngine != null) scope.launch {
+            try {
+                withTimeoutOrNull(4_000L) { oldEngine.stop(signOut = true) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d(TAG, "Signed out locally; server cleanup unavailable: ${e.message}")
+            }
+        }
     }
 
     fun transferTo(deviceId: String) { engine?.transferTo(deviceId) }
@@ -193,12 +268,13 @@ object AuralisConnect : ConnectHook {
                     e.tick()
                 }
             },
-            // Local changes; the position only matters for seeks and drift, so it is sampled.
+            // Seeks are discrete controls, never delayed by the periodic drift sample.
+            scope.launch { player.userSeekEvents.collect { e.onLocalSeek() } },
+            // Routine position changes are sampled; controls above publish immediately.
             scope.launch {
                 merge(
                     combine(player.currentTrack, player.isPlaying, player.isBuffering, player.queueState, player.playbackRequested) { _, _, _, _, _ -> Unit },
-                    player.playbackPositionMs.sample(1_000L),
-                    player.userSeekEvents
+                    player.playbackPositionMs.sample(1_000L)
                 ).collect { updatePresence(); e.onLocalChanged() }
             }
         )

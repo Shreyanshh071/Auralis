@@ -27,6 +27,13 @@ java {
 // incompatible duplicate well-known types (e.g. Timestamp) when Firestore starts its stream.
 configurations.configureEach { exclude(group = "com.google.protobuf", module = "protobuf-javalite") }
 
+// Keep Compose's compile API, but use the matching patched JVM/native renderer at runtime.
+// Both artifacts must move together; mixing the DLL with another Skiko JAR is unsafe.
+configurations.matching { it.name in setOf("runtimeClasspath", "testRuntimeClasspath") }.configureEach {
+    resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25",
+        "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.25")
+}
+
 dependencies {
     testImplementation(kotlin("test"))
     implementation(project(":windows-core"))
@@ -49,6 +56,17 @@ dependencies {
 }
 
 // Creates two temporary anonymous participants, checks the room protocol, then removes both.
+tasks.register<JavaExec>("probePlaylistSync") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbePlaylistSyncKt")
+}
+tasks.register<JavaExec>("repairPlaylistSyncAddition") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbePlaylistSyncKt")
+    args("--restore-addition", project.findProperty("playlistId")?.toString().orEmpty(),
+        project.findProperty("playlistRepairBackup")?.toString().orEmpty())
+}
+
 tasks.register<JavaExec>("verifyRoomService") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.together.RoomServiceCheckKt")
@@ -103,10 +121,7 @@ compose.desktop {
             // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
             // only cost ~0.7s of the first frame (measured with the startup sampler).
             "-Dsun.java2d.d3d=false",
-            // Direct3D, not OpenGL. OpenGL let Windows' maximize/restore animations capture the real
-            // window (Direct3D ghosts the old layout for ~150ms), but under OpenGL NVIDIA's overlay
-            // never showed its screenshot/recording popups, and Snipping Tool froze an earlier page
-            // instead of the current one. The user tested both on 2026-10-21 and chose Direct3D.
+            // Keep hardware acceleration and current-frame Windows screenshots.
             "-Dskiko.renderApi=DIRECT3D",
             // Class data sharing: the first frame spent ~1.2s loading classes from the jars. Each
             // start records the classes it loads; when this build's archive is missing, the app
@@ -228,6 +243,7 @@ tasks.register<JavaExec>("probeLyrics") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeLyricsKt")
     args = (findProperty("args")?.toString() ?: "").split("::")
+    findProperty("dataDir")?.let { systemProperty("auralis.probeDataDir", it.toString()) }
 }
 
 // Development check: ./gradlew :windows:probeStream -Pargs="videoId"

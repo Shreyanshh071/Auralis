@@ -286,7 +286,13 @@ fun PlaylistPickerBottomSheet(
     }
 
     // ── CREATE PLAYLIST DIALOG ──
-    if (showCreateDialog) {
+    val playlistCreator = com.auralis.music.ui.library.LocalPlaylistCreation.current
+    if (showCreateDialog && playlistCreator != null) {
+        LaunchedEffect(Unit) {
+            showCreateDialog = false
+            playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(listOf(track))); onDismiss()
+        }
+    } else if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
             title = { Text(str(Strings.new_playlist), fontWeight = FontWeight.Bold) },

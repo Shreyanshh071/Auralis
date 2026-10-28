@@ -60,9 +60,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
         group("Interface") {
             row("Interface zoom", keywords = "scale size bigger smaller")
             row("Corner roundness", keywords = "radius rounded")
-            other("Custom accent", "Accent colour as #RRGGBB", "color colour hex")
             row("Open player on play", "Expand the main player when a new playback session starts")
-            row("Artwork background", "Use album colours behind the app", "colors cover")
             row("Background tint", keywords = "colour color")
             row("Stage player", "Show cover and lyrics side by side in the main player")
             row("Tabbed player", "Switch between lyrics and queue; turn off to show both")
@@ -71,10 +69,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Body font", "Installed Windows fonts", "typeface text")
             row("Heading font", "Installed Windows fonts", "typeface title")
             other("Load font file", "Use a TTF or OTF font", "typeface")
-        }
-        group("Theme & colours") {
-            other("Colour palette", keywords = "color accent")
-            other("Dynamic theme", "Colours from the playing song's artwork", "liquidify")
         }
         group("Player & seek bar") {
             other("Player background", keywords = "blur gradient")

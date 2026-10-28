@@ -49,6 +49,7 @@ fun DesktopArtwork(url: String?, modifier: Modifier, cornerRadius: Dp, contentDe
                 model = request,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 modifier = Modifier.fillMaxSize()
             )
         }

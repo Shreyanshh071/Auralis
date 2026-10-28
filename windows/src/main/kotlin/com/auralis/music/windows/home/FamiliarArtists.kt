@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +64,16 @@ internal data class FamiliarArtist(
 )
 
 internal enum class FamiliarArtistTimeRange { RECENT, WEEK, ALL_TIME }
+
+internal const val MIN_FAMILIAR_ARTISTS = 5
+internal const val MIN_FAMILIAR_ARTIST_LISTEN_MS = 5 * 60_000L
+
+/** Keep the existing artist posters; reveal them only after enough measured listening. */
+internal fun eligibleFamiliarArtistStats(stats: List<FamiliarArtistStats>): List<FamiliarArtistStats> {
+    val qualified = stats.filter { it.listenedMs >= MIN_FAMILIAR_ARTIST_LISTEN_MS }
+        .distinctBy { SearchQueryMatcher.normalize(cleanFamiliarArtistName(it.name)) }
+    return qualified.takeIf { it.size >= MIN_FAMILIAR_ARTISTS }.orEmpty()
+}
 
 internal data class FamiliarArtistStats(
     val name: String,
@@ -165,7 +176,7 @@ internal class FamiliarArtistActions(
 )
 
 /**
- * Familiar Artists: the artists the listener listens to most, ranked by plays and time listened.
+ * Familiar Artists: total listening time first, then play count for equal times.
  */
 @Composable
 internal fun FamiliarArtistsRow(
@@ -179,7 +190,7 @@ internal fun FamiliarArtistsRow(
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // The artists you listen to most: by plays and by time listened, together.
+    // Rank using measured time, before formatting it into hours and minutes.
     val sortedArtists = remember(artists) { rankFamiliarArtists(artists) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -241,7 +252,7 @@ private fun ArtistPoster(
         .hoverable(hover).clickable(onClick = onOpen)) {
         val posterWidth = maxWidth; val posterHeight = maxHeight
         if (photo != null) {
-            AsyncImage(photo, artist.name, contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment, modifier = Modifier.fillMaxSize())
+            FamiliarArtistPhoto(photo, artist.name, Modifier.fillMaxSize())
         } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.Person, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
         }
@@ -284,6 +295,20 @@ private fun ArtistPoster(
             }
         }
     }
+}
+
+/** Decode verified disk portraits directly; Coil's URL fetcher does not handle every Windows file URI. */
+@Composable
+internal fun FamiliarArtistPhoto(photo: String, name: String, modifier: Modifier = Modifier) {
+    if (photo.startsWith("file:")) {
+        val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, photo) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { javax.imageio.ImageIO.read(java.io.File(java.net.URI(photo)))?.toComposeImageBitmap() }.getOrNull()
+            }
+        }
+        bitmap?.let { androidx.compose.foundation.Image(it, name, modifier,
+            contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment) }
+    } else AsyncImage(photo, name, contentScale = ContentScale.Crop, alignment = PosterPhotoAlignment, modifier = modifier)
 }
 
 /**
@@ -378,17 +403,13 @@ private fun AnimatedMenu(expanded: Boolean, dismiss: () -> Unit, content: @Compo
     }
 }
 
-/**
- * The listener's top artists: each scored on plays and on time listened, both against the top
- * artist's (so neither dominates), most first; ties go to more time.
- */
-internal fun rankFamiliarArtists(artists: List<FamiliarArtist>): List<FamiliarArtist> {
-    val maxPlays = artists.maxOfOrNull { it.totalPlays }?.coerceAtLeast(1) ?: 1
-    val maxTime = artists.maxOfOrNull { it.listenedMs }?.coerceAtLeast(1L) ?: 1L
-    return artists.sortedWith(compareByDescending<FamiliarArtist> {
-        it.totalPlays.toDouble() / maxPlays + it.listenedMs.toDouble() / maxTime
-    }.thenByDescending { it.listenedMs })
-}
+/** Exact measured time wins; play count only breaks equal-time ties. */
+internal fun rankFamiliarArtists(artists: List<FamiliarArtist>): List<FamiliarArtist> =
+    artists.sortedWith(compareByDescending<FamiliarArtist> { it.listenedMs }.thenByDescending { it.totalPlays })
+
+/** Apply the same priority before limiting candidates for portrait lookup. */
+internal fun rankFamiliarArtistStats(stats: List<FamiliarArtistStats>): List<FamiliarArtistStats> =
+    stats.sortedWith(compareByDescending<FamiliarArtistStats> { it.listenedMs }.thenByDescending { it.totalPlays })
 
 /** "3h 12m" / "42m"; null under a minute. */
 internal fun formatListened(ms: Long): String? {

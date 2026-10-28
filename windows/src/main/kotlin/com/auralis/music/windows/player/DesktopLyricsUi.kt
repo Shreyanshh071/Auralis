@@ -10,8 +10,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.lyrics.DefaultLyricsUi
 import com.auralis.music.ui.lyrics.LyricsUiPlatform
+import com.kyant.backdrop.backdrops.layerBackdrop
 
 val DesktopLyricsUi = LyricsUiPlatform(
+    resyncButton = { label, onClick -> GlassResyncButton(label, onClick) },
+    resyncBackdropModifier = {
+        val source = LocalResyncBackdrop.current
+        source?.lyrics?.takeIf { source.users.intValue > 0 }?.let { Modifier.layerBackdrop(it) } ?: Modifier
+    },
+    lyricSelectionEnabled = false,
     roundedMouseHover = true,
     manualScrollModifier = { state, onUserScroll -> lyricsWheelScroll(state, onUserScroll) },
     strings = DefaultLyricsUi.strings,

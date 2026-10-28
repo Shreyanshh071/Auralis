@@ -663,6 +663,8 @@ class LyricsClient(
         channelTitle: String? = null,
         durationMs: Long? = null,
         audioLeadingSilenceMs: Long? = null,
+        /** Desktop Spicy enrichment runs independently and must not be requested twice. */
+        skipSpicyProvider: Boolean = false,
         /** Displayable results while the race keeps waiting for better; see LyricsRepository.getLyricsWithInterim. */
         onInterim: ((LyricsData) -> Unit)? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
@@ -686,7 +688,7 @@ class LyricsClient(
             lrcLibSource,
             netEaseSource,
             jioSaavnSource
-        ).filter { isProviderEnabled(it.provider) }
+        ).filter { isProviderEnabled(it.provider) && (!skipSpicyProvider || it.provider != LyricsProvider.SPICY_LYRICS) }
 
         // Providers run in their own detached scope, not as children of the race. Most make
         // blocking OkHttp calls that cancellation can't interrupt, and coroutineScope waits for
@@ -1185,7 +1187,8 @@ class LyricsClient(
         album: String? = null,
         channelTitle: String? = null,
         durationMs: Long? = null,
-        audioLeadingSilenceMs: Long? = null
+        audioLeadingSilenceMs: Long? = null,
+        spotifyId: String? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
         val source: LyricsSource = when (provider) {
             LyricsProvider.SPICY_LYRICS -> spicyLyricsSource
@@ -1206,7 +1209,7 @@ class LyricsClient(
         }
         val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
         val candidate = try {
-            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query) }
+            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query.copy(spotifyId = spotifyId)) }
         } catch (e: Exception) {
             Log.w(TAG, "[Provider pick: $provider] exception: ${e.message}")
             null

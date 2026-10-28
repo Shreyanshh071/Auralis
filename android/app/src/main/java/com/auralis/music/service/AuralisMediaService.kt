@@ -1057,6 +1057,7 @@ class AuralisMediaService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        com.auralis.music.data.connect.AuralisConnect.onTaskRemoved()
         serviceScope.launch {
             val settings = com.auralis.music.data.datastore.SettingsDataStore(applicationContext).settingsFlow.first()
             val player = AuralisAudioPlayer.getInstance(applicationContext)

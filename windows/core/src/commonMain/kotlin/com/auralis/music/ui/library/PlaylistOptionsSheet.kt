@@ -219,6 +219,7 @@ fun PlaylistOptionsBottomSheet(
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val coroutineScope = rememberCoroutineScope()
     val shortcutActions = LocalPlaylistShortcutActions.current
+    val syncPlaylist = LocalPlaylistSync.current
     val isShortcutPinned = shortcutActions?.isPinned?.invoke(playlist) == true
     val shortcutTitle = if (isShortcutPinned) "Unpin from shortcuts" else "Pin to shortcuts"
     var activeDialog by remember { mutableStateOf(initialDialog) }
@@ -256,6 +257,9 @@ fun PlaylistOptionsBottomSheet(
     if (activeDialog == null && glassAnchor != null) {
         val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { platformActions.isDownloaded(it.id) }
         val items = buildList {
+            if (!isSmartPlaylistMenu && syncPlaylist != null) add(com.auralis.music.ui.components.GlassMenuItem("Playlist sync", Icons.Default.Sync) {
+                onDismiss(); syncPlaylist(playlist)
+            })
             add(com.auralis.music.ui.components.GlassMenuItem(str(Strings.add_to_queue), Icons.Default.PlaylistAdd) { addPlaylistToQueue() })
             if (!isSmartPlaylistMenu && shortcutActions != null) {
                 add(com.auralis.music.ui.components.GlassMenuItem(shortcutTitle, Icons.Default.GridView) { shortcutActions.toggle(playlist) })
@@ -463,6 +467,9 @@ fun PlaylistOptionsBottomSheet(
                         }
                     }
 
+                    if (!isSmartPlaylist && syncPlaylist != null) PlaylistActionRow(icon = Icons.Default.Sync,
+                        title = "Playlist sync", subtitle = "Link Spotify or YouTube Music · two-way sync",
+                        onClick = { onDismiss(); syncPlaylist(playlist) })
                     // ── GROUP 1: EDIT & EXPORT ──
                     Column(
                         modifier = Modifier

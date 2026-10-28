@@ -1,0 +1,350 @@
+{
+  "stores": {
+    "auralis_appearance_settings": {
+      "show_weekly_most_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "enable_glowing_lyrics": {
+        "type": "boolean",
+        "value": false
+      },
+      "default_open_tab": {
+        "type": "string",
+        "value": "Home"
+      },
+      "show_uploaded_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "liquid_glass": {
+        "type": "boolean",
+        "value": true
+      },
+      "hide_status_bar_on_fullscreen": {
+        "type": "boolean",
+        "value": false
+      },
+      "swipe_left_queue_right_play_next": {
+        "type": "boolean",
+        "value": true
+      },
+      "standard_lyrics_blur": {
+        "type": "boolean",
+        "value": true
+      },
+      "lyrics_text_position": {
+        "type": "string",
+        "value": "Left"
+      },
+      "lyrics_text_size": {
+        "type": "float",
+        "value": 22.701097
+      },
+      "listen_together_in_top_bar": {
+        "type": "boolean",
+        "value": true
+      },
+      "respect_agent_positioning": {
+        "type": "boolean",
+        "value": true
+      },
+      "player_button_colors": {
+        "type": "string",
+        "value": "Default"
+      },
+      "high_refresh_rate": {
+        "type": "boolean",
+        "value": true
+      },
+      "change_lyrics_on_tap": {
+        "type": "boolean",
+        "value": true
+      },
+      "default_library_chip": {
+        "type": "string",
+        "value": "Library"
+      },
+      "show_cached_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "show_monthly_most_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "mini_player_swipe_sensitivity": {
+        "type": "int",
+        "value": 73
+      },
+      "player_design": {
+        "type": "string",
+        "value": "New player"
+      },
+      "show_top_playlist": {
+        "type": "boolean",
+        "value": false
+      },
+      "lyrics_animation": {
+        "type": "string",
+        "value": "Spicy Lyrics"
+      },
+      "show_downloaded_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "landscape_scaling": {
+        "type": "boolean",
+        "value": false
+      },
+      "new_player_design": {
+        "type": "boolean",
+        "value": true
+      },
+      "dynamic_icon_colors": {
+        "type": "boolean",
+        "value": true
+      },
+      "player_bg_style": {
+        "type": "string",
+        "value": "Dynamic"
+      },
+      "hide_player_thumbnail": {
+        "type": "boolean",
+        "value": false
+      },
+      "mini_player_bg_style": {
+        "type": "string",
+        "value": "Blur"
+      },
+      "show_download_button": {
+        "type": "boolean",
+        "value": true
+      },
+      "display_density": {
+        "type": "string",
+        "value": "Native (100%)"
+      },
+      "color_palette": {
+        "type": "string",
+        "value": "White"
+      },
+      "slim_bottom_nav_bar": {
+        "type": "boolean",
+        "value": false
+      },
+      "app_theme": {
+        "type": "string",
+        "value": "Dark Mode"
+      },
+      "player_slider_style": {
+        "type": "string",
+        "value": "Slim"
+      },
+      "mini_player_design": {
+        "type": "string",
+        "value": "New mini player"
+      },
+      "pure_black_mini_player": {
+        "type": "boolean",
+        "value": false
+      },
+      "show_liked_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "crop_album_art": {
+        "type": "boolean",
+        "value": true
+      },
+      "experimental_lyrics": {
+        "type": "boolean",
+        "value": false
+      },
+      "lyrics_line_spacing": {
+        "type": "float",
+        "value": 1.3
+      },
+      "grid_cell_size": {
+        "type": "string",
+        "value": "Small"
+      },
+      "new_mini_player_design": {
+        "type": "boolean",
+        "value": true
+      },
+      "enable_swipe_to_change_song": {
+        "type": "boolean",
+        "value": true
+      },
+      "dynamic_theme": {
+        "type": "boolean",
+        "value": true
+      },
+      "swipe_to_remove_song_from_playlist": {
+        "type": "boolean",
+        "value": true
+      },
+      "auto_scroll_lyrics": {
+        "type": "boolean",
+        "value": true
+      }
+    },
+    "discord_rpc_preferences": {
+      "discord_platform": {
+        "type": "string",
+        "value": "Android"
+      },
+      "discord_enable_rich_presence": {
+        "type": "boolean",
+        "value": false
+      },
+      "discord_small_image": {
+        "type": "string",
+        "value": "App logo"
+      },
+      "discord_activity_type": {
+        "type": "string",
+        "value": "Listening"
+      },
+      "discord_activity_name": {
+        "type": "string",
+        "value": "Auralis"
+      },
+      "discord_activity_details": {
+        "type": "string",
+        "value": "Song title"
+      },
+      "discord_activity_state": {
+        "type": "string",
+        "value": "Artist name"
+      },
+      "discord_show_rpc_when_paused": {
+        "type": "boolean",
+        "value": false
+      },
+      "discord_activity_status": {
+        "type": "string",
+        "value": "Online"
+      },
+      "discord_update_interval": {
+        "type": "int",
+        "value": 5
+      },
+      "discord_large_image": {
+        "type": "string",
+        "value": "Album artwork"
+      },
+      "discord_large_text": {
+        "type": "string",
+        "value": "Album name"
+      }
+    },
+    "auralis_content": {
+      "randomize_home_order": {
+        "type": "boolean",
+        "value": false
+      },
+      "top_length": {
+        "type": "int",
+        "value": 50
+      },
+      "show_artist_description": {
+        "type": "boolean",
+        "value": true
+      },
+      "show_most_stats_playlists": {
+        "type": "boolean",
+        "value": false
+      },
+      "show_wrapped_card": {
+        "type": "boolean",
+        "value": true
+      },
+      "content_language": {
+        "type": "string",
+        "value": "system"
+      },
+      "disabled_lyrics_providers": {
+        "type": "string",
+        "value": ""
+      },
+      "romanized_scripts": {
+        "type": "string",
+        "value": "JAPANESE,KOREAN,CHINESE,HINDI,PUNJABI,CYRILLIC"
+      },
+      "add_to_playlist_position": {
+        "type": "string",
+        "value": "END"
+      },
+      "content_country": {
+        "type": "string",
+        "value": "system"
+      },
+      "show_artist_subscriber_count": {
+        "type": "boolean",
+        "value": true
+      },
+      "romanization_enabled": {
+        "type": "boolean",
+        "value": false
+      },
+      "quick_picks_mode": {
+        "type": "string",
+        "value": "QUICK_PICKS"
+      },
+      "show_monthly_listeners": {
+        "type": "boolean",
+        "value": true
+      }
+    },
+    "auralis_privacy": {
+      "pause_search_history": {
+        "type": "boolean",
+        "value": true
+      },
+      "pause_listen_history": {
+        "type": "boolean",
+        "value": false
+      },
+      "disable_screenshot": {
+        "type": "boolean",
+        "value": false
+      }
+    }
+  },
+  "source": "normal-installed-profile",
+  "version": 1,
+  "properties": {
+    "playback-volume.properties": {
+      "volume": "0.8545455",
+      "volume_before_mute": "0.8545455"
+    },
+    "desktop-preferences.properties": {
+      "settings": "{\"hotkeysEnabled\":false,\"systemTitlebar\":false,\"bodyFont\":\"Default\",\"headingFont\":\"Default\",\"musicVideos\":true,\"lyricsPriority\":\"\",\"zoom\":1.0040030479431152}"
+    },
+    "desktop-discord.properties": {
+      "migrated": "true",
+      "card": "{\"statusLine\":\"line2\",\"button2\":\"app\",\"appName\":\"\",\"hideDetails\":false,\"enabled\":true,\"showPaused\":false,\"cover\":true,\"badge\":true,\"progress\":true,\"linkLine2\":false,\"line3\":\"album\",\"line2\":\"artist\",\"linkLine1\":false,\"button1\":\"listen\",\"line1\":\"title\",\"linkCover\":false}"
+    },
+    "desktop-sidebars.properties": {
+      "left": "270.1997",
+      "rightCollapsed": "false",
+      "leftCollapsed": "false",
+      "right": "391.6775"
+    },
+    "desktop-language.properties": {
+      "tag": ""
+    },
+    "desktop-home.properties": {
+      "recentsGrid": "false"
+    },
+    "desktop-system.properties": {
+      "songNotifications": "true",
+      "closeToTray": "true"
+    },
+    "library-flags.properties": {
+      "spicy_player_defaults": "1"
+    }
+  }
+}

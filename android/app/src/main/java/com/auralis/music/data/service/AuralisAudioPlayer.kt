@@ -1670,11 +1670,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         if (connect(com.auralis.music.data.connect.ConnectIntent.Seek(positionMs.coerceAtLeast(0L)))) return
         val bounded = positionMs.coerceAtLeast(0L)
-        _userSeekEvents.tryEmit(bounded)
         _playbackPositionMs.value = bounded
         roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.SEEK, positionMs = bounded))
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] seekTo(${bounded}ms)")
         if (rememberSeekWhileLoading(bounded)) {
+            _userSeekEvents.tryEmit(bounded)
             persistQueue()
             return
         }
@@ -1687,6 +1687,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             youTubeEngine.seekTo(bounded)
             _isBuffering.value = youTubeEngine.isBuffering.value
         }
+        // Main.immediate collectors can run inside tryEmit. Publish the event
+        // only after the native player (and its raw clock) has the new position.
+        _userSeekEvents.tryEmit(bounded)
         persistQueue()
     }
 

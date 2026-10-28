@@ -8,16 +8,19 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-/** Portraits load independently of the paced YouTube channel lookup. Only successes are saved. */
+/** Use the matched YouTube Music artist image; never substitute an unrelated portrait source. */
 internal class FamiliarArtistLookup(
     private val cache: KeyValueStore,
     private val search: suspend (String) -> List<Artist>,
-    private val portrait: suspend (String) -> String?
+    private val validatePhoto: suspend (String) -> String? = { it }
 ) {
-    private fun key(name: String) = "artist:" + SearchQueryMatcher.normalize(name)
+    private fun key(name: String) = "artist-yt-v4:" + SearchQueryMatcher.normalize(name)
     fun cached(name: String): Artist? = runCatching {
         val json = JSONObject(cache.getString(key(name), "").orEmpty())
-        Artist(json.optString("id"), name, json.optString("photo").ifBlank { null }, json.optString("subscribers").ifBlank { null })
+        val photo = json.optString("photo").ifBlank { null }?.takeIf {
+            !it.startsWith("file:") || runCatching { java.io.File(java.net.URI(it)).isFile }.getOrDefault(false)
+        }
+        Artist(json.optString("id"), name, photo, json.optString("subscribers").ifBlank { null })
     }.getOrNull()
 
     suspend fun resolve(name: String, publish: (Artist) -> Unit) = coroutineScope {
@@ -32,16 +35,14 @@ internal class FamiliarArtistLookup(
                 .put("subscribers", current.subscribers.orEmpty()).toString()))
             publish(current)
         }
-        if (current.thumbnail == null) launch {
-            val photo = safely { portrait(artistPortraitQuery(name)) }?.takeIf { it.isNotBlank() }
-            // A YouTube result that arrived meanwhile already has the preferred portrait.
-            if (photo != null && current.thumbnail == null) update(Artist("", name, photo))
-        }
         if (current.id.isBlank() || current.thumbnail == null) launch {
             val match = safely { search(name) }?.firstOrNull {
-                SearchQueryMatcher.normalize(it.name) == SearchQueryMatcher.normalize(name)
+                it.id.startsWith("UC") && SearchQueryMatcher.normalize(it.name) == SearchQueryMatcher.normalize(name)
             }
-            if (match != null) update(match)
+            if (match != null) {
+                val photo = match.thumbnail?.let { safely { validatePhoto(it) } }
+                update(match.copy(thumbnail = photo.takeIf { current.thumbnail == null }))
+            }
         }
     }
 

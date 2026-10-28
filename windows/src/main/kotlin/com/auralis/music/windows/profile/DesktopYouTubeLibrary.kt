@@ -69,6 +69,31 @@ internal class DesktopYouTubeLibrary(private val coroutineScope: CoroutineScope,
     @Volatile private var currentCookie: String? = null
     @Volatile private var client: YouTubeMusicClient? = null
 
+    fun playlistSyncRemote(): com.auralis.music.data.playlistsync.PlaylistSyncRemote =
+        object : com.auralis.music.data.playlistsync.PlaylistSyncRemote {
+            override val service = com.auralis.music.data.playlistsync.SyncService.YOUTUBE
+            private fun selected(): Pair<YouTubeMusicClient, String> {
+                check(YouTubeSession.isSignedIn) { "Connect YouTube Music before syncing playlists." }
+                return (client ?: error("Wait for your YouTube Music account to load.")) to
+                    (state.value.activeId ?: error("YouTube Music has not confirmed this account."))
+            }
+            private fun api(): com.auralis.music.data.playlistsync.YouTubePlaylistSync {
+                val (api, account) = selected()
+                return com.auralis.music.data.playlistsync.YouTubePlaylistSync(identity = {
+                    check(selected() == (api to account)) { "YouTube Music account changed. Review sync again." }; account
+                }, post = { endpoint, body ->
+                    check(selected() == (api to account)) { "YouTube Music account changed. Sync paused." }
+                    api.post(endpoint, body)
+                })
+            }
+            override suspend fun account() = selected().second
+            override suspend fun read(id: String) = api().read(id)
+            override suspend fun identify(track: Track) = api().identify(track)
+            override suspend fun create(title: String, description: String) = api().create(title, description)
+            override suspend fun write(before: com.auralis.music.data.playlistsync.RemoteSyncPlaylist,
+                target: com.auralis.music.data.playlistsync.SyncSnapshot) = api().write(before, target)
+        }
+
     fun refresh(force: Boolean = false) {
         val headers = YouTubeSession.authHeaders(YouTubeMusicClient.ORIGIN)
         val cookie = headers["Cookie"].orEmpty()

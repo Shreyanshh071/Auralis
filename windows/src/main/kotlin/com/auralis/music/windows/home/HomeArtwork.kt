@@ -113,6 +113,7 @@ internal fun HomeArtworkImage(sources: List<String>, modifier: Modifier, content
             // as identical. Recreate the painter so a failed same-URL request actually restarts.
             AsyncImage(model = request, contentDescription = contentDescription,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                 onSuccess = { if (attempt == requestAttempt && sources == currentSources.value && source != null) loaded.value(source) },
                 onError = { if (attempt == requestAttempt) failed = true })
         }

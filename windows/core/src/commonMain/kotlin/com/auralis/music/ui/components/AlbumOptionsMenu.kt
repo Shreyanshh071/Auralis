@@ -532,7 +532,13 @@ fun AlbumOptionsMenu(
     }
     }
 
-    if (showCreatePlaylistDialog) {
+    val playlistCreator = com.auralis.music.ui.library.LocalPlaylistCreation.current
+    if (showCreatePlaylistDialog && playlistCreator != null) {
+        LaunchedEffect(Unit) {
+            showCreatePlaylistDialog = false
+            playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(onCreated = { onAddToPlaylist(it); onDismiss() }))
+        }
+    } else if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false

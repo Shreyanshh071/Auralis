@@ -78,15 +78,28 @@ object SpicyLyricsParser {
     private fun group(group: JSONObject, background: Boolean, agent: String): LyricLine? {
         val syllables = group.optJSONArray("Syllables") ?: return null
         val words = mutableListOf<LyricWord>()
+        var continuesWrittenWord = false
+        var previousSyllableStart: Long? = null
         for (i in 0 until syllables.length()) {
             val syllable = syllables.optJSONObject(i) ?: return null
             val text = syllable.optString("Text").takeIf { it.isNotEmpty() } ?: return null
             val start = time(syllable, "StartTime") ?: return null
             val end = time(syllable, "EndTime")
             if (end != null && end < start) return null
-            if (words.lastOrNull()?.time?.let { start < it } == true) return null
+            if (previousSyllableStart?.let { start < it } == true) return null
+            previousSyllableStart = start
             val space = if (i < syllables.length() - 1 && !syllable.optBoolean("IsPartOfWord")) " " else ""
-            words += LyricWord(text + space, start, end?.minus(start), background)
+            val piece = LyricWord(text + space, start, end?.minus(start), background)
+            if (continuesWrittenWord && words.isNotEmpty()) {
+                // IsPartOfWord is explicit source metadata. Keep it through text
+                // repair instead of trying to recognize the word in a dictionary.
+                val previous = words.removeAt(words.lastIndex)
+                words += previous.copy(word = previous.word + piece.word,
+                    duration = if (previous.endTime != null && piece.endTime != null)
+                        maxOf(previous.endTime!!, piece.endTime!!) - previous.time else null,
+                    syllables = (previous.syllables ?: listOf(previous)) + piece)
+            } else words += piece
+            continuesWrittenWord = syllable.optBoolean("IsPartOfWord")
         }
         if (words.isEmpty()) return null
         val start = time(group, "StartTime") ?: words.first().time

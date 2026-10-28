@@ -1,14 +1,28 @@
 package com.auralis.music.ui.lyrics.renderers
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -29,7 +43,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import com.auralis.music.domain.model.LyricLine
@@ -52,6 +65,14 @@ data class SpicyWordPose(val scale: Float, val liftEm: Float, val glow: Float)
 
 /** A letter of a held word: Spicy times them one after another across the syllable. */
 data class SpicyLetterTime(val startMs: Long, val endMs: Long)
+
+/** Keep consecutive pieces of one written word touching as their widths change. */
+object SpicyJoinedInk {
+    fun leftEdges(left: Float, widths: List<Float>, scales: List<Float>): List<Float> {
+        var cursor = left + (widths.sum() - widths.indices.sumOf { (widths[it] * scales[it]).toDouble() }.toFloat()) / 2f
+        return widths.indices.map { i -> cursor.also { cursor += widths[i] * scales[i] } }
+    }
+}
 
 /** Natural cubic spline through Spicy's keyframes (its `Spline` from the cubic-spline package). */
 internal class SpicySpline(private val xs: FloatArray, private val ys: FloatArray) {
@@ -126,6 +147,16 @@ object SpicyLyricsMotion {
     private val wordLift = SpicySpline(floatArrayOf(0f, .9f, 1f), floatArrayOf(1f / 100, -1f / 60, 0f))
     private val letterLift = SpicySpline(floatArrayOf(0f, .9f, 1f), floatArrayOf(1f / 100, -1f / 56, 0f))
     private val glowCurve = SpicySpline(floatArrayOf(0f, .15f, .6f, 1f), floatArrayOf(0f, 1f, 1f, 0f))
+    private val lineGlowCurve = SpicySpline(floatArrayOf(0f, .5f, 1f), floatArrayOf(0f, 1f, 0f))
+
+    /** Whole-line progress only; never split a line into fabricated word timestamps. */
+    fun lineProgress(startMs: Long, endMs: Long?, positionMs: Long): Float = when {
+        positionMs < startMs -> 0f
+        endMs == null || endMs <= startMs -> 1f
+        else -> ((positionMs - startMs).toFloat() / (endMs - startMs)).coerceIn(0f, 1f)
+    }
+
+    fun lineGlow(progress: Float): Float = lineGlowCurve.at(progress.coerceIn(0f, 1f)).coerceIn(0f, 1f)
     private const val SUNG_LETTER_GLOW = .2f
 
     fun progress(word: LyricWord, positionMs: Long): Float =
@@ -179,25 +210,14 @@ object SpicyLyricsMotion {
 }
 
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
-private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>) {
+private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>,
+                             val emphasizedLetters: List<SpicyEmphasizedLetter>?) {
     val startMs = parts.minOfOrNull { it.range.word.time } ?: 0L
     val endMs = if (parts.isNotEmpty() && parts.all { it.range.word.endTime != null })
         parts.maxOf { it.range.word.endTime!! } else null
 
-    /** Held words get letter timing: each part's letters share it, ending a little early. */
-    val letters: List<SpicyLetterTime>? = run {
-        if (endMs == null || endMs - startMs < 1000L || end - start < 2) return@run null
-        if (parts.any { it.range.word.endTime!! - it.range.word.time < 1000L }) return@run null
-        (start until end).map { offset ->
-            val part = parts.firstOrNull { offset >= it.from && offset < it.to } ?: return@run null
-            val partStart = part.range.word.time
-            val partEnd = part.range.word.endTime!!
-            val finish = maxOf(partEnd - SpicyLyricsMotion.LETTER_LEAD_MS, partStart + (partEnd - partStart) / 2)
-            val each = (finish - partStart).toDouble() / (part.to - part.from)
-            val index = offset - part.from
-            SpicyLetterTime(partStart + (each * index).toLong(), partStart + (each * (index + 1)).toLong())
-        }
-    }
+    // Geometry resolves grapheme ranges from the full source text before assigning letter timing.
+    val letters: List<SpicyLetterTime>? = emphasizedLetters?.map { it.time }
 
     fun progress(position: Long): Float {
         var revealed = 0f
@@ -218,8 +238,8 @@ private data class SpicyWord(val start: Int, val end: Int, val parts: List<Timed
 private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBounds: Rect,
                               val rtl: Boolean, val from: Int, val to: Int, val row: Int, val letter: Int = -1)
 
-/** A glow shaped like the slice's own glyphs, so it never shows the edges of a clip box. */
-private data class SpicyGlow(val image: ImageBitmap, val topLeft: Offset)
+private data class SpicyBloom(val image: ImageBitmap, val origin: Offset)
+private val spicyPreparationDispatcher = Dispatchers.Default.limitedParallelism(2)
 
 /** Recorded native layers can outlive the active-text branch by a frame. Keep the
  * latest image generations alive when a row switches between active and static. */
@@ -252,31 +272,48 @@ fun SpicyLyricsLine(
     isActive: Boolean,
     modifier: Modifier = Modifier,
     /** Colour of a line not being sung; callers dim it to Spicy's sung/unsung levels. */
-    inactiveColor: Color = Color.White
+    inactiveColor: Color = Color.White,
+    nextLineTime: Long? = null
 ) {
-    val imageLifetime = remember(line.text) { SpicyImageLifetime() }
+    val displayText = remember(line.text, line.isBackground) { SpicyBackingText.displayText(line.text, line.isBackground) }
+    val displayWords = remember(displayText, words, line.isBackground) {
+        SpicyBackingText.displayWords(displayText, words, line.isBackground)
+    }
+    val imageLifetime = remember(displayText) { SpicyImageLifetime() }
     // Line-sync is a whole-line highlight. Do not manufacture timed words from its text.
-    if (!isActive || words.isNullOrEmpty()) {
-        Text(line.text, style = style, color = if (isActive) Color.White.copy(alpha = if (line.isBackground) 1f else .85f) else inactiveColor, overflow = TextOverflow.Visible,
+    if (words.isNullOrEmpty()) {
+        SpicyLineSyncedText(line.copy(text = displayText), positionMs, style, isActive, modifier, inactiveColor, nextLineTime)
+        return
+    }
+    val nearPlayback by remember(line.time, line.effectiveEndTime, positionMs) { derivedStateOf {
+        positionMs.value in (line.time - 3_000L)..(line.effectiveEndTime ?: line.time + 10_000L)
+    } }
+    if (!isActive && !nearPlayback) {
+        // Browsing distant verses must not rasterize and blur every off-screen
+        // word. Only the playing/upcoming phrases need prepared animation masks.
+        Text(displayText, style = style, color = inactiveColor, overflow = TextOverflow.Visible,
             modifier = modifier.fillMaxWidth())
         return
     }
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    val measurer = rememberTextMeasurer()
-    var layout by remember(line.text, style) { mutableStateOf<TextLayoutResult?>(null) }
+    var layout by remember(displayText, style) { mutableStateOf<TextLayoutResult?>(null) }
     var frameNanos by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) withFrameNanos { frameNanos = it } }
-    val groups = remember(line.text, words) {
-        val spans = LyricsEngine.mapWordsToLineSpans(line.text, words)
+    val groups = remember(displayText, displayWords) {
+        val spans = LyricsEngine.mapWordsToLineSpans(displayText, displayWords.orEmpty().flatMap { word ->
+            val pieces = word.syllables
+            // Only use pieces whose ink still matches after spacing/translation repair.
+            if (!pieces.isNullOrEmpty() && pieces.joinToString("") { it.word }.trim() == word.word.trim()) pieces else listOf(word)
+        })
         // A source syllable is an animation unit, even inside a written word.
         // Combining all syllables first loses the motion of a held final syllable.
         spans.mapNotNull { span ->
             var start = span.startIndex
             var end = span.endIndex
-            while (start < end && line.text[start].isWhitespace()) start++
-            while (end > start && line.text[end - 1].isWhitespace()) end--
-            if (start >= end) null else SpicyWord(start, end, listOf(TimedPart(span, start, end)))
+            while (start < end && displayText[start].isWhitespace()) start++
+            while (end > start && displayText[end - 1].isWhitespace()) end--
+            if (start >= end) null else SpicyWord(start, end, listOf(TimedPart(span, start, end)),
+                SpicyEmphasis.letters(displayText.substring(start, end), span.word.time, span.word.endTime))
         }
     }
     val geometry = remember(layout, groups) {
@@ -290,15 +327,16 @@ fun SpicyLyricsLine(
                     if (from >= to) return@flatMap emptyList()
                     val bounds = measured.getPathForRange(from, to).getBounds()
                     val rtl = measured.getBidiRunDirection(from) == ResolvedTextDirection.Rtl
-                    // Shape complex scripts as a complete word; splitting their glyphs breaks
-                    // conjuncts and joining. Letter emphasis is confined to simple Latin runs.
-                    val letters = line.text.substring(word.start, word.end)
-                    val emphasize = word.letters != null && first == last && !rtl &&
-                        style.fontStyle != androidx.compose.ui.text.font.FontStyle.Italic &&
-                        letters.all { it in ' '..'~' }
-                    if (emphasize) (from until to).map { offset ->
-                        SpicySlice(measured.getBoundingBox(offset), wordIndex, bounds, false,
-                            offset, offset + 1, row, offset - word.start)
+                    // Like Spicy's SplitLetters, animate graphemes (including vowel marks,
+                    // surrogate pairs and joined conjuncts), not ASCII/UTF-16 characters.
+                    // Connected RTL shaping still stays intact as in the upstream renderer.
+                    val letters = word.emphasizedLetters
+                    if (letters != null && !rtl) letters.mapIndexedNotNull { index, letter ->
+                        val letterFrom = word.start + letter.from
+                        val letterTo = word.start + letter.to
+                        if (letterFrom < from || letterTo > to) null else
+                            SpicySlice(measured.getPathForRange(letterFrom, letterTo).getBounds(), wordIndex, bounds, false,
+                                letterFrom, letterTo, row, index)
                     } else listOf(SpicySlice(bounds, wordIndex, bounds, rtl, from, to, row))
                 }
             }
@@ -326,52 +364,93 @@ fun SpicyLyricsLine(
             val size = Size((measured.size.width + pad * 2).toFloat(), (measured.size.height + pad * 2).toFloat())
             val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
             CanvasDrawScope().draw(density, direction, Canvas(bitmap), size) {
+                drawRect(Color.Transparent, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
                 drawText(measured, color = Color.White, topLeft = Offset(pad.toFloat(), pad.toFloat()))
             }
             imageLifetime.retain(listOf(bitmap))
             bitmap to pad.toFloat()
         }
     }
-    // Spicy's text-shadow is 4 + 12 x glow px for letters and 4 + 2 x glow px for words at its
-    // 56 px lyric size. Each glow is shaped from the slice's own glyphs at the full radius.
-    val glows = remember(layout, geometry, density, direction) {
-        layout?.let { measured ->
-            val fontPx = with(density) { style.fontSize.toPx() }
-            geometry.map { slice ->
-                if (groups[slice.wordIndex].endMs == null) return@map null
-                val cssRadius = (if (slice.letter >= 0) 16f else 6f) * fontPx / 56f
-                val blur = ((cssRadius / 2f - .5f) / .57735f).coerceAtLeast(.5f)
-                val alone = measurer.measure(line.text.substring(slice.from, slice.to), style)
-                val pad = cssRadius * 2f + 2f
-                val size = Size(alone.size.width + pad * 2, alone.size.height + pad * 2)
-                val image = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
-                CanvasDrawScope().draw(density, direction, Canvas(image), size) {
-                    drawText(alone, color = Color.Transparent, topLeft = Offset(pad, pad),
-                        shadow = Shadow(Color.White, blurRadius = blur))
-                }
-                val glyphs = alone.getPathForRange(0, slice.to - slice.from).getBounds()
-                SpicyGlow(image, Offset(slice.bounds.left - glyphs.left - pad,
-                    measured.getLineBaseline(slice.row) - alone.firstBaseline - pad))
-            }
-        }.orEmpty().also { values -> imageLifetime.retain(values.mapNotNull { it?.image }) }
-    }
     val wordSprings = remember(groups) { groups.map { SpicySprings() } }
+    val blooms by produceState<List<SpicyBloom>>(emptyList(), raster, geometry, inkMasks) {
+        value = emptyList()
+        val source = raster
+        if (source != null) {
+            val fontPx = with(density) { style.fontSize.toPx() }
+            // Software mask blur used to block composition at every new phrase.
+            // The timed fill/swells draw immediately; glow preparation is cancellable
+            // background work and upcoming rows warm it before their first word.
+            val prepared = withContext(spicyPreparationDispatcher) {
+            geometry.mapIndexed { index, slice ->
+                coroutineContext.ensureActive()
+                // Spicy's regular shadow is wider on emphasized letters than words.
+                val sigma = (fontPx * if (slice.letter >= 0) .065f else .045f).coerceAtLeast(1f)
+                val padding = kotlin.math.ceil(sigma * 3f + 2f).toInt()
+                val ink = inkMasks[index]
+                val size = Size(kotlin.math.ceil(ink.width + padding * 2).toFloat(),
+                    kotlin.math.ceil(ink.height + padding * 2).toFloat())
+                val mask = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
+                CanvasDrawScope().draw(density, direction, Canvas(mask), size) {
+                    drawRect(Color.Transparent, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
+                    clipRect(padding.toFloat(), padding.toFloat(), padding + ink.width, padding + ink.height) {
+                        drawImage(source.first, Offset(padding - ink.left - source.second, padding - ink.top - source.second))
+                    }
+                }
+                SpicyBloom(blurSpicyGlyphMask(mask, sigma), Offset(ink.left - padding, ink.top - padding))
+            }
+            }
+            imageLifetime.retain(prepared.map { it.image })
+            value = prepared
+        }
+    }
+    val joinedRuns = remember(geometry) {
+        geometry.indices.groupBy { geometry[it].row }.values.flatMap { row ->
+            val ordered = row.sortedBy { geometry[it].bounds.left }
+            val runs = mutableListOf<List<Int>>()
+            var first = 0
+            while (first < ordered.size) {
+                var last = first
+                while (last + 1 < ordered.size && !geometry[ordered[last]].rtl &&
+                    geometry[ordered[last]].to == geometry[ordered[last + 1]].from) last++
+                if (last > first) runs += ordered.subList(first, last + 1).toList()
+                first = last + 1
+            }
+            runs
+        }
+    }
+    val joinedTranslations = remember(geometry) { FloatArray(geometry.size) }
     val letterSprings = remember(geometry) { geometry.map { SpicySprings() } }
     val clock = remember(geometry) { SpicyClock() }
+    LaunchedEffect(isActive, clock) {
+        clock.lastFrame = -1L
+        if (isActive) while (true) withFrameNanos { frameNanos = it }
+    }
     // onTextLayout supplies the mask for the following draw. Until it is available,
     // drawContent must stay unsung: white text here flashed the entire new line.
     // The cached raster above is explicitly white; its timed fills are unaffected.
-    Text(line.text, style = style, color = Color.White.copy(alpha = SpicyLyricsMotion.UNSUNG_ALPHA), overflow = TextOverflow.Visible,
-        onTextLayout = { layout = it }, modifier = modifier.fillMaxWidth().drawWithContent {
+    Text(displayText, style = style, color = Color.White.copy(alpha = SpicyLyricsMotion.UNSUNG_ALPHA), overflow = TextOverflow.Visible,
+        onTextLayout = {
+            // Relayout/scroll invalidations can return a new result for the
+            // identical paragraph. Do not rebuild every glyph and glow mask.
+            if (layout?.layoutInput != it.layoutInput || layout?.size != it.size) layout = it
+        }, modifier = modifier.fillMaxWidth().drawWithContent {
+            if (!isActive) {
+                // Prepare the stable, white glyph masks while this row is upcoming.
+                // Painting its dim colour separately avoids rebuilding masks when
+                // the caller animates opacity or the next vocal begins.
+                val measured = layout
+                if (measured == null) drawContent() else drawText(measured, color = inactiveColor, shadow = Shadow.None)
+                return@drawWithContent
+            }
             val images = raster
             if (images == null || geometry.isEmpty()) { drawContent(); return@drawWithContent }
             val (text, pad) = images
             // The clock is read only in drawing: paragraph measurement and rasterization stay cached.
             val now = positionMs.value
             val frame = frameNanos
-            val dt = if (clock.lastFrame < 0) 0f else ((frame - clock.lastFrame) / 1e9f).coerceIn(0f, .1f)
-            // A seek moves the song clock far from the frame clock: land on the goals at once.
-            val snap = clock.lastFrame < 0 || abs((now - clock.lastPosition) - dt * 1000f) > 250f
+            val step = SpicyFrameTiming.sample(clock.lastFrame, frame, clock.lastPosition, now)
+            val dt = step.seconds
+            val snap = step.reset
             clock.lastFrame = frame
             clock.lastPosition = now
             val fontPx = style.fontSize.toPx()
@@ -384,44 +463,122 @@ fun SpicyLyricsLine(
                 SpicyWordPose(springs.scale.drive(goal.scale, dt, snap), springs.lift.drive(goal.liftEm, dt, snap),
                     springs.glow.drive(if (word.letters != null) 0f else goal.glow, dt, snap))
             }
-            geometry.forEachIndexed { index, slice ->
-                val word = groups[slice.wordIndex]
-                val wordPose = wordPoses[slice.wordIndex]
-                val whole = slice.wordBounds
-                // Adjacent syllables scale from their shared written boundary, keeping
-                // the spelling joined while their own source intervals animate.
-                val joinedBefore = groups.getOrNull(slice.wordIndex - 1)?.end == word.start
-                val joinedAfter = groups.getOrNull(slice.wordIndex + 1)?.start == word.end
-                val pivot = when {
-                    joinedBefore -> Offset(if (slice.rtl) whole.right else whole.left, whole.center.y)
-                    joinedAfter -> Offset(if (slice.rtl) whole.left else whole.right, whole.center.y)
-                    else -> whole.center
-                }
-                val letters = word.letters
-                val letterPose = if (slice.letter >= 0 && letters != null) {
+            val letterPoses = geometry.mapIndexed { index, slice ->
+                val letters = groups[slice.wordIndex].letters
+                if (slice.letter < 0 || letters == null) null else {
                     val goal = SpicyLyricsMotion.letterPose(letters, slice.letter, now)
                     val springs = letterSprings[index]
                     SpicyWordPose(springs.scale.drive(goal.scale, dt, snap), springs.lift.drive(goal.liftEm, dt, snap),
                         springs.glow.drive(goal.glow, dt, snap))
-                } else null
+                }
+            }
+            joinedTranslations.fill(0f)
+            // Pack ink by its measured advances, never by inserting spaces or
+            // snapping it to a different origin when a syllable becomes active.
+            joinedRuns.forEach { run ->
+                        var originalWidth = 0f
+                        var scaledWidth = 0f
+                        for (index in run) {
+                            val width = geometry[index].bounds.width
+                            originalWidth += width
+                            scaledWidth += width * wordPoses[geometry[index].wordIndex].scale * (letterPoses[index]?.scale ?: 1f)
+                        }
+                        var cursor = geometry[run.first()].bounds.left + (originalWidth - scaledWidth) / 2f
+                        run.forEach { index ->
+                            val slice = geometry[index]
+                            val wordScale = wordPoses[slice.wordIndex].scale
+                            val letterScale = letterPoses[index]?.scale ?: 1f
+                            val originalLeft = slice.wordBounds.center.x + wordScale *
+                                (slice.bounds.center.x + letterScale * (slice.bounds.left - slice.bounds.center.x) - slice.wordBounds.center.x)
+                            joinedTranslations[index] = cursor - originalLeft
+                            cursor += slice.bounds.width * wordScale * letterScale
+                        }
+            }
+            geometry.forEachIndexed { index, slice ->
+                val word = groups[slice.wordIndex]
+                val wordPose = wordPoses[slice.wordIndex]
+                // Spicy's inline-block scale uses its own centre, including split
+                // syllables. Anchoring neighbouring pieces to their shared edge
+                // introduced opposing sideways motion as each spring swelled.
+                val pivot = slice.wordBounds.center
+                val letters = word.letters
+                val letterPose = letterPoses[index]
                 val fill = if (letterPose != null && letters != null) SpicyLyricsMotion.letterFill(letters[slice.letter], now)
                     else -.2f + 1.2f * word.progress(now)
                 withTransform({
-                    translate(top = wordPose.liftEm * fontPx)
+                    translate(left = joinedTranslations[index], top = wordPose.liftEm * fontPx)
                     scale(wordPose.scale, wordPose.scale, pivot = pivot)
                     if (letterPose != null) {
                         translate(top = letterPose.liftEm * 2f * fontPx)
                         scale(letterPose.scale, letterPose.scale, pivot = slice.bounds.center)
                     }
                 }) {
-                    val glow = glows.getOrNull(index)
-                    val strength = if (letterPose != null) (letterPose.glow * 1.85f) else (wordPose.glow * .35f)
-                    if (glow != null && strength > .01f) drawImage(glow.image, glow.topLeft, alpha = strength.coerceAtMost(1f))
+                    val strength = if (letterPose != null) letterPose.glow else wordPose.glow
+                    val bloomAlpha = if (letterPose != null) (strength * .65f).coerceIn(0f, .65f)
+                        else (strength * .35f).coerceIn(0f, .35f)
+                    blooms.getOrNull(index)?.let { bloom ->
+                        if (bloomAlpha > .001f) drawImage(bloom.image, bloom.origin, alpha = bloomAlpha)
+                    }
                     val inkBounds = inkMasks[index]
-                    drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds,
-                        if (line.isBackground) 1f else .85f)
+                    val baseAlpha = if (line.isBackground) 1f else .85f
+                    val glowingAlpha = baseAlpha + (1f - baseAlpha) * strength.coerceIn(0f, 1f)
+                    drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds, glowingAlpha)
                 }
             }
+        })
+}
+
+/** Line-sync's vertical fill and breath use the original line interval, including wrapped rows. */
+@Composable
+private fun SpicyLineSyncedText(line: LyricLine, positionMs: State<Long>, style: TextStyle,
+    active: Boolean, modifier: Modifier, inactiveColor: Color, nextLineTime: Long?) {
+    val scale by animateFloatAsState(if (active) 1.05f else 1f,
+        tween(200, easing = CubicBezierEasing(.37f, 0f, .63f, 1f)), label = "spicyLineScale")
+    val direction = LocalLayoutDirection.current
+    val right = style.textAlign == TextAlign.Right ||
+        (style.textAlign == TextAlign.Start && direction == LayoutDirection.Rtl) ||
+        (style.textAlign == TextAlign.End && direction == LayoutDirection.Ltr)
+    val pivot = if (style.textAlign == TextAlign.Center) .5f else if (right) 1f else 0f
+    var layout by remember(line.text, style) { mutableStateOf<TextLayoutResult?>(null) }
+    var frame by remember { mutableLongStateOf(0L) }
+    val clock = remember(line.time, line.text) { SpicyClock() }
+    val glow = remember(line.time, line.text) { SpicySpring(1f, .5f) }
+    LaunchedEffect(active) {
+        clock.lastFrame = -1L
+        if (active) while (true) withFrameNanos { frame = it }
+    }
+    val end = line.effectiveEndTime?.takeIf { it > line.time }
+        ?: nextLineTime?.takeIf { it > line.time }
+    Text(line.text, style = style, color = inactiveColor, overflow = TextOverflow.Visible,
+        onTextLayout = {
+            if (layout?.layoutInput != it.layoutInput || layout?.size != it.size) layout = it
+        }, modifier = modifier.fillMaxWidth().graphicsLayer {
+            scaleX = scale; scaleY = scale
+            transformOrigin = TransformOrigin(pivot, .5f)
+            clip = false
+        }.drawWithContent {
+            val measured = layout
+            if (!active || measured == null) { drawContent(); return@drawWithContent }
+            val now = positionMs.value
+            val step = SpicyFrameTiming.sample(clock.lastFrame, frame, clock.lastPosition, now)
+            val dt = step.seconds
+            val snap = step.reset
+            clock.lastFrame = frame; clock.lastPosition = now
+            val progress = SpicyLyricsMotion.lineProgress(line.time, end, now)
+            val light = glow.drive(if (end == null) 0f else SpicyLyricsMotion.lineGlow(progress), dt, snap)
+            val height = measured.size.height.toFloat().coerceAtLeast(1f)
+            val edge = height * progress
+            // Brighten the glyph fill itself. A paragraph shadow can become a rectangular
+            // haze on the desktop GPU backend and also paints outside counters and spaces.
+            val innerGlow = light.coerceIn(0f, 1f)
+            drawText(measured, brush = Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = .85f + innerGlow * .15f),
+                    Color.White.copy(alpha = .65f + innerGlow * .35f)),
+                startY = edge, endY = edge + height * .2f),
+                // The paragraph was measured with the caller's dim upcoming/sung
+                // colour. Compose otherwise inherits that alpha into this brush,
+                // suppressing the active highlight and its entire glow envelope.
+                alpha = 1f, shadow = Shadow.None)
         })
 }
 
@@ -429,7 +586,9 @@ fun SpicyLyricsLine(
 private fun DrawScope.drawFill(text: ImageBitmap, origin: Offset, bounds: Rect, fill: Float, rtl: Boolean, fontPx: Float, inkBounds: Rect = bounds, litAlpha: Float = .85f) {
     // The raster contains the whole paragraph. Stay inside this row vertically:
     // expanding into its neighbours paints their unsung glyphs with this word's fill.
-    clipRect(inkBounds.left - .5f, inkBounds.top, inkBounds.right + .5f, inkBounds.bottom) {
+    // Slices must not overlap: half a pixel of a neighbouring glyph otherwise
+    // follows two different transforms and flickers along the split boundary.
+    clipRect(inkBounds.left, inkBounds.top, inkBounds.right, inkBounds.bottom) {
         if (fill >= 1f) { drawImage(text, origin, alpha = litAlpha); return@clipRect }
         drawImage(text, origin, alpha = SpicyLyricsMotion.UNSUNG_ALPHA)
         if (fill <= -.2f) return@clipRect

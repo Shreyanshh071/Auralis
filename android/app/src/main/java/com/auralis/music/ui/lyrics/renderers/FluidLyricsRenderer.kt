@@ -313,11 +313,12 @@ private fun ContentDrawScope.drawGlow(layout: TextLayoutResult, timing: FluidTim
             if (s >= e) continue
             val from = layout.xOn(s, row)
             val to = layout.xOn(e, row)
-            val pad = GLOW_RADIUS.toPx() * 2
-            clipRect(from - pad, layout.getLineTop(row) - pad, to + pad, layout.getLineBottom(row) + pad) {
+            // Isolate this word before the outer blur. Padding this clip redraws
+            // adjacent letters as floating glow fragments when a word lights up.
+            clipRect(from, layout.getLineTop(row) - WORD_RISE.toPx(), to, layout.getLineBottom(row)) {
                 // drawContent ignores alpha, so fade the glow by drawing it into a translucent layer.
                 drawContext.canvas.saveLayer(
-                    androidx.compose.ui.geometry.Rect(from - pad, layout.getLineTop(row) - pad, to + pad, layout.getLineBottom(row) + pad),
+                    androidx.compose.ui.geometry.Rect(from, layout.getLineTop(row) - WORD_RISE.toPx(), to, layout.getLineBottom(row)),
                     androidx.compose.ui.graphics.Paint().apply { alpha = GLOW_ALPHA * strength }
                 )
                 translate(top = -strength * WORD_RISE.toPx()) { this@drawGlow.drawContent() }

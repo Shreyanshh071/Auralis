@@ -61,7 +61,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
     }
     SettingsPage("Appearance", onDismiss) {
         item {
-            Surface(onClick = { showThemes = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            SettingsHoverSurface(onClick = { showThemes = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer) {
                 Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -74,7 +74,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
         }
         item { BackgroundCards(settings.playerBackgroundStyle) { update { copy(playerBackgroundStyle = it) } } }
         item {
-            Surface(onClick = { showSliderStyles = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            SettingsHoverSurface(onClick = { showSliderStyles = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column { Text(desktopText("Seek bar"), style = MaterialTheme.typography.titleMedium); Text(settings.playerSliderStyle) }
@@ -190,7 +190,7 @@ private fun Toggle(title: String, checked: Boolean, change: (Boolean) -> Unit) {
 @Composable
 private fun Choice(title: String, selected: String, options: List<String>, select: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Surface(onClick = { expanded = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+    SettingsHoverSurface(onClick = { expanded = true }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().padding(18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column { Text(desktopText(title), style = MaterialTheme.typography.titleMedium); Text(desktopText(selected), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -202,7 +202,7 @@ private fun Choice(title: String, selected: String, options: List<String>, selec
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 options.forEach { option ->
-                    Surface(onClick = { select(option); expanded = false },
+                    SettingsHoverSurface(onClick = { select(option); expanded = false },
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                         color = if (option == selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

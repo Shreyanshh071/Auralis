@@ -56,6 +56,14 @@ object YouTubeSession {
 
     val isSignedIn: Boolean get() = _signedIn.value
 
+    /** Stable selected-account identity for playlist links; never returns session cookies. */
+    fun playlistSyncIdentity(): String {
+        check(isSignedIn && dataSyncId.isNotBlank()) { "Reconnect YouTube Music to confirm the account used for playlist sync." }
+        return sha1Hex("$authUser|$dataSyncId")
+    }
+
+    fun playlistSyncUser(): String = dataSyncId.also { playlistSyncIdentity() }
+
     fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "") {
         this.cookie = cookie
         this.visitorData = visitorData

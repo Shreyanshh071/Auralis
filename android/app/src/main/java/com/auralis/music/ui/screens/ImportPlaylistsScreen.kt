@@ -1,5 +1,12 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.components.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -15,17 +22,13 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -140,132 +143,70 @@ fun ImportPlaylistsScreen(
         return
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-        ) {
-            ImportHeader(onDismiss = onDismiss)
+    AccountPageTheme {
+        AccountPage(title = str(R.string.import_playlists), onBack = onDismiss, modifier = modifier) {
+            AccountPanel {
+                AccountBadge(str(R.string.account_ui_migration_tool))
+                Spacer(Modifier.height(10.dp))
+                Text(str(R.string.import_playlists), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp,
+                    lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
-            Spacer(Modifier.height(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                com.auralis.music.ui.library.PlaylistImportSyncToggle()
+                val linkedCount = listOf(youTubeSignedIn, spotifySignedIn).count { it }
+                AccountSectionLabel(str(R.string.account_ui_connected_accounts),
+                    str(R.string.account_ui_linked_count, linkedCount))
+                YouTubeAccountCard(
+                    signedIn = youTubeSignedIn, accountLabel = accountLabel,
+                    isLoadingPlaylists = isLoadingPlaylists, playlists = playlists,
+                    isImporting = isImportingYouTube,
+                    importMessage = youtubeImportMessage,
+                    onOpenPicker = { onClearYouTubeImportMessage(); showPlaylistPickerPopup = true },
+                    onNavigateToAccount = onNavigateToYouTubeAccount,
+                    onDisconnect = { signOutOfYouTube() }
+                )
+                SpotifyAccountCard(
+                    signedIn = spotifySignedIn, accountLabel = spotifyAccountLabel,
+                    isLoadingPlaylists = isLoadingSpotifyPlaylists,
+                    isImporting = isImportingSpotify,
+                    importMessage = if (spotifyPlaylistLoadFailed) str(R.string.spotify_playlists_load_failed)
+                        else if (spotifyImportFromAccount) spotifyImportMessage else null,
+                    onImportAll = {
+                        onClearSpotifyImportMessage()
+                        spotifyImportFromAccount = true
+                        importAllAfterSpotifySignIn = true
+                        spotifyReloadKey++
+                    },
+                    onSignIn = { showSpotifySignIn = true },
+                    onDisconnect = { SpotifySession.signOut() }
+                )
+            }
 
-            YouTubeAccountCard(
-                signedIn = youTubeSignedIn,
-                accountLabel = accountLabel,
-                isLoadingPlaylists = isLoadingPlaylists,
-                playlists = playlists,
-                isImporting = isImportingYouTube,
-                importMessage = youtubeImportMessage,
-                onOpenPicker = { showPlaylistPickerPopup = true },
-                onNavigateToAccount = onNavigateToYouTubeAccount
+            UniversalSmartLinkCard(
+                isImportingYouTube = isImportingYouTube,
+                youtubeImportMessage = if (!showPlaylistPickerPopup) youtubeImportMessage else null,
+                onImportYouTube = onImportYouTubePlaylist,
+                onClearYouTubeMessage = onClearYouTubeImportMessage,
+                isImportingSpotify = isImportingSpotify,
+                spotifyImportMessage = if (!spotifyImportFromAccount) spotifyImportMessage else null,
+                onImportSpotify = { spotifyImportFromAccount = false; onImportSpotifyPlaylist(it) },
+                onClearSpotifyMessage = onClearSpotifyImportMessage
             )
-
-            Spacer(Modifier.height(12.dp))
-
-            SpotifyAccountCard(
-                signedIn = spotifySignedIn,
-                accountLabel = spotifyAccountLabel,
-                isLoadingPlaylists = isLoadingSpotifyPlaylists,
-                isImporting = isImportingSpotify && spotifyImportFromAccount,
-                importMessage = if (spotifyPlaylistLoadFailed) "Couldn't load Spotify playlists. Try again."
-                    else if (spotifyImportFromAccount) spotifyImportMessage else null,
-                onImportAll = {
-                    spotifyImportFromAccount = true
-                    // A fresh library request is required to see playlists added since the last import.
-                    importAllAfterSpotifySignIn = true
-                    spotifyReloadKey++
-                },
-                onSignIn = { showSpotifySignIn = true },
-                onDisconnect = { SpotifySession.signOut() }
-            )
-
-            Spacer(Modifier.height(18.dp))
-
-            Text(
-                text = str(R.string.import_by_link),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 16.sp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            YouTubeLinkCard(
-                isImporting = isImportingYouTube && !showPlaylistPickerPopup,
-                importMessage = if (!showPlaylistPickerPopup) youtubeImportMessage else null,
-                onImport = onImportYouTubePlaylist,
-                onClearMessage = onClearYouTubeImportMessage
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            SpotifyLinkCard(
-                isImporting = isImportingSpotify && !spotifyImportFromAccount,
-                importMessage = if (!spotifyImportFromAccount) spotifyImportMessage else null,
-                onImport = { spotifyImportFromAccount = false; onImportSpotifyPlaylist(it) },
-                onClearMessage = onClearSpotifyImportMessage
-            )
-
-            Spacer(Modifier.height(32.dp))
         }
 
         if (showPlaylistPickerPopup) {
             YouTubePlaylistPickerBottomSheet(
-                playlists = playlists,
-                isLoading = isLoadingPlaylists,
-                loadFailed = loadFailed,
-                onRetry = { reloadKey++ },
-                selected = selectedPlaylists,
-                isImporting = isImportingYouTube,
-                importMessage = youtubeImportMessage,
-                onImport = { selected -> onImportYouTubeLibraryPlaylists(selected) },
+                playlists = playlists, isLoading = isLoadingPlaylists, loadFailed = loadFailed,
+                onRetry = { reloadKey++ }, selected = selectedPlaylists,
+                isImporting = isImportingYouTube, importMessage = youtubeImportMessage,
+                onImport = onImportYouTubeLibraryPlaylists,
                 onDismiss = { showPlaylistPickerPopup = false }
             )
         }
     }
-}
-
-@Composable
-private fun ImportHeader(onDismiss: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
-    ) {
-        IconButton(onClick = onDismiss) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = str(R.string.back),
-                tint = MaterialTheme.colorScheme.onBackground
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = str(R.string.import_playlists),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 20.sp
-        )
-    }
-
-    Text(
-        text = str(R.string.transfer_music_from_youtube_music_via_ac),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-    )
 }
 
 @Composable
@@ -277,571 +218,56 @@ private fun YouTubeAccountCard(
     isImporting: Boolean,
     importMessage: String?,
     onOpenPicker: () -> Unit,
-    onNavigateToAccount: () -> Unit
+    onNavigateToAccount: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.2.dp, YOUTUBE_RED.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-            .padding(16.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(YOUTUBE_RED.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (signedIn) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
-                        contentDescription = str(R.string.youtube_music),
-                        tint = YOUTUBE_RED,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = str(R.string.youtube_music_account),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = if (signedIn) {
-                            if (accountLabel.isNotBlank()) accountLabel else str(R.string.signed_in)
-                        } else str(R.string.sign_in_to_pick_playlists_directly),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+    AccountPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AccountGlyph(Icons.Default.PlayArrow)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(str(R.string.youtube_music), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (signedIn) accountLabel.ifBlank { str(R.string.signed_in) }
+                    else str(R.string.sign_in_to_pick_playlists_directly),
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-
+            IconButton(onClick = onNavigateToAccount) {
+                Icon(Icons.Default.MoreVert, str(R.string.open_youtube_account),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (signedIn && playlists != null && !isLoadingPlaylists) {
+            AccountBadge(str(R.string.choose_playlists_x_available, playlists.size))
+            Spacer(Modifier.height(12.dp))
+        }
+        Text(str(if (signedIn) R.string.import_liked_music_and_playlists_directl
+            else R.string.sign_in_to_your_youtube_account_to_pick), fontSize = 12.sp,
+            lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            AccountAction(
+                label = when {
+                    !signedIn -> str(R.string.sign_in_to_youtube)
+                    isLoadingPlaylists -> str(R.string.loading_playlists)
+                    isImporting -> str(R.string.importing)
+                    else -> str(R.string.choose_playlists_to_import)
+                },
+                icon = Icons.Default.Sync,
+                onClick = if (signedIn) onOpenPicker else onNavigateToAccount,
+                loading = isLoadingPlaylists || isImporting,
+                modifier = Modifier.weight(1f)
+            )
+            if (signedIn) OutlinedIconButton(onClick = onDisconnect,
+                enabled = !isImporting && !isLoadingPlaylists,
+                shape = AccountButtonShape, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.LinkOff, str(R.string.sign_out_of_youtube), modifier = Modifier.size(20.dp))
+            }
+        }
+        if (importMessage != null) {
             Spacer(Modifier.height(10.dp))
-
-            if (signedIn) {
-                Text(
-                    text = str(R.string.import_liked_music_and_playlists_directl),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                Button(
-                    onClick = onOpenPicker,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = YOUTUBE_RED,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.LibraryMusic,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = when {
-                                isLoadingPlaylists -> str(R.string.loading_playlists)
-                                playlists != null && playlists.isNotEmpty() -> str(R.string.choose_playlists_x_available, playlists.size)
-                                else -> str(R.string.choose_playlists_to_import)
-                            },
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                if (isImporting) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            color = YOUTUBE_RED,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = importMessage ?: str(R.string.importing),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    }
-                } else if (importMessage != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = importMessage,
-                        color = if (importMessage.startsWith("Imported", ignoreCase = true) || importMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
-                        fontSize = 12.sp
-                    )
-                }
-            } else {
-                Text(
-                    text = str(R.string.sign_in_to_your_youtube_account_to_pick),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                Button(
-                    onClick = onNavigateToAccount,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = YOUTUBE_RED,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = str(R.string.sign_in_to_youtube),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun YouTubeLinkCard(
-    isImporting: Boolean,
-    importMessage: String?,
-    onImport: (String) -> Unit,
-    onClearMessage: () -> Unit
-) {
-    val context = LocalContext.current
-    var youtubeUrlInput by remember { mutableStateOf("") }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-            .padding(14.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.LibraryMusic,
-                        contentDescription = null,
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.youtube_music_link),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp
-                    )
-                }
-
-                if (isImporting) {
-                    CircularProgressIndicator(
-                        color = Color(0xFFEF4444),
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = str(R.string.paste_a_youtube_music_playlist_link_to_i),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = youtubeUrlInput,
-                onValueChange = {
-                    youtubeUrlInput = it
-                    onClearMessage()
-                },
-                label = { Text(str(R.string.youtube_music_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text(str(R.string.paste_music_youtube_com_playlist_list), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFFEF4444),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    cursorColor = Color(0xFFEF4444)
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = {
-                    Icon(Icons.Default.LibraryMusic, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
-                },
-                trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (youtubeUrlInput.isNotEmpty()) {
-                            IconButton(onClick = {
-                                youtubeUrlInput = ""
-                                onClearMessage()
-                            }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        IconButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    youtubeUrlInput = clip.getItemAt(0).text.toString().trim()
-                                    onClearMessage()
-                                    Toast.makeText(context, str(R.string.pasted_youtube_music_link), Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Button(
-                onClick = {
-                    if (youtubeUrlInput.isNotBlank() && !isImporting) {
-                        onImport(youtubeUrlInput.trim())
-                    }
-                },
-                enabled = youtubeUrlInput.isNotBlank() && !isImporting,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFEF4444),
-                    disabledContainerColor = Color(0xFFEF4444).copy(alpha = 0.30f),
-                    contentColor = Color.White,
-                    disabledContentColor = Color.White.copy(alpha = 0.70f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(42.dp)
-            ) {
-                if (isImporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.importing_songs),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = str(R.string.import_yt_music_playlist),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = Color(0xFFEF4444),
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.tip_make_sure_your_playlist_is_set_to_pu),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-            }
-
-            if (importMessage != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = importMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (importMessage.startsWith("Imported", ignoreCase = true) || importMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpotifyLinkCard(
-    isImporting: Boolean,
-    importMessage: String?,
-    onImport: (String) -> Unit,
-    onClearMessage: () -> Unit
-) {
-    val context = LocalContext.current
-    var spotifyUrlInput by remember { mutableStateOf("") }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-            .padding(14.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SpotifyLogoIcon(modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.spotify_link),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp
-                    )
-                }
-
-                if (isImporting) {
-                    CircularProgressIndicator(
-                        color = Color(0xFF1DB954),
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = str(R.string.paste_any_spotify_playlist_album_or_trac),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = spotifyUrlInput,
-                onValueChange = {
-                    spotifyUrlInput = it
-                    onClearMessage()
-                },
-                label = { Text(str(R.string.spotify_link), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) },
-                placeholder = { Text(str(R.string.paste_open_spotify_com_playlist), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontSize = 12.sp) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF1DB954),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    cursorColor = Color(0xFF1DB954)
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = {
-                    SpotifyLogoIcon(modifier = Modifier.size(18.dp))
-                },
-                trailingIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (spotifyUrlInput.isNotEmpty()) {
-                            IconButton(onClick = {
-                                spotifyUrlInput = ""
-                                onClearMessage()
-                            }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = str(R.string.clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        IconButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    spotifyUrlInput = clip.getItemAt(0).text.toString().trim()
-                                    onClearMessage()
-                                    Toast.makeText(context, str(R.string.pasted_spotify_link), Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = str(R.string.paste), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Button(
-                onClick = {
-                    if (spotifyUrlInput.isNotBlank() && !isImporting) {
-                        onImport(spotifyUrlInput.trim())
-                    }
-                },
-                enabled = spotifyUrlInput.isNotBlank() && !isImporting,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1DB954),
-                    disabledContainerColor = Color(0xFF1DB954).copy(alpha = 0.30f),
-                    contentColor = Color.White,
-                    disabledContentColor = Color.White.copy(alpha = 0.70f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(42.dp)
-            ) {
-                if (isImporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.importing_songs),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = str(R.string.import_spotify_playlist),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = Color(0xFF1DB954),
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.tip_if_your_playlist_is_private_briefly),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-            }
-
-            if (importMessage != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = importMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (importMessage.startsWith("Imported", ignoreCase = true) || importMessage.startsWith("Success", ignoreCase = true)) Color(0xFF16A34A) else Color(0xFFEF4444),
-                    fontSize = 11.sp
-                )
-            }
+            Text(importMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -859,68 +285,159 @@ private fun SpotifyAccountCard(
     onSignIn: () -> Unit,
     onDisconnect: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.2.dp, SPOTIFY_GREEN.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
-            .padding(16.dp)
-    ) {
+    AccountPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(38.dp).clip(CircleShape)
-                    .background(SPOTIFY_GREEN.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                SpotifyLogoIcon(modifier = Modifier.size(22.dp))
-            }
+            AccountGlyph(Icons.Default.GraphicEq)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(str(R.string.spotify_account), fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                Text(str(R.string.spotify_account), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(if (signedIn) accountLabel.ifBlank { str(R.string.signed_in) }
-                    else str(R.string.sign_in_to_spotify),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else str(R.string.account_ui_spotify_description),
+                    fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(str(R.string.spotify_account_description),
-            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 16.sp)
-        Spacer(Modifier.height(12.dp))
-        Button(
+        Spacer(Modifier.height(16.dp))
+        AccountAction(
+            label = when {
+                isLoadingPlaylists -> str(R.string.loading_playlists)
+                isImporting -> str(R.string.importing_songs)
+                signedIn -> str(R.string.import_all_spotify_playlists)
+                else -> str(R.string.account_ui_connect_spotify)
+            },
+            icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
             onClick = if (signedIn) onImportAll else onSignIn,
-            enabled = !isImporting && !isLoadingPlaylists,
-            colors = ButtonDefaults.buttonColors(containerColor = SPOTIFY_GREEN, contentColor = Color.White),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(44.dp)
-        ) {
-            Icon(if (signedIn) Icons.Default.LibraryMusic else Icons.Default.AccountCircle,
-                contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (!signedIn) str(R.string.sign_in_to_spotify)
-                else if (isImporting) str(R.string.importing_songs)
-                else if (isLoadingPlaylists) str(R.string.loading_playlists)
-                else str(R.string.import_all_spotify_playlists),
-                fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            loading = isLoadingPlaylists || isImporting, secondary = true
+        )
+        if (importMessage != null) {
+            Spacer(Modifier.height(10.dp))
+            Text(importMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (isImporting || importMessage != null) {
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isImporting) {
-                    CircularProgressIndicator(color = SPOTIFY_GREEN, strokeWidth = 2.dp,
-                        modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
+        if (signedIn) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onDisconnect, enabled = !isImporting && !isLoadingPlaylists) {
+                Text(str(R.string.disconnect_spotify), fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UniversalSmartLinkCard(
+    isImportingYouTube: Boolean,
+    youtubeImportMessage: String?,
+    onImportYouTube: (String) -> Unit,
+    onClearYouTubeMessage: () -> Unit,
+    isImportingSpotify: Boolean,
+    spotifyImportMessage: String?,
+    onImportSpotify: (String) -> Unit,
+    onClearSpotifyMessage: () -> Unit
+) {
+    val context = LocalContext.current
+    var youtubeInput by rememberSaveable { mutableStateOf("") }
+    var spotifyInput by rememberSaveable { mutableStateOf("") }
+    var platform by rememberSaveable { mutableStateOf("youtube") }
+    var validationMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val isImporting = isImportingYouTube || isImportingSpotify
+    val input = if (platform == "youtube") youtubeInput else spotifyInput
+    val setInput: (String) -> Unit = { text ->
+        if (platform == "youtube") youtubeInput = text else spotifyInput = text
+        validationMessage = null
+        onClearYouTubeMessage()
+        onClearSpotifyMessage()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(str(R.string.import_by_link), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(str(R.string.account_ui_link_description), fontSize = 12.sp, lineHeight = 18.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(shape = AccountButtonShape,
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(3.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                listOf("youtube" to str(R.string.youtube_music), "spotify" to str(R.string.spotify)).forEach { (id, label) ->
+                    val selected = id == platform
+                    Surface(Modifier.weight(1f), shape = AccountButtonShape,
+                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f) else Color.Transparent) {
+                        Row(Modifier.selectable(selected = selected, enabled = !isImporting, role = Role.Tab,
+                            onClick = { platform = id; validationMessage = null })
+                            .heightIn(min = 48.dp).padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (id == "youtube") Icons.Default.PlayCircle else Icons.Default.GraphicEq,
+                                null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(label, fontSize = 12.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    }
                 }
-                Text(importMessage ?: str(R.string.importing),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
         }
-        if (signedIn && !isImporting) {
-            TextButton(onClick = onDisconnect, modifier = Modifier.align(Alignment.End)) {
-                Text(str(R.string.disconnect_spotify), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp)
+        OutlinedTextField(value = input, onValueChange = setInput, enabled = !isImporting,
+            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = AccountCardShape,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            label = { Text(str(if (platform == "youtube") R.string.youtube_music_link else R.string.spotify_link), fontSize = 12.sp) },
+            placeholder = { Text(str(R.string.account_ui_paste_link), fontSize = 12.sp) },
+            leadingIcon = { Icon(Icons.Default.Link, null, modifier = Modifier.size(20.dp)) },
+            trailingIcon = {
+                TextButton(enabled = !isImporting, onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)?.coerceToText(context)?.toString()?.trim().orEmpty()
+                    if (text.isNotBlank()) {
+                        val host = Uri.parse(text).host.orEmpty().lowercase()
+                        when {
+                            host == "spotify.com" || host.endsWith(".spotify.com") || host == "spotify.link" -> {
+                                platform = "spotify"; spotifyInput = text
+                            }
+                            host == "youtube.com" || host.endsWith(".youtube.com") || host == "youtu.be" -> {
+                                platform = "youtube"; youtubeInput = text
+                            }
+                            else -> setInput(text)
+                        }
+                        validationMessage = null
+                        onClearYouTubeMessage(); onClearSpotifyMessage()
+                    }
+                }) {
+                    Icon(Icons.Default.ContentPaste, str(R.string.paste), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(str(R.string.paste), fontSize = 11.sp)
+                }
+            },
+            isError = validationMessage != null,
+            supportingText = validationMessage?.let { message -> { Text(message) } },
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f),
+                focusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
+
+        AccountAction(
+            label = str(if (isImporting) R.string.importing_songs else R.string.account_ui_fetch_import),
+            icon = Icons.Default.CloudDownload, enabled = input.isNotBlank(), loading = isImporting,
+            onClick = {
+                val trimmed = input.trim()
+                val uri = Uri.parse(trimmed)
+                val host = uri.host.orEmpty().lowercase()
+                val spotify = host == "spotify.com" || host.endsWith(".spotify.com") || host == "spotify.link"
+                val youtube = host == "music.youtube.com" || host == "www.youtube.com" || host == "youtube.com" || host == "youtu.be"
+                if (uri.scheme?.lowercase() !in listOf("https", "http") || (platform == "spotify" && !spotify) || (platform == "youtube" && !youtube)) {
+                    validationMessage = str(R.string.account_ui_invalid_link)
+                } else if (platform == "spotify") onImportSpotify(trimmed) else onImportYouTube(trimmed)
+            })
+
+        AccountPanel(padding = 14.dp) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Info, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(str(if (platform == "youtube") R.string.tip_make_sure_your_playlist_is_set_to_pu
+                    else R.string.account_ui_spotify_link_tip), fontSize = 12.sp,
+                    lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        val message = if (platform == "youtube") youtubeImportMessage else spotifyImportMessage
+        if (message != null) AccountPanel {
+            Text(str(R.string.account_ui_transfer_status), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1156,7 +673,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
                     items(playlists, key = { it.id }) { item ->
                         val checked = item.id in selected
                         Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            modifier = Modifier.fillMaxWidth().clip(AccountCardShape)
                                 .background(if (checked) SPOTIFY_GREEN.copy(alpha = 0.08f) else Color.Transparent)
                                 .clickable(enabled = !isImporting) {
                                     if (checked) selected.remove(item.id) else selected.add(item.id)
@@ -1284,7 +801,7 @@ fun YouTubePlaylistPickerBottomSheet(
                     ) {
                         Text(
                             text = if (allSelected) str(R.string.clear) else str(R.string.select_all),
-                            color = YOUTUBE_RED,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp
                         )
@@ -1322,7 +839,7 @@ fun YouTubePlaylistPickerBottomSheet(
                             .height(240.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = YOUTUBE_RED, modifier = Modifier.size(32.dp))
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                     }
                 }
                 loadFailed || playlists == null -> {
@@ -1340,7 +857,7 @@ fun YouTubePlaylistPickerBottomSheet(
                         )
                         Spacer(Modifier.height(8.dp))
                         TextButton(onClick = onRetry) {
-                            Text(str(R.string.try_again), color = YOUTUBE_RED, fontWeight = FontWeight.Bold)
+                            Text(str(R.string.try_again), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1372,8 +889,8 @@ fun YouTubePlaylistPickerBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (checked) YOUTUBE_RED.copy(alpha = 0.08f) else Color.Transparent)
+                                    .clip(AccountCardShape)
+                                    .background(if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
                                     .clickable(enabled = !isImporting) {
                                         if (checked) selected.remove(item.id) else selected.add(item.id)
                                     }
@@ -1390,7 +907,7 @@ fun YouTubePlaylistPickerBottomSheet(
                                         Icon(
                                             imageVector = Icons.Default.Favorite,
                                             contentDescription = null,
-                                            tint = YOUTUBE_RED,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
                                         )
                                     } else if (item.thumbnail != null) {
@@ -1404,7 +921,7 @@ fun YouTubePlaylistPickerBottomSheet(
                                         Icon(
                                             imageVector = Icons.Default.PlayArrow,
                                             contentDescription = null,
-                                            tint = YOUTUBE_RED,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -1438,7 +955,7 @@ fun YouTubePlaylistPickerBottomSheet(
                                     onCheckedChange = { on ->
                                         if (on) selected.add(item.id) else selected.remove(item.id)
                                     },
-                                    colors = CheckboxDefaults.colors(checkedColor = YOUTUBE_RED)
+                                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary, checkmarkColor = MaterialTheme.colorScheme.onPrimary)
                                 )
                             }
                         }
@@ -1458,19 +975,19 @@ fun YouTubePlaylistPickerBottomSheet(
                 },
                 enabled = selected.isNotEmpty() && !isImporting,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = YOUTUBE_RED,
-                    disabledContainerColor = YOUTUBE_RED.copy(alpha = 0.35f),
-                    contentColor = Color.White,
-                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
-                shape = RoundedCornerShape(14.dp),
+                shape = AccountButtonShape,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(46.dp)
             ) {
                 if (isImporting) {
                     CircularProgressIndicator(
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(18.dp)
                     )

@@ -27,7 +27,9 @@ class SidebarWordLyricsTest {
         val position = mutableLongStateOf(1500L)
         val data = com.auralis.music.domain.model.LyricsData(SyncType.RICHSYNC, listOf(
             LyricLine(1000, "AAAA", words = listOf(LyricWord("AAAA", 1000, 800))),
-            LyricLine(5000, "BBBB", words = listOf(LyricWord("BBBB", 5000, 1000)))),
+            // Keep the breath below the interlude threshold: this test samples
+            // lyric rows, while dots have their own layout/visibility checks.
+            LyricLine(4000, "BBBB", words = listOf(LyricWord("BBBB", 4000, 1000)))),
             provider = com.auralis.music.domain.model.LyricsProvider.AMLL)
         val scene = ImageComposeScene(360, 220, coroutineContext = Dispatchers.Unconfined) {
             MaterialTheme {
@@ -56,7 +58,7 @@ class SidebarWordLyricsTest {
             val rest = capture(3000, "between-phrases")
             assertTrue(brightest(rest, 12, 43) in 80..130, "Completed phrase dims to Spicy's sung state during the breath")
             assertTrue(brightest(rest, 50, 80) < 150, "Next phrase must remain dim before its start")
-            val next = capture(5800, "next-phrase")
+            val next = capture(4800, "next-phrase")
             assertTrue(brightest(next, 12, 43) < 150, "Previous phrase dims when the next starts")
             assertTrue(brightest(next, 50, 80) > 200, "Next phrase takes highlight ownership")
             val back = capture(3000, "seek-back")

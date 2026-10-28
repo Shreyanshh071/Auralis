@@ -88,7 +88,7 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
             color = if (t?.failed == true) Color(0xFFFF8A80) else ConnectAccent,
             modifier = Modifier.widthIn(max = 300.dp).padding16(), maxLines = 1, overflow = TextOverflow.Ellipsis)
         ui.devices.filter { it.isThis || it.state != ConnectRowState.UNAVAILABLE }.forEach { row ->
-            val subtitle = when {
+            val statusLine = when {
                 row.state == ConnectRowState.CONNECTING -> desktopText("Connecting…")
                 row.state == ConnectRowState.FAILED -> desktopText("Couldn't connect. Tap to try again.")
                 !row.device.canPlay -> desktopText("Can't play audio")
@@ -97,6 +97,7 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
                 row.isOutput && ui.output?.active == true -> if (ui.output?.playing == true) desktopText("Playing") else desktopText("Paused")
                 else -> null
             }
+            val subtitle = statusLine
             val dim = row.state == ConnectRowState.UNAVAILABLE
             com.auralis.music.windows.GlassDropdownMenuItem(
                 text = {

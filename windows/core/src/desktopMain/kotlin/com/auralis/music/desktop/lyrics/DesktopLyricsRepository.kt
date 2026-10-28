@@ -3,6 +3,10 @@ package com.auralis.music.desktop.lyrics
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.domain.lyrics.LyricsAlignmentEngine
 import com.auralis.music.domain.model.LyricsData
+import com.auralis.music.domain.model.LyricsProvider
+import com.auralis.music.data.network.provider.LyricsSearchQuery
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import com.auralis.music.util.Log
 
 /**
@@ -13,12 +17,73 @@ import com.auralis.music.util.Log
  */
 class DesktopLyricsRepository(
     private val disk: LyricsDiskCache? = null,
-    private val client: LyricsClient = LyricsClient()
+    private val client: LyricsClient = LyricsClient(),
+    private val spicyEnabled: () -> Boolean = { LyricsClient.isProviderEnabled(LyricsProvider.SPICY_LYRICS) },
+    private val spicyLookup: suspend (LyricsSearchQuery) -> LyricsData? = { q ->
+        client.searchProvider(LyricsProvider.SPICY_LYRICS, q.title, q.artist, q.durationSec,
+            q.videoId, q.album, q.channelTitle, q.durationMs, q.audioLeadingSilenceMs, q.spotifyId)
+    },
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     companion object {
         @Volatile var preferredProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
+
+        /** Timing quality wins first; Spicy style then prefers the matched Spicy response. */
+        fun choose(current: LyricsData?, candidate: LyricsData?, preferSpicy: Boolean): LyricsData? {
+            if (candidate == null || candidate.lines.isEmpty()) return current
+            if (current == null) return candidate
+            val oldTier = LyricsClient.tierOf(current)
+            val newTier = LyricsClient.tierOf(candidate)
+            if (oldTier > newTier) return current
+            if (newTier > oldTier) return candidate
+            return if (preferSpicy && current.provider == LyricsProvider.SPICY_LYRICS &&
+                candidate.provider != LyricsProvider.SPICY_LYRICS) current else candidate
+        }
     }
     private val memory = com.auralis.music.data.network.LyricsResponseCache()
+    private val spicyAttempts = mutableMapOf<String, Long>()
+    private val storageLock = Any()
+
+    /** Independent of the provider race and of its word-cache early exit. */
+    suspend fun upgradeSpicy(query: LyricsSearchQuery): LyricsData? {
+        if (!spicyEnabled()) return null
+        val key = query.videoId?.lowercase() ?: return null
+        val existing = synchronized(storageLock) { memory[key] ?: disk?.read(key) }
+        if (existing?.provider == LyricsProvider.SPICY_LYRICS && existing.fetchedAtMs?.let {
+                clock() - it in 0 until 24 * 60 * 60_000L
+            } == true) return align(existing, query.durationMs ?: 0L)
+        val attemptKey = listOf(key, query.spotifyId, query.title, query.artist, query.durationMs).joinToString("|")
+        synchronized(spicyAttempts) {
+            val last = spicyAttempts[attemptKey]
+            if (last != null && clock() - last < 5 * 60_000L) return null
+            // Bound session bookkeeping as well as repeated offline/rate-limit requests.
+            if (spicyAttempts.size >= 512) spicyAttempts.clear()
+            spicyAttempts[attemptKey] = clock()
+        }
+        val result = try {
+            withTimeoutOrNull(8_000L) { spicyLookup(query) }
+        } catch (e: CancellationException) {
+            synchronized(spicyAttempts) { spicyAttempts.remove(attemptKey) }
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Spicy upgrade unavailable (${e.javaClass.simpleName}); keeping existing lyrics")
+            null
+        } ?: return null
+        if (result.provider != LyricsProvider.SPICY_LYRICS || LyricsClient.tierOf(result) < LyricsClient.TIER_LINE) return null
+        val selected = storeBest(key, result, preferSpicy = true)
+        Log.i(TAG, "Spicy upgrade for '${query.title}': selected ${selected.provider} ${selected.syncType}")
+        return align(selected, query.durationMs ?: 0L)
+    }
+
+    private fun storeBest(key: String, result: LyricsData, preferSpicy: Boolean): LyricsData = synchronized(storageLock) {
+        val existing = memory[key] ?: disk?.read(key)
+        val selected = choose(existing, result, preferSpicy)!!
+        if (selected !== existing) {
+            memory[key] = selected
+            disk?.write(key, selected)
+        }
+        selected
+    }
 
     /** Cached lyrics for [videoId], aligned to [durationMs]; null when there are none. */
     fun cached(videoId: String, durationMs: Long): LyricsData? {
@@ -40,13 +105,15 @@ class DesktopLyricsRepository(
         channelTitle: String?,
         durationSec: Long,
         durationMs: Long,
-        onInterim: (LyricsData) -> Unit
+        onInterim: (LyricsData) -> Unit,
+        preferSpicy: Boolean = false
     ): LyricsData? {
         val key = videoId.lowercase()
         val started = System.currentTimeMillis()
         var preferred: LyricsData? = null
         val deadline = System.currentTimeMillis() + 15_000
-        for (provider in preferredProviders.filter { LyricsClient.isProviderEnabled(it) }) {
+        for (provider in preferredProviders.filter { LyricsClient.isProviderEnabled(it) &&
+            (!preferSpicy || it != LyricsProvider.SPICY_LYRICS) }) {
             if (System.currentTimeMillis() >= deadline) break
             preferred = client.searchProvider(provider,title,artist,durationSec,videoId,album,channelTitle,durationMs)
             if (preferred != null && preferred.lines.isNotEmpty()) break
@@ -60,6 +127,7 @@ class DesktopLyricsRepository(
             channelTitle = channelTitle,
             durationMs = durationMs,
             audioLeadingSilenceMs = null,
+            skipSpicyProvider = preferSpicy,
             onInterim = { interim -> onInterim(align(interim, durationMs)) }
         )
         val existing = memory[key] ?: disk?.read(key)
@@ -67,13 +135,7 @@ class DesktopLyricsRepository(
             Log.w(TAG, "No lyrics from the network for '$title' by '$artist' (${System.currentTimeMillis() - started}ms)")
             return existing?.let { align(it, durationMs) }
         }
-        if (existing != null && LyricsClient.tierOf(existing) > LyricsClient.tierOf(result)) {
-            Log.i(TAG, "Keeping cached ${existing.provider} ${existing.syncType} for '$title' over ${result.provider} ${result.syncType}")
-            return align(existing, durationMs)
-        }
-        memory[key] = result
-        disk?.write(key, result)
-        val aligned = align(result, durationMs)
+        val aligned = align(storeBest(key, result, preferSpicy), durationMs)
         Log.i(TAG, "Lyrics for '$title': ${aligned.provider} ${aligned.syncType}, ${aligned.lines.size} lines in ${System.currentTimeMillis() - started}ms")
         return aligned
     }

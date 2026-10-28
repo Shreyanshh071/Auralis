@@ -139,6 +139,18 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
         return result
     }
 
+    /** One bounded page of newest UTC-day documents for the first Home frame. */
+    fun listRecentDays(path: String, limit: Int = 7): List<Pair<String, JSONObject>> {
+        authenticate()
+        val order = java.net.URLEncoder.encode("__name__ desc", Charsets.UTF_8)
+        val response = request("$endpoint/$path?pageSize=${limit.coerceIn(1, 100)}&orderBy=$order", "GET")
+        val docs = response.optJSONArray("documents") ?: JSONArray()
+        return (0 until docs.length()).map { i ->
+            val doc = docs.getJSONObject(i)
+            doc.getString("name").substringAfter("/documents/") to decodeFields(doc.getJSONObject("fields"))
+        }
+    }
+
     /**
      * [mask] narrows a merge to exact field paths (e.g. "events.`<key>`"), so nested map entries
      * are added one by one instead of replacing the whole map; by default the top-level fields.

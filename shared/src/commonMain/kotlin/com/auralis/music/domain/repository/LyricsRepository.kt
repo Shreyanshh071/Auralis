@@ -3,6 +3,13 @@ package com.auralis.music.domain.repository
 import com.auralis.music.domain.model.LyricsData
 
 interface LyricsRepository {
+    /** A bounded background Spicy lookup independent of the normal word-cache return. */
+    suspend fun upgradeSpicy(
+        title: String, artist: String, durationSec: Long?, videoId: String?,
+        album: String?, channelTitle: String?, durationMs: Long?, audioLeadingSilenceMs: Long?,
+        spotifyId: String? = null
+    ): LyricsData? = null
+
     /** Providers the lyrics sheet can ask one at a time. */
     fun selectableProviders(): List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
 

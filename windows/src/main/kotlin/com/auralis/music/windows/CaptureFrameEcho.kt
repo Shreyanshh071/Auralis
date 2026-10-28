@@ -46,9 +46,15 @@ internal object CaptureFrameEcho {
         }.apply { isRepeats = false }
 
         override fun onRender(canvas: Canvas, width: Int, height: Int, nanoTime: Long) {
+            // A translucent lyric picture must never blend over a previous swap
+            // buffer's ink. Clear the actual presentation target, not just a row.
+            canvas.clear(org.jetbrains.skia.Color.TRANSPARENT)
             original.onRender(canvas, width, height, nanoTime)
             // The echo itself mustn't schedule another; a real frame restarts the wait.
-            if (echoing) echoing = false else timer.restart()
+            // The extra present is an OpenGL capture workaround. On Direct3D,
+            // let the compositor present the real animation frames only.
+            if (echoing) echoing = false
+            else if (System.getProperty("skiko.renderApi", "DIRECT3D").equals("OPENGL", true)) timer.restart()
         }
     }
 

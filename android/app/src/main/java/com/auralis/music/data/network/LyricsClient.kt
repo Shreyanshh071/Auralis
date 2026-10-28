@@ -1183,7 +1183,8 @@ class LyricsClient(
         album: String? = null,
         channelTitle: String? = null,
         durationMs: Long? = null,
-        audioLeadingSilenceMs: Long? = null
+        audioLeadingSilenceMs: Long? = null,
+        spotifyId: String? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
         val source: LyricsSource = when (provider) {
             LyricsProvider.SPICY_LYRICS -> spicyLyricsSource
@@ -1204,7 +1205,7 @@ class LyricsClient(
         }
         val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
         val candidate = try {
-            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query) }
+            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query.copy(spotifyId = spotifyId)) }
         } catch (e: Exception) {
             Log.w(TAG, "[Provider pick: $provider] exception: ${e.message}")
             null

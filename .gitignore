@@ -11,6 +11,9 @@ local.properties
 # Logs & Temp Files
 logs/
 *.log
+__pycache__/
+*.py[cod]
+/vlc-help.txt
 
 # Editor & OS files
 .idea/

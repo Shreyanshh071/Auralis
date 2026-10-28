@@ -39,7 +39,12 @@ class LyricsUiPlatform(
     /** Desktop mouse targets use an inset rounded highlight instead of a touch ripple. */
     val roundedMouseHover: Boolean = false,
     /** Platform wheel handling, independent of lyric row heights and synchronization format. */
-    val manualScrollModifier: @Composable (LazyListState, onUserScroll: () -> Unit) -> Modifier = { _, _ -> Modifier }
+    val manualScrollModifier: @Composable (LazyListState, onUserScroll: () -> Unit) -> Modifier = { _, _ -> Modifier },
+    /** Whether holding a lyric may enter the multi-line sharing selection. */
+    val lyricSelectionEnabled: Boolean = true,
+    val resyncButton: (@Composable (String, () -> Unit) -> Unit)? = null,
+    /** Capture only the scrolling content behind the floating button, never the button itself. */
+    val resyncBackdropModifier: @Composable () -> Modifier = { Modifier }
 )
 
 /** English text and no platform extras; each app provides its own [LocalLyricsUi]. */

@@ -5,6 +5,44 @@ import com.auralis.music.domain.model.Track
 import kotlin.test.*
 
 class FamiliarArtistPatternTest {
+    @Test fun listeningTimeWinsEvenWithFewerPlaysAndSecondsBreakDisplayedMinuteTies() {
+        val artists = listOf(
+            FamiliarArtist("Many plays", 100, listenedMs = 60 * 60_000L),
+            FamiliarArtist("Long listens", 10, listenedMs = 2 * 60 * 60_000L),
+            FamiliarArtist("Extra second", 1, listenedMs = 60 * 60_000L + 1000L),
+            FamiliarArtist("Equal time more plays", 20, listenedMs = 2 * 60 * 60_000L))
+        val expected = listOf("Equal time more plays", "Long listens", "Extra second", "Many plays")
+        assertEquals(expected, rankFamiliarArtists(artists).map { it.name })
+        val stats = artists.map { FamiliarArtistStats(it.name, it.totalPlays, 0, 0, 0.0, listenedMs = it.listenedMs) }
+        assertEquals(expected, rankFamiliarArtistStats(stats).map { it.name })
+    }
+
+    private fun artistStats(name: String, ms: Long) = FamiliarArtistStats(name, 2, 2, 2, 2.0, listenedMs = ms)
+
+    @Test fun rowRequiresFiveArtistsWithFiveMinutesEach() {
+        val four = (1..4).map { artistStats("Artist $it", 300_000L) }
+        assertTrue(eligibleFamiliarArtistStats(four).isEmpty())
+        assertTrue(eligibleFamiliarArtistStats(four + artistStats("Artist 5", 299_999L)).isEmpty())
+        assertEquals(5, eligibleFamiliarArtistStats(four + artistStats("Artist 5", 300_000L)).size)
+    }
+
+    @Test fun shortListensAndDuplicateArtistNamesCannotUnlockPosters() {
+        val four = (1..4).map { artistStats("Artist $it", 600_000L) }
+        assertTrue(eligibleFamiliarArtistStats(four + artistStats("ARTIST 1 - Topic", 300_000L)).isEmpty())
+        val qualified = four + artistStats("Artist 5", 300_000L) + artistStats("Brief preview", 20_000L)
+        assertEquals(5, eligibleFamiliarArtistStats(qualified).size)
+        assertFalse(eligibleFamiliarArtistStats(qualified).any { it.name == "Brief preview" })
+    }
+
+    @Test fun measuredSessionsAccumulateAcrossSongsAndRespectBlockedArtists() {
+        val listens = (1..5).flatMap { artist -> (1..2).map { song ->
+            listen("$artist-$song", track("$artist-$song", "Artist $artist"), 1000L, 150_000L)
+        } }
+        assertEquals(5, eligibleFamiliarArtistStats(computeFamiliarArtistStats(listens)).size)
+        assertTrue(eligibleFamiliarArtistStats(computeFamiliarArtistStats(listens,
+            blockedTracks = { it.artist == "Artist 5" })).isEmpty())
+    }
+
     private fun track(id: String, artist: String, duration: Long = 180L) = Track(id = id, title = "Title $id", artist = artist, duration = duration)
 
     private fun listen(

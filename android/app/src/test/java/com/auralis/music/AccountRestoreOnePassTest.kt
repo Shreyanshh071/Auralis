@@ -14,6 +14,7 @@ import com.auralis.music.domain.repository.LibraryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +27,18 @@ import org.junit.Test
  * account brought; the phone's own imports stay.
  */
 class AccountRestoreOnePassTest {
+    @Test fun `cloud restore keeps queued edits and names of service linked playlists`() = runBlocking {
+        val phone=RoomLikeLibrary()
+        val id="imported:youtube_music:playlist"
+        val a=Track("a","Original","Artist");val b=Track("b","Pending addition","Artist")
+        phone.seed(listOf(Playlist(id,"Local name",tracks=listOf(a,b))),emptyList())
+        val cloud=com.auralis.music.data.sync.CloudLibrary(playlists=listOf(
+            com.auralis.music.data.sync.CloudPlaylist(id,"Old cloud name",null,null,listOf(a))))
+        AccountLibraryRestore.apply(phone,cloud,phone.transaction,setOf(id))
+        val actual=phone.getPlaylist(id).first()!!
+        assertEquals("Local name",actual.title)
+        assertEquals(listOf("a","b"),actual.tracks.map{it.id})
+    }
 
     /**
      * A library that behaves like Room: writes inside a transaction are seen by observers only

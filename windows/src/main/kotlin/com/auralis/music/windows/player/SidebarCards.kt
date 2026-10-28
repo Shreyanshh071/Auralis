@@ -121,9 +121,8 @@ internal fun SidebarCard(title: String, action: String? = null, onAction: () -> 
 
 /** Credits: who performed, wrote and produced the playing song; the main artist can be followed. */
 @Composable
-internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpenArtist: (Artist) -> Unit, modifier: Modifier = Modifier) {
-    var credits by remember(track.id) { mutableStateOf(SongCredits.cached(track.id)) }
-    LaunchedEffect(track.id) { if (credits == null) credits = SongCredits.fetch(track.id) }
+internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpenArtist: (Artist) -> Unit, modifier: Modifier = Modifier,
+    credits: List<SongCredit>? = SongCredits.cached(track.id)) {
     val people = credits?.takeIf { it.isNotEmpty() } ?: return
     var showAll by remember(track.id) { mutableStateOf(false) }
     val saved by (library?.getSavedArtists() ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(emptyList())
@@ -140,16 +139,11 @@ internal fun SidebarCreditsCard(track: Track, library: LibraryRepository?, onOpe
         (if (showAll) people else people.take(3)).forEach { person ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    // A link: underlined while hovered, no grey box (the default highlight hugged the text).
-                    val nameHover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                    val nameHovered by nameHover.collectIsHoveredAsState()
-                    val linked = person.channelId != null
-                    Text(person.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textDecoration = if (linked && nameHovered) androidx.compose.ui.text.style.TextDecoration.Underline else null,
-                        modifier = if (linked) Modifier.clickable(interactionSource = nameHover, indication = null) {
-                            onOpenArtist(Artist(person.channelId!!, person.name))
-                        } else Modifier)
+                    val artist = person.profileArtist()
+                    if (artist != null) SidebarArtistLink(artist, onOpenArtist,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium), color = Color.White)
+                    else Text(person.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(person.roles.joinToString(" • ") { desktopText(it) }, fontSize = 12.sp, color = Color.White.copy(alpha = .65f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis)
                 }

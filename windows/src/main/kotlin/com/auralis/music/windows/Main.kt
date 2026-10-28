@@ -14,6 +14,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.DpSize
@@ -65,6 +67,7 @@ fun main(args: Array<String>) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
     }
     val dataDir = desktopAppDataDir()
+    kotlinx.coroutines.runBlocking { com.auralis.music.windows.settings.InstallerDefaults.install(dataDir) }
     val windowTitle = if (dev) "Auralis Dev" else "Auralis"
     // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
     Log.logToFile(java.io.File(dataDir, "auralis.log"), append = true)
@@ -175,7 +178,11 @@ fun main(args: Array<String>) {
                     com.auralis.music.desktop.lyrics.DesktopLyricsRepository(
                         com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics"))
                     ),
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
+                    spicyMode = stores.appearance.settingsFlow.map {
+                        com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(it.lyricsAnimation) ==
+                            com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+                    }
                 )
             }
         }
@@ -295,6 +302,18 @@ fun main(args: Array<String>) {
         var windowVisible by remember { mutableStateOf(true) }
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
         val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        var playerFullscreen by remember { mutableStateOf(false) }
+        var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
+        var previousPlacement by remember { mutableStateOf(androidx.compose.ui.window.WindowPlacement.Floating) }
+        fun setPlayerFullscreen(enabled: Boolean) {
+            if (playerFullscreen == enabled) return
+            if (enabled) previousPlacement = windowState.placement
+            // Remove native work-area constraints before Compose requests the
+            // monitor bounds; doing this in a later effect can leave a border.
+            nativeFrame?.fullscreen = enabled
+            playerFullscreen = enabled
+            windowState.placement = if (enabled) androidx.compose.ui.window.WindowPlacement.Fullscreen else previousPlacement
+        }
         LaunchedEffect(Unit) { if (launchMinimized) windowState.isMinimized = true }
         // Connect polls less while nobody is looking at the window.
         LaunchedEffect(windowVisible, windowState.isMinimized) {
@@ -440,7 +459,11 @@ fun main(args: Array<String>) {
         }
 
         Window(
-            onPreviewKeyEvent = { shortcutHandler?.invoke(it) ?: false },
+            onPreviewKeyEvent = {
+                if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                    setPlayerFullscreen(!playerFullscreen); true
+                } else shortcutHandler?.invoke(it) ?: false
+            },
             onCloseRequest = requestClose,
             visible = windowVisible,
             undecorated = true,
@@ -448,7 +471,7 @@ fun main(args: Array<String>) {
             icon = icon,
             state = windowState
         ) {
-            var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
+            LaunchedEffect(playerFullscreen, nativeFrame) { nativeFrame?.fullscreen = playerFullscreen }
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var captionHover by remember { mutableStateOf(CaptionHover()) }
             DisposableEffect(window) {
@@ -604,7 +627,10 @@ fun main(args: Array<String>) {
                     listeningStats = ready.listeningStats,
                     together = ready.together,
                     account = ready.account,
+                    playerFullscreen = playerFullscreen,
+                    onPlayerFullscreen = ::setPlayerFullscreen,
                     titleBar = { actions ->
+                        if (!playerFullscreen) {
                         val chrome: @Composable () -> Unit = {
                             WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
                                 systemDecorated = nativeTitlebar && nativeFrame != null,
@@ -624,6 +650,7 @@ fun main(args: Array<String>) {
                                 captionHover = captionHover)
                         }
                         if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
+                        }
                     }
                 )
                 }

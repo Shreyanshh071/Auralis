@@ -18,6 +18,23 @@ import org.junit.Test
 
 /** While another device of the account plays, the player screens mirror it and this phone stays silent. */
 class ConnectOverlayTest {
+    @Test fun remoteLyricsLoadWithoutReplacingLocalPlayback() {
+        val localState = MutableStateFlow(PlayerUiState(currentTrack = local))
+        val remoteFlow = MutableStateFlow<ConnectRemoteView?>(remote())
+        val lyricsState = MutableStateFlow(PlayerUiState(currentTrack = remoteTrack, isLoadingLyrics = true))
+        val shown = ConnectOverlayState(localState, remoteFlow, lyricsState)
+        assertTrue(shown.value.isLoadingLyrics)
+        val lyrics = com.auralis.music.domain.model.LyricsData(
+            syncType = com.auralis.music.domain.model.SyncType.LINE_SYNC,
+            lines = emptyList(), provider = com.auralis.music.domain.model.LyricsProvider.LRCLIB)
+        lyricsState.value = PlayerUiState(currentTrack = remoteTrack, lyrics = lyrics)
+        assertEquals(lyrics, shown.value.lyrics)
+        assertFalse(shown.value.isLoadingLyrics)
+        lyricsState.value = PlayerUiState(currentTrack = local, lyrics = lyrics)
+        assertNull(shown.value.lyrics)
+        assertEquals(local, localState.value.currentTrack)
+    }
+
     private val local = Track(id = "local", title = "Local song", artist = "Here", duration = 200)
     private val remoteTrack = Track(id = "remote", title = "Remote song", artist = "There", duration = 180)
 

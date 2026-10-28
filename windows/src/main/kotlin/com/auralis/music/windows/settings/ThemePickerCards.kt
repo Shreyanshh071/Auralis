@@ -20,7 +20,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.auralis.music.ui.theme.CuratedPalettes
 
 @Composable
 private fun ChoiceGrid(names: List<String>, selected: String, onSelect: (String) -> Unit,
@@ -32,7 +31,7 @@ private fun ChoiceGrid(names: List<String>, selected: String, onSelect: (String)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { name ->
                         val active = selected == name
-                        Surface(onClick = { onSelect(name) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
+                        SettingsHoverSurface(onClick = { onSelect(name) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainer,
                             border = BorderStroke(if (active) 2.dp else 1.dp,
                                 if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {
@@ -46,26 +45,6 @@ private fun ChoiceGrid(names: List<String>, selected: String, onSelect: (String)
                         }
                     }
                     repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PaletteCards(selected: String, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(desktopText("Colour palette"), style = MaterialTheme.typography.titleLarge)
-        Text(desktopText("Dynamic follows the playing artwork. Choose a swatch for a fixed palette."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ChoiceGrid(listOf("White", "Dynamic") + CuratedPalettes.map { it.id }, selected, onSelect) { name ->
-            val palette = CuratedPalettes.firstOrNull { it.id == name }
-            val colours = if (name == "White") listOf(Color.White, Color(0xFFBDBDBD), Color(0xFF616161)) else palette?.let { listOf(it.previewPrimary, it.previewSecondary, it.previewTertiary) }
-                ?: listOf(Color(0xFFBA8BDC), Color(0xFFB4D96B), Color(0xFF71BCCA))
-            Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(56.dp)) {
-                    drawArc(colours[0], 180f, 180f, true)
-                    drawArc(colours[1], 0f, 90f, true)
-                    drawArc(colours[2], 90f, 90f, true)
                 }
             }
         }

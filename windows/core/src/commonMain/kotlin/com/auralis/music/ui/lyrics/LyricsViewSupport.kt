@@ -139,7 +139,7 @@ fun InstrumentalIntroIndicator(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(50))
+                // Keep raised dots round: a pill clip shaved off their outer edges.
                 .then(if (onSkipIntro != null) Modifier.clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null, onClick = onSkipIntro) else Modifier)

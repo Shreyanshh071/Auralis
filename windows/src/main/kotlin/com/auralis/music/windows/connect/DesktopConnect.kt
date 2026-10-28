@@ -439,6 +439,7 @@ class DesktopConnect(
                 }
             })
             controller?.let { c ->
+                add(scope.launch { c.seekEvents.collect { e.onLocalSeek() } })
                 add(scope.launch {
                     merge(
                         combine(c.queue, c.state, c.resolving, c.repeatMode) { _, _, _, _ -> Unit },
@@ -470,9 +471,11 @@ class DesktopConnect(
      * otherwise; twice as slow while minimised.
      */
     private fun pollInterval(e: ConnectEngine): Long {
-        // Watch delivers each committed change immediately; periodic reads only reconcile it.
-        if (sessionWatchCurrent) return 30_000L
         val u = e.ui.value
+        // A watch can stop delivering before the transport reports its failure.
+        // Keep a short reconciliation bound while another device is present, so
+        // a phone seek cannot sit unseen for the old thirty-second interval.
+        if (sessionWatchCurrent) return if (u.otherDevicesOnline) 2_000L else 30_000L
         // Controls come in bursts (dragging the seek bar, tapping lyric lines, pause then play):
         // after one, sent or applied here, read fast so the rest feel immediate on both devices.
         if (u.transfer?.failed == false || pickerOpen || (ConnectControls.recent() && u.otherDevicesOnline)) return 250L
@@ -507,7 +510,12 @@ class DesktopConnect(
         /** The PC's own name (Windows computer name, through JNA); blank falls back to "Windows computer". */
         fun computerName(): String {
             val native = runCatching { com.sun.jna.platform.win32.Kernel32Util.getComputerName() }.getOrNull()
-            return ConnectDeviceNames.clean(native) ?: ConnectDeviceNames.clean(System.getenv("COMPUTERNAME")).orEmpty()
+            val host = ConnectDeviceNames.clean(native) ?: ConnectDeviceNames.clean(System.getenv("COMPUTERNAME"))
+            fun bios(key: String) = runCatching {
+                com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(
+                    com.sun.jna.platform.win32.WinReg.HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\BIOS", key)
+            }.getOrNull()
+            return desktopDeviceName(host, bios("SystemManufacturer"), bios("SystemFamily"), bios("SystemProductName"))
         }
     }
 }

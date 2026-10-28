@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import com.auralis.music.ui.theme.LocalAppearanceSettings
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,6 +20,20 @@ import javax.imageio.ImageIO
 import kotlin.test.*
 
 class LyricsInterludeTest {
+    @Test fun spicyDotsIgnoreShortBreathsAndKeepGenuineInstrumentalBreaks() {
+        val threshold = com.auralis.music.ui.lyrics.SPICY_INTERLUDE_MINIMUM_MS
+        for (rest in listOf(300L, 900L, 1000L, 1500L, 2000L, 2999L, 3000L, 5000L, 10000L)) {
+            val lines = listOf(LyricLine(1000, "First phrase", endTime = 4000),
+                LyricLine(4000 + rest, "Second phrase", endTime = 8000 + rest))
+            val breaks = instrumentalBreakWindows(lines, minimumRestMs = threshold)
+            if (rest < 3000) assertTrue(breaks.isEmpty(), "A $rest ms breathing pause must not insert dots")
+            else assertEquals(4000L to 4000L + rest, breaks[0])
+            val outro = instrumentalBreakWindows(lines.take(1), durationMs = 4000 + rest, minimumRestMs = threshold)
+            if (rest < 3000) assertTrue(outro.isEmpty(), "A brief track tail must not flash dots")
+            else assertEquals(4000L to 4000L + rest, outro[0])
+        }
+    }
+
     @Test fun breaksFollowVocalEndsAndIncludeOutroWithoutCoveringOverlappingVocals() {
         val lines = listOf(
             LyricLine(1000, "Lead", endTime = 4000),
@@ -43,9 +59,10 @@ class LyricsInterludeTest {
             LyricLine(24000, "I", endTime = 25500)), provider = LyricsProvider.AMLL, durationMs = 40000)
         var sought = -1L
         val scene = ImageComposeScene(340, 240, coroutineContext = Dispatchers.Unconfined) {
-            MaterialTheme { Box(Modifier.fillMaxSize().background(Color.Black)) {
+            MaterialTheme { CompositionLocalProvider(LocalAppearanceSettings provides AppearanceSettings(
+                lyricsAnimation = LyricsAnimationMode.SPICY_LYRICS.displayName)) { Box(Modifier.fillMaxSize().background(Color.Black)) {
                 SidebarLyricsView(lyrics, position, { sought = it })
-            } }
+            } } }
         }
         try {
             var frame = 0L
@@ -92,7 +109,7 @@ class LyricsInterludeTest {
             position.longValue = 18000
             assertNotNull(dotRow(render("second-break")), "Later instrumental breaks must scroll into view")
             position.longValue = 32000
-            assertNotNull(dotRow(render("outro")))
+            assertNull(dotRow(render("outro")), "Spicy does not create a dot row after the final lead")
             position.longValue = 1500
             assertNull(dotRow(render("seek-back")), "Seeking back removes stale dots")
         } finally { scene.close() }

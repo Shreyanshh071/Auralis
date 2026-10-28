@@ -74,6 +74,9 @@ class LibraryViewModel(
     private val statsRepository: com.auralis.music.domain.repository.StatsRepository? = null
 ) : ViewModel() {
 
+    var syncOnImport: Boolean = false
+    var onPlaylistImported: (suspend (String) -> Unit)? = null
+
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
@@ -845,6 +848,7 @@ class LibraryViewModel(
     }
 
     fun importYouTubePlaylist(urlOrId: String) {
+        val importedSync = onPlaylistImported.takeIf { syncOnImport }
         if (urlOrId.isBlank()) return
         _uiState.update { it.copy(isImporting = true, importMessage = null) }
 
@@ -861,6 +865,7 @@ class LibraryViewModel(
                         coverUrl = resolvedCover
                     )
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
+                    importedSync?.invoke(playlist.id)
                     _uiState.update {
                         it.copy(
                             isImporting = false,
@@ -891,6 +896,7 @@ class LibraryViewModel(
      * Liked Music goes into liked songs. Reimporting the same remote playlist refreshes it.
      */
     fun importYouTubeLibraryPlaylists(selected: List<com.auralis.music.data.network.YouTubeMusicLibrary.LibraryPlaylist>) {
+        val importedSync = onPlaylistImported.takeIf { syncOnImport }
         if (selected.isEmpty()) return
         _uiState.update { it.copy(isImporting = true, importMessage = null) }
         viewModelScope.launch {
@@ -916,6 +922,7 @@ class LibraryViewModel(
                             coverUrl = cover
                         )
                         libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
+                        importedSync?.invoke(playlist.id)
                     }
                     imported++
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -940,6 +947,7 @@ class LibraryViewModel(
 
     /** Imports only Spotify playlists that do not have a local imported ID yet. */
     fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
+        val importedSync = onPlaylistImported.takeIf { syncOnImport }
         if (_uiState.value.isImportingSpotify) return
         _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = null) }
         viewModelScope.launch(Dispatchers.IO) {
@@ -1014,6 +1022,7 @@ class LibraryViewModel(
                             coverUrl = cover
                         )
                         libraryRepository.replacePlaylistTracks(playlist.id, importedPlaylist.tracks)
+                        importedSync?.invoke(playlist.id)
                         imported++
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1040,6 +1049,7 @@ class LibraryViewModel(
     }
 
     fun importSpotifyPlaylist(urlOrLink: String, onComplete: ((Boolean, String) -> Unit)? = null) {
+        val importedSync = onPlaylistImported.takeIf { syncOnImport }
         val trimmed = urlOrLink.trim()
         if (trimmed.isBlank()) return
         android.util.Log.i("SpotifyImporter", "importSpotifyPlaylist called in ViewModel with: '$trimmed'")
@@ -1063,6 +1073,7 @@ class LibraryViewModel(
                         coverUrl = imported.coverUrl
                     )
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
+                    importedSync?.invoke(playlist.id)
                     val successMsg = str(R.string.imported_x_x_songs, imported.title, imported.tracks.size)
                     android.util.Log.i("SpotifyImporter", successMsg)
                     _uiState.update {

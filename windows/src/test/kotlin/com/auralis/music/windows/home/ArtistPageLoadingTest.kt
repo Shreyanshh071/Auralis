@@ -14,6 +14,23 @@ import okhttp3.*
 import okhttp3.ResponseBody.Companion.toResponseBody
 
 class ArtistPageLoadingTest {
+    @Test fun tinyExactNameInArtistFilterDoesNotHideTheEstablishedGeneralSearchArtist() = runBlocking {
+        val official = Artist("UCofficial", "De La Soul", subscribers = "650K subscribers")
+        val tiny = official.copy(id = "UCfan", subscribers = "11 subscribers")
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            val id = org.json.JSONObject(chain.request().body!!.let { body -> okio.Buffer().also { body.writeTo(it) }.readUtf8() }).optString("browseId")
+            assertEquals(official.id, id)
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body("""{"header":{"musicImmersiveHeaderRenderer":{"title":{"runs":[{"text":"De La Soul"}]}}}}""".toResponseBody()).build()
+        }.build()
+        val tube = object : InnerTubeClient(http) {
+            override suspend fun search(query: String, params: String?) =
+                if (params == FILTER_ARTISTS) SearchResults(artists = listOf(tiny))
+                else SearchResults(artists = listOf(official), songs = listOf(Track("song", "Song", official.name)))
+        }
+        assertEquals(official.id, assertNotNull(tube.getArtistPage(official.copy(id = ""))).artist.id)
+    }
+
     private var originalPause = 0L
     private var originalTrips = 0
     private val pauseField = YouTubeBackoff::class.java.getDeclaredField("pausedUntil").apply { isAccessible = true }

@@ -580,19 +580,7 @@ fun PlayerBackground(
 
             PlayerBackgroundStyle.GLOW_MOTION -> {
                 // 20-second continuous rotation
-                val infiniteTransition = rememberInfiniteTransition(label = "glowMotionTransition")
-                // Kept as State and read only in the draw phase: reading it in composition rebuilt
-                // this whole background on every frame of the never-ending 20s rotation, which
-                // made song-change colour blends stutter on top of it.
-                val glowProgressState = infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 20000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "glowMotionProgress"
-                )
+                val glowProgressState = com.auralis.music.ui.theme.rememberPreviewRotation(20_000, 1f)
                 fun rotated(colors: List<Color>, index: Int, glowProgress: Float): Color {
                     val size = colors.size
                     val idx = index.toFloat() + glowProgress * size
@@ -1130,43 +1118,10 @@ private fun LiveMeshArtworkLayer(
     }
     val colorFilter = remember(matrix) { ColorFilter.colorMatrix(matrix) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "liveMeshRotation")
-    val miniRotation = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 60000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "miniMeshRotation"
-    )
-    val anchorRotation = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = -360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 80000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "anchorRotation"
-    )
-    val fastRotation = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 40000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "fastRotation"
-    )
-    val slowRotation = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 60000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "slowRotation"
-    )
+    val miniRotation = com.auralis.music.ui.theme.rememberPreviewRotation(60_000)
+    val anchorRotation = com.auralis.music.ui.theme.rememberPreviewRotation(80_000, -360f)
+    val fastRotation = com.auralis.music.ui.theme.rememberPreviewRotation(40_000)
+    val slowRotation = com.auralis.music.ui.theme.rememberPreviewRotation(60_000)
 
     Box(modifier = modifier.clipToBounds()) {
         if (secondaryArtworkUrl != null && swipeFraction > 0.005f) {

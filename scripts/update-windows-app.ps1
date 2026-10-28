@@ -15,6 +15,7 @@
 param(
     [string]$TestFilter = "",
     [switch]$SkipTests,
+    [switch]$SkipBuild,
     [switch]$ClearArtworkCache,
     [switch]$NoLaunch,
     [switch]$SkipStartupCache,
@@ -48,11 +49,13 @@ if (-not $SkipTests) {
 }
 
 # 2. Build the complete distribution, including matching Compose/runtime dependencies
-Write-Host "==> Building Windows distribution..." -ForegroundColor Cyan
-& "$workspaceRoot\gradlew.bat" :windows:createDistributable
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Distribution build failed with exit code $LASTEXITCODE. Aborting update."
-    exit $LASTEXITCODE
+if (-not $SkipBuild) {
+    Write-Host "==> Building Windows distribution..." -ForegroundColor Cyan
+    & "$workspaceRoot\gradlew.bat" :windows:createDistributable
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Distribution build failed with exit code $LASTEXITCODE. Aborting update."
+        exit $LASTEXITCODE
+    }
 }
 
 # 3. Check paths

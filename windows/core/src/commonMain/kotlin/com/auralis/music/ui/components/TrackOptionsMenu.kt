@@ -847,7 +847,13 @@ fun TrackOptionsMenu(
     }
 
     // ── CREATE PLAYLIST DIALOG ──
-    if (showCreatePlaylistDialog) {
+    val playlistCreator = com.auralis.music.ui.library.LocalPlaylistCreation.current
+    if (showCreatePlaylistDialog && playlistCreator != null) {
+        LaunchedEffect(Unit) {
+            showCreatePlaylistDialog = false
+            playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(listOf(track))); onDismiss()
+        }
+    } else if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false

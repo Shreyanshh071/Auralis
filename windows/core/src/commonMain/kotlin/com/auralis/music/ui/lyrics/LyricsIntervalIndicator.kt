@@ -30,6 +30,30 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** Regular Spicy's getLyricsBetweenShow(): short breaths are not instrumental rows. */
+const val SPICY_INTERLUDE_MINIMUM_MS = 3_000L
+
+/** Spicy's ApplySyllableLyrics/ApplyLineLyrics: compare adjacent lead groups,
+ * use their supplied ends, and never create a final-track interlude. */
+fun spicyInterludeWindows(
+    lines: List<com.auralis.music.domain.model.LyricLine>,
+    minimalMode: Boolean = false
+): Map<Int, Pair<Long, Long>> {
+    val minimum = if (minimalMode) 5_000L else SPICY_INTERLUDE_MINIMUM_MS
+    val leads = lines.indices.filter { !lines[it].isBackground && !lines[it].isInstrumental && lines[it].text.isNotBlank() }
+    val windows = linkedMapOf<Int, Pair<Long, Long>>()
+    leads.zipWithNext().forEach { (index, next) ->
+        val end = lines[index].effectiveEndTime ?: return@forEach
+        val start = lines[next].time
+        if (end < lines[index].time || start - end < minimum) return@forEach
+        // Upstream places the dot row after this lead's background rows,
+        // but their end timestamps do not change the qualifying lead gap.
+        val afterGroup = (index + 1 until next).lastOrNull { lines[it].isBackground } ?: index
+        windows[afterGroup] = end to start
+    }
+    return windows
+}
+
 /**
  * The instrumental break after [line], as the (start, end) the interval circle should span, or
  * null when the gap before [nextStart] isn't a genuine break.
@@ -41,10 +65,10 @@ import androidx.compose.ui.unit.dp
  * - Line-synced lines have no end time, so a break needs >= 10s between line starts, and the end
  *   of the singing is estimated from the line's word count (display only, never lyric timing).
  */
-fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricLine, nextStart: Long): Pair<Long, Long>? {
+fun instrumentalBreakWindow(line: com.auralis.music.domain.model.LyricLine, nextStart: Long, minimumRestMs: Long = 5_000L): Pair<Long, Long>? {
     val knownEnd = line.effectiveEndTime
     val isGenuineBreak = if (knownEnd != null) {
-        nextStart - knownEnd >= 5_000L
+        nextStart - knownEnd >= minimumRestMs
     } else {
         nextStart - line.time >= 10_000L
     }
@@ -66,7 +90,8 @@ fun estimatedSungLengthMs(text: String): Long {
  */
 fun instrumentalBreakWindows(
     lines: List<com.auralis.music.domain.model.LyricLine>,
-    durationMs: Long? = null
+    durationMs: Long? = null,
+    minimumRestMs: Long = 5_000L
 ): Map<Int, Pair<Long, Long>> {
     val windows = linkedMapOf<Int, Pair<Long, Long>>()
     var latestVocalEnd = 0L
@@ -75,9 +100,9 @@ fun instrumentalBreakWindows(
         val line = lines[index]
         latestVocalEnd = maxOf(latestVocalEnd, line.effectiveEndTime ?: (line.time + estimatedSungLengthMs(line.text)))
         val nextStart = vocalIndices.getOrNull(vocalIndex + 1)?.let { lines[it].time } ?: durationMs ?: return@forEachIndexed
-        instrumentalBreakWindow(line, nextStart)?.let { (start, end) ->
+        instrumentalBreakWindow(line, nextStart, minimumRestMs)?.let { (start, end) ->
             val safeStart = maxOf(start, latestVocalEnd)
-            val minimumRest = if (safeStart > start) 5_000L else 1_000L
+            val minimumRest = if (safeStart > start) minimumRestMs else minOf(minimumRestMs, 1_000L)
             if (end - safeStart >= minimumRest) windows[index] = safeStart to end
         }
     }
@@ -165,18 +190,10 @@ fun LyricsIntervalIndicator(
     onSkip: (() -> Unit)? = null,
     compact: Boolean = false
 ) {
-    val alphaAnim = remember { Animatable(if (visible) 1f else 0f) }
-    val heightAnim = remember { Animatable(if (visible) 1f else 0f) }
-
-    LaunchedEffect(visible) {
-        if (visible) {
-            heightAnim.animateTo(1f, tween(250, easing = FastOutSlowInEasing))
-            alphaAnim.animateTo(1f, tween(200, easing = LinearEasing))
-        } else {
-            alphaAnim.animateTo(0f, tween(200, easing = LinearEasing))
-            heightAnim.animateTo(0f, tween(250, easing = FastOutSlowInEasing))
-        }
-    }
+    // Dot ink owns its playback-clock entry/exit. Do not delay it behind a height
+    // animation and a second fade; that hid most of a short instrumental gap.
+    val heightAnim = animateFloatAsState(if (visible) 1f else 0f,
+        tween(140, easing = FastOutSlowInEasing), label = "interludeHeight")
 
     val progress = if (gapEndMs > gapStartMs) {
         ((currentPositionMs - gapStartMs).toFloat() / (gapEndMs - gapStartMs).toFloat()).coerceIn(0f, 1f)
@@ -196,8 +213,7 @@ fun LyricsIntervalIndicator(
                 .height(targetHeight)
                 .padding(vertical = if (compact) 0.dp else (3 * heightAnim.value).dp)
                 .graphicsLayer {
-                    alpha = alphaAnim.value
-                    clip = true
+                    clip = false
                 },
             contentAlignment = when (dotsAlignment) {
                 Alignment.Start -> Alignment.CenterStart
@@ -208,7 +224,8 @@ fun LyricsIntervalIndicator(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                    // Dot lift and the anticipating exit can cross a pill's curved edge.
+                    // The hit target does not need to clip its animated contents.
                     .then(if (onSkip != null) Modifier.clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null, onClick = onSkip) else Modifier)

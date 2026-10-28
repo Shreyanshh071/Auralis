@@ -74,12 +74,14 @@ internal fun rememberAuraCover(artwork: String?, fallbackArtworks: List<String> 
     LaunchedEffect(url, fallbackArtworks) {
         if (url == null) cover.value = null
         val sources = (listOfNotNull(url) + fallbackArtworks).distinct()
-        if (sources.isNotEmpty()) repeat(3) { attempt ->
+        var attempt = 0
+        while (sources.isNotEmpty()) {
             for (source in sources) {
                 val loaded = loadAuraTexture(source)
                 if (loaded != null) { cover.value = loaded; return@LaunchedEffect }
             }
-            if (attempt < 2) kotlinx.coroutines.delay(500L * (attempt + 1))
+            kotlinx.coroutines.delay(minOf(30_000L, 1000L shl attempt.coerceAtMost(5)))
+            attempt++
         }
     }
     return cover
@@ -295,7 +297,8 @@ private val sharedAuraEffect: RuntimeEffect by lazy { RuntimeEffect.makeForShade
             // brightness(.6) saturate(2.65) for the sidebar. These linear operations
             // commute; keep the intermediate canvas clamp above, before CSS filtering.
             half cssLuminance = dot(colour, half3(0.213, 0.715, 0.072));
-            colour = mix(half3(cssLuminance), colour, saturation) * brightness;
+            // Clip the saturation pass before darkening, across every album colour.
+            colour = clamp(mix(half3(cssLuminance), colour, saturation), 0.0, 1.0) * brightness;
             return half4(clamp(colour, 0.0, 1.0), 1.0);
         }
     """.trimIndent()) }

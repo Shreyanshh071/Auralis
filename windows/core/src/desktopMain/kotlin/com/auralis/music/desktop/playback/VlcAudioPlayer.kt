@@ -42,6 +42,7 @@ class VlcAudioPlayer private constructor(
     @Volatile private var anchorMs = 0L
     @Volatile private var anchorNanos = System.nanoTime()
     @Volatile private var lastClockMs = 0L
+    private val seekGate = PlaybackSeekGate()
 
     private fun anchor(ms: Long) {
         anchorMs = ms
@@ -65,7 +66,7 @@ class VlcAudioPlayer private constructor(
      */
     val clock = object : com.auralis.music.data.service.PlaybackClockSource {
         override fun rawPositionMs(): Long {
-            if (_state.value != State.PLAYING) return lastClockMs
+            if (_state.value != State.PLAYING || seekGate.isPending()) return lastClockMs
             val elapsed = ((System.nanoTime() - anchorNanos) / 1_000_000L).coerceIn(0L, MAX_INTERPOLATION_MS)
             val ms = maxOf(anchorMs + (elapsed * playbackRate).toLong(), lastClockMs)
             lastClockMs = ms
@@ -122,14 +123,19 @@ class VlcAudioPlayer private constructor(
                 onError?.invoke()
             }
             override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) { if (mediaPlayer !== player) return;
-                // A report behind the interpolated clock by less than a seek's worth is libVLC
-                // catching up, not a jump: keep the clock where it is so lyrics never step back.
-                if (newTime < lastClockMs && lastClockMs - newTime < SEEK_THRESHOLD_MS) {
-                    anchorMs = newTime
-                    anchorNanos = System.nanoTime()
-                    _positionMs.value = newTime
-                } else {
-                    anchor(newTime)
+                synchronized(seekGate) {
+                    val landingSeek = seekGate.isPending()
+                    if (!seekGate.accept(newTime, System.nanoTime(), playbackRate)) return
+                    // The first decoded seek report replaces the optimistic target, even
+                    // when the decoder landed a little before it. Monotonic playback
+                    // smoothing must not preserve that timing error after a seek.
+                    if (!landingSeek && newTime < lastClockMs && lastClockMs - newTime < SEEK_THRESHOLD_MS) {
+                        anchorMs = newTime
+                        anchorNanos = System.nanoTime()
+                        _positionMs.value = newTime
+                    } else {
+                        anchor(newTime)
+                    }
                 }
             }
             override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) { if (mediaPlayer !== player) return; _lengthMs.value = newLength }
@@ -151,6 +157,7 @@ class VlcAudioPlayer private constructor(
 
     @Volatile var normalizeVolume: Boolean = false
     fun play(url: String, startMs: Long = 0L, trackId: String? = null) {
+        seekGate.reset()
         stopFade()
         keepAlive.warm()
         val outgoing = player.takeIf { crossfadeSeconds > 0 && startMs == 0L && it.status().isPlaying }
@@ -208,12 +215,22 @@ class VlcAudioPlayer private constructor(
     }
 
     fun seekTo(ms: Long) {
-        stopFade()
-        player.controls().setTime(ms.coerceAtLeast(0L))
-        anchor(ms.coerceAtLeast(0L))
+        val request = synchronized(seekGate) {
+            seekGate.request(ms, System.nanoTime()).also { anchor(it.targetMs) }
+        }
+        val seekingPlayer = player
+        // Native seeking may wait for IO. Keep it off Compose's UI thread, and skip
+        // queued clicks superseded by a newer click rather than seeking through them.
+        seekingPlayer.submit {
+            if (seekingPlayer === player && seekGate.isCurrent(request)) {
+                stopFade()
+                seekingPlayer.controls().setTime(request.targetMs)
+            }
+        }
     }
 
     fun stop() {
+        seekGate.reset()
         stopFade()
         player.controls().stop()
         publishState(State.IDLE)
@@ -225,9 +242,16 @@ class VlcAudioPlayer private constructor(
     @Volatile var preferredDevice: String? = null
         private set
 
-    /** Windows' audio outputs as libVLC sees them: device id to readable name. */
-    fun outputDevices(): List<Pair<String, String>> =
-        runCatching { player.audio().outputDevices().map { it.deviceId to it.longName } }.getOrDefault(emptyList())
+    /** MMDevice also works before VLC has opened an audio stream or while paused. */
+    fun outputDevices(): List<Pair<String, String>> {
+        val native = runCatching { WindowsAudioOutputs.read() }.onFailure {
+            Log.w("AudioOutputs", "Windows endpoint lookup failed: ${it.message}")
+        }.getOrDefault(emptyList())
+        val vlc = if (native.isEmpty()) runCatching {
+            player.audio().outputDevices().map { it.deviceId to it.longName }
+        }.getOrDefault(emptyList()) else emptyList()
+        return WindowsAudioOutputs.menu(native, vlc)
+    }
 
     fun setOutputDevice(id: String?) {
         preferredDevice = id
@@ -244,6 +268,7 @@ class VlcAudioPlayer private constructor(
     }
 
     fun release() {
+        seekGate.reset()
         stopFade()
         keepAlive.close()
         runCatching { player.release() }

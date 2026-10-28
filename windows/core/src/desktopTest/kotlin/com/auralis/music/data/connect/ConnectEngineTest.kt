@@ -21,6 +21,68 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectEngineTest {
+    @Test fun committedSeekDoesNotWaitForTheOutputsSlowPositionWrite() = runTest {
+        val w = World(this)
+        val output = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE, roundTripMs = 2_000L)
+        val remote = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        output.start(); remote.start()
+        output.user(ConnectIntent.Load(songs(1), 0))
+        w.run(12_000)
+        output.user(ConnectIntent.Pause)
+        w.run(6_000)
+        output.player.seekTo(30_000)
+        output.engine.onLocalSeek()
+        w.run(20) // The output is now waiting on a two-second backend write.
+        remote.user(ConnectIntent.Seek(90_000))
+        w.run(500)
+        assertEquals(90_000L, output.player.positionMs,
+            "The realtime listener must apply a seek while the position write is still in flight")
+        w.run(6_000)
+        assertEquals(90_000L, output.player.positionMs)
+        assertTrue(w.server.violations.isEmpty())
+    }
+
+    @Test fun explicitSmallSeekPublishesWithoutWaitingForDriftOrCheckpoint() = runTest {
+        val w = World(this)
+        val output = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        val remote = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        output.start(); remote.start()
+        output.user(ConnectIntent.Load(songs(1), 0))
+        w.run(2_000)
+        output.user(ConnectIntent.Pause)
+        w.run(500)
+        val target = output.player.positionMs + 500L
+        output.player.seekTo(target)
+        output.engine.onLocalSeek()
+        w.run(300)
+        assertEquals(target, remote.engine.ui.value.remote?.positionMs)
+        assertEquals(target, w.server.snapshot().session?.positionMs)
+    }
+
+    @Test fun rapidSeeksReachLatestTimestampInBothDirectionsWithoutReplayingEveryTap() = runTest {
+        for (phoneIsOutput in listOf(true, false)) {
+            val w = World(this)
+            val phone = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+            val pc = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+            phone.start(); pc.start()
+            val output = if (phoneIsOutput) phone else pc
+            val remote = if (phoneIsOutput) pc else phone
+            output.user(ConnectIntent.Load(songs(1), 0))
+            w.run(2_000)
+            output.user(ConnectIntent.Pause)
+            w.run(500)
+            remote.user(ConnectIntent.Seek(40_000))
+            w.run(20)
+            repeat(30) { remote.user(ConnectIntent.Seek(50_000L + it * 1_000L)) }
+            assertEquals(79_000L, remote.engine.ui.value.remote?.positionMs)
+            w.run(750)
+            assertEquals(79_000L, output.player.positionMs)
+            assertEquals(79_000L, remote.engine.ui.value.remote?.positionMs)
+            assertTrue(w.server.violations.isEmpty())
+            phone.engine.stop(false); pc.engine.stop(false)
+        }
+    }
+
     @Test fun hiddenIdleDeviceStaysOfflineUntilItReturns() = runTest {
         val (w, phone, _) = threeDevices()
         w.run(2_000)
@@ -82,8 +144,9 @@ class ConnectEngineTest {
         val devices = mutableListOf<SimDevice>()
         val doubleAudio = mutableListOf<Long>()
 
-        fun device(id: String, name: String, platform: ConnectPlatform, type: ConnectDeviceType, skew: Long = 0L, latency: Long = 100L) =
-            SimDevice(server, test.backgroundScope, test, id, name, platform, type, skew, latency).also { devices += it }
+        fun device(id: String, name: String, platform: ConnectPlatform, type: ConnectDeviceType, skew: Long = 0L, latency: Long = 100L,
+                   roundTripMs: Long = 80L) =
+            SimDevice(server, test.backgroundScope, test, id, name, platform, type, skew, latency, roundTripMs).also { devices += it }
 
         fun watchDoubleAudio() {
             test.backgroundScope.launch {

@@ -12,7 +12,7 @@ import org.json.JSONObject
 
 internal data class RemoteHomeState(val shelves: List<DesktopHomeShelf> = emptyList(), val recents: List<Track> = emptyList(),
     val releases: DesktopHomeShelf? = null, val loading: Boolean = false, val loadingMore: Boolean = false,
-    val token: String? = null, val error: String? = null)
+    val token: String? = null, val error: String? = null, val signedIn: Boolean = false)
 
 /** The account's actual Home feed, history and new releases load independently. */
 internal class DesktopRemoteHome(private val scope: CoroutineScope) {
@@ -22,6 +22,8 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
     private var job: Job? = null
     private var generation = 0
     private val consumed = mutableSetOf<String>()
+    private val cache = YouTubeHomeCache(java.io.File(com.auralis.music.util.desktopAppDataDir(), "home"))
+    private var accountKey: String? = null
     suspend fun playlistTracks(playlist: PlaylistResult): List<Track> {
         val version = generation
         val result = (client ?: error("YouTube Home is still loading.")).tracks(playlist) {}
@@ -30,11 +32,30 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
     }
     fun refresh() {
         job?.cancel(); val version = ++generation
-        client = null; consumed.clear(); mutable.value = RemoteHomeState(loading = YouTubeSession.isSignedIn)
-        if (!YouTubeSession.isSignedIn) return
+        val headers = YouTubeSession.authHeaders(YouTubeMusicClient.ORIGIN)
+        val key = if (YouTubeSession.isSignedIn) com.auralis.music.windows.profile.youtubeHomeAccountKey(
+            headers["Cookie"].orEmpty(), headers["X-Goog-AuthUser"] ?: "0") else null
+        val previous = mutable.value.takeIf { key != null && key == accountKey }
+        accountKey = key
+        client = null; consumed.clear()
+        mutable.value = previous?.copy(loading = true, loadingMore = false, error = null)
+            ?: RemoteHomeState(loading = true, signedIn = YouTubeSession.isSignedIn)
+        if (!YouTubeSession.isSignedIn) {
+            job = scope.launch { loadPublicHome(version) }
+            return
+        }
         job = scope.launch {
             try {
-                val headers = YouTubeSession.authHeaders(YouTubeMusicClient.ORIGIN)
+                val saved = withContext(Dispatchers.IO) { key?.let(cache::read) }
+                if (version != generation) return@launch
+                if (saved != null && mutable.value.shelves.isEmpty()) {
+                    val cached = withContext(Dispatchers.Default) {
+                        val home = saved.optJSONObject("home")?.let(::parseRemoteHome).orEmpty()
+                        val recents = saved.optJSONObject("history")?.let(::parseRemoteHistory).orEmpty()
+                        home to recents
+                    }
+                    if (version == generation) mutable.value = mutable.value.copy(shelves = cached.first, recents = cached.second)
+                }
                 val api = YouTubeMusicClient(headers["Cookie"].orEmpty(), headers["X-Goog-AuthUser"] ?: "0")
                 api.resolveScope(); ensureActive()
                 if (version != generation) return@launch
@@ -43,6 +64,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                     launch {
                         try {
                             val root = api.browseHome()
+                            withContext(Dispatchers.IO) { if (version == generation && key != null) cache.write(key, "home", root) }
                             // Parsing a whole feed took ~100ms; keep it off the UI thread at startup.
                             val (shelves, token) = withContext(Dispatchers.Default) { parseRemoteHome(root) to remoteHomeContinuation(root) }
                             if (version == generation) mutable.value = mutable.value.copy(shelves = shelves, token = token, loading = false)
@@ -50,8 +72,15 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                         catch (_: Exception) { if (version == generation) mutable.value = mutable.value.copy(loading = false, error = "Couldn't load your YouTube Home. Try again.") }
                     }
                     launch {
-                        val tracks = runCatching { api.browseHome("FEmusic_history").let { withContext(Dispatchers.Default) { parseRemoteHistory(it) } } }.getOrDefault(emptyList())
-                        if (version == generation) mutable.value = mutable.value.copy(recents = tracks)
+                        try {
+                            val root = api.browseHome("FEmusic_history")
+                            val tracks = withContext(Dispatchers.Default) { parseRemoteHistory(root) }
+                            if (version == generation) {
+                                mutable.value = mutable.value.copy(recents = tracks)
+                                withContext(Dispatchers.IO) { if (key != null) cache.write(key, "history", root) }
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { /* Keep the cached history on a transient failure. */ }
                     }
                     launch {
                         val shelves = runCatching { api.browseHome("FEmusic_new_releases").let { withContext(Dispatchers.Default) { parseRemoteHome(it) } } }.getOrDefault(emptyList())
@@ -63,6 +92,30 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (version == generation) mutable.value = mutable.value.copy(loading = false, error = "Couldn't load your YouTube Home. Try again.") }
         }
+    }
+    private suspend fun loadPublicHome(version: Int) = supervisorScope {
+        val api = YouTubeMusicClient(cookie = "")
+        try { api.resolvePublicScope() }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* Browse can still work with the default visitor context. */ }
+        if (version != generation) return@supervisorScope
+        client = api
+        val pages = listOf("FEmusic_home", "FEmusic_explore", "FEmusic_new_releases")
+        val results = arrayOfNulls<List<DesktopHomeShelf>>(pages.size)
+        pages.mapIndexed { index, browseId -> launch {
+            try {
+                val root = api.browseHome(browseId)
+                val shelves = withContext(Dispatchers.Default) { parseRemoteHome(root) }
+                if (version != generation) return@launch
+                results[index] = shelves
+                if (index == 0) mutable.value = mutable.value.copy(token = remoteHomeContinuation(root))
+                mutable.value = mutable.value.copy(shelves = results.filterNotNull().flatten()
+                    .distinctBy { it.title.lowercase() })
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Other public pages and local discovery remain available. */ }
+        } }.joinAll()
+        if (version == generation) mutable.value = mutable.value.copy(loading = false,
+            error = if (mutable.value.shelves.isEmpty()) "Couldn't refresh discovery. Try again." else null)
     }
     suspend fun loadMore() {
         val next = mutable.value.token ?: return

@@ -4,6 +4,9 @@ import com.auralis.music.ui.i18n.desktopText
 
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.TextButton
+import com.auralis.music.ui.components.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -40,12 +43,15 @@ import com.auralis.music.windows.search.DesktopArtwork
 internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, onExpand: () -> Unit, modifier: Modifier,
     palette: com.auralis.music.ui.theme.ArtworkPalette, onCollapse: () -> Unit,
     library: com.auralis.music.domain.repository.LibraryRepository? = null,
-    onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}) {
+    onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}, mainPlayerOpen: Boolean = false) {
     val queue by playback.queue.collectAsState()
     val track = queue.current ?: return
-    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, clock = playback.clock, extraCards = { cardModifier ->
+    var credits by remember(track.id) { mutableStateOf(SongCredits.cached(track.id)) }
+    LaunchedEffect(track.id) { if (credits == null) credits = SongCredits.fetch(track.id) }
+    val artists = remember(track.artist, credits) { sidebarArtists(track.artist, credits.orEmpty()) }
+    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, clock = playback.clock, playback = playback, onOpenArtist = onOpenArtist, artists = artists, mainPlayerOpen = mainPlayerOpen, extraCards = { cardModifier ->
         // Below lyrics: who made the song, then what's next (Spotify's Now Playing view, without tours).
-        SidebarCreditsCard(track, library, onOpenArtist, cardModifier)
+        SidebarCreditsCard(track, library, onOpenArtist, cardModifier, credits)
         SidebarNextInQueueCard(playback, onOpenQueue, cardModifier)
     }) {
         val state by lyrics.state.collectAsState()
@@ -68,21 +74,17 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     onCollapse: (() -> Unit)? = null,
     extraCards: @Composable ColumnScope.(Modifier) -> Unit = {},
     clock: com.auralis.music.data.service.PlaybackClockSource? = null,
+    playback: DesktopPlaybackController? = null,
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
+    artists: List<com.auralis.music.domain.model.Artist> = sidebarArtists(track.artist, emptyList()),
+    mainPlayerOpen: Boolean = false,
     lyricContent: @Composable () -> Unit) {
     BoxWithConstraints(modifier) {
     var lyricsCollapsed by remember { mutableStateOf(false) }
     var lyricsWindow by remember { mutableStateOf(false) }
-    if (lyricsWindow) androidx.compose.ui.window.Dialog(onDismissRequest = { lyricsWindow = false }) {
-        Surface(shape = RoundedCornerShape(16.dp), color = palette.secondary.copy(alpha = .95f)) {
-            Column(Modifier.width(360.dp).height(440.dp).padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(track.title, Modifier.weight(1f), color = Color.White, maxLines = 1)
-                    TextButton(onClick = { lyricsWindow = false }) { Text(desktopText("Close"), color = Color.White) }
-                }
-                Box(Modifier.weight(1f)) { lyricContent() }
-            }
-        }
-    }
+    LaunchedEffect(mainPlayerOpen) { if (mainPlayerOpen) lyricsWindow = false }
+    val expandPlayer = { lyricsWindow = false; onExpand() }
+    if (lyricsWindow && !mainPlayerOpen) LyricsMiniPopup(track, palette, { lyricsWindow = false }, expandPlayer, playback, lyricContent)
     val coverSize = (maxWidth - 32.dp).coerceAtLeast(1.dp)
     val motionAura = rememberMotionAura(track.id)
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))) {
@@ -107,16 +109,20 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         }
         }
         Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
-        Text(track.artist, Modifier.width(coverSize), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .75f), maxLines = 2)
+        SidebarArtistNames(artists, onOpenArtist, Modifier.width(coverSize))
+        androidx.compose.animation.AnimatedVisibility(!lyricsWindow,
+            enter = androidx.compose.animation.fadeIn(tween(220)) + androidx.compose.animation.expandVertically(tween(300)),
+            exit = androidx.compose.animation.fadeOut(tween(160)) + androidx.compose.animation.shrinkVertically(tween(260))) {
         SidebarLyricsCard(
             collapsed = lyricsCollapsed,
             onToggle = { lyricsCollapsed = !lyricsCollapsed },
             onOpenWindow = { lyricsWindow = true },
-            onExpand = onExpand,
+            onExpand = expandPlayer,
             // No fixed height: the card animates its own (open and closed); a fixed one made closing snap.
             modifier = Modifier.width(coverSize),
             lyricContent = lyricContent
         )
+        }
         extraCards(Modifier.width(coverSize))
     }
     }
@@ -157,7 +163,7 @@ internal fun SidebarLyricsCard(
             Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 14.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(desktopText("Lyrics"), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = Color.White)
-                LyricsCardButton(onOpenWindow, Icons.Outlined.PictureInPictureAlt, "Open lyrics window")
+                LyricsCardButton(onOpenWindow, Icons.Outlined.PictureInPictureAlt, "Open lyrics mini-player")
                 LyricsCardButton(onExpand, Icons.Rounded.OpenInFull, "Expand lyrics")
                 LyricsCardButton(onToggle, Icons.Default.KeyboardArrowUp,
                     if (collapsed) "Show lyrics" else "Collapse lyrics", arrowRotation)

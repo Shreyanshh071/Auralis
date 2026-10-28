@@ -587,7 +587,11 @@ fun LibraryScreen(
     val headerGlass = rememberPageHeaderGlass(headerBackdrop)
     var sourceFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
     var pageOrigin by remember { mutableStateOf(Offset.Zero) }
-    var filterOrigin by remember { mutableStateOf<Offset?>(null) }
+    val filterOrigin = remember { mutableStateOf<Offset?>(null) }
+    // A lazy item's anchor changes every scroll pixel. Only presence belongs in
+    // composition; read its position during placement, or the whole Library
+    // (including playlist filtering and cards) recomposes on every drag frame.
+    val filterVisible by remember { androidx.compose.runtime.derivedStateOf { filterOrigin.value != null } }
     var filterHeight by remember { mutableStateOf(48.dp) }
     val filterDensity = androidx.compose.ui.platform.LocalDensity.current
     Box(
@@ -695,10 +699,10 @@ fun LibraryScreen(
                         // Keep only a layout anchor in the recorded scrolling layer.
                         // The glass row is drawn below as a sibling of that layer.
                         androidx.compose.runtime.DisposableEffect(Unit) {
-                            onDispose { filterOrigin = null }
+                            onDispose { filterOrigin.value = null }
                         }
                         Spacer(Modifier.fillMaxWidth().height(filterHeight).onGloballyPositioned {
-                            filterOrigin = it.positionInRoot()
+                            filterOrigin.value = it.positionInRoot()
                         })
                     } else {
                         LibrarySourcePills(
@@ -975,13 +979,13 @@ fun LibraryScreen(
         }
         // Never put a glass consumer inside its own recorded backdrop, even via
         // a cached lazy-item graphics layer: that creates a RenderNode cycle.
-        filterOrigin?.let { origin ->
+        if (filterVisible) {
             headerGlass?.let { glass ->
                 // Give the lazy row its final viewport on its first measure.
                 // A transient zero-width viewport can scroll its first pill
                 // out of view before the anchor's measured width arrives.
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset {
-                    IntOffset(0, (origin.y - pageOrigin.y).toInt())
+                    IntOffset(0, ((filterOrigin.value?.y ?: pageOrigin.y) - pageOrigin.y).toInt())
                 }.clipToBounds().onSizeChanged {
                     filterHeight = with(filterDensity) { it.height.toDp() }
                 }) {
@@ -1058,8 +1062,13 @@ fun LibraryScreen(
     }
 
     // Create New Playlist Dialog
-    if (showCreateDialog) {
+    val playlistCreator = LocalPlaylistCreation.current
+    if (showCreateDialog && playlistCreator != null) {
+        LaunchedEffect(Unit) { showCreateDialog = false; playlistCreator(PlaylistCreationRequest()) }
+    } else if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
+        val syncCreate = LocalPlaylistSyncCreate.current
+        var setupSync by remember { mutableStateOf(false) }
         val dialogShape = RoundedCornerShape(28.dp)
         val pageView = androidx.compose.ui.platform.LocalView.current
 
@@ -1099,13 +1108,18 @@ fun LibraryScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (syncCreate != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(setupSync, { setupSync = it })
+                        Text("Set up two-way playlist sync", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (playlistInput.isNotBlank()) {
-                            onCreatePlaylist(playlistInput.trim())
+                            if (setupSync && syncCreate != null) syncCreate(playlistInput.trim())
+                            else onCreatePlaylist(playlistInput.trim())
                             showCreateDialog = false
                         }
                     },
@@ -2894,6 +2908,7 @@ internal fun PlaylistOptionsBottomSheet(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val syncPlaylist = LocalPlaylistSync.current
     var activeDialog by remember { mutableStateOf(initialDialog) }
 
     var editTitle by remember(playlist.title) { mutableStateOf(playlist.title) }
@@ -2945,6 +2960,9 @@ internal fun PlaylistOptionsBottomSheet(
     if (activeDialog == null && glassAnchor != null) {
         val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
         val items = buildList {
+            if (!isSmartPlaylistMenu && syncPlaylist != null) add(com.auralis.music.ui.components.GlassMenuItem("Playlist sync", Icons.Default.Sync) {
+                onDismiss(); syncPlaylist(playlist)
+            })
             add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.add_to_queue), Icons.Default.PlaylistAdd) { addPlaylistToQueue() })
             if (!isSmartPlaylistMenu) {
                 add(com.auralis.music.ui.components.GlassMenuItem(str(R.string.edit), Icons.Default.Edit, dismisses = false) {
@@ -3145,6 +3163,9 @@ internal fun PlaylistOptionsBottomSheet(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
+                    if (!isSmartPlaylist && syncPlaylist != null) PlaylistActionRow(icon = Icons.Default.Sync,
+                        title = "Playlist sync", subtitle = "Link Spotify or YouTube Music · two-way sync",
+                        onClick = { onDismiss(); syncPlaylist(playlist) })
                     // ── GROUP 1: EDIT & EXPORT ──
                     Column(
                         modifier = Modifier

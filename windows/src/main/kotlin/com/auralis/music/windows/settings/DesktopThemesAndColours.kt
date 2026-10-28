@@ -20,15 +20,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun DesktopThemesAndColours(onBack: () -> Unit) {
-    val store = LocalSettingsStores.current.appearance
-    val settings by store.settingsFlow.collectAsState(store.getInitialSettings())
-    val scope = rememberCoroutineScope()
-    fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
-        scope.launch { store.updateSettings(settings.transform()) }
-    }
     SettingsPage("Themes and colours", onBack) {
         item { ThemeColourPreview() }
-        item { PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } } }
         item { Text(desktopText("Artwork backgrounds follow the current song in every theme. When the player is empty, an open playlist uses its cover."),
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }

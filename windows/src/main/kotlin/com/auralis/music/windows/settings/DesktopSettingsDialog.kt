@@ -8,7 +8,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.toggleable
+import com.auralis.music.ui.components.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,7 +56,6 @@ import com.auralis.music.ui.components.Switch
 import com.auralis.music.ui.components.TextButton
 import com.auralis.music.ui.components.Button
 import com.auralis.music.ui.components.clickable
-import com.auralis.music.ui.theme.CuratedPalettes
 import com.auralis.music.util.desktopAppDataDir
 import com.auralis.music.desktop.playback.DesktopStreamResolver
 import com.auralis.music.windows.discord.DiscordCardPreferences
@@ -78,10 +77,6 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
     val scope = rememberCoroutineScope()
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
         scope.launch { store.update { it.transform() } }
-    }
-
-    SettingsGroup("Theme & colours") {
-        PaletteCards(settings.colorPalette) { update { copy(colorPalette = it) } }
     }
 
     SettingsGroup("Player & seek bar") {
@@ -486,7 +481,7 @@ internal fun SettingToggle(title: String, description: String? = null, checked: 
 internal fun SettingChoice(title: String, description: String? = null, selected: String, options: List<String>, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
-    Surface(
+    SettingsHoverSurface(
         onClick = { expanded = true },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -518,7 +513,7 @@ internal fun SettingChoice(title: String, description: String? = null, selected:
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     options.forEach { option ->
-                        Surface(
+                        SettingsHoverSurface(
                             onClick = { onSelect(option); expanded = false },
                             shape = RoundedCornerShape(10.dp),
                             color = if (option == selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f),
@@ -541,7 +536,7 @@ internal fun SettingChoice(title: String, description: String? = null, selected:
 @Composable
 internal fun SettingAction(title: String, description: String? = null, action: String, onClick: () -> Unit) {
     // The same card as the choices around it, with the action as a pill on the right.
-    Surface(onClick = onClick, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
+    SettingsHoverSurface(onClick = onClick, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth().settingJumpTarget(title)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -572,7 +567,7 @@ internal fun SettingSearchableChoice(
     var expanded by remember { mutableStateOf(false) }
     var filterText by remember { mutableStateOf("") }
 
-    Surface(
+    SettingsHoverSurface(
         onClick = { expanded = true; filterText = "" },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -619,7 +614,7 @@ internal fun SettingSearchableChoice(
                     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(filtered) { (key, display) ->
                             val isSel = key == selectedKey
-                            Surface(
+                            SettingsHoverSurface(
                                 onClick = { onSelect(key); expanded = false },
                                 shape = RoundedCornerShape(8.dp),
                                 color = if (isSel) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.04f),

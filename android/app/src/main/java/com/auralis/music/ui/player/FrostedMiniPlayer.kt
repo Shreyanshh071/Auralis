@@ -20,10 +20,18 @@ import dev.chrisbanes.haze.hazeEffect
 
 /** Mini-player-only style; kept separate from full-player artwork backgrounds. */
 internal object MiniPlayerBackgrounds {
+    enum class Surface { PURE_BLACK, LIQUID_GLASS, FROSTED, ARTWORK }
     const val FROSTED = "Frosted blur"
     val options: List<String> get() = PlayerBackgroundStyle.entries.map { it.displayName } + FROSTED
     fun isFrosted(key: String): Boolean = key.trim().equals(FROSTED, ignoreCase = true)
     fun label(key: String): String = if (isFrosted(key)) FROSTED else PlayerBackgroundStyle.fromKey(key).displayName
+    /** The global glass theme controls app chrome, never the user's mini-player choice. */
+    fun surface(settings: com.auralis.music.domain.model.AppearanceSettings): Surface = when {
+        settings.pureBlackMiniPlayer -> Surface.PURE_BLACK
+        isFrosted(settings.miniPlayerBackgroundStyle) -> Surface.FROSTED
+        PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle) == PlayerBackgroundStyle.APPLE_MUSIC -> Surface.LIQUID_GLASS
+        else -> Surface.ARTWORK
+    }
 }
 
 internal val LocalFrostedMiniPlayer = staticCompositionLocalOf { false }

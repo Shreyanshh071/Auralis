@@ -166,6 +166,9 @@ fun Modifier.fadingEdge(
 ): Modifier = this
     .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
     .drawWithContent {
+        // This modifier owns an offscreen layer; erase its previous translucent
+        // contents before painting the moving lyrics and applying the edge mask.
+        drawRect(Color.Transparent, blendMode = BlendMode.Clear)
         drawContent()
         val topPx = top.toPx()
         val bottomPx = bottom.toPx()
@@ -455,6 +458,13 @@ data class ExperimentalPendingSeekTarget(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+/** A delayed decoder/remote report may land beyond the first 350 ms of a phrase. */
+fun ExperimentalPendingSeekTarget.hasReached(positionMs: Long, nowMs: Long, playing: Boolean): Boolean {
+    val elapsed = (nowMs - timestamp).coerceIn(0L, 6000L)
+    return positionMs >= targetTimeMs - 350L &&
+        positionMs <= targetTimeMs + 350L + if (playing) elapsed * 2L else 0L
+}
+
 /**
  * Experimental Lyrics presentation.
  *
@@ -496,20 +506,22 @@ fun ExperimentalLyricsView(
     val rawLines = lyrics?.lines.orEmpty()
     val effectiveLines = remember(rawLines) {
         rawLines
-            .map { com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
+            .map { if (lyrics?.provider == com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) it
+                else com.auralis.music.data.parser.WordTiming.splitMergedWordsInLine(it) }
             .filter { it.text.isNotBlank() || it.words?.any { w -> w.word.isNotBlank() } == true }
     }
 
     val playbackDurationMs = (track?.duration ?: 0L) * 1000L
-    val rawFirstLineTime = effectiveLines.firstOrNull { !it.isInstrumental }?.time ?: 0L
-    val introDurationMs = remember(effectiveLines, playbackDurationMs) {
-        val isValidIntro = rawFirstLineTime >= 1500L &&
-            (playbackDurationMs <= 0L || rawFirstLineTime < playbackDurationMs - 5000L)
+    val rawFirstLineTime = effectiveLines.firstOrNull { !it.isInstrumental && (!spicyStyle || !it.isBackground) }?.time ?: 0L
+    val introDurationMs = remember(effectiveLines, playbackDurationMs, spicyStyle) {
+        val isValidIntro = rawFirstLineTime >= (if (spicyStyle) SPICY_INTERLUDE_MINIMUM_MS else 1500L) &&
+            (spicyStyle || playbackDurationMs <= 0L || rawFirstLineTime < playbackDurationMs - 5000L)
         if (isValidIntro) rawFirstLineTime else 0L
     }
 
     val isSynced = (lyrics?.syncType != SyncType.PLAIN || effectiveLines.any { it.time > 0L }) && effectiveLines.isNotEmpty()
     val hasWordTimings = remember(effectiveLines) { effectiveLines.any { it.hasWordTiming } }
+    val spicyVocalTimeline = remember(effectiveLines) { SpicyVocalTimeline(effectiveLines) }
 
     // Keep the fast clock in a State object. Passing a Long to every list row made the
     // entire visible lyrics list recompose about 40 times per second.
@@ -536,9 +548,10 @@ fun ExperimentalLyricsView(
     val baseLyricSize = 34f
     val dotsSize = (baseLyricSize * (appearance.lyricsTextSize / 22f) * 0.58f).dp
 
-    val mergedLyricsList = remember(effectiveLines, playbackDurationMs, lyrics?.durationMs) {
+    val mergedLyricsList = remember(effectiveLines, playbackDurationMs, lyrics?.durationMs, appearance.lyricsAnimation) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
-        val breaks = instrumentalBreakWindows(effectiveLines, playbackDurationMs.takeIf { it > 0L } ?: lyrics?.durationMs)
+        val breaks = if (spicyStyle) spicyInterludeWindows(effectiveLines) else
+            instrumentalBreakWindows(effectiveLines, playbackDurationMs.takeIf { it > 0L } ?: lyrics?.durationMs)
         effectiveLines.forEachIndexed { index, line ->
             list.add(ExperimentalLyricsListItem.Line(index, line))
             breaks[index]?.let { (start, end) ->
@@ -603,7 +616,7 @@ fun ExperimentalLyricsView(
         var rawAdvancing = false
 
         while (isActive) {
-            delay(25)
+            withFrameMillis { }
             val now = System.currentTimeMillis()
             val clockSourcePlaying = lyricsClockSource?.isPlaying() ?: isPlaying
             val clockSourceBuffering = isBuffering || (lyricsClockSource?.isBuffering() == true)
@@ -634,10 +647,9 @@ fun ExperimentalLyricsView(
             // the player is ready (not buffering), and minimum dispatch time has elapsed.
             val pending = pendingSeekTarget
             val isSeekingInFlight = if (pending != null) {
-                val hasAudioReached = kotlin.math.abs(basePos - pending.targetTimeMs) <= 350L ||
-                    kotlin.math.abs(rawPos - pending.targetTimeMs) <= 350L
-                val minTimeElapsed = (now - pending.timestamp) >= 80L
-                val hasConverged = minTimeElapsed && hasAudioReached && rawAdvancing
+                val hasAudioReached = pending.hasReached(rawPos, now, clockSourcePlaying)
+                val hasConverged = hasAudioReached && !clockSourceBuffering &&
+                    (rawAdvancing || !clockSourcePlaying)
                 // Resuming a paused song can take longer than a seek; hold the pin while
                 // playback is merely starting up, so the tapped line waits for the audio.
                 val isTimedOut = (now - pending.timestamp) > 1500L &&
@@ -650,14 +662,7 @@ fun ExperimentalLyricsView(
                 }
             } else false
 
-            if (basePos != lastBasePos) {
-                // If base position jumped significantly (e.g. user scrubbed the progress bar)
-                // and it doesn't match our pending seek target, clear the pending seek target.
-                if (pending != null && kotlin.math.abs(basePos - pending.targetTimeMs) > 1000L) {
-                    pendingSeekTarget = null
-                }
-                lastBasePos = basePos
-            }
+            if (basePos != lastBasePos) lastBasePos = basePos
 
             val currentPos = if (isSeekingInFlight && pending != null) {
                 // Pin strictly to the seek target timestamp so lyrics don't run ahead during buffering
@@ -682,7 +687,7 @@ fun ExperimentalLyricsView(
                     activeLineIndices = forcedActive
                 }
             } else {
-                val initialActiveIndices = if (spicyStyle) SpicyLyricsPresentation.activeIndices(effectiveLines, currentPos)
+                val initialActiveIndices = if (spicyStyle) spicyVocalTimeline.activeIndices(currentPos)
                     else findExperimentalActiveLineIndices(effectiveLines, currentPos)
 
                 // Expand to include paired lead/background lines
@@ -714,14 +719,6 @@ fun ExperimentalLyricsView(
         }
     }
 
-    // Auto-scroll resume after preview period
-    LaunchedEffect(lastPreviewTime) {
-        if (lastPreviewTime != 0L) {
-            delay(LYRICS_PREVIEW_TIME)
-            lastPreviewTime = 0L
-        }
-    }
-
     val initialFirstVisibleIndex = remember(lyricsResetKey) {
         if (initialActiveLyricIndex >= 0) {
             val mappedIndex = mergedLyricsList.indexOfFirst {
@@ -740,6 +737,17 @@ fun ExperimentalLyricsView(
     var isUserInteracting by remember { mutableStateOf(false) }
     var hasInitialCentered by remember { mutableStateOf(false) }
     var lastCenteredIndex by remember { mutableIntStateOf(-1) }
+    var followingScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val followingMotion = remember(lyricsResetKey) { LyricsScrollSpring() }
+    val beginManualScroll: () -> Unit = {
+        followingScrollJob?.cancel()
+        followingMotion.reset()
+        if (!isSelectionModeActive) {
+            isAutoScrollEnabled = false
+            isUserInteracting = true
+            lastPreviewTime = System.currentTimeMillis()
+        }
+    }
 
     // Lyrics for the same song can arrive in stages (cached/plain, then an interim synced
     // copy, then the final word-synced upgrade) — each delivery is a new `lyrics` object even
@@ -759,6 +767,8 @@ fun ExperimentalLyricsView(
     }
 
     LaunchedEffect(appearance.autoScrollLyrics) {
+        followingScrollJob?.cancel()
+        if (appearance.autoScrollLyrics) lastCenteredIndex = -1
         isAutoScrollEnabled = appearance.autoScrollLyrics
     }
 
@@ -818,90 +828,30 @@ fun ExperimentalLyricsView(
         }
     }
 
+    val lyricRowHeights = remember(lyricsResetKey) { mutableMapOf<Int, Int>() }
     val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
         if (targetIndex in mergedLyricsList.indices) {
-            isProgrammaticScroll = true
-            try {
-                var layoutInfo = listState.layoutInfo
-                var viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-                if (viewportHeight <= 0) {
-                    try {
-                        withFrameMillis { }
-                    } catch (_: Exception) {
-                        delay(16L)
-                    }
-                    layoutInfo = listState.layoutInfo
-                    viewportHeight = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+            if (animate) listState.smoothCenterLyric(targetIndex, lyricsAnchorRatio, lyricRowHeights, followingMotion)
+            else {
+                // Initial layout only: measure the actual row before establishing
+                // the anchor. Every later seek/idle return uses the single animation.
+                listState.scrollToItem(targetIndex)
+                withFrameMillis { }
+                val info = listState.layoutInfo
+                info.visibleItemsInfo.firstOrNull { it.index == targetIndex }?.let { item ->
+                    val anchor = info.viewportStartOffset +
+                        (info.viewportEndOffset - info.viewportStartOffset) * lyricsAnchorRatio
+                    listState.scrollBy(item.offset + item.size / 2f - anchor)
                 }
-
-                if (viewportHeight > 0) {
-                    val targetCenterY = layoutInfo.viewportStartOffset + (viewportHeight * lyricsAnchorRatio)
-                    var itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                    if (itemInfo == null) {
-                        val currentFirst = listState.firstVisibleItemIndex
-                        val distance = kotlin.math.abs(targetIndex - currentFirst)
-                        // If the target is not visible (e.g. lyrics opened mid-song, or after a long scrub),
-                        // never scroll through all the previously sung lyrics. Pre-position 1 line before
-                        // the target so the visible motion is just a short, elegant 1-line glide into center.
-                        if (distance > 1) {
-                            val preIndex = (targetIndex - 1).coerceAtLeast(0)
-                            listState.scrollToItem(preIndex)
-                        } else {
-                            listState.scrollToItem(targetIndex)
-                        }
-
-                        // Give layout a couple of frames to settle so the animated correction below
-                        // is computed from real, stable item positions.
-                        repeat(2) {
-                            try {
-                                withFrameMillis { }
-                            } catch (_: Exception) {
-                                delay(16L)
-                            }
-                        }
-                        layoutInfo = listState.layoutInfo
-                        itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                        if (itemInfo == null) {
-                            listState.scrollToItem(targetIndex)
-                            repeat(2) {
-                                try {
-                                    withFrameMillis { }
-                                } catch (_: Exception) {
-                                    delay(16L)
-                                }
-                            }
-                            layoutInfo = listState.layoutInfo
-                            itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                        }
-                    }
-
-                    if (itemInfo != null) {
-                        val itemCenterY = itemInfo.offset + (itemInfo.size / 2f)
-                        val scrollDelta = itemCenterY - targetCenterY
-                        if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                            try {
-                                // Short lines still need a visible transition. Snapping deltas below
-                                // 48px made the same playback feel different across lyric formats.
-                                if (animate) {
-                                    val durationMs = (320 + kotlin.math.abs(scrollDelta) / density.density / 4f).toInt().coerceIn(320, 500)
-                                    listState.animateScrollBy(
-                                        value = scrollDelta,
-                                        animationSpec = if (spicyStyle) androidx.compose.animation.core.spring(dampingRatio = .82f, stiffness = 110f)
-                                            else tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
-                                    )
-                                } else {
-                                    listState.scrollBy(scrollDelta)
-                                }
-                            } catch (e: Exception) {
-                                if (e is kotlinx.coroutines.CancellationException) throw e
-                            }
-                        }
-                    }
-                }
-            } finally {
-                isProgrammaticScroll = false
             }
         }
+    }
+    val followLine: (Int) -> Unit = { index ->
+        followingScrollJob?.cancel()
+        val animate = hasInitialCentered
+        lastCenteredIndex = index
+        hasInitialCentered = true
+        followingScrollJob = scope.launch { centerActiveLine(index, animate) }
     }
 
     val resyncLyrics: () -> Unit = {
@@ -926,10 +876,7 @@ fun ExperimentalLyricsView(
         if (activeIndex in mergedLyricsList.indices) {
             // Mark it handled first so the follow-the-line effect (restarted by re-enabling
             // auto scroll) does not launch a second, competing scroll to the same line.
-            lastCenteredIndex = activeIndex
-            scope.launch {
-                centerActiveLine(activeIndex, true)
-            }
+            followLine(activeIndex)
         }
     }
 
@@ -940,7 +887,8 @@ fun ExperimentalLyricsView(
         isAutoScrollEnabled,
         listState.isScrollInProgress,
         isSelectionModeActive,
-        isSynced
+        isSynced,
+        lastPreviewTime
     ) {
         if (!appearance.autoScrollLyrics || !isSynced || isAutoScrollEnabled ||
             listState.isScrollInProgress || isSelectionModeActive
@@ -952,24 +900,17 @@ fun ExperimentalLyricsView(
     val lyricsNestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (!isProgrammaticScroll && source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
-                    if (!isSelectionModeActive) {
-                        isAutoScrollEnabled = false
-                        isUserInteracting = true
-                        lastPreviewTime = System.currentTimeMillis()
-                    }
+                if (source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
+                    beginManualScroll()
                 }
                 return Offset.Zero
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (!isProgrammaticScroll && source == NestedScrollSource.UserInput &&
+                if (source == NestedScrollSource.UserInput &&
                     (kotlin.math.abs(consumed.y) > 0.5f || kotlin.math.abs(available.y) > 0.5f)
                 ) {
-                    if (!isSelectionModeActive) {
-                        isAutoScrollEnabled = false
-                        lastPreviewTime = System.currentTimeMillis()
-                    }
+                    beginManualScroll()
                 }
                 return super.onPostScroll(consumed, available, source)
             }
@@ -994,12 +935,13 @@ fun ExperimentalLyricsView(
         }
             .distinctUntilChanged()
             .collectLatest { (activeIndex, interacting, selecting) ->
-                if (interacting || selecting) return@collectLatest
+                if (interacting || selecting) {
+                    followingScrollJob?.cancel()
+                    return@collectLatest
+                }
                 if (activeIndex !in mergedLyricsList.indices) return@collectLatest
 
-                centerActiveLine(activeIndex, true)
-                lastCenteredIndex = activeIndex
-                hasInitialCentered = true
+                if (activeIndex != lastCenteredIndex || !hasInitialCentered) followLine(activeIndex)
             }
     }
 
@@ -1024,14 +966,9 @@ fun ExperimentalLyricsView(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
+                    .then(lyricsUi.resyncBackdropModifier())
                     .fillMaxSize()
-                    .then(lyricsUi.manualScrollModifier(listState) {
-                        if (!isSelectionModeActive) {
-                            isAutoScrollEnabled = false
-                            isUserInteracting = true
-                            lastPreviewTime = System.currentTimeMillis()
-                        }
-                    })
+                    .then(lyricsUi.manualScrollModifier(listState, beginManualScroll))
                     .fadingEdge(top = 44.dp, bottom = LYRICS_FADE_BOTTOM_DP)
                     .nestedScroll(lyricsNestedScrollConnection),
                 contentPadding = PaddingValues(
@@ -1070,9 +1007,12 @@ fun ExperimentalLyricsView(
 
                             val speakerStyle = speakerStyles?.getOrNull(index)
                             val bgVisible = !isAutoScrollEnabled || (line.isBackground && (activeLineIndices.contains(pairedMainLineIndex) || activeLineIndices.contains(index) || isInGapWithMain))
-                            val blurGeometry by remember(listIndex, listState, activeListIndexState) {
+                            val blurGeometry by remember(listIndex, listState, activeListIndexState, spicyStyle) {
                                 derivedStateOf {
-                                    resolveLyricsBlurGeometry(
+                                    // Spicy soft focus follows the phrase index, not each
+                                    // scrolling pixel. Keep scrolling out of row composition.
+                                    if (spicyStyle) LyricsBlurGeometry(Float.NaN, Float.NaN, 0f, 0f)
+                                    else resolveLyricsBlurGeometry(
                                         layoutInfo = listState.layoutInfo,
                                         lineIndex = listIndex,
                                         activeIndex = activeListIndexState.value,
@@ -1127,6 +1067,7 @@ fun ExperimentalLyricsView(
                                 ExperimentalLyricsLine(
                                     index = index,
                                     line = line,
+                                    nextLineTime = effectiveLines.getOrNull(index + 1)?.time,
                                     isSynced = isSynced,
                                     isActiveLine = isActiveLine,
                                     bgVisible = bgVisible,
@@ -1147,7 +1088,7 @@ fun ExperimentalLyricsView(
                                     viewportEndPx = blurGeometry.viewportEndPx,
                                     speakerStyle = speakerStyle,
                                     useAgentSides = hasMultipleVocalists,
-                                    onSizeChanged = { },
+                                    onSizeChanged = { lyricRowHeights[listIndex] = it },
                                     onClick = {
                                         if (isSelectionModeActive) {
                                             if (selectedIndices.contains(index)) {
@@ -1159,6 +1100,7 @@ fun ExperimentalLyricsView(
                                                 lyricsUi.showMessage(lyricsUi.strings.selectUpTo5Lines())
                                             }
                                         } else if (appearance.changeLyricsOnTap) {
+                                            followingMotion.reset()
                                             val reqId = ++scrollRequestId
                                             pendingSeekTarget = ExperimentalPendingSeekTarget(
                                                 lineIndex = index,
@@ -1168,6 +1110,7 @@ fun ExperimentalLyricsView(
                                             authoritativeTargetIndex = index
                                             deferredCurrentLineIndex = index
                                             activeLineIndices = setOf(index)
+                                            currentPositionState.longValue = line.time + offsetMs
                                             if (appearance.autoScrollLyrics) {
                                                 isAutoScrollEnabled = true
                                             }
@@ -1187,7 +1130,7 @@ fun ExperimentalLyricsView(
                         }
                         is ExperimentalLyricsListItem.Indicator -> {
                             val indicatorVisible = isSynced &&
-                                currentPositionState.longValue >= (listItem.gapStartMs - 300L) &&
+                                currentPositionState.longValue >= (listItem.gapStartMs - if (spicyStyle) 0L else 300L) &&
                                 currentPositionState.longValue <= listItem.gapEndMs
                             LyricsIntervalIndicator(
                                 gapStartMs = listItem.gapStartMs,
@@ -1248,7 +1191,8 @@ fun ExperimentalLyricsView(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
+            if (lyricsUi.resyncButton != null) lyricsUi.resyncButton.invoke(lyricsUi.strings.reSync(), resyncLyrics)
+            else Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(32.dp))
@@ -1384,7 +1328,8 @@ fun ExperimentalLyricsLine(
     onSizeChanged: (Int) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    nextLineTime: Long? = null
 ) {
     // Speaker-aware MetroLyrics layout (7.7). Only lines the source attributed to a vocalist in
     // a multi-speaker song carry a side; every other line (and every line of a song without
@@ -1423,7 +1368,9 @@ fun ExperimentalLyricsLine(
             interactionSource = interactionSource,
             indication = if (mouseHover) null else LocalIndication.current,
             onClick = onClick,
-            onLongClick = onLongClick
+            // Consume a hold without selecting on desktop. Retaining the hold
+            // recognizer keeps its release from becoming a click-to-seek gesture.
+            onLongClick = if (LocalLyricsUi.current.lyricSelectionEnabled) onLongClick else ({})
         )
         .drawBehind {
             val fill = if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f)
@@ -1519,6 +1466,8 @@ fun ExperimentalLyricsLine(
         fun LineContent() {
             val targetBlur = if (!standardBlur || !isSynced || isSelected || isSelectionModeActive || isActiveLine || (mouseHover && hovered)) {
                 0f
+            } else if (isSpicy) {
+                SpicyLyricsPresentation.blurSigmaPx(index, displayedCurrentLineIndex)
             } else {
                 computeLyricsProgressiveBlur(
                     standardBlur = true,
@@ -1544,9 +1493,13 @@ fun ExperimentalLyricsLine(
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
             val blurModifier = if (standardBlur) {
                 Modifier.graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
                     val radius = animatedBlur.value.dp.toPx()
                     renderEffect = if (radius > .1f) androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Decal) else null
                     clip = false
+                }.drawWithContent {
+                    drawRect(Color.Transparent, blendMode = BlendMode.Clear)
+                    drawContent()
                 }
             } else Modifier
 
@@ -1673,6 +1626,7 @@ fun ExperimentalLyricsLine(
                         line = line.copy(text = mainText),
                         words = if (syncType == SyncType.RICHSYNC) line.words else null,
                         positionMs = currentPositionState, style = lyricStyle,
+                        nextLineTime = nextLineTime,
                         isActive = isActiveLine, modifier = Modifier.fillMaxWidth(), inactiveColor = lineColor)
                 } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
                     animationMode == com.auralis.music.domain.model.LyricsAnimationMode.FLUID) {

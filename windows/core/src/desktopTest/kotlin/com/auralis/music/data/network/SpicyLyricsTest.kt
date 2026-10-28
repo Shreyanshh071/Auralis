@@ -71,8 +71,11 @@ class SpicyLyricsTest {
         assertEquals(LyricsProvider.SPICY_LYRICS, data.provider)
         assertEquals("Hello world", data.lines.first().text)
         assertEquals(10123L, data.lines.first().words!!.first().time)
-        assertEquals(277L, data.lines.first().words!!.first().duration)
-        assertEquals(12000L, data.lines.first().words!![2].time)
+        val joined = data.lines.first().words!!.first()
+        assertEquals(777L, joined.duration)
+        assertEquals(listOf(277L, 400L), joined.syllables!!.map { it.duration })
+        assertEquals("Retain the original inter-syllable rest", listOf(10123L, 10500L), joined.syllables!!.map { it.time })
+        assertEquals(12000L, data.lines.first().words!![1].time)
         assertEquals("Translated line", data.lines.first().translatedText)
         assertEquals("v2", data.lines.first().agent)
         assertTrue(data.lines[1].isBackground)
@@ -97,6 +100,15 @@ class SpicyLyricsTest {
         }
         assertEquals(SyncType.PLAIN, SpicyLyricsParser.parse(plain, recording)!!.syncType)
         assertEquals("Plain line", SpicyLyricsParser.parse(plain, recording)!!.plainLyrics)
+    }
+
+    @Test fun joinedSyllablesStillRejectBackwardsStarts() {
+        val payload = envelope()
+        val syllables = payload.getJSONObject("Body").getJSONArray("Content").getJSONObject(0)
+            .getJSONObject("Lead").getJSONArray("Syllables")
+        syllables.getJSONObject(1).put("IsPartOfWord", true)
+        syllables.getJSONObject(2).put("StartTime", 10.3)
+        assertNull(SpicyLyricsParser.parse(payload, recording))
     }
 
     @Test fun contributorLinksUseResponseUrlsAndMissingLinksKeepNames() {
@@ -135,10 +147,13 @@ class SpicyLyricsTest {
             val request = chain.request()
             synchronized(requests) { requests += request }
             val spotify = request.url.host == "api.spotify.com"
-            val body = if (spotify) {
+            val embed = request.url.host == "open.spotify.com"
+            val body = if (embed) {
+                """<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"state":{"data":{"entity":{"type":"track","uri":"spotify:track:$id","name":"Test Song","duration":200000,"artists":[{"name":"Test Artist"}]}}}}}}</script>"""
+            } else if (spotify) {
                 if (request.url.encodedPath == "/v1/search") """{"tracks":{"items":[$spotifyJson]}}""" else spotifyJson
             } else lyrics
-            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(if (spotify) 200 else status)
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(if (spotify || embed) 200 else status)
                 .message("test").header("Retry-After", "60").body(body.toResponseBody("application/json".toMediaType())).build()
         }.build()
 
@@ -187,11 +202,13 @@ class SpicyLyricsTest {
         assertNull(SpicyLyricsSource(client(mutableListOf(), lyrics = "not json"), { key }, { "spotify_token" }).search(query))
     }
 
-    @Test fun knownSpotifyIdentityUsesTrackLookupAndMissingTokensDoNotCallApi() = runBlocking {
+    @Test fun knownSpotifyIdentityUsesPublicMetadataAndMissingTokensDoNotSearch() = runBlocking {
         val requests = mutableListOf<Request>()
-        val source = SpicyLyricsSource(client(requests), { key }, { "spotify_token" })
+        val source = SpicyLyricsSource(client(requests), { key }, { error("Known recording must not require a session") })
         assertNotNull(source.search(query.copy(spotifyId = "sp_$id")))
-        assertEquals("/v1/tracks/$id", requests.first().url.encodedPath)
+        assertEquals("/embed/track/$id", requests.first().url.encodedPath)
+        assertNull(requests.first().header("Authorization"))
+        assertTrue(requests.none { it.url.host == "api.spotify.com" })
         requests.clear()
         assertNull(SpicyLyricsSource(client(requests), { key }, { null }).search(query))
         assertTrue(requests.isEmpty())

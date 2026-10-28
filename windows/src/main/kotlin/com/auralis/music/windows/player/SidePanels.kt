@@ -51,9 +51,10 @@ internal fun SideLyricsPanel(playback: DesktopPlaybackController, lyrics: Deskto
     val queue by playback.queue.collectAsState()
     val state by lyrics.state.collectAsState()
     val playerState by playback.state.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
     val position = com.auralis.music.ui.lyrics.rememberLyricsClock(playback.clock,
-        enabled = playerState == VlcAudioPlayer.State.PLAYING,
-        fallbackPositionMs = playback.positionMs.collectAsState())
+        enabled = remote?.playing ?: (playerState == VlcAudioPlayer.State.PLAYING),
+        fallbackPositionMs = rememberShownPosition(playback, remote))
     key(queue.current?.id) {
         if (state.lyrics == null && state.isLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(28.dp))

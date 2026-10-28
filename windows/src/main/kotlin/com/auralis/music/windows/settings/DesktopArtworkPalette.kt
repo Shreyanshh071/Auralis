@@ -69,8 +69,12 @@ fun rememberArtworkPalette(url: String?): ArtworkPalette {
                 paletteFlow.value = cached
                 com.auralis.music.windows.player.DesktopPlaybackSessionStore.updatePalette(cached)
             } else {
-                val result = withContext(Dispatchers.IO) {
-                    loadAndExtractPalette(url)
+                var result = withContext(Dispatchers.IO) { loadAndExtractPalette(url) }
+                var attempt = 0
+                while (result.isDefault) {
+                    kotlinx.coroutines.delay(minOf(30_000L, 1000L shl attempt.coerceAtMost(5)))
+                    result = withContext(Dispatchers.IO) { loadAndExtractPalette(url) }
+                    attempt++
                 }
                 if (!result.isDefault) {
                     DesktopArtworkPaletteStore.put(url, result)
@@ -108,7 +112,13 @@ internal fun loadAndExtractPalette(url: String): ArtworkPalette {
                     com.auralis.music.data.network.NetworkClientProvider.okHttpClient
                         .newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
-                                img = response.body?.byteStream()?.use(ImageIO::read)
+                                img = response.body?.bytes()?.let { bytes ->
+                                    org.jetbrains.skia.Image.makeFromEncoded(bytes).use { image ->
+                                        image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)?.use { png ->
+                                            ImageIO.read(png.bytes.inputStream())
+                                        }
+                                    }
+                                }
                             }
                         }
                     if (img != null) break

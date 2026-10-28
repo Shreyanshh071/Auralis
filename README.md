@@ -26,6 +26,42 @@
 
 ---
 
+## 🆕 What's New in 1.1.2
+
+### Added
+
+- **Eight-page interactive app tour** with silent previews of the real player, lyrics styles and Home layout, alongside audio quality, permissions and region/language choices.
+- **Liquid glass comparison** — switch between solid and glass controls in the tour. The Home preview includes enough songs to scroll, collapse the mini-player and dock, and expand them again. Your appearance choice is saved.
+- **Animated tour introduction** — the Auralis mark draws using the startup logo's paths. The brown-and-gold background starts with a fast rotation, slows as the logo finishes, and gradually reveals its contour lines. Page swipes briefly speed up the background.
+- **Disconnect confirmation** so an accidental tap does not immediately sign you out.
+
+### Fixed
+
+- **Tour appearing before sign-in** — newcomers enter the tour after authentication; account restoration is checked before deciding whether a returning listener needs onboarding.
+- **Laggy tour page changes** — finger dragging and Next navigation now use the same optimized pager rendering. Quick reversals, held drags and cancelled swipes keep the incoming preview visible.
+- **Screens showing through account pages** — profile and settings navigation keeps an opaque backdrop while pages move and fade.
+- **Sign-out waiting on the network** — disconnecting clears the local account state immediately instead of waiting for a cloud upload. Local changes remain associated with their account for a later sync.
+- **Lyrics glow artifacts** — Fluid highlighting no longer redraws fragments of adjacent words, and MetroLyrics highlights reuse the correct shaped glyphs instead of a mismatched font.
+- **Lyrics after seeking** — seek notifications are sent after the playback clock has moved, reducing incorrect re-sync positions when jumping within a song.
+
+### Improved
+
+- **Touch responsiveness** — tour previews are prepared ahead of page movement, hidden animations pause, and cached page images avoid repeatedly rendering player effects during a drag. Slow and fast touchscreen swipes, direction changes, preview-area drags and cancellation have device-test coverage.
+- **Startup handoff** — the drawn logo stays visible until the first app frame is ready, with better handling of process restoration and activity recreation.
+- **Account and import screens** — refreshed Profile & Account, YouTube account and playlist-import layouts with clearer integration status and account actions.
+- **Seeking across connected devices** — Android and Windows publish explicit seeks promptly, apply incoming seek commands without waiting on unrelated state work, and prioritize the latest position during repeated scrubbing.
+- **Appearance preference consistency** — missing settings use the shared defaults while existing saved choices and legacy player settings remain supported.
+
+### Updated appearance defaults
+
+- **Liquid glass is off by default** and can be enabled in the tour or Appearance settings.
+- **Old player**, **New mini player** with a **Live Mesh** background, and **Spicy Lyrics** are the starting appearance choices. Landscape scaling is enabled.
+- **Swipe to remove a song from a playlist is off by default**. Top, weekly-most-played and monthly-most-played automatic playlists start hidden.
+
+These defaults apply when a preference has not been saved; they do not overwrite your existing appearance choices.
+
+---
+
 ## 🆕 What's New in 1.1.1
 
 ### Fixed

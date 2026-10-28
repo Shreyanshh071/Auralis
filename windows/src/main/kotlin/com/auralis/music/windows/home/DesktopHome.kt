@@ -29,6 +29,10 @@ internal fun DesktopHome(
     findMusic: (@Composable () -> Unit)? = null,
     youtubePlaylists: List<PlaylistResult> = emptyList(),
     onYouTubePlaylist: (PlaylistResult) -> Unit = {},
+    onConnectYouTube: () -> Unit = {},
+    auralisSignedIn: Boolean = false,
+    listeningRecents: List<Track> = emptyList(),
+    accountPresentation: HomeAccountPresentation? = null,
     /** Albums & singles from the listener's own taste; YouTube's new releases until there is one. */
     tasteShelf: DesktopHomeShelf? = null,
     /** The listener's most-played songs (Quick picks). */
@@ -61,6 +65,8 @@ internal fun DesktopHome(
     }
     val scope = rememberCoroutineScope()
     val youtubeSignedIn by com.auralis.music.data.network.YouTubeSession.signedIn.collectAsState()
+    val personal = auralisSignedIn || youtubeSignedIn
+    val newcomer = !personal
     val youtubeAccount by com.auralis.music.data.network.YouTubeSession.accountLabel.collectAsState()
     val remote = remember { DesktopRemoteHome(scope) }
     val remoteState by remote.state.collectAsState()
@@ -97,14 +103,22 @@ internal fun DesktopHome(
             if (tracks.isNotEmpty()) action(tracks) else showMessage("Couldn't load this album. Please try again.")
         }
     }
-    val cleanTasteShelf = remember(tasteShelf, blocked) {
-        tasteShelf?.let { shelf ->
+    val cleanTasteShelf = remember(tasteShelf, blocked, personal) {
+        tasteShelf?.takeIf { personal }?.let { shelf ->
             if (blocked.isEmpty()) shelf else shelf.copy(
                 tracks = shelf.tracks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
                 albums = shelf.albums.filterNot { it.id.startsWith("UC") && com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) }
             )
         }
     }
+    val presentation = accountPresentation ?: remember { HomeAccountPresentation() }
+    val localContent = desktopHomeContent(state, pageState.sections, cleanTasteShelf)
+    val accountFeed = presentation.present(auralisSignedIn, youtubeSignedIn,
+        listeningRecents + state.recentTracks.map { it.track } + if (youtubeSignedIn) remoteState.recents else emptyList(),
+        listOfNotNull(cleanTasteShelf) + (if (youtubeSignedIn) remoteState.shelves else emptyList()) + localContent.shelves +
+            listOfNotNull(localContent.picks.takeIf { it.isNotEmpty() }?.let {
+                DesktopHomeShelf("account-quick-picks", "Quick picks", tracks = it)
+            }))
     DesktopHomeScreen(
         state = state,
         moreSections = pageState.sections,
@@ -174,9 +188,12 @@ internal fun DesktopHome(
             }
         },
         findMusic = findMusic,
-        onRefresh = { if (youtubeSignedIn) remote.refresh() else { paging.reset(state.dynamicSections); viewModel.refresh() } },
-        quickPicks = quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
-        familiarArtists = familiarArtists,
+        onRefresh = { remote.refresh(); if (!youtubeSignedIn) viewModel.refresh() },
+        youtubeConnected = youtubeSignedIn,
+        newcomer = newcomer,
+        onConnectYouTube = onConnectYouTube,
+        quickPicks = if (personal) quickPicks.filterNot { com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) } else emptyList(),
+        familiarArtists = if (personal) familiarArtists else emptyList(),
         greetingName = greetingName,
         greetingPalette = greetingPalette,
         onOpenFamiliarArtist = { a -> browse.openArtist(Artist(id = a.id, name = a.name, thumbnail = a.photo)) },
@@ -215,29 +232,29 @@ internal fun DesktopHome(
         favoriteIds = favoriteIds,
         onToggleFavorite = { track -> scope.launch { library.toggleFavorite(track) } },
         tasteShelf = cleanTasteShelf,
-        serviceShelves = if (youtubeSignedIn) {
-            val base = listOfNotNull(cleanTasteShelf ?: remoteState.releases) + remoteState.shelves.filterNot {
-                it.title.equals("Albums & singles", ignoreCase = true) ||
-                it.title.equals("New releases", ignoreCase = true) ||
-                it.title.equals("New albums & singles", ignoreCase = true)
-            }
+        serviceShelves = run {
+            val waitingForHistory = personal && accountFeed.recents.isEmpty() && familiarArtists.isEmpty() && quickPicks.isEmpty()
+            val publicShelves = remoteState.shelves.takeUnless { remoteState.signedIn }.orEmpty()
+            val base = if (waitingForHistory) guestHomeShelves(accountFeed.shelves, publicShelves, emptyList())
+                else if (personal) accountFeed.shelves else guestHomeShelves(emptyList(),
+                remoteState.shelves.takeUnless { remoteState.signedIn }.orEmpty(), emptyList())
             if (blocked.isEmpty()) base else base.map { shelf ->
                 shelf.copy(tracks = shelf.tracks.filterNot {
                     com.auralis.music.desktop.library.DesktopBlockedArtists.blocksTrack(it, blocked) },
                     albums = shelf.albums.filterNot { it.id.startsWith("UC") &&
                         com.auralis.music.desktop.library.DesktopBlockedArtists.blocksArtist(it.id, it.title, blocked) })
             }
-        } else null,
-        serviceRecents = if (youtubeSignedIn) remoteState.recents else null,
-        serviceLoading = if (youtubeSignedIn) remoteState.loading else state.isLoading,
-        serviceError = if (youtubeSignedIn) remoteState.error else null,
-        libraryShelf = playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
+        },
+        serviceRecents = accountFeed.recents,
+        serviceLoading = if (youtubeSignedIn || newcomer) remoteState.loading else state.isLoading,
+        serviceError = if (youtubeSignedIn || newcomer) remoteState.error else null,
+        libraryShelf = if (!personal) emptyList() else playlists.filter { it.isCustom }.map { PlaylistResult("local:${it.id}", it.title,
                 it.coverUrl ?: collageUrls[it.id] ?: it.tracks.firstOrNull()?.thumbnail, "Playlist · ${it.tracks.size} tracks") } +
             savedAlbums.map { PlaylistResult(it.id, it.title, it.thumbnail, it.artist) },
-        loadingMore = if (youtubeSignedIn) remoteState.loadingMore else pageState.loading,
-        canLoadMore = if (youtubeSignedIn) remoteState.token != null else pageState.canLoadMore,
-        loadMoreFailed = if (youtubeSignedIn) remoteState.error != null else pageState.failed,
-        onLoadMore = { scope.launch { if (youtubeSignedIn) remote.loadMore() else paging.loadMore() } },
+        loadingMore = if (youtubeSignedIn || newcomer) remoteState.loadingMore else pageState.loading,
+        canLoadMore = if (youtubeSignedIn || newcomer) remoteState.token != null else pageState.canLoadMore,
+        loadMoreFailed = if (youtubeSignedIn || newcomer) remoteState.error != null else pageState.failed,
+        onLoadMore = { scope.launch { if (youtubeSignedIn || newcomer) remote.loadMore() else paging.loadMore() } },
         recentsGrid = recentsGrid,
         onToggleRecents = {
             recentsGrid = !recentsGrid
