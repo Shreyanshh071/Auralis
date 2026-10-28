@@ -41,6 +41,22 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.Shadow
+
+// BitChord LiquidGlass.kt, commit 04a4a83889bb8fa5bd6ee6f6097f0c6608671d68
+// (GPL-3.0): https://github.com/kushagrasinghx/BitChord
+private const val GLASS_RESOLUTION_SCALE = 0.33f
+
+internal fun glassSurfaceTint(isDark: Boolean): Color =
+    (if (isDark) Color(0xFF121212) else Color(0xFFFAFAFA)).copy(alpha = 0.4f)
+
+internal fun glassBarTint(isDark: Boolean): Color =
+    if (isDark) Color.White.copy(alpha = 0.09f) else glassSurfaceTint(false)
+
+internal fun glassIndicatorTint(isDark: Boolean): Color =
+    Color.White.copy(alpha = if (isDark) 0.14f else 0.5f)
+
+internal fun glassContentColor(isDark: Boolean): Color = if (isDark) Color.White else Color.Black
 
 /**
  * Liquid glass theme (Appearance → Themes and colour → Liquid glass).
@@ -82,7 +98,7 @@ fun isLiquidGlassSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_C
 fun Modifier.liquidGlass(
     glass: LiquidGlassContext,
     shape: CornerBasedShape,
-    tint: Color = if (glass.isDark) Color(0xFF101010).copy(alpha = 0.38f) else Color.White.copy(alpha = 0.42f),
+    tint: Color = glassSurfaceTint(glass.isDark),
     press: GlassPress? = null,
     pressedScale: Float = 1.12f
 ): Modifier {
@@ -106,21 +122,14 @@ fun Modifier.liquidGlass(
             .border(0.75.dp, rimBrush(glass.isDark), shape)
     }
     val density = LocalDensity.current
-    // Strong enough that whatever is behind (artwork card edges especially) melts into colour;
-    // at 6dp the edges stayed sharp and read as a square behind every glass circle.
-    val blurPx = with(density) { 18.dp.toPx() }
-    val lensHeightPx = with(density) { 20.dp.toPx() }
-    val lensAmountPx = with(density) { 28.dp.toPx() }
-    val fallbackBaseColor = if (glass.isDark) {
-        Color(0xFF1C1D20).copy(alpha = 0.70f)
-    } else {
-        Color(0xFFF2F2F5).copy(alpha = 0.75f)
-    }
-    // Clip the whole element to its shape from the outside. The library clips its own layer to
-    // the shape, but on this Compose version that clip doesn't hold, and the glass filled its
-    // square bounding box (a dark square behind every circle and pill end). An outer clip
-    // contains everything the glass draws, whatever part of it spills.
-    return this.then(if (pressLayer == null) Modifier.clip(shape) else Modifier).drawBackdrop(
+    // Match BitChord's 8dp blur / 24dp lens at one-third capture resolution.
+    // Effects stay constant during presses; only the surface transform animates.
+    val blurPx = with(density) { 8.dp.toPx() } * GLASS_RESOLUTION_SCALE
+    val lensHeightPx = with(density) { 24.dp.toPx() } * GLASS_RESOLUTION_SCALE
+    val lensAmountPx = with(density) { 24.dp.toPx() } * GLASS_RESOLUTION_SCALE
+    // The backdrop node clips its sampled layer; shaped tint also keeps circles and pills
+    // contained without clipping the reference's outer shadow and directional highlight.
+    return this.drawBackdrop(
         backdrop = glass.backdrop,
         shape = { shape },
         layerBlock = pressLayer,
@@ -140,11 +149,8 @@ fun Modifier.liquidGlass(
             }
         },
         highlight = { Highlight.Default },
-        // An outer shadow would be cut off by the clip above, so none is drawn.
-        shadow = null,
-        // Base translucent glass fill behind the live backdrop. Guarantees the element never degrades
-        // into a transparent frame when sampling unattached coordinates or transparent pixels.
-        onDrawBehind = { drawOutline(shape.createOutline(size, layoutDirection, this), fallbackBaseColor) },
+        shadow = { Shadow.Default },
+        backdropScale = GLASS_RESOLUTION_SCALE,
         // Fill the tint in the element's own shape. A plain drawRect relied on the layer clipping
         // to the shape, which it doesn't on this Compose version: the tint showed as a dark
         // square around every glass circle and pill.

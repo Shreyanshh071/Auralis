@@ -29,7 +29,12 @@ foreach ($variant in $variants) {
     Write-Host "Updated and verified $($variant.Target)"
 }
 
-# These are the two disposable compiler outputs we just verified against the
-# permanent downloads. Leave only the two named APK deliverables after packaging.
-Remove-Item -LiteralPath (Join-Path $workspaceRoot 'android/app/build/outputs/apk/debug/app-debug.apk') -Force
-Remove-Item -LiteralPath (Join-Path $workspaceRoot 'android/app/build/outputs/apk/release/app-release.apk') -Force
+# Keep just the verified debug and release deliverables, including after device tests.
+$keptApks = @($variants | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $workspaceRoot $_.Target)) })
+Get-ChildItem -LiteralPath $workspaceRoot -Recurse -File -Filter '*.apk' | ForEach-Object {
+    $apkPath = [IO.Path]::GetFullPath($_.FullName)
+    if (-not $apkPath.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "APK cleanup escaped the workspace: $apkPath"
+    }
+    if ($keptApks -notcontains $apkPath) { Remove-Item -LiteralPath $apkPath -Force }
+}

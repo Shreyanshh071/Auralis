@@ -198,7 +198,7 @@ private val HANDLE_STRIP_HEIGHT = 32.dp
 private val CONTROLS_FADE_ABOVE = 36.dp
 private val PREVIEW_LINE_HEIGHT = 60.dp
 private val COMPACT_ART_SIZE = 54.dp
-private val COMPACT_ART_CORNER = 6.dp
+private val COMPACT_ART_CORNER = 12.dp
 
 /**
  * Immersive Player:
@@ -759,7 +759,8 @@ fun ImmersivePlayerContainer(
 
         // ── SLEEVE IN FLIGHT: one cover morphing between the full-bleed banner and the header ──
         val compactOrigin = compactArtOriginInRoot
-        if (!heroAtRest && !hidePlayerThumbnail && containerWidthPx > 0 && compactOrigin != null && compactArtSizePx > 0) {
+        // Keep the flight artwork decoded before the first moving frame.
+        if (!hidePlayerThumbnail && containerWidthPx > 0 && compactOrigin != null && compactArtSizePx > 0) {
             val compactCornerPx = with(density) { COMPACT_ART_CORNER.toPx() }
             ArtworkCard(
                 url = track.thumbnail,
@@ -770,6 +771,7 @@ fun ImmersivePlayerContainer(
                     .zIndex(4f)
                     .graphicsLayer {
                         val p = heroProgress.value.coerceIn(0f, 1f)
+                        alpha = if (p <= 0.001f) 0f else 1f
                         val endScale = compactArtSizePx.toFloat() / containerWidthPx
                         val s = 1f + (endScale - 1f) * p
                         transformOrigin = TransformOrigin(0f, 0f)
@@ -781,7 +783,8 @@ fun ImmersivePlayerContainer(
                         shape = RoundedCornerShape((compactCornerPx / s) * p)
                         clip = true
                     }
-                    .heroFadeMask { heroProgress.value },
+                    .heroFadeMask { heroProgress.value }
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
                 cornerRadius = 0.dp,
                 elevation = 0.dp,
                 contentDescription = track.title,

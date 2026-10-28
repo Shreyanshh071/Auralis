@@ -48,7 +48,7 @@ internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, 
         properties = PopupProperties(focusable = true)) {
         LiquidPopupSurface(Modifier.width(with(density) { (window.width - margin * 2).coerceAtLeast(1).toDp() }.coerceAtMost(280.dp))
             .heightIn(max = with(density) { (window.height - margin * 2).coerceAtLeast(1).toDp() }),
-            tint = if (frosted) Color(0xFF242428).copy(alpha = .62f) else Color(0xFF101010).copy(alpha = .38f),
+            tint = if (frosted) Color(0xFF242428).copy(alpha = .62f) else bitChordGlassTint(false),
             frosted = frosted) {
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(onSurface = Color.White, onSurfaceVariant = Color.White.copy(alpha = .72f))) {

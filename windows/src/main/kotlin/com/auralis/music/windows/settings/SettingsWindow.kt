@@ -385,6 +385,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
 }
 
 @Composable private fun DesktopAppearanceExtras() {
+    val pickerScope = rememberCoroutineScope()
     val prefs = DesktopPreferences.store; val revision by prefs.changes.collectAsState()
     SettingsGroup("Interface") {
         SettingSlider("Interface zoom", prefs.number("zoom", 1.0).toFloat(), .75f..1.5f, { "${(it*100).toInt()}%" }) { prefs.set("zoom", it.toDouble()) }
@@ -404,16 +405,15 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             SettingSearchableChoice(label, "Installed Windows fonts", prefs.text(key,"Default"), prefs.text(key,"Default"), fonts.map { it to it }) { prefs.set(key,it) }
         }
         var message by remember {mutableStateOf("")}
-        SettingAction("Load font file", message.ifBlank { "Add a TTF or OTF font to the font lists" }, "Choose file") {runCatching {
-            val picker=java.awt.FileDialog(null as java.awt.Frame?,"Load a TTF or OTF font",java.awt.FileDialog.LOAD);picker.isVisible=true
-            val file=picker.file?.let {java.io.File(picker.directory,it)};picker.dispose()
+        SettingAction("Load font file", message.ifBlank { "Add a TTF or OTF font to the font lists" }, "Choose file") {pickerScope.launch {runCatching {
+            val file=com.auralis.music.ui.components.WindowsFilePicker.choose("Choose a font", filterName = "Fonts (TTF, OTF)", pattern = "*.ttf;*.otf")
             if(file!=null) {
                 val font=java.awt.Font.createFont(java.awt.Font.TRUETYPE_FONT,file)
                 val target=java.io.File(com.auralis.music.util.desktopAppDataDir(),"fonts/${file.name}");target.parentFile.mkdirs();file.copyTo(target,overwrite=true)
                 java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
                 prefs.set("fontRevision",revision.optInt("fontRevision")+1);message="Loaded ${font.family}. Choose it from Body or Heading font."
             }
-        }.onFailure {message=it.message.orEmpty()}}
+        }.onFailure {message=it.message.orEmpty()}}}
         Text(desktopText("Fonts apply throughout the app. Theme and player controls below preserve your current choices."), style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -432,7 +432,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     SettingsGroup("Queue") {
         SettingToggle("Prevent duplicates", "Do not add the same song twice to the upcoming queue", prefs.bool("preventDuplicates",true)) { prefs.set("preventDuplicates",it) }
-        SettingToggle("Sticky shuffle", "Keep shuffling when you start a different album or playlist", prefs.bool("stickyShuffle")) { prefs.set("stickyShuffle",it) }
+
         SettingToggle("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track", prefs.bool("shuffleWholeQueue")) { prefs.set("shuffleWholeQueue",it) }
     }
     SettingsGroup("Video") {
@@ -535,14 +535,12 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             }
         }
         TextButton({rules.put(org.json.JSONObject().put("id",java.util.UUID.randomUUID().toString()).put("field","title").put("find","").put("replace","").put("enabled",true));set("rules",rules.toString())}) {Text(desktopText("Add metadata rule"))}
-        TextButton({runCatching {
-            val picker=java.awt.FileDialog(null as java.awt.Frame?,"Export metadata rules",java.awt.FileDialog.SAVE);picker.file="auralis-scrobble-rules.json";picker.isVisible=true
-            picker.file?.let {java.io.File(picker.directory,it).writeText(rules.toString(2))};picker.dispose()
-        }.onFailure {message=it.message.orEmpty()}}) {Text(desktopText("Export rules"))}
-        TextButton({runCatching {
-            val picker=java.awt.FileDialog(null as java.awt.Frame?,"Import metadata rules",java.awt.FileDialog.LOAD);picker.isVisible=true
-            picker.file?.let { val imported=org.json.JSONArray(java.io.File(picker.directory,it).readText());require(imported.length()<=100) {"Too many rules."};require((0 until imported.length()).all {index->imported.optJSONObject(index)?.optString("field") in setOf("title","artist","album")}) {"Each rule must have a title, artist or album field."};set("rules",imported.toString()) };picker.dispose()
-        }.onFailure {message=it.message.orEmpty()}}) {Text(desktopText("Import rules"))}
+        TextButton({scope.launch {runCatching {
+            com.auralis.music.ui.components.WindowsFilePicker.choose("Export metadata rules", save = true, filterName = "JSON files", pattern = "*.json", defaultName = "auralis-scrobble-rules.json", defaultExtension = "json")?.writeText(rules.toString(2))
+        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Export rules"))}
+        TextButton({scope.launch {runCatching {
+            com.auralis.music.ui.components.WindowsFilePicker.choose("Import metadata rules", filterName = "JSON files", pattern = "*.json")?.let { val imported=org.json.JSONArray(it.readText());require(imported.length()<=100) {"Too many rules."};require((0 until imported.length()).all {index->imported.optJSONObject(index)?.optString("field") in setOf("title","artist","album")}) {"Each rule must have a title, artist or album field."};set("rules",imported.toString()) }
+        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Import rules"))}
     }
     val current = com.auralis.music.ui.settings.LocalSettingsPlatform.current.nowPlaying?.track?.collectAsState()?.value
     if(current!=null) SettingsGroup("Current song preview & edit") {
@@ -590,9 +588,12 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     SettingsGroup("Downloads") {
         Text(root.absolutePath);TextButton({java.awt.Desktop.getDesktop().open(root)}) {Text(desktopText("Open download folder"))}
         var message by remember {mutableStateOf("")}
-        TextButton({scope.launch {runCatching {withContext(Dispatchers.IO) {
-            com.auralis.music.windows.library.NativeFolderPicker.chooseFolder(root)?.let {downloads.changeDirectory(it,false)}
-        }}.onSuccess {message="Download location saved. Existing files stay available at their current locations."}.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Change folder"))}
+        TextButton({scope.launch {runCatching {
+            com.auralis.music.windows.library.NativeFolderPicker.chooseFolder(root)?.let {
+                withContext(Dispatchers.IO) { downloads.changeDirectory(it,false) }
+                message="Download location saved. Existing files stay available at their current locations."
+            }
+        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Change folder"))}
         Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
     }
     SettingsGroup("Caches") {
@@ -630,9 +631,8 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY+"/issues/new"))}) {Text(desktopText("Report a problem"))}
         val clipboard=androidx.compose.ui.platform.LocalClipboardManager.current
         TextButton({clipboard.setText(androidx.compose.ui.text.AnnotatedString(DesktopReleaseCheck.diagnostics()));message="Diagnostics copied. No tokens, cookies or account identifiers are included."}) {Text(desktopText("Copy diagnostics"))}
-        TextButton({runCatching {
-            val picker=java.awt.FileDialog(null as java.awt.Frame?,"Save diagnostics",java.awt.FileDialog.SAVE);picker.file="auralis-diagnostics.txt";picker.isVisible=true
-            picker.file?.let {java.io.File(picker.directory,it).writeText(DesktopReleaseCheck.diagnostics());message="Diagnostics saved."};picker.dispose()
-        }.onFailure {message=it.message.orEmpty()}}) {Text(desktopText("Save diagnostics"))}
+        TextButton({scope.launch {runCatching {
+            com.auralis.music.ui.components.WindowsFilePicker.choose("Save diagnostics", save = true, filterName = "Text files", pattern = "*.txt", defaultName = "auralis-diagnostics.txt", defaultExtension = "txt")?.let { it.writeText(DesktopReleaseCheck.diagnostics());message="Diagnostics saved."}
+        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Save diagnostics"))}
     }
 }

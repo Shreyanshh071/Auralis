@@ -1,7 +1,12 @@
 /*
- * Copyright 2025 Kyant0. Licensed under the Apache License, Version 2.0.
- * From github.com/Kyant0/AndroidLiquidGlass, module "backdrop", tag 2.0.1.
- * Bundled as source: the multiplatform expect/actual split is merged into Android-only code.
+ * Resolution-scale adaptation from BitChord commit 04a4a83889bb8fa5bd6ee6f6097f0c6608671d68.
+ * Vendored from Kyant0/backdrop v2.0.0 (io.github.kyant0:backdrop)
+ * https://github.com/Kyant0/backdrop — Copyright 2025 Kyant0, Apache License 2.0
+ *
+ * Vendored so the library ships as source with this app (binary AARs compiled
+ * against older Compose broke at runtime) and to add a backdrop resolution
+ * scale for cheaper effect rendering. KMP expect/actual declarations were
+ * merged into this single Android source set. Package renamed accordingly.
  */
 package com.kyant.backdrop
 
@@ -11,10 +16,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -78,7 +85,8 @@ fun Modifier.drawPlainBackdrop(
                 onDrawBehind = onDrawBehind,
                 onDrawBackdrop = onDrawBackdrop,
                 onDrawSurface = onDrawSurface,
-                onDrawFront = onDrawFront
+                onDrawFront = onDrawFront,
+                backdropScale = 1f
             )
         )
 }
@@ -95,7 +103,13 @@ fun Modifier.drawBackdrop(
     onDrawBehind: (DrawScope.() -> Unit)? = null,
     onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit = DefaultOnDrawBackdrop,
     onDrawSurface: (DrawScope.() -> Unit)? = null,
-    onDrawFront: (DrawScope.() -> Unit)? = null
+    onDrawFront: (DrawScope.() -> Unit)? = null,
+    // Vendored addition: records the backdrop into a layer at this fraction of the
+    // surface resolution and draws it scaled back up, so the RenderEffect chain
+    // processes far fewer pixels. Pixel-sized effect parameters (blur radius, lens
+    // refraction) must be pre-multiplied by the same factor by the caller; the blur
+    // hides the upscaling. 1f keeps the original full resolution behavior.
+    backdropScale: Float = 1f
 ): Modifier {
     val shapeProvider = ShapeProvider(shape)
     return this
@@ -146,7 +160,8 @@ fun Modifier.drawBackdrop(
                 onDrawBehind = onDrawBehind,
                 onDrawBackdrop = onDrawBackdrop,
                 onDrawSurface = onDrawSurface,
-                onDrawFront = onDrawFront
+                onDrawFront = onDrawFront,
+                backdropScale = backdropScale.coerceIn(0.05f, 1f)
             )
         )
 }
@@ -160,7 +175,8 @@ private class DrawBackdropElement(
     val onDrawBehind: (DrawScope.() -> Unit)?,
     val onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     val onDrawSurface: (DrawScope.() -> Unit)?,
-    val onDrawFront: (DrawScope.() -> Unit)?
+    val onDrawFront: (DrawScope.() -> Unit)?,
+    val backdropScale: Float
 ) : ModifierNodeElement<DrawBackdropNode>() {
 
     override fun create(): DrawBackdropNode {
@@ -173,7 +189,8 @@ private class DrawBackdropElement(
             onDrawBehind = onDrawBehind,
             onDrawBackdrop = onDrawBackdrop,
             onDrawSurface = onDrawSurface,
-            onDrawFront = onDrawFront
+            onDrawFront = onDrawFront,
+            backdropScale = backdropScale
         )
     }
 
@@ -191,10 +208,9 @@ private class DrawBackdropElement(
         node.onDrawBackdrop = onDrawBackdrop
         node.onDrawSurface = onDrawSurface
         node.onDrawFront = onDrawFront
+        node.backdropScale = backdropScale
         node.invalidateDrawCache()
-        // The recorded image changes when a tab replaces its page backdrop even if the
-        // glass control keeps the same size and position. Re-record its draw layer now;
-        // otherwise it can keep showing the previous tab's empty fallback surface.
+        // Refresh when a retained control starts sampling a different page.
         if (backdropChanged) node.invalidateDraw()
     }
 
@@ -224,6 +240,7 @@ private class DrawBackdropElement(
         if (onDrawBackdrop != other.onDrawBackdrop) return false
         if (onDrawSurface != other.onDrawSurface) return false
         if (onDrawFront != other.onDrawFront) return false
+        if (backdropScale != other.backdropScale) return false
 
         return true
     }
@@ -238,6 +255,7 @@ private class DrawBackdropElement(
         result = 31 * result + onDrawBackdrop.hashCode()
         result = 31 * result + (onDrawSurface?.hashCode() ?: 0)
         result = 31 * result + (onDrawFront?.hashCode() ?: 0)
+        result = 31 * result + backdropScale.hashCode()
         return result
     }
 }
@@ -251,7 +269,8 @@ private class DrawBackdropNode(
     var onDrawBehind: (DrawScope.() -> Unit)?,
     var onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     var onDrawSurface: (DrawScope.() -> Unit)?,
-    var onDrawFront: (DrawScope.() -> Unit)?
+    var onDrawFront: (DrawScope.() -> Unit)?,
+    var backdropScale: Float
 ) : LayoutModifierNode, DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
 
     private val effectScope =
@@ -275,9 +294,15 @@ private class DrawBackdropNode(
     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
         val canvas = drawContext.canvas
         val padding = padding
+        val scale = backdropScale
 
         if (padding != 0f) {
             canvas.translate(padding, padding)
+        }
+        // Vendored addition: draw the backdrop content downscaled so the recorded
+        // layer (and therefore the RenderEffect chain) covers fewer pixels.
+        if (scale != 1f) {
+            canvas.scale(scale, scale)
         }
         onDrawBackdrop {
             with(backdrop) {
@@ -288,6 +313,9 @@ private class DrawBackdropNode(
                 )
             }
         }
+        if (scale != 1f) {
+            canvas.scale(1f / scale, 1f / scale)
+        }
         if (padding != 0f) {
             canvas.translate(-padding, -padding)
         }
@@ -297,13 +325,14 @@ private class DrawBackdropNode(
         val layer = graphicsLayer
         if (layer != null) {
             val padding = padding
+            val scale = backdropScale
 
             recordLayer(
                 this,
                 layer,
                 size = IntSize(
-                    size.width.toInt() + padding.toInt() * 2,
-                    size.height.toInt() + padding.toInt() * 2
+                    ((size.width * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1),
+                    ((size.height * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1)
                 ),
                 block = recordBackdropBlock
             )
@@ -311,7 +340,27 @@ private class DrawBackdropNode(
             layer.topLeft =
                 if (padding != 0f) IntOffset(-padding.toInt(), -padding.toInt())
                 else IntOffset.Zero
-            drawLayer(layer)
+            drawRecordedBackdrop()
+        }
+    }
+
+    // Vendored change: the export below draws the layer this frame already
+    // recorded, rather than recording the backdrop a second time. Upstream
+    // re-runs the whole capture and effect chain for the export, which doubles
+    // the surface's cost on every frame it is exported.
+    private val drawRecordedBackdrop: DrawScope.() -> Unit = {
+        val layer = graphicsLayer
+        if (layer != null) {
+            val scale = backdropScale
+            if (scale != 1f) {
+                // Vendored addition: stretch the low resolution layer back over the
+                // full surface; the blur in the effect chain masks the upscaling.
+                scale(1f / scale, pivot = Offset.Zero) {
+                    drawLayer(layer)
+                }
+            } else {
+                drawLayer(layer)
+            }
         }
     }
 
@@ -326,7 +375,7 @@ private class DrawBackdropNode(
     }
 
     override fun ContentDrawScope.draw() {
-        if (effectScope.update(this)) {
+        if (effectScope.update(this, backdropScale)) {
             updateEffects()
         }
 
@@ -339,7 +388,7 @@ private class DrawBackdropNode(
         exportedBackdrop?.graphicsLayer?.let { layer ->
             recordLayer(this, layer) {
                 onDrawBehind?.invoke(this)
-                drawBackdropLayer()
+                drawRecordedBackdrop()
                 onDrawSurface?.invoke(this)
                 onDrawFront?.invoke(this)
             }

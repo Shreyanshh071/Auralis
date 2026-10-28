@@ -1975,6 +1975,7 @@ fun AuralisApp(
         val activePV = playerViewModelState ?: if (effectiveTrack != null) obtainPlayerViewModel() else null
         if (effectiveTrack != null && activePV != null) {
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
+            val playerSheetShape = remember { RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp) }
 
             // Atmospheric background layer behind sheet (static fullscreen blurred artwork / gradient)
             val currentTrack = effectiveTrack
@@ -1991,6 +1992,8 @@ fun AuralisApp(
                         .hazeSource(state = pillHazeState, zIndex = 3f)
                         .fillMaxSize()
                         .graphicsLayer {
+                            shape = playerSheetShape
+                            clip = true
                             val p = playerSheetProgress.value
                             alpha = if (reducedMotion) {
                                 if (isNowPlayingOpen || p > 0f) 1f else 0f
@@ -2057,8 +2060,9 @@ fun AuralisApp(
                                 } else {
                                     (1f - p) * travelDistance
                                 }
-                                shape = if (p < 1f) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else androidx.compose.ui.graphics.RectangleShape
-                                clip = p < 1f
+                                // Keep the same rounded edge at rest and during either drag direction.
+                                shape = playerSheetShape
+                                clip = true
                             }
                             .pointerInput(travelDistance) {
                                 if (travelDistance <= 0f) return@pointerInput
@@ -2213,7 +2217,7 @@ fun AuralisApp(
                                             val q = playerUiState.queue
                                             val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
                                             val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
-                                            if (t != null && t.id != activeTrack?.id) {
+                                            if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
                                                 currentPV.playTrack(
                                                     t,
                                                     if (q.isNotEmpty()) q else listOf(t),
@@ -3152,7 +3156,7 @@ private fun MiniPlayerHost(
                     val q = playerUiState.queue
                     val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
                     val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
-                    if (t != null && t.id != activeTrack?.id) {
+                    if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
                         playerViewModel.playTrack(
                             t,
                             if (q.isNotEmpty()) q else listOf(t),

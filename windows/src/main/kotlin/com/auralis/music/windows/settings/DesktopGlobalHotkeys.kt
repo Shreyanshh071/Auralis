@@ -64,7 +64,7 @@ internal class DesktopGlobalHotkeys(private val playback: DesktopPlaybackControl
                             "play_pause" -> playback?.togglePlayPause(); "next_track" -> playback?.next(); "prev_track" -> playback?.previous()
                             "seek_forward" -> playback?.let { it.seekTo(it.positionMs.value + 5000) }
                             "seek_backward" -> playback?.let { it.seekTo((it.positionMs.value - 5000).coerceAtLeast(0)) }
-                            "shuffle" -> playback?.shuffleUpcoming(); "repeat" -> playback?.cycleRepeatMode()
+                            "shuffle" -> playback?.toggleShuffle(); "repeat" -> playback?.cycleRepeatMode()
                             "volume_up" -> playback?.let { it.setVolume((it.volume.value + .05f).coerceAtMost(1f)) }
                             "volume_down" -> playback?.let { it.setVolume((it.volume.value - .05f).coerceAtLeast(0f)) }
                             "mute" -> playback?.toggleMute()

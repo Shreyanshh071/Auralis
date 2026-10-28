@@ -70,7 +70,7 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
         onDispose { connect?.pickerOpen = false }
     }
     // Opens on top of the device button it belongs to, not off to one side over the title.
-    com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, frosted = true, aboveAnchor = true) {
+    com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, aboveAnchor = true) {
         com.auralis.music.windows.GlassDropdownMenuHeader(desktopText("Connect to a device"))
         val ui = connect?.ui?.collectAsState()?.value
         if (ui == null || !ui.enabled) {

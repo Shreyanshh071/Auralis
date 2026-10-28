@@ -160,7 +160,8 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
      */
     suspend fun pullCloudBackup(
         library: com.auralis.music.domain.repository.LibraryRepository,
-        stats: com.auralis.music.desktop.library.DesktopListeningStats
+        stats: com.auralis.music.desktop.library.DesktopListeningStats,
+        history: com.auralis.music.domain.repository.HistoryRepository? = null
     ): String? = withContext(Dispatchers.IO) { supervisorScope {
         val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@supervisorScope null
         val pullStarted = System.currentTimeMillis()
@@ -174,11 +175,13 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 ensureActive()
                 if (mutable.value.profile?.uid != uid) return@async emptyList<Pair<String, org.json.JSONObject>>() to 0
                 recentAdded = stats.importListens(cloudListens(recent))
+                history?.importHistory(cloudListens(recent).map { com.auralis.music.domain.model.HistoryEntry(it.track, it.startedAt) }, uid)
             }
             val days = api.list("users/$uid/listening")
             ensureActive()
             if (mutable.value.profile?.uid != uid) return@async emptyList<Pair<String, org.json.JSONObject>>() to 0
             val added = stats.importListens(cloudListens(days))
+            history?.importHistory(cloudListens(days).map { com.auralis.music.domain.model.HistoryEntry(it.track, it.startedAt) }, uid)
             days to (recentAdded + added)
         }
         fun track(o: org.json.JSONObject) = com.auralis.music.domain.model.Track(
@@ -381,14 +384,17 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
      * the phone, or by this PC's own uploads, which are skipped as duplicates). One read when
      * nothing changed. Returns how many new listens arrived.
      */
-    suspend fun pullNewListens(stats: com.auralis.music.desktop.library.DesktopListeningStats): Int = withContext(Dispatchers.IO) {
+    suspend fun pullNewListens(stats: com.auralis.music.desktop.library.DesktopListeningStats,
+        history: com.auralis.music.domain.repository.HistoryRepository? = null): Int = withContext(Dispatchers.IO) {
         val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext 0
         if (pulledUid != uid) return@withContext 0
         val since = syncMarks.getString("pulled_at_$uid", "0")?.toLongOrNull() ?: 0L
         val started = System.currentTimeMillis()
         // Ten minutes of margin for clock differences between the phone and this PC.
         val days = api.queryGreaterThan("users/$uid", "listening", "updatedAt", since - 10 * 60_000L)
+        if (mutable.value.profile?.uid != uid) return@withContext 0
         val added = stats.importListens(cloudListens(days))
+        history?.importHistory(cloudListens(days).map { com.auralis.music.domain.model.HistoryEntry(it.track, it.startedAt) }, uid)
         syncMarks.putStrings(mapOf("pulled_at_$uid" to started.toString()))
         added
     }

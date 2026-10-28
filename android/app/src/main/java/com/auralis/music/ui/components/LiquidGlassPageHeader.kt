@@ -104,7 +104,7 @@ internal fun LiquidGlassPageHeader(
     collapsed: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val foreground = MaterialTheme.dynamicOnBackground
+    val foreground = com.auralis.music.ui.glass.glassContentColor(glass.isDark)
     val reducedMotion = LocalReducedMotion.current
     val statsWidth by animateDpAsState(
         targetValue = if (onOpenStats != null) 46.dp else 0.dp,
@@ -178,8 +178,7 @@ internal fun LiquidGlassPageHeader(
             modifier = Modifier
                 // Swapped, not faded: the page that opens brings its own title to this corner.
                 .graphicsLayer { alpha = if (isCollapsed) 0f else 1f }
-                .size(44.dp).liquidGlass(glass, CircleShape)
-                .border(0.75.dp, foreground.copy(alpha = 0.18f), CircleShape)
+                .size(44.dp).liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -219,8 +218,7 @@ internal fun LiquidGlassPageHeader(
                     scaleY = pressScale
                     transformOrigin = TransformOrigin(anchorX, anchorY)
                 }
-                .liquidGlass(glass, CircleShape)
-                .border(0.75.dp, foreground.copy(alpha = 0.18f), CircleShape)
+                .liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
                 .clip(CircleShape),
             contentAlignment = Alignment.CenterEnd
         ) {
@@ -272,7 +270,7 @@ private fun GlassHeaderAction(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val foreground = MaterialTheme.dynamicOnBackground
+    val foreground = LocalLiquidGlass.current?.let { com.auralis.music.ui.glass.glassContentColor(it.isDark) } ?: MaterialTheme.dynamicOnBackground
     IconButton(
         onClick = onClick,
         enabled = enabled,

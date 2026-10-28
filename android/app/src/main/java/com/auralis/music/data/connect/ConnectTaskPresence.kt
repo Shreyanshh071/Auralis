@@ -1,6 +1,6 @@
 package com.auralis.music.data.connect
 
-/** Activity visibility and task lifetime are different: Home does not close a task. */
+/** Connect is available through the visible activity or active media playback, never idle keepalive. */
 internal class ConnectTaskPresence {
     var taskPresent = false
         private set
@@ -16,6 +16,7 @@ internal class ConnectTaskPresence {
         if (visible) taskPresent = true
     }
 
+    /** Whether playback currently needs the media service's foreground lifetime. */
     fun service(running: Boolean) { serviceRunning = running }
 
     fun removeTask() {

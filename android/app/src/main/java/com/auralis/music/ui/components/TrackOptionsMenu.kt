@@ -95,8 +95,7 @@ fun TrackOptionsMenu(
     val coroutineScope = rememberCoroutineScope()
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
-    // The sheet always sits on the song's own colour field (the immersive player's backdrop,
-    // built from this song's cover); the cards are translucent so it reads through them.
+    // The selected song's blurred cover stays visible through the translucent action cards.
     val actionCardColor = Color.White.copy(alpha = 0.08f)
     val background: @Composable () -> Unit = sheetBackground ?: { CoverSheetBackground(track.thumbnail) }
     // Long-pressed in liquid glass mode: the small glass menu pops from the song instead.
@@ -329,7 +328,7 @@ fun TrackOptionsMenu(
         modifier = modifier
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-        // The colour field fills the sheet behind the content; the sheet's shape clips it.
+        // The blurred artwork fills the sheet; the sheet's rounded shape clips it.
         Box(modifier = Modifier.matchParentSize()) { background() }
         Column(
             modifier = Modifier

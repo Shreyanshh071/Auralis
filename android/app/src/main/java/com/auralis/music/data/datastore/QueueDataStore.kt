@@ -34,7 +34,8 @@ data class PersistedQueue(
     val lastPositionMs: Long = 0L,
     val isUserQueue: Boolean = false,
     val isShuffled: Boolean = false,
-    val repeatMode: String = "OFF"
+    val repeatMode: String = "OFF",
+    val listenedIndices: Set<Int> = emptySet()
 )
 
 class QueueDataStore(private val context: Context) {
@@ -61,7 +62,8 @@ class QueueDataStore(private val context: Context) {
                 lastPositionMs = pos,
                 isUserQueue = isUser,
                 isShuffled = shuffled,
-                repeatMode = repeat
+                repeatMode = repeat,
+                listenedIndices = prefs[LISTENED_INDICES].orEmpty().split(',').mapNotNull { it.toIntOrNull() }.toSet()
             )
         }
 
@@ -71,7 +73,8 @@ class QueueDataStore(private val context: Context) {
         positionMs: Long = 0L,
         isUserQueue: Boolean = false,
         isShuffled: Boolean = false,
-        repeatMode: String = "OFF"
+        repeatMode: String = "OFF",
+        listenedIndices: Set<Int> = emptySet()
     ) {
         val json = serializeTracks(tracks)
         dataStore.edit { prefs ->
@@ -81,6 +84,7 @@ class QueueDataStore(private val context: Context) {
             prefs[IS_USER_QUEUE] = isUserQueue
             prefs[IS_SHUFFLED] = isShuffled
             prefs[REPEAT_MODE] = repeatMode
+            prefs[LISTENED_INDICES] = listenedIndices.sorted().joinToString(",")
         }
     }
 
@@ -92,12 +96,14 @@ class QueueDataStore(private val context: Context) {
             prefs.remove(IS_USER_QUEUE)
             prefs.remove(IS_SHUFFLED)
             prefs.remove(REPEAT_MODE)
+            prefs.remove(LISTENED_INDICES)
         }
     }
 
     companion object {
         private val QUEUE_JSON = stringPreferencesKey("persisted_queue_json")
         private val CURRENT_INDEX = intPreferencesKey("persisted_current_index")
+        private val LISTENED_INDICES = stringPreferencesKey("persisted_listened_indices")
         private val LAST_POSITION_MS = longPreferencesKey("persisted_position_ms")
         private val IS_USER_QUEUE = booleanPreferencesKey("persisted_is_user_queue")
         private val IS_SHUFFLED = booleanPreferencesKey("persisted_is_shuffled")

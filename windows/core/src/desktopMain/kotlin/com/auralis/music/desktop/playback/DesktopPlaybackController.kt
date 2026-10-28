@@ -29,6 +29,15 @@ class DesktopPlaybackController(
         val history: List<IndexedValue<Track>> get() = tracks.withIndex().take(index.coerceAtLeast(0)).filter { it.index in listenedIndices }
         val current: Track? get() = tracks.getOrNull(index)
         val hasNext: Boolean get() = index in 0 until tracks.lastIndex
+        /** Restore source order without reviving removed songs or losing added occurrences. */
+        fun inSourceOrder(source: List<Track>): Queue {
+            val remaining = tracks.indices.toMutableList()
+            val order = source.mapNotNull { item ->
+                remaining.firstOrNull { tracks[it].id == item.id }?.also { remaining.remove(it) }
+            } + remaining
+            return copy(tracks = order.map { tracks[it] }, index = order.indexOf(index),
+                listenedIndices = order.indices.filter { order[it] in listenedIndices }.toSet())
+        }
         /** Move unheard songs skipped over to after the selection, preserving heard-song order. */
         fun retainUnplayed(): Queue {
             if (current == null) return this
@@ -199,6 +208,20 @@ class DesktopPlaybackController(
 
     /** Whether the upcoming songs were shuffled (what Connect reports as shuffle). */
     val shuffleActive: Boolean get() = shuffleEngaged
+    private val _shuffleEnabled = MutableStateFlow(false)
+    val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+    private var unshuffledTracks: List<Track> = emptyList()
+
+    fun toggleShuffle() = setShuffle(!shuffleEngaged)
+
+    fun setShuffle(on: Boolean) {
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(on))) return
+        if (roomControl != null || on == shuffleEngaged) return
+        if (on) shuffleUpcoming() else {
+            shuffleEngaged = false
+            _queue.value = _queue.value.inSourceOrder(unshuffledTracks)
+        }
+    }
 
     fun syncRoomQueue(tracks: List<Track>, index: Int) {
         if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = _queue.value.copy(tracks = tracks, index = index)
@@ -228,6 +251,7 @@ class DesktopPlaybackController(
         if (roomControl != null) return // The room host owns the shared queue order.
         val queue = _queue.value
         if (queue.current == null) return
+        if (!shuffleEngaged) unshuffledTracks = queue.tracks.toList()
         shuffleEngaged = true
         _queue.value = if (shuffleWholeQueue) Queue(listOf(queue.current!!) + queue.tracks.filterIndexed { i, _ -> i != queue.index }.shuffled(), 0)
         else queue.copy(tracks = queue.tracks.take(queue.index + 1) + queue.tracks.drop(queue.index + 1).shuffled(), listenedIndices = queue.listenedIndices.filter { it <= queue.index }.toSet())
@@ -269,9 +293,10 @@ class DesktopPlaybackController(
         get() = player.crossfadeSeconds
         set(value) { player.crossfadeSeconds = value.coerceIn(0f,12f) }
     @Volatile var preventDuplicates = true
-    @Volatile var stickyShuffle = false
     @Volatile var shuffleWholeQueue = false
-    private var shuffleEngaged = false
+    private var shuffleEngaged: Boolean
+        get() = _shuffleEnabled.value
+        set(value) { _shuffleEnabled.value = value }
     private var preloadJob: Job? = null
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -350,7 +375,8 @@ class DesktopPlaybackController(
         pendingResumeMs = null
         val supplied = list.ifEmpty { listOf(track) }
         val unique = if (preventDuplicates) supplied.distinctBy { it.id } else supplied
-        val tracks = if (stickyShuffle && shuffleEngaged) listOf(track) + unique.filter { it.id != track.id }.shuffled() else unique
+        unshuffledTracks = unique.toList()
+        val tracks = if (shuffleEngaged) listOf(track) + unique.filter { it.id != track.id }.shuffled() else unique
         val index = tracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
         consecutiveFailures = 0
         load(Queue(tracks, index))

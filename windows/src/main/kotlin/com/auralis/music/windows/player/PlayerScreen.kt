@@ -402,16 +402,19 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { lastMove = System.nanoTime() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-            contentDescription = title, contentScale = scale)
+        AnimatedCover(queue.current, Modifier.fillMaxSize()) {
+            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+                contentDescription = title, contentScale = scale)
+        }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
             if (reveal > 0f) {
                 Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = playback::shuffleUpcoming, enabled = queue.hasNext && !roomActive) {
-                        Icon(Icons.Rounded.Shuffle, desktopText("Shuffle upcoming songs"), tint = Color.White, modifier = Modifier.size(28.dp))
+                    val shuffleOn by playback.shuffleEnabled.collectAsState()
+                    IconButton(onClick = playback::toggleShuffle, enabled = queue.current != null && !roomActive) {
+                        Icon(Icons.Rounded.Shuffle, desktopText(if (remote?.shuffle ?: shuffleOn) "Turn shuffle off" else "Turn shuffle on"), tint = if (remote?.shuffle ?: shuffleOn) MaterialTheme.colorScheme.primary else Color.White, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
                         ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))

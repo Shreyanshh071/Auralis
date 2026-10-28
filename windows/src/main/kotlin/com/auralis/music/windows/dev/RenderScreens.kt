@@ -202,7 +202,7 @@ fun main(args: Array<String>) {
                                 listOf("Let the music fill the room", "One more moment", "We follow every sound", "Until the morning comes").mapIndexed { index, text ->
                                     com.auralis.music.domain.model.LyricLine(index * 5000L, text)
                                 }, provider = com.auralis.music.domain.model.LyricsProvider.LOCAL),
-                            androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(6000L) }, {})
+                            androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(6000L) }, {}, followAnchorFraction = .12f)
                     }
                 }
             }
@@ -265,9 +265,10 @@ fun main(args: Array<String>) {
                     com.auralis.music.domain.model.LyricLine(19000, "You get me through every dark night"),
                     com.auralis.music.domain.model.LyricLine(24000, "I'm always gone, out on the go")))
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Column(Modifier.width(340.dp).height(300.dp).background(androidx.compose.ui.graphics.Color(0xFF684A48))) {
-                    Row(Modifier.height(48.dp).padding(horizontal = 18.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Lyrics") }
-                    Box(Modifier.weight(1f)) { com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}, lineGap = 4.dp) }
+                Box(Modifier.width(374.dp).background(androidx.compose.ui.graphics.Color(0xFF684A48))) {
+                    com.auralis.music.windows.player.SidebarLyricsCard(false, {}, {}, {}) {
+                        com.auralis.music.windows.player.SidebarLyricsView(lyrics, position, {}, lineGap = 4.dp, followAnchorFraction = .12f)
+                    }
                 }
             }
         },

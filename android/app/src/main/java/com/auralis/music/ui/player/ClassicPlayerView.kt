@@ -373,11 +373,19 @@ fun ClassicPlayerView(
                     scaleY = animatedScale
                     translationX = (compactArtworkTargetInRoot.x - heroArtworkPositionInRoot.x) * progress
                     translationY = (compactArtworkTargetInRoot.y - heroArtworkPositionInRoot.y) * progress
-                },
+                    // Keep a visible radius in screen pixels as the sleeve shrinks.
+                    shape = RoundedCornerShape((24.dp.toPx() * (1f - progress) + 12.dp.toPx() * progress) / animatedScale)
+                    clip = progress > 0.001f
+                }
+                // Cache the sleeve separately from its changing transform and clip.
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen },
             contentAlignment = Alignment.Center
         ) {
             if (!hidePlayerThumbnail) {
-                val artworkShape = RoundedCornerShape(18.dp)
+                val artworkShape = remember { RoundedCornerShape(24.dp) }
+                val coverAtRest by remember(compactHeaderProgress) {
+                    derivedStateOf { compactHeaderProgress.value <= 0.001f }
+                }
 
                 if (queue.isNotEmpty()) {
                     HorizontalPager(
@@ -427,16 +435,16 @@ fun ClassicPlayerView(
                                             drawRoundRect(
                                                 color = Color.Black,
                                                 alpha = (pageOffset * 0.70f).coerceIn(0f, 0.70f),
-                                                cornerRadius = CornerRadius(with(density) { 18.dp.toPx() })
+                                                cornerRadius = CornerRadius(with(density) { 24.dp.toPx() })
                                             )
                                         }
                                     }
-                                    .shadow(
-                                        elevation = 14.dp,
-                                        shape = artworkShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.50f),
-                                        spotColor = Color.Black.copy(alpha = 0.50f)
-                                    )
+                                    .graphicsLayer {
+                                        shape = artworkShape
+                                        shadowElevation = if (coverAtRest) 14.dp.toPx() else 0f
+                                        ambientShadowColor = Color.Black.copy(alpha = .5f)
+                                        spotShadowColor = Color.Black.copy(alpha = .5f)
+                                    }
                                     .clip(artworkShape)
                                     .background(Color.Black.copy(alpha = 0.35f)),
                                 contentAlignment = Alignment.Center
@@ -458,7 +466,7 @@ fun ClassicPlayerView(
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 if (pageTrack.id == uiState.currentTrack?.id) {
-                                    AnimatedCover(pageTrack, uiState.isPlaying, Modifier.fillMaxSize())
+                                    AnimatedCover(pageTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize())
                                 }
                             }
                         }
@@ -1097,7 +1105,7 @@ fun ClassicCompactPlaybackControls(
 /**
  * Reusable Classic Bottom Navigation Bar:
  * - Left: Queue button
- * - Center: Capsule pill (Device Output + Sleep Timer)
+ * - Center: Capsule pill (Shuffle, Repeat and Device Output)
  * - Right: Lyrics button
  */
 @Composable
@@ -1117,10 +1125,6 @@ fun ClassicBottomBar(
     showUtilityActions: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val timerTint by animateColorAsState(
-        targetValue = if (isTimerActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.70f),
-        label = "bottomBarTimerTint"
-    )
     val shuffleTint by animateColorAsState(
         targetValue = if (isShuffled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.85f),
         label = "bottomBarShuffleTint"
@@ -1207,21 +1211,6 @@ fun ClassicBottomBar(
                     )
                 }
 
-                // Sleep Timer button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onShowSleepDialog() }
-                        .padding(horizontal = 9.dp, vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Bedtime,
-                        contentDescription = str(R.string.sleep_timer),
-                        tint = timerTint,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
             }
         }
 
@@ -2705,10 +2694,9 @@ internal fun ClassicQueueContent(
                     syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
                 }
 
-                // Songs before the playing one are History; the playing one and the rest are
-                // Continue Playing. History sits above, out of view until scrolled up to.
+                // History contains only queue occurrences that actually played, as on desktop.
                 val playingTrack = uiState.currentTrack
-                val targetHistoryCount by remember(localQueue, playingTrack, queueCurrentIndex) {
+                val activeQueueIndex by remember(localQueue, playingTrack, queueCurrentIndex) {
                     derivedStateOf {
                         if (playingTrack == null) 0
                         else QueueOperations.findActiveTrackIndex(
@@ -2718,16 +2706,9 @@ internal fun ClassicQueueContent(
                         ).coerceAtLeast(0)
                     }
                 }
-                // The first frames of a song change carry the new audio, artwork, background
-                // colours and lyrics; rows sliding up then lost most of their frames and read as a
-                // jump. The split moves a few frames later, when the slide has quiet frames to run.
-                var historyCount by remember { mutableIntStateOf(targetHistoryCount) }
-                LaunchedEffect(targetHistoryCount) {
-                    if (historyCount != targetHistoryCount) {
-                        repeat(6) { withFrameNanos { } }
-                        historyCount = targetHistoryCount
-                    }
-                }
+                val historyIndices = (0 until activeQueueIndex).filter { it in uiState.listenedQueueIndices }
+                val historyItems = historyIndices.mapNotNull { localQueue.getOrNull(it) }
+                val historyCount = historyItems.size
                 val continueHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
                 val baseBottomPadding = with(density) { queueControlsHeightPx.toDp() } + listBottomPadding
                 var viewportHeightPx by remember(queueListState) { mutableIntStateOf(0) }
@@ -2769,15 +2750,16 @@ internal fun ClassicQueueContent(
                 // remaining rows simply slide up. Only if something else was at the top is it set
                 // back, in the same layout pass: an animated scroll here ran against the rows' own
                 // placement animation and made them overlap.
-                var lastPlayingTrackId by remember { mutableStateOf(playingTrack?.id) }
+                var lastPlayingQueuePosition by remember { mutableStateOf(playingTrack?.id to queueCurrentIndex) }
                 // Read fresh after the wait: the split moves a few frames after the song changes,
                 // and keying the effect on the index restarted it then, which bailed out as "same
                 // song" and the header never glided up.
                 val latestContinueHeaderIndex by rememberUpdatedState(continueHeaderIndex)
-                LaunchedEffect(playingTrack?.id) {
+                LaunchedEffect(playingTrack?.id, queueCurrentIndex) {
                     val id = playingTrack?.id ?: return@LaunchedEffect
-                    if (id == lastPlayingTrackId) return@LaunchedEffect
-                    lastPlayingTrackId = id
+                    val position = id to queueCurrentIndex
+                    if (position == lastPlayingQueuePosition) return@LaunchedEffect
+                    lastPlayingQueuePosition = position
                     if (reorderableLazyListState.isAnyItemDragging) return@LaunchedEffect
                     // Let the rows finish sliding first; a jump now would cancel their animation
                     // (this check used to run before the list had re-laid out, so it nearly always
@@ -2876,7 +2858,7 @@ internal fun ClassicQueueContent(
                 ) {
                     val queueRow: @Composable androidx.compose.foundation.lazy.LazyItemScope.(QueueTrackItem, Boolean) -> Unit = { queueItem, inHistory ->
                         val item = queueItem.track
-                        val isCurrent = item.id == uiState.currentTrack?.id
+                        val isCurrent = localQueue.getOrNull(activeQueueIndex)?.instanceId == queueItem.instanceId
                         val primaryColor = MaterialTheme.colorScheme.primary
 
                         ReorderableItem(
@@ -2947,7 +2929,9 @@ internal fun ClassicQueueContent(
                                         enabled = !reorderableLazyListState.isAnyItemDragging && (System.currentTimeMillis() - lastDragEndTime > 450L)
                                     ) {
                                         if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
-                                        val targetIndex = queueSnapshot.indexOfFirst { it.id == item.id }.takeIf { it >= 0 } ?: localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
+                                        val localIndex = localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
+                                        val occurrence = localQueue.take(localIndex.coerceAtLeast(0)).count { it.track.id == item.id }
+                                        val targetIndex = queueSnapshot.indices.filter { queueSnapshot[it].id == item.id }.getOrNull(occurrence) ?: localIndex
                                         if (targetIndex >= 0) {
                                             if (!queueControlsVisible) pendingRevealTrackId = item.id
                                             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, item)
@@ -3070,8 +3054,8 @@ internal fun ClassicQueueContent(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .clickable {
-                                                    // Removing the first song each time clears everything before the playing one.
-                                                    repeat(historyCount) { onRemoveQueueItem(0) }
+                                                    // Descending positions keep unplayed songs and duplicate occurrences intact.
+                                                    historyIndices.asReversed().forEach { onRemoveQueueItem(it) }
                                                 }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                         )
@@ -3080,7 +3064,7 @@ internal fun ClassicQueueContent(
                             )
                         }
                         items(
-                            items = localQueue.subList(0, historyCount.coerceAtMost(localQueue.size)).toList(),
+                            items = historyItems,
                             key = { it.instanceId },
                             contentType = { "queue_track" }
                         ) { queueRow(it, true) }
@@ -3116,7 +3100,7 @@ internal fun ClassicQueueContent(
                         )
                     }
                     items(
-                        items = localQueue.subList(historyCount.coerceAtMost(localQueue.size), localQueue.size).toList(),
+                        items = localQueue.subList(activeQueueIndex.coerceAtMost(localQueue.size), localQueue.size).toList(),
                         key = { it.instanceId },
                         contentType = { "queue_track" }
                     ) { queueRow(it, false) }

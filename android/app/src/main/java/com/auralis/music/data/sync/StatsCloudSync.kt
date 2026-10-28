@@ -6,6 +6,7 @@ import android.util.Log
 import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.local.entity.PlaybackEventEntity
 import com.auralis.music.data.local.mapper.toEntity
+import com.auralis.music.data.local.mapper.toDomain
 import com.auralis.music.domain.repository.StatsRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -69,7 +70,7 @@ object StatsCloudSync {
         }
     }
 
-    private const val RESTORE_RECHECK_KEY = "restore_recheck_after_db_reset_1"
+    private const val RESTORE_RECHECK_KEY = "restore_recheck_with_history_2"
 
     /**
      * Called when the local database is created or wiped (a destructive migration, e.g. installing
@@ -125,13 +126,15 @@ object StatsCloudSync {
      * transaction: written a listen at a time, Stats counted up from 00:00 for as long as the
      * restore took instead of showing the account's total at once.
      */
-    private suspend fun importDays(days: List<com.google.firebase.firestore.DocumentSnapshot>): Int {
+    private suspend fun importDays(days: List<com.google.firebase.firestore.DocumentSnapshot>, uid: String,
+        backfillHistory: Boolean = false): Int {
         val incoming = CloudListens.parse(days.mapNotNull { it.get("events") as? Map<*, *> })
         if (incoming.isEmpty()) return 0
         val db = AuralisDatabase.getInstance(appContext)
         val dao = db.playbackEventDao()
         var changed = 0
         db.withTransaction {
+            if (signedInUid() != uid || !LocalDataOwner.belongsTo(uid)) return@withTransaction
             val from = incoming.minOf { it.timestamp } - CloudListens.SAME_LISTEN_WINDOW_MS
             val to = incoming.maxOf { it.timestamp } + CloudListens.SAME_LISTEN_WINDOW_MS
             val plan = CloudListens.plan(incoming, dao.getEventsSince(from).filter { it.timestamp <= to })
@@ -141,6 +144,21 @@ object StatsCloudSync {
                 dao.growEventsNear(g.track.id, g.timestamp - SAME_LISTEN_WINDOW_MS, g.timestamp + SAME_LISTEN_WINDOW_MS, g.playTimeMs)
             }
             changed = plan.changed
+            val historyDao = db.historyDao()
+            val existingHistory = historyDao.getHistoryWithTracks().map {
+                com.auralis.music.domain.model.HistoryEntry(it.track.toDomain(), it.history.playedAt)
+            }
+            val mergedHistory = com.auralis.music.domain.model.mergeSyncedHistory(existingHistory,
+                (if (backfillHistory) incoming else plan.inserts).map {
+                    com.auralis.music.domain.model.HistoryEntry(it.track, it.timestamp)
+                })
+            if (mergedHistory != existingHistory) {
+                db.trackDao().upsertTracksPreservingFavorite(mergedHistory.map { it.track.toEntity() })
+                // Replace only the capped recents projection, never play counts or measured events.
+                historyDao.clearHistory()
+                for (entry in mergedHistory) historyDao.upsertHistory(
+                    com.auralis.music.data.local.entity.HistoryEntity(entry.track.id, entry.playedAt))
+            }
         }
         return changed
     }
@@ -179,7 +197,7 @@ object StatsCloudSync {
                     if (signedInUid() != uid || !LocalDataOwner.belongsTo(uid)) return@launch
                     mutex.withLock {
                         try {
-                            val added = importDays(changed)
+                            val added = importDays(changed, uid)
                             if (added > 0) Log.i(TAG, "Added $added listens from another device")
                         } catch (e: Exception) {
                             Log.w(TAG, "Live listening update failed: ${e.message}")
@@ -210,7 +228,7 @@ object StatsCloudSync {
                     // A margin for clock differences between devices.
                     collection(uid).whereGreaterThan("updatedAt", pulledAt - PULL_OVERLAP_MS).get().await().documents
                 } else collection(uid).get().await().documents
-                val added = importDays(days)
+                val added = importDays(days, uid, backfillHistory = !restoredBefore)
                 prefs.edit().putBoolean("restored_$uid", true).putLong("pulled_at_$uid", pullStarted).apply()
                 Log.i(TAG, "Restored $added listens from the account (${days.size} days checked)")
             } catch (e: Exception) {

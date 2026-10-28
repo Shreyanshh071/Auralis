@@ -1173,7 +1173,7 @@ private fun NewMiniPlayerPillView(
     val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
     val lightGlass = glass?.isDark == false
     val contentColor = if (frosted) frostedMiniPlayerContentColor() else if (lightGlass) Color(0xFF1B1B1F) else Color.White
-    val glassTint = if (lightGlass) Color.White.copy(alpha = 0.70f) else Color(0xFF101010).copy(alpha = 0.70f)
+    val glassTint = com.auralis.music.ui.glass.glassBarTint(glass?.isDark ?: true)
     val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
 
     val actualBgColor = if (isPureBlack) {

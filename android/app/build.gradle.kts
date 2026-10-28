@@ -67,6 +67,19 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Keep this checkout's owner key local, without changing other projects' debug key.
+            val localDebugKey = file("${System.getProperty("user.home")}/.android/auralis/debug.keystore")
+            if (localDebugKey.isFile) {
+                storeFile = localDebugKey
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true

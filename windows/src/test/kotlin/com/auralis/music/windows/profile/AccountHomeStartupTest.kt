@@ -46,7 +46,9 @@ class AccountHomeStartupTest {
             account.signIn("test@example.com", "test-password", false)
             withTimeout(3000) { account.state.first { it.profile != null } }
             val stats = DesktopListeningStats(File(dir, "listens.json"))
-            val sync = async(Dispatchers.IO) { account.pullCloudBackup(DesktopLibraryRepository(File(dir, "library.json")), stats) }
+            val library = DesktopLibraryRepository(File(dir, "library.json"))
+            val history = com.auralis.music.desktop.library.DesktopHistoryRepository(File(dir, "history.json"), library)
+            val sync = async(Dispatchers.IO) { account.pullCloudBackup(library, stats, history) }
             withTimeout(2000) { stats.listens.first { it.size == 5 } }
             assertFalse(sync.isCompleted, "Home's songs must arrive while the library and full history are still blocked")
             assertEquals(1, boundedRequests)
@@ -54,6 +56,11 @@ class AccountHomeStartupTest {
             release.countDown()
             withTimeout(3000) { sync.await() }
             assertEquals(5, stats.listens.value.size, "The full sync must not duplicate the preview's listening sessions")
+            val imported = history.getHistory().first()
+            assertEquals(5, imported.size)
+            assertEquals("song5", imported.first().track.id)
+            assertEquals(1_700_000_000_005L, imported.first().playedAt)
+            assertTrue(history.getPlayCounts().isEmpty(), "Sync must not count imported history as new playback")
         } finally { release.countDown(); scope.cancel(); dir.deleteRecursively() }
     }
 }

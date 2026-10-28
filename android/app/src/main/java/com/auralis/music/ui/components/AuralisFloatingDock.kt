@@ -199,7 +199,7 @@ fun AuralisFloatingDock(
                     .then(
                         if (glass != null) {
                             Modifier.liquidGlass(
-                                glass, pillShape, press = dockPress,
+                                glass, pillShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark), press = dockPress,
                                 pressedScale = if (minimized) CIRCLE_PRESSED_SCALE else DOCK_PRESSED_SCALE
                             ).clip(pillShape)
                         } else Modifier
@@ -308,7 +308,7 @@ fun AuralisFloatingDock(
                             .size(buttonSize)
                             .then(
                                 if (glass != null) {
-                                    Modifier.liquidGlass(glass, CircleShape, press = buttonPress, pressedScale = CIRCLE_PRESSED_SCALE).clip(CircleShape)
+                                    Modifier.liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark), press = buttonPress, pressedScale = CIRCLE_PRESSED_SCALE).clip(CircleShape)
                                 } else Modifier
                                     .shadow(
                                         elevation = 16.dp,
@@ -375,7 +375,10 @@ private fun DockTabItem(
     val interactionSource = remember { MutableInteractionSource() }
     val tabShape = RoundedCornerShape(22.dp)
 
-    val tabBgBrush = if (isDark) {
+    val glassTab = com.auralis.music.ui.glass.LocalLiquidGlass.current
+    val tabBgBrush = if (glassTab != null) {
+        androidx.compose.ui.graphics.SolidColor(com.auralis.music.ui.glass.glassIndicatorTint(glassTab.isDark))
+    } else if (isDark) {
         Brush.verticalGradient(
             listOf(
                 Color.White.copy(alpha = 0.16f),
@@ -391,7 +394,9 @@ private fun DockTabItem(
         )
     }
 
-    val tabBorderBrush = if (isDark) {
+    val tabBorderBrush = if (glassTab != null) {
+        androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = .10f))
+    } else if (isDark) {
         Brush.verticalGradient(
             listOf(
                 Color.White.copy(alpha = 0.22f),

@@ -4,13 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectTaskPresenceTest {
-    @Test fun backgroundingAndScreenOffKeepARegisteredTaskAvailable() {
+    @Test fun backgroundingAndScreenOffKeepActivePlaybackAvailable() {
         val presence = ConnectTaskPresence()
         presence.foreground(true)
         presence.service(true)
         presence.foreground(false)
         assertTrue(presence.taskPresent)
         assertTrue(presence.available)
+    }
+
+    @Test fun idleBackgroundTaskGoesOfflineAndReopeningMakesItAvailable() {
+        val presence = ConnectTaskPresence()
+        presence.foreground(true)
+        presence.foreground(false)
+        assertTrue(presence.taskPresent)
+        assertFalse(presence.available)
+        presence.foreground(true)
+        assertTrue(presence.available)
+    }
+
+    @Test fun pausingInBackgroundDropsAvailabilityWithoutAnIdleService() {
+        val presence = ConnectTaskPresence()
+        presence.foreground(true)
+        presence.service(true)
+        presence.foreground(false)
+        assertTrue(presence.available)
+        presence.service(false)
+        assertFalse(presence.available)
     }
 
     @Test fun swipingAwayGoesOfflineEvenBeforeTheServiceFinishesCleanup() {

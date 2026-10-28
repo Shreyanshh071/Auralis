@@ -39,6 +39,9 @@ interface LibraryRepository {
 }
 
 interface HistoryRepository {
+    /** Import measured account listens with their original times, without recording another play. */
+    suspend fun importHistory(entries: List<HistoryEntry>, accountId: String? = null) {}
+    suspend fun setHistoryAccount(accountId: String?) {}
     fun getHistory(): Flow<List<HistoryEntry>>
     suspend fun addToHistory(track: Track)
     suspend fun removeFromHistory(trackId: String)

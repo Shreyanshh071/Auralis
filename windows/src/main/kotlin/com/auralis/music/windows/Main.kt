@@ -362,7 +362,7 @@ fun main(args: Array<String>) {
                 com.auralis.music.desktop.playback.DesktopStreamResolver.enabledClients = prefs.text("streamClients","VISIONOS").split(',').filter {it in setOf("VISIONOS","IOS")}.toSet()
                 com.auralis.music.desktop.lyrics.DesktopLyricsRepository.preferredProviders = prefs.text("lyricsPriority").split(',').mapNotNull {name->runCatching {com.auralis.music.domain.model.LyricsProvider.valueOf(name)}.getOrNull()}
                 pb.preventDuplicates = prefs.bool("preventDuplicates",true)
-                pb.stickyShuffle = prefs.bool("stickyShuffle")
+
                 pb.shuffleWholeQueue = prefs.bool("shuffleWholeQueue")
             }
         }
