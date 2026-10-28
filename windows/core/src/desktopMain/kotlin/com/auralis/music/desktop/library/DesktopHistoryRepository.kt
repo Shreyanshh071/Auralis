@@ -22,9 +22,19 @@ class DesktopHistoryRepository(file: File, private val library: DesktopLibraryRe
     private val store = JsonFileStore(file)
     private val history = MutableStateFlow<List<HistoryEntry>>(emptyList())
     private val counts = MutableStateFlow<Map<String, PlayCountEntry>>(emptyMap())
+    private val importedTimes = mutableMapOf<String, Long>()
+    private var historyAccount: String? = null
+    private var importedRows: Map<String, Long> = emptyMap()
 
     init {
         store.read()?.let { json ->
+            historyAccount = json.optString("historyAccount").takeIf { it.isNotBlank() && it != "null" }
+            json.optJSONObject("importedRows")?.let { rows ->
+                importedRows = rows.keys().asSequence().associateWith { rows.optLong(it) }
+            }
+            json.optJSONObject("importedHistoryTimes")?.let { times ->
+                times.keys().forEach { importedTimes[it] = times.optLong(it) }
+            }
             history.value = json.optJSONArray("history")?.let { a ->
                 List(a.length()) { i -> a.getJSONObject(i).let { HistoryEntry(TrackJson.decode(it.getJSONObject("track")), it.optLong("playedAt")) } }
             }.orEmpty()
@@ -40,6 +50,9 @@ class DesktopHistoryRepository(file: File, private val library: DesktopLibraryRe
     private fun save() = store.write {
         JSONObject().apply {
             put("version", 1)
+            putOpt("historyAccount", historyAccount)
+            put("importedRows", JSONObject(importedRows))
+            put("importedHistoryTimes", JSONObject(synchronized(importedTimes) { importedTimes.toMap() }))
             put("history", JSONArray().apply { history.value.forEach { put(JSONObject().put("track", TrackJson.encode(it.track)).put("playedAt", it.playedAt)) } })
             put("counts", JSONArray().apply {
                 counts.value.values.forEach { put(JSONObject().put("trackId", it.trackId).put("count", it.count).put("lastPlayed", it.lastPlayed).put("track", TrackJson.encode(it.track))) }
@@ -48,6 +61,34 @@ class DesktopHistoryRepository(file: File, private val library: DesktopLibraryRe
     }
 
     override fun getHistory(): Flow<List<HistoryEntry>> = history.map { list -> list.sortedByDescending { it.playedAt } }
+
+    override suspend fun setHistoryAccount(accountId: String?) {
+        if (historyAccount == accountId) return
+        val oldRows = importedRows
+        history.update { entries -> entries.filterNot { oldRows[it.track.id] == it.playedAt } }
+        synchronized(importedTimes) { importedTimes.clear() }
+        importedRows = emptyMap()
+        historyAccount = accountId
+        save()
+    }
+
+    override suspend fun importHistory(entries: List<HistoryEntry>, accountId: String?) {
+        setHistoryAccount(accountId)
+        // Re-downloading the same listen must not undo a local history removal or clear.
+        val fresh = synchronized(importedTimes) {
+            entries.filter { it.playedAt > (importedTimes[it.track.id] ?: 0L) }.also { items ->
+                items.forEach { importedTimes[it.track.id] = maxOf(importedTimes[it.track.id] ?: 0L, it.playedAt) }
+            }
+        }
+        if (fresh.isEmpty()) return
+        history.update { existing ->
+            com.auralis.music.domain.model.mergeSyncedHistory(existing, fresh)
+        }
+        val newTimes = fresh.groupBy { it.track.id }.mapValues { (_, entries) -> entries.maxOf { it.playedAt } }
+        importedRows = importedRows + history.value.filter { newTimes[it.track.id] == it.playedAt }
+            .associate { it.track.id to it.playedAt }
+        save()
+    }
 
     override suspend fun addToHistory(track: Track) {
         if (track.id.isBlank()) return

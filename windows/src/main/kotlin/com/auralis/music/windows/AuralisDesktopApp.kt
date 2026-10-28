@@ -350,7 +350,7 @@ fun AuralisDesktopApp(
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
         try {
             // Normal startup sync is silent; actionable failures are logged below.
-            account.pullCloudBackup(library, listeningStats)
+            account.pullCloudBackup(library, listeningStats, history)
             libraryViewModel.refresh()
             // Then send this PC's side: the merged library, and listens measured here.
             account.pushLibrary(library)
@@ -366,6 +366,7 @@ fun AuralisDesktopApp(
         val previous = syncedUid
         syncedUid = uid
         if (uid == null && previous != null) {
+            history.setHistoryAccount(null)
             val removed = runCatching { account.removeAccountItems(previous, library) }.getOrDefault(0)
             libraryViewModel.refresh()
             if (removed > 0) showUnavailable("Signed out: removed $removed playlists that came from your account")
@@ -395,7 +396,7 @@ fun AuralisDesktopApp(
         }
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            runCatching { account.pullNewListens(listeningStats) }
+            runCatching { account.pullNewListens(listeningStats, history) }
                 .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening check failed: ${it.message}") }
         }
     }

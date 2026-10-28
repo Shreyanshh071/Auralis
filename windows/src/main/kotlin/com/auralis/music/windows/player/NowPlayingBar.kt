@@ -132,11 +132,12 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             // bar, so centred the buttons touched (and were cut by) its top edge.
             modifier = Modifier.weight(1.4f).widthIn(max = 640.dp).offset(y = 7.dp)
         ) {
+            val shuffleOn by controller.shuffleEnabled.collectAsState()
             val enabled = track != null
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = controller::shuffleUpcoming, enabled = queue.hasNext && !roomActive,
+                IconButton(onClick = controller::toggleShuffle, enabled = queue.current != null && !roomActive,
                     colors = whiteButtons, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Rounded.Shuffle, desktopText("Shuffle upcoming songs"), Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Shuffle, desktopText(if (remote?.shuffle ?: shuffleOn) "Turn shuffle off" else "Turn shuffle on"), Modifier.size(20.dp), tint = if (remote?.shuffle ?: shuffleOn) MaterialTheme.colorScheme.primary else Color.White)
                 }
                 IconButton(onClick = controller::previous, enabled = enabled, colors = whiteButtons, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.SkipPrevious, contentDescription = desktopText("Previous"), modifier = Modifier.size(22.dp))
@@ -217,7 +218,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                 IconButton(onClick = { devices = emptyList() }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Rounded.Headphones, desktopText("Sound output"), tint = iconTint, modifier = Modifier.size(20.dp))
                 }
-                com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }, frosted = true) {
+                com.auralis.music.windows.GlassDropdownMenu(expanded = devices != null, onDismissRequest = { devices = null }) {
                     com.auralis.music.windows.GlassDropdownMenuHeader("Sound output")
                     val chosen = controller.outputDevice
                     // libVLC lists Windows' default as an empty id; show it as "Windows default".

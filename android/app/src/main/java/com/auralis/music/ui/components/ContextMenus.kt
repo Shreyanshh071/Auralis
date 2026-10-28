@@ -49,7 +49,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawOutline
@@ -67,11 +69,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,8 +85,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import com.auralis.music.ui.glass.liquidGlassDialog
 import com.auralis.music.ui.glass.LocalLiquidGlass
-import com.auralis.music.ui.player.ImmersiveColorField
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -90,19 +96,26 @@ import kotlin.math.roundToInt
 // Cover-tinted option sheets
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The sheet's floor under the colour field; also what shows before the field has loaded. */
+/** The sheet's floor while its blurred cover is loading. */
 internal val CoverSheetFloor = Color(0xFF121212)
 
 /**
- * Behind a song's / playlist's option sheet: the immersive player's colour field, built from
- * the item's own cover, so every ⋮ menu takes on the colours of what it's about.
+ * Keep the selected item's actual artwork behind its option sheet, softly blurred and dimmed.
  */
 @Composable
 internal fun CoverSheetBackground(artworkUrl: String?) {
-    ImmersiveColorField(artworkUrl = artworkUrl, seamPx = { 0f })
+    val context = LocalContext.current
+    val request = remember(context, artworkUrl) {
+        ImageRequest.Builder(context).data(artworkUrl).size(512).crossfade(true).build()
+    }
+    Box(Modifier.fillMaxSize().clipToBounds().background(CoverSheetFloor)) {
+        AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.15f; scaleY = 1.15f }.blur(32.dp))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f)))
+    }
 }
 
-/** The colour field is always dark enough for white text, whatever the app theme is. */
+/** The blurred cover is always darkened for white text, whatever the app theme is. */
 @Composable
 internal fun CoverSheetTheme(content: @Composable () -> Unit) {
     val scheme = MaterialTheme.colorScheme
@@ -464,19 +477,12 @@ fun GlassContextMenu(
                                 alpha = p().coerceIn(0f, 1f)
                                 transformOrigin = menuOrigin
                             }
-                            .clip(menuShape)
-                            .background(
-                                if (isDark) Color(0xFF1E1E21).copy(alpha = if (blurSupported) 0.74f else 0.95f)
-                                else Color(0xFFF7F7F9).copy(alpha = if (blurSupported) 0.80f else 0.96f)
-                            )
-                            .border(
-                                0.75.dp,
-                                Brush.verticalGradient(
-                                    if (isDark) listOf(Color.White.copy(alpha = 0.26f), Color.White.copy(alpha = 0.05f))
-                                    else listOf(Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.06f))
-                                ),
-                                menuShape
-                            )
+                            .then(if (glass != null) {
+                                Modifier.liquidGlassDialog(glass, menuShape, pageView)
+                            } else Modifier.clip(menuShape).background(
+                                if (isDark) Color(0xFF1E1E21).copy(alpha = .95f)
+                                else Color(0xFFF7F7F9).copy(alpha = .96f)
+                            ))
                             .heightIn(max = 460.dp)
                             .verticalScroll(rememberScrollState())
                             .padding(vertical = 6.dp),

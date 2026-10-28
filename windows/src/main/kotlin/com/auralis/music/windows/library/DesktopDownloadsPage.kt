@@ -517,7 +517,7 @@ private fun DownloadFolderCard(
                     )
                 }
 
-                com.auralis.music.windows.GlassDropdownMenu(menu, onDismissRequest = { menu = false }, frosted = true) {
+                com.auralis.music.windows.GlassDropdownMenu(menu, onDismissRequest = { menu = false }) {
                     com.auralis.music.windows.GlassDropdownMenuItem(
                         text = { Text(desktopText("Open folder"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         leadingIcon = { Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp)) },

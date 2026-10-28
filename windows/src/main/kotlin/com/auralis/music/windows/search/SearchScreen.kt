@@ -256,7 +256,7 @@ internal fun SearchDropdownSurface(liquidify: Boolean, artwork: String?, modifie
     val light = MaterialTheme.colorScheme.onSurface.luminance() < .5f
     val reducedMotion = com.auralis.music.ui.theme.LocalReducedMotion.current
     com.auralis.music.windows.LiquidPopupSurface(modifier,
-        tint = if (light) Color.White.copy(alpha = .42f) else Color(0xFF101010).copy(alpha = .38f)) {
+        tint = com.auralis.music.windows.bitChordGlassTint(light)) {
         // Animate the measured content inside the glass. Animating outside it made
         // the glass/border jump to their final size and merely clipped them open.
         // A spring also carries velocity when text suggestions and songs arrive apart.

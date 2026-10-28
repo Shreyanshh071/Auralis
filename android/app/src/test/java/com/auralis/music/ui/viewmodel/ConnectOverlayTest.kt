@@ -65,13 +65,15 @@ class ConnectOverlayTest {
     @Test
     fun remoteSessionReplacesWhatTheScreensShow() {
         var now = 1_000L
-        val localState = MutableStateFlow(PlayerUiState(currentTrack = local, isPlaying = false, playbackPositionMs = 5_000L, isFavorite = true))
+        val localState = MutableStateFlow(PlayerUiState(currentTrack = local, isPlaying = false, playbackPositionMs = 5_000L,
+            isFavorite = true, listenedQueueIndices = setOf(0)))
         val remoteFlow = MutableStateFlow<ConnectRemoteView?>(null)
         val shown = ConnectOverlayState(localState, remoteFlow) { now }
         assertEquals("local", shown.value.currentTrack?.id)
 
         remoteFlow.value = remote()
         assertEquals("remote", shown.value.currentTrack?.id)
+        assertTrue("Local history must not be applied to another device's queue", shown.value.listenedQueueIndices.isEmpty())
         assertTrue(shown.value.isPlaying)
         assertEquals(61_000L, shown.value.playbackPositionMs)
         assertEquals(listOf("remote", "local"), shown.value.queue.map { it.id })

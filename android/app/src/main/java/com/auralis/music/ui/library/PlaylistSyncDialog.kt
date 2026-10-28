@@ -1,8 +1,6 @@
 package com.auralis.music.ui.library
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -32,12 +30,18 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
     var pendingToggle by remember(playlist.id) { mutableStateOf<Boolean?>(null) }
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("Playlist sync") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(playlist.title, style = MaterialTheme.typography.titleMedium)
+    PlaylistSyncDialogLayout(playlistTitle = playlist.title,
+        onDismissRequest = { if (!busy) onDismiss() },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            PlaylistSyncConnection(origin.first.label)
+            PlaylistSyncSection {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Sync with ${origin.first.label}", modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text("Two-way sync", style = MaterialTheme.typography.titleSmall)
+                    Text(if (pendingToggle ?: enabled) "Connected to ${origin.first.label}" else "Connect this playlist",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Switch(checked = pendingToggle ?: enabled, enabled = !busy, onCheckedChange = { turnOn ->
                     pendingToggle = turnOn; busy = true; error = null
                     scope.launch {
@@ -50,19 +54,25 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
                     }
                 })
             }
-            Text("Add a song here and it is added to the same ${origin.first.label} playlist. Songs added there appear here automatically too.",
-                style = MaterialTheme.typography.bodySmall)
-            Text("${origin.first.label} changes are checked about every five seconds while Auralis is running. Turning sync off keeps both playlists.",
-                style = MaterialTheme.typography.bodySmall)
-            if (busy) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("Connecting playlist sync…", style = MaterialTheme.typography.bodySmall)
-            } else if (enabled) Text(status[playlist.id] ?: if (link?.interrupted == true) "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on", style = MaterialTheme.typography.bodySmall)
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        } }, confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Done") } })
+            Text("Add songs in either app. Your songs and playlist edits stay in sync.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (busy) PlaylistSyncStatus("Connecting playlist…", busy = true)
+            else if (error != null) PlaylistSyncStatus(error!!, problem = true)
+            else if (enabled) {
+                val message = status[playlist.id] ?: if (link?.interrupted == true)
+                    "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on"
+                PlaylistSyncStatus(message, problem = link?.interrupted == true ||
+                    listOf("review", "fail", "error").any { message.contains(it, ignoreCase = true) })
+            }
+            Text("Checks for changes every five seconds while Auralis is open. Turning sync off keeps both playlists.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } }, confirmButton = { Button(onClick = onDismiss, enabled = !busy,
+            modifier = Modifier.fillMaxWidth()) { Text("Done") } })
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss: () -> Unit) {
     val links by engine.store.links.collectAsState()
     val link = links.firstOrNull { it.localId == playlist.id }
@@ -82,9 +92,8 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
             catch (e: Exception) { error = e.message ?: "Could not sync. Your playlist is kept." }
             finally { busy = false } }
     }
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("Playlist sync") },
-        text = { Column(Modifier.widthIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(playlist.title, style = MaterialTheme.typography.titleMedium)
+    PlaylistSyncDialogLayout(playlistTitle = playlist.title, onDismissRequest = { if (!busy) onDismiss() },
+        text = { Column(Modifier.widthIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Two-way sync keeps songs, order, title and description updated in both apps. Your connected account must be able to edit the playlist.",
                 style = MaterialTheme.typography.bodySmall)
             if (link != null) {
@@ -92,12 +101,12 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
                 if (link.syncedAt > 0) Text("Last synced: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(link.syncedAt))}",
                     style = MaterialTheme.typography.bodySmall)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SyncService.entries.forEach { item -> FilterChip(selected = service == item, enabled = !busy && link == null,
                     onClick = { service = item; preview = null; choice = null; remoteId = ""; createNew = true }, label = { Text(item.label) }) }
             }
             if (link == null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = createNew, enabled = !busy, onClick = { createNew = true; preview = null; choice = null }, label = { Text("Create private playlist") })
                     FilterChip(selected = !createNew, enabled = !busy, onClick = { createNew = false; preview = null; choice = null }, label = { Text("Link existing") })
                 }

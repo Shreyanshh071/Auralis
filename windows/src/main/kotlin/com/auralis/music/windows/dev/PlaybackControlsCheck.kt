@@ -20,7 +20,7 @@ fun main() {
         }
         file.writeBytes(bytes)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val audio = checkNotNull(VlcAudioPlayer.createOrNull())
+        val audio = checkNotNull(VlcAudioPlayer.createOrNull(System.getenv("AURALIS_VLC_DIR")?.let(::File)))
         val player = DesktopPlaybackController(audio, scope, offlineFile = { file })
         DesktopTogether(player, FirestoreRest("unused", "unused") { _, _, _, _ -> error("Unexpected network") }, scope)
         val tracks = (0..9).map { Track(id = "local-$it", title = "Silent check $it", artist = "Test") }
@@ -39,6 +39,17 @@ fun main() {
             check(player.queue.value.current == tracks[0])
             check(player.queue.value.tracks != tracks && player.queue.value.tracks.toSet() == tracks.toSet())
             println("PASS: idle room service allows shuffle; current song and queue members preserved")
+            player.playFrom(tracks[4], tracks, automatic = false)
+            check(player.shuffleActive && player.queue.value.current == tracks[4])
+            check(player.queue.value.index == 0 && player.queue.value.tracks.toSet() == tracks.toSet())
+            player.playSingle(tracks[6])
+            check(player.shuffleActive && player.queue.value.current == tracks[6])
+            player.playFrom(tracks[3], tracks, automatic = false)
+            player.toggleShuffle()
+            check(!player.shuffleActive && player.queue.value.tracks == tracks && player.queue.value.current == tracks[3])
+            player.setShuffle(false)
+            check(!player.shuffleActive && player.queue.value.tracks == tracks)
+            println("PASS: shuffle survives manual and single-song selection; toggle off restores source order and current song")
             player.cycleRepeatMode(); check(player.repeatMode.value == DesktopPlaybackController.RepeatMode.ALL)
             val repeatFetches = java.util.concurrent.atomic.AtomicInteger()
             player.radioCandidates = { repeatFetches.incrementAndGet(); tracks.drop(1) }

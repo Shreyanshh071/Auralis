@@ -488,115 +488,6 @@ fun HomeScreen(
                     }
                 }
 
-                // ================================================================
-                // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
-                // ================================================================
-                uiState.similarRecommendations.forEachIndexed { idx, simRec ->
-                    if (simRec.items.isNotEmpty()) {
-                        item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        val targetArtistName = simRec.artistName ?: simRec.seedTitle
-                                        val targetArtist = Artist(
-                                            id = simRec.artistId ?: targetArtistName,
-                                            name = targetArtistName,
-                                            thumbnail = simRec.seedThumbnail,
-                                            query = targetArtistName
-                                        )
-                                        onArtistClick(targetArtist)
-                                    }
-                                    .padding(horizontal = 18.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (simRec.seedThumbnail != null) {
-                                        ArtworkCard(
-                                            url = simRec.seedThumbnail,
-                                            modifier = Modifier.size(28.dp).clip(CircleShape),
-                                            cornerRadius = 14.dp,
-                                            contentDescription = null
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                    }
-                                    Column {
-                                        Text(
-                                            text = if (uiState.starterArtistNames.any { it.equals(simRec.artistName ?: simRec.seedTitle, ignoreCase = true) })
-                                                "Because you picked" else str(R.string.similar_to),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = themeOnBackground.copy(alpha = 0.6f)
-                                        )
-                                        Text(
-                                            text = simRec.seedTitle,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = themePrimary
-                                        )
-                                    }
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = str(R.string.view_artist_profile),
-                                    tint = themeOnBackground.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                items(
-                                    items = simRec.items,
-                                    key = { it.id },
-                                    contentType = { "track" }
-                                ) { track ->
-                                    Column(
-                                        modifier = Modifier
-                                            .width(115.dp)
-                                            .contextMenuAnchor { onTrackClick(track, listOf(track)) }
-                                            .clip(RoundedCornerShape(12.dp))
-                                            // Long-press opens the song's ⋮ menu, like every other Home shelf.
-                                            .combinedClickable(
-                                                onClick = { onTrackClick(track, listOf(track)) },
-                                                onLongClick = { selectedTrackForMenu = track }
-                                            )
-                                            .padding(4.dp)
-                                    ) {
-                                        ArtworkCard(
-                                            url = track.thumbnail,
-                                            fallbackTrack = track,
-                                            modifier = Modifier.size(115.dp).clip(RoundedCornerShape(12.dp)),
-                                            cornerRadius = 12.dp,
-                                            contentDescription = track.title
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = track.title,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = themeOnBackground,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = track.artist,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = themeOnBackground.copy(alpha = 0.65f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(18.dp))
-                        } }
-                    }
-                }
-
                 // Settings → Content → Wrapped → Show Wrapped card.
                 if (showWrappedCard) {
                     item(key = "home_wrapped_card", contentType = "wrapped_card") {
@@ -856,6 +747,115 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.height(18.dp))
                     } }
+                }
+
+                // ================================================================
+                // 7. SIMILAR RECOMMENDATION SHELVES ("Similar to...")
+                // ================================================================
+                uiState.similarRecommendations.forEachIndexed { idx, simRec ->
+                    if (simRec.items.isNotEmpty()) {
+                        item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        val targetArtistName = simRec.artistName ?: simRec.seedTitle
+                                        val targetArtist = Artist(
+                                            id = simRec.artistId ?: targetArtistName,
+                                            name = targetArtistName,
+                                            thumbnail = simRec.seedThumbnail,
+                                            query = targetArtistName
+                                        )
+                                        onArtistClick(targetArtist)
+                                    }
+                                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (simRec.seedThumbnail != null) {
+                                        ArtworkCard(
+                                            url = simRec.seedThumbnail,
+                                            modifier = Modifier.size(28.dp).clip(CircleShape),
+                                            cornerRadius = 14.dp,
+                                            contentDescription = null
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Column {
+                                        Text(
+                                            text = if (uiState.starterArtistNames.any { it.equals(simRec.artistName ?: simRec.seedTitle, ignoreCase = true) })
+                                                "Because you picked" else str(R.string.similar_to),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = themeOnBackground.copy(alpha = 0.6f)
+                                        )
+                                        Text(
+                                            text = simRec.seedTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = themePrimary
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = str(R.string.view_artist_profile),
+                                    tint = themeOnBackground.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                items(
+                                    items = simRec.items,
+                                    key = { it.id },
+                                    contentType = { "track" }
+                                ) { track ->
+                                    Column(
+                                        modifier = Modifier
+                                            .width(115.dp)
+                                            .contextMenuAnchor { onTrackClick(track, listOf(track)) }
+                                            .clip(RoundedCornerShape(12.dp))
+                                            // Long-press opens the song's ⋮ menu, like every other Home shelf.
+                                            .combinedClickable(
+                                                onClick = { onTrackClick(track, listOf(track)) },
+                                                onLongClick = { selectedTrackForMenu = track }
+                                            )
+                                            .padding(4.dp)
+                                    ) {
+                                        ArtworkCard(
+                                            url = track.thumbnail,
+                                            fallbackTrack = track,
+                                            modifier = Modifier.size(115.dp).clip(RoundedCornerShape(12.dp)),
+                                            cornerRadius = 12.dp,
+                                            contentDescription = track.title
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = track.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = themeOnBackground,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = track.artist,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = themeOnBackground.copy(alpha = 0.65f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(18.dp))
+                        } }
+                    }
                 }
 
                 // ================================================================

@@ -29,6 +29,7 @@ data class PlayerUiState(
     val isBuffering: Boolean = false,
     val isFavorite: Boolean = false,
     val queue: List<Track> = emptyList(),
+    val listenedQueueIndices: Set<Int> = emptySet(),
     val currentIndex: Int = -1,
     val queueSourceTitle: String? = null,
     val isShuffled: Boolean = false,
@@ -185,6 +186,7 @@ class PlayerViewModel(
                 durationMs = player.durationMs.value.takeIf { it > 0L } ?: ((track?.duration ?: 0L) * 1000L),
                 queue = qState.queue,
                 currentIndex = qState.currentIndex,
+                listenedQueueIndices = qState.listenedIndices,
                 isShuffled = qState.isShuffled,
                 repeatMode = qState.repeatMode,
                 sleepTimerSeconds = player.sleepTimerSeconds.value,
@@ -360,6 +362,7 @@ class PlayerViewModel(
                         it.copy(
                             queue = qState.queue,
                             currentIndex = qState.currentIndex,
+                            listenedQueueIndices = qState.listenedIndices,
                             isShuffled = qState.isShuffled,
                             repeatMode = qState.repeatMode
                         )
@@ -496,6 +499,7 @@ class PlayerViewModel(
                         isLoadingLyrics = true,
                         queue = qState.queue,
                         currentIndex = qState.currentIndex,
+                        listenedQueueIndices = qState.listenedIndices,
                         isPlaying = true,
                         playbackPositionMs = 0L,
                         durationMs = effectiveTrack.duration * 1000L,
@@ -796,12 +800,14 @@ class PlayerViewModel(
         } else {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            val qState = queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = effectiveIsUserQueue)
+            val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex)
+                else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = effectiveIsUserQueue)
             _uiState.update {
                 it.copy(
                     currentTrack = qState.currentTrack,
                     queue = qState.queue,
                     currentIndex = qState.currentIndex,
+                    listenedQueueIndices = qState.listenedIndices,
                     isShuffled = qState.isShuffled,
                     isPlaying = true,
                     playbackPositionMs = initialPositionMs,
@@ -970,6 +976,7 @@ class PlayerViewModel(
                     lyrics = null,
                     isLoadingLyrics = true,
                     currentIndex = qState.currentIndex,
+                    listenedQueueIndices = qState.listenedIndices,
                     isPlaying = true,
                     playbackPositionMs = 0,
                     durationMs = nextTrack.duration * 1000,
@@ -1168,6 +1175,7 @@ class PlayerViewModel(
                         lyrics = null,
                         isLoadingLyrics = true,
                         currentIndex = qState.currentIndex,
+                        listenedQueueIndices = qState.listenedIndices,
                         isPlaying = true,
                         playbackPositionMs = 0,
                         durationMs = prevTrack.duration * 1000,
@@ -1204,6 +1212,7 @@ class PlayerViewModel(
                 it.copy(
                     queue = qState.queue,
                     currentIndex = qState.currentIndex,
+                    listenedQueueIndices = qState.listenedIndices,
                     isShuffled = qState.isShuffled
                 )
             }
@@ -1230,7 +1239,7 @@ class PlayerViewModel(
             audioPlayer.moveQueueItem(fromIndex, toIndex)
         } else {
             val qState = queueManager.moveItem(fromIndex, toIndex)
-            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex) }
+            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex, listenedQueueIndices = qState.listenedIndices) }
         }
     }
 
@@ -1239,7 +1248,7 @@ class PlayerViewModel(
             audioPlayer.removeQueueItem(removeIndex)
         } else {
             val qState = queueManager.removeItem(removeIndex)
-            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex) }
+            _uiState.update { it.copy(queue = qState.queue, currentIndex = qState.currentIndex, listenedQueueIndices = qState.listenedIndices) }
         }
     }
 

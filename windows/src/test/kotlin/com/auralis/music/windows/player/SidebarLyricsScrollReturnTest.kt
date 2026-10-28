@@ -27,7 +27,9 @@ class SidebarLyricsScrollReturnTest {
             MaterialTheme { CompositionLocalProvider(LocalAppearanceSettings provides AppearanceSettings(
                 lyricsAnimation = LyricsAnimationMode.SPICY_LYRICS.displayName, autoScrollLyrics = true,
                 standardLyricsBlur = false)) {
-                Box(Modifier.fillMaxSize().background(Color(0xFF243447))) { SidebarLyricsView(lyrics, position, {}) }
+                Box(Modifier.fillMaxSize().background(Color(0xFF243447))) {
+                    SidebarLyricsView(lyrics, position, {}, followAnchorFraction = .50f, introAnchorFraction = .12f)
+                }
             } }
         }
         try {
@@ -40,6 +42,7 @@ class SidebarLyricsScrollReturnTest {
                 Offset(160f, 150f), scrollDelta = Offset(0f, delta), timeMillis = time, type = PointerType.Mouse)
             frames(70)
             val current = capture()
+            java.io.File("build/screens/sidebar-center-current.png").apply { parentFile.mkdirs(); writeBytes(current) }
             wheel(12f, 5000L)
             // Capture during the gesture, before the real idle timer can expire
             // on a slow headless renderer.
@@ -69,6 +72,8 @@ class SidebarLyricsScrollReturnTest {
                 assertTrue(count > 0, "The paused lyric must stay highlighted")
                 return sum.toDouble() / count
             }
+            assertTrue(kotlin.math.abs(brightInkCenter(current) - 150.0) <= 25.0,
+                "Sung lyrics must stay in the middle, independently of the intro dots' top anchor")
             assertTrue(kotlin.math.abs(brightInkCenter(current) - brightInkCenter(capture())) <= 2.0,
                 "A second idle period must center the same paused lyric within pixel rounding")
             assertEquals(50000L, position.longValue)

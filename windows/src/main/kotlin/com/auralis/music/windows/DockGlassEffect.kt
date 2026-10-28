@@ -43,6 +43,31 @@ internal class DockGlassEffect : AutoCloseable {
     override fun close() = effect.close()
 }
 
+/** Directional half-dp highlight from Kyant's Highlight.Default, as used by BitChord. */
+internal class BitChordGlassRim : AutoCloseable {
+    private val effect = RuntimeEffect.makeForShader(BitChordHighlightShader)
+    fun draw(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, radius: Float, density: Float) {
+        RuntimeShaderBuilder(effect).use { builder ->
+            builder.uniform("size", width, height)
+            val r = radius.coerceAtMost(minOf(width, height) / 2f)
+            builder.uniform("cornerRadii", r, r, r, r)
+            builder.makeShader().use { shader ->
+                org.jetbrains.skia.Paint().use { paint ->
+                    paint.shader = shader
+                    paint.mode = org.jetbrains.skia.PaintMode.STROKE
+                    paint.strokeWidth = kotlin.math.ceil(.5f * density) * 2f
+                    paint.blendMode = org.jetbrains.skia.BlendMode.PLUS
+                    org.jetbrains.skia.MaskFilter.makeBlur(org.jetbrains.skia.FilterBlurMode.NORMAL, .25f * density).use { blur ->
+                        paint.maskFilter = blur
+                        canvas.drawRRect(org.jetbrains.skia.RRect.makeXYWH(0f, 0f, width, height, r), paint)
+                    }
+                }
+            }
+        }
+    }
+    override fun close() = effect.close()
+}
+
 private const val RoundedRectSDF = """
 float radiusAt(float2 coord, float4 radii) {
     if (coord.x >= 0.0) {
@@ -70,6 +95,21 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
         return sign(coord) * float2(gradX, 1.0 - gradX);
     }
 }"""
+
+private val BitChordHighlightShader = """
+uniform float2 size;
+uniform float4 cornerRadii;
+$RoundedRectSDF
+half4 main(float2 coord) {
+    float2 halfSize = size * 0.5;
+    float2 centeredCoord = coord - halfSize;
+    float radius = radiusAt(coord, cornerRadii);
+    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+    float2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+    float intensity = abs(dot(grad, float2(0.70710678, 0.70710678)));
+    return half4(0.5) * intensity;
+}
+"""
 
 private val DockLensShader = """
 uniform shader content;

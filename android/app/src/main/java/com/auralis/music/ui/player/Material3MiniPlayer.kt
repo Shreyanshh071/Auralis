@@ -101,7 +101,7 @@ internal fun Material3MiniPlayerView(
     val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
     val lightGlass = if (frosted) frostedMiniPlayerContentColor() != Color.White else glass?.isDark == false
     val contentColor = if (frosted) frostedMiniPlayerContentColor() else if (lightGlass) Color(0xFF1B1B1F) else Color.White
-    val glassTint = if (lightGlass) Color.White.copy(alpha = 0.70f) else Color(0xFF101010).copy(alpha = 0.70f)
+    val glassTint = com.auralis.music.ui.glass.glassBarTint(glass?.isDark ?: true)
     // Tucked into the minimized glass dock: no artist line or skip buttons, so it fits the gap.
     val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
     val dockSettled by remember(dockCollapse) {

@@ -2211,7 +2211,7 @@ private fun PlaylistDetailView(
     val heroBackdrop = rememberLayerBackdrop()
     val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
     val topBarButton: Modifier = if (heroGlass != null) {
-        Modifier.liquidGlass(heroGlass, CircleShape)
+        Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
     } else Modifier
 
     // Liquid glass: the bar always floats in the same place, so opening search never moves the
@@ -2501,7 +2501,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier
                                     .size(52.dp)
                                     .then(
-                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape)
+                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
                                         else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
                                     )
                                     .clickable {
@@ -2530,7 +2530,7 @@ private fun PlaylistDetailView(
                                         // Glass tinted with the accent, so play still reads as the main action.
                                         if (heroGlass != null) Modifier.liquidGlass(
                                             heroGlass, CircleShape,
-                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                                            tint = com.auralis.music.ui.glass.glassIndicatorTint(heroGlass.isDark)
                                         )
                                         else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primary)
                                     )
@@ -2544,7 +2544,7 @@ private fun PlaylistDetailView(
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
                                     contentDescription = str(R.string.play),
-                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onPrimary,
+                                    tint = if (heroGlass != null) com.auralis.music.ui.glass.glassContentColor(heroGlass.isDark) else MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(32.dp)
                                 )
                             }
@@ -2556,7 +2556,7 @@ private fun PlaylistDetailView(
                                 modifier = Modifier
                                     .size(52.dp)
                                     .then(
-                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape)
+                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
                                         else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
                                     )
                                     .clickable { showOptionsMenu = true },
@@ -3974,8 +3974,8 @@ private fun LibrarySourcePills(
                 label = "libraryPillPressFill"
             )
             val pillModifier = if (glass != null) {
-                val glassModifier = if (isSelected) Modifier.liquidGlass(glass, CircleShape, tint = LIME_TEXT.copy(alpha = 0.24f))
-                    else Modifier.liquidGlass(glass, CircleShape)
+                val glassModifier = if (isSelected) Modifier.liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassIndicatorTint(glass.isDark))
+                    else Modifier.liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
                 // Draw the pressed fill with the actual outline. The platform
                 // ripple can ignore the glass layer's clip and paint a rectangle.
                 glassModifier.drawWithContent {

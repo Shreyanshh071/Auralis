@@ -143,9 +143,9 @@ private fun StatsFilterPill(
 
     val pillModifier = if (glass != null) {
         val glassModifier = if (selected) {
-            Modifier.liquidGlass(glass, CircleShape, tint = accentColor.copy(alpha = 0.24f))
+            Modifier.liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassIndicatorTint(glass.isDark))
         } else {
-            Modifier.liquidGlass(glass, CircleShape)
+            Modifier.liquidGlass(glass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
         }
         glassModifier.drawWithContent {
             drawContent()
@@ -1004,7 +1004,7 @@ fun StatsScreen(
                 .padding(end = 20.dp, bottom = if (hasActiveMiniPlayer) 150.dp else 90.dp)
         ) {
             val shuffleModifier = if (statsGlass != null) {
-                Modifier.liquidGlass(statsGlass, CircleShape, tint = themePrimary.copy(alpha = 0.26f))
+                Modifier.liquidGlass(statsGlass, CircleShape, tint = com.auralis.music.ui.glass.glassIndicatorTint(statsGlass.isDark))
             } else {
                 Modifier.clip(CircleShape)
             }

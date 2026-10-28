@@ -24,6 +24,8 @@ internal fun PlayerUiState.withRemote(remote: ConnectRemoteView, nowMs: Long): P
     playbackPositionMs = remote.positionAt(nowMs),
     durationMs = remote.durationMs,
     queue = remote.queue,
+    // Remote sessions do not carry per-occurrence listening history.
+    listenedQueueIndices = emptySet(),
     currentIndex = remote.index,
     isShuffled = remote.shuffle,
     repeatMode = remote.repeat,

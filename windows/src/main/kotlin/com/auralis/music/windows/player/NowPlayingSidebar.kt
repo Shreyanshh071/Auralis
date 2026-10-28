@@ -63,7 +63,8 @@ internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: Desk
         key(track.id) {
             if (state.lyrics == null && state.isLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White.copy(alpha = .7f), modifier = Modifier.size(24.dp))
-            } else SidebarLyricsView(state.lyrics, position, playback::seekTo, track.duration * 1000L, lineGap = 4.dp)
+            } else SidebarLyricsView(state.lyrics, position, playback::seekTo, track.duration * 1000L,
+                lineGap = 4.dp, followAnchorFraction = .50f, introAnchorFraction = .12f)
         }
     }
 }
@@ -103,7 +104,10 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
             }
         }
         // Title, artist and lyrics card share the cover's edges, even when height shrinks the cover.
-        SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura) {
+        if (mainPlayerOpen) {
+            // The fullscreen cover owns animation playback while it covers this sidebar.
+            DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title, highRes = true)
+        } else SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura) {
         AnimatedCover(track, Modifier.fillMaxSize(), motionAura) {
             DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
         }

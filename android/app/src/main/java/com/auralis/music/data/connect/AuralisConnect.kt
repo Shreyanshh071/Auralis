@@ -58,7 +58,6 @@ object AuralisConnect : ConnectHook {
     private var jobs: List<Job> = emptyList()
     private var started = false
     private val presence = ConnectTaskPresence()
-    private var presenceServiceRequested = false
 
     fun setForeground(visible: Boolean) {
         presence.foreground(visible)
@@ -71,28 +70,19 @@ object AuralisConnect : ConnectHook {
         updatePresence()
     }
 
-    internal fun shouldRunPresenceService(): Boolean = uid != null && presence.taskPresent
+    // Retained so an older service instance stops cleanly after an in-place update.
+    internal fun shouldRunPresenceService(): Boolean = false
 
     internal fun presenceServiceChanged(running: Boolean) {
-        presence.service(running)
-        if (!running) presenceServiceRequested = false
         updatePresence()
     }
 
     private fun syncPresenceService() {
         if (!::appContext.isInitialized) return
         val intent = android.content.Intent(appContext, com.auralis.music.service.ConnectPresenceService::class.java)
-        if (!shouldRunPresenceService()) {
-            presenceServiceRequested = false
-            appContext.stopService(intent)
-        } else if (presence.visible && !presenceServiceRequested) {
-            try {
-                androidx.core.content.ContextCompat.startForegroundService(appContext, intent)
-                presenceServiceRequested = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not keep Connect available in the background", e)
-            }
-        }
+        // Idle availability no longer starts its own foreground service/notification.
+        // Active playback already has a media service and its normal music notification.
+        appContext.stopService(intent)
     }
 
     /** Removing the task is an explicit close, independently of music-on-task-clear settings. */
@@ -112,6 +102,8 @@ object AuralisConnect : ConnectHook {
 
     private fun updatePresence() {
         if (!started) return
+        presence.service(::player.isInitialized &&
+            (player.isPlaying.value || player.isBuffering.value || player.playbackRequested.value))
         engine?.setDeviceAvailable(presence.available)
     }
     private val followLock = kotlinx.coroutines.sync.Mutex()

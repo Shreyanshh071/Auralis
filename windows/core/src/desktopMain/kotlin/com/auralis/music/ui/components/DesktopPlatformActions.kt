@@ -63,19 +63,25 @@ class DesktopPlatformActions(private val message: (String) -> Unit) : PlatformAc
     override fun rememberImagePicker(onPicked: (String) -> Unit): () -> Unit {
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         val currentOnPicked = androidx.compose.runtime.rememberUpdatedState(onPicked)
+        val choosing = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
         return {
-            val dialog = java.awt.FileDialog(null as java.awt.Frame?, "Choose an image", java.awt.FileDialog.LOAD).apply {
-                file = "*.jpg;*.jpeg;*.png;*.webp;*.gif;*.bmp"
-                isVisible = true
-            }
-            val name = dialog.file
-            val dir = dialog.directory
-            if (name != null && dir != null) {
-                val file = java.io.File(dir, name)
-                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val uri = runCatching { imageDataUri(file) }.getOrNull()
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        currentOnPicked.value(uri ?: file.toURI().toString())
+            if (!choosing.value) {
+                val owner = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+                    ?.let { com.sun.jna.Native.getWindowPointer(it) }
+                choosing.value = true
+                scope.launch {
+                    try {
+                        val file = NativeImagePicker.choose(owner)
+                        if (file != null) {
+                            val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { imageDataUri(file) }
+                            if (uri != null) currentOnPicked.value(uri)
+                            else message("This image could not be read. Choose a JPG or PNG photo.")
+                        }
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        message("Could not open this photo. ${e.localizedMessage ?: "Please try again."}")
+                    } finally {
+                        choosing.value = false
                     }
                 }
             }

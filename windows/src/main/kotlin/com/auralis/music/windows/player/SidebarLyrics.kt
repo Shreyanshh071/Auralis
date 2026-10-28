@@ -65,18 +65,20 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs, lineGap: androidx.compose.ui.unit.Dp = 0.dp,
-    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()) {
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    followAnchorFraction: Float = .30f,
+    introAnchorFraction: Float = followAnchorFraction) {
     val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
     CompositionLocalProvider(LocalAppearanceSettings provides settings) {
-    SidebarLyricsContent(lyrics, position, onSeek, durationMs, lineGap, listState)
+    SidebarLyricsContent(lyrics, position, onSeek, durationMs, lineGap, listState, followAnchorFraction, introAnchorFraction)
     }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long?, lineGap: androidx.compose.ui.unit.Dp,
-    list: androidx.compose.foundation.lazy.LazyListState) {
+    list: androidx.compose.foundation.lazy.LazyListState, lyricsAnchorFraction: Float, introAnchorFraction: Float) {
     val appearance = LocalAppearanceSettings.current
     val popupControlsInset = LocalMiniPopupControlsInset.current
     val mode = LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
@@ -118,6 +120,8 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         it >= if (mode == LyricsAnimationMode.SPICY_LYRICS) com.auralis.music.ui.lyrics.SPICY_INTERLUDE_MINIMUM_MS else 1500L
     } ?: 0L else 0L
     val introActive by remember(introDurationMs) { derivedStateOf { introDurationMs > 0L && position.value < introDurationMs } }
+    // Opening dots sit near the header; sung lines follow in the middle of the card.
+    val followAnchorFraction = if (introActive) introAnchorFraction else lyricsAnchorFraction
     val introTime = remember { derivedStateOf { position.value.coerceAtLeast(0L) } }
     val breaks = remember(lines, synced, durationMs, mode) {
         if (!synced) emptyMap() else if (mode == LyricsAnimationMode.SPICY_LYRICS)
@@ -145,7 +149,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(lines, breaks, appearance.autoScrollLyrics) {
+    LaunchedEffect(lines, breaks, appearance.autoScrollLyrics, followAnchorFraction) {
         if (!appearance.autoScrollLyrics) return@LaunchedEffect
         var firstAnchor = true
         snapshotFlow { Triple(scrollTarget, manualScroll, list.layoutInfo.viewportSize) }
@@ -156,16 +160,17 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
             snapshotFlow { list.isScrollInProgress }.first { !it }
             if (viewport.height <= 0) return@collectLatest
             val motion = followingScope.launch {
-            val offset = -(viewport.height * .30f).toInt()
             if (firstAnchor && lastInput == 0L) {
-                list.scrollToItem(target, offset)
+                // Content padding already supplies the anchor. Applying it again as a
+                // negative offset can put the active row below the visible viewport.
+                list.scrollToItem(target)
                 withFrameNanos { }
                 val info = list.layoutInfo
                 info.visibleItemsInfo.firstOrNull { it.index == target }?.let { item ->
-                    val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * .30f
+                    val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * followAnchorFraction
                     list.scroll { scrollBy(item.offset + item.size / 2f - anchor) }
                 }
-            } else list.smoothCenterLyric(target, .30f, rowHeights, followingMotion)
+            } else list.smoothCenterLyric(target, followAnchorFraction, rowHeights, followingMotion)
             firstAnchor = false
             }
             followingScrollJob = motion
@@ -177,7 +182,8 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         // Let the same anchor be reachable at the first and final phrase too;
         // eight pixels of padding pinned those rows against the viewport edges.
         LazyColumn(state = list, contentPadding = PaddingValues(start = 8.dp, end = 8.dp,
-                top = maxHeight * .30f, bottom = maxHeight * .70f),
+                top = if (appearance.autoScrollLyrics) maxHeight * followAnchorFraction else 8.dp,
+                bottom = if (appearance.autoScrollLyrics) maxHeight * (1f - followAnchorFraction) else 8.dp),
             verticalArrangement = Arrangement.spacedBy(lineGap),
             modifier = Modifier.fillMaxSize()
                 .then(lyricsWheelScroll(list, beginManualScroll))

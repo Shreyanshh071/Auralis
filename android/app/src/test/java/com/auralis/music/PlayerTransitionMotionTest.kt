@@ -32,16 +32,16 @@ class PlayerTransitionMotionTest {
                 IntOffset.Zero,
                 IntOffset(0, distance)
             )
-            // A visible first-frame move, rather than the slow start of a soft spring.
-            assertTrue(kotlin.math.abs(animation.getValueFromNanos(16_000_000).y) >= 8)
+            // The configured glide eases in rather than jumping eight pixels on its first frame.
+            assertTrue(kotlin.math.abs(animation.getValueFromNanos(32_000_000).y) >= 1)
             var previous = 0
-            for (millis in 0..160 step 8) {
+            for (millis in 0..PlayerTransitionMotion.QueuePlacementMillis step 8) {
                 val displacement = animation.getValueFromNanos(millis * 1_000_000L).y
                 assertTrue(displacement in minOf(0, distance)..maxOf(0, distance))
                 assertTrue(kotlin.math.abs(displacement) >= kotlin.math.abs(previous))
                 previous = displacement
             }
-            assertEquals(IntOffset(0, distance), animation.getValueFromNanos(160_000_000))
+            assertEquals(IntOffset(0, distance), animation.getValueFromNanos(PlayerTransitionMotion.QueuePlacementMillis * 1_000_000L))
         }
     }
 
@@ -57,8 +57,8 @@ class PlayerTransitionMotionTest {
             visible, IntOffset.Zero
         )
         assertEquals(visible, reversed.getValueFromNanos(0))
-        assertTrue(reversed.getValueFromNanos(16_000_000).y < visible.y)
-        assertEquals(IntOffset.Zero, reversed.getValueFromNanos(160_000_000))
+        assertTrue(reversed.getValueFromNanos(PlayerTransitionMotion.QueuePlacementMillis * 500_000L).y < visible.y)
+        assertEquals(IntOffset.Zero, reversed.getValueFromNanos(PlayerTransitionMotion.QueuePlacementMillis * 1_000_000L))
     }
 
     private fun palette(color: Color) = ArtworkPalette(

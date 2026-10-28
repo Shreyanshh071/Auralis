@@ -143,6 +143,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             // Shuffle was saved but never restored, so it silently turned off
                             // every time the app restarted.
                             queueManager.restoreShuffleFlag(persisted.isShuffled)
+                            queueManager.restoreListenedIndices(persisted.listenedIndices)
                             _queueState.value = queueManager.state
                             val cur = queueManager.state.currentTrack
                             if (cur != null && _currentTrack.value == null) {
@@ -173,6 +174,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 _playbackPositionMs,
                 _durationMs
             ) { track, isPlaying, isBuffering, pos, duration ->
+                if (isPlaying && !isBuffering && pos > 0 && track?.id == queueManager.state.currentTrack?.id &&
+                    queueManager.markCurrentListened()) {
+                    _queueState.value = queueManager.state
+                    persistQueue()
+                }
                 com.auralis.music.data.network.discord.DiscordGatewayManager.getInstance(appContext)
                     .onPlaybackStateChanged(track, isPlaying, isBuffering, pos, duration)
             }.collect()
@@ -1156,7 +1162,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             positionMs = pos,
                             isUserQueue = qState.isUserQueue,
                             isShuffled = qState.isShuffled,
-                            repeatMode = qState.repeatMode.name
+                            repeatMode = qState.repeatMode.name,
+                            listenedIndices = qState.listenedIndices
                         )
                     } else {
                         queueDataStore.clearPersistedQueue()
@@ -1546,7 +1553,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
         val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
-        val qState = queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = isUserQueue)
+        val qState = if (isSameQueue && preserveQueueSource) {
+            queueManager.selectIndex(targetIndex, retainUnplayed = !isGuestListenTogether.value)
+        } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = isUserQueue)
         _queueState.value = qState
 
         play(track, initialSeekMs = initialPositionMs)

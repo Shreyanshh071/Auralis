@@ -285,8 +285,8 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, pr
     override fun next() { ConnectControls.mark(); controller.fromConnect { controller.next() } }
     override fun previous() { ConnectControls.mark(); controller.fromConnect { controller.previous() } }
     override fun playIndex(index: Int) { ConnectControls.mark(); controller.fromConnect { controller.playAt(index) } }
-    // Windows shuffles the upcoming songs once; there is no unshuffle to apply.
-    override fun setShuffle(on: Boolean) { if (on) controller.fromConnect { controller.shuffleUpcoming() } }
+    // Apply the requested mode without toggling it on duplicate Connect commands.
+    override fun setShuffle(on: Boolean) { controller.fromConnect { controller.setShuffle(on) } }
     override fun setRepeat(mode: RepeatMode) = controller.fromConnect { controller.setRepeatMode(DesktopPlaybackController.RepeatMode.valueOf(mode.name)) }
     override fun add(track: Track) = controller.fromConnect { controller.addToQueue(track) }
     override fun playNext(track: Track) = controller.fromConnect { controller.playNext(track) }
