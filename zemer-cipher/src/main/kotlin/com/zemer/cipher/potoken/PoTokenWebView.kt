@@ -12,6 +12,7 @@ import android.webkit.WebViewClient
 import androidx.annotation.MainThread
 import androidx.collection.ArrayMap
 import com.zemer.cipher.ZemerCipher
+import com.zemer.cipher.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -148,6 +149,9 @@ class PoTokenWebView private constructor(
         Timber.tag(TAG).d("loadHtmlAndObtainBotguard() called")
 
         scope.launch(exceptionHandler) {
+            if (BuildConfig.POTOKEN_API_KEY.isBlank()) {
+                throw PoTokenException("PoToken API key is not configured for this build")
+            }
             val html = withContext(Dispatchers.IO) {
                 webView.context.assets.open("po_token.html").bufferedReader().use { it.readText() }
             }
@@ -379,7 +383,7 @@ class PoTokenWebView private constructor(
                     "User-Agent" to USER_AGENT,
                     "Accept" to "application/json",
                     "Content-Type" to "application/json+protobuf",
-                    "x-goog-api-key" to GOOGLE_API_KEY,
+                    "x-goog-api-key" to BuildConfig.POTOKEN_API_KEY,
                     "x-user-agent" to "grpc-web-javascript/0.1",
                 ).toHeaders())
                 .url(url)
@@ -442,7 +446,6 @@ class PoTokenWebView private constructor(
 
     companion object {
         private const val TAG = "PoTokenWebView"
-        private const val GOOGLE_API_KEY = "REDACTED_API_KEY"
         private const val REQUEST_KEY = "O43z0dpjhgX20SCx4KAo"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.3"

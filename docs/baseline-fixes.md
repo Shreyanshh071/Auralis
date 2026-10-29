@@ -226,7 +226,7 @@ substitutes would be exactly the kind of fake configuration this pass removed:
 
 - `VITE_FIREBASE_APP_ID` — only obtainable from the Firebase console.
 - `VITE_FIREBASE_API_KEY` — `google-services.json` has an *Android* key
-  (`AIzaSyBSJX…`), which is normally restricted to Android apps and rejected from
+  (value omitted), which is normally restricted to Android apps and rejected from
   a browser origin. Use the Browser key from the Web app's config block.
 
 Until `APP_ID` is filled the app runs normally with sign-in disabled and states
@@ -545,7 +545,7 @@ copies of it:
 
 So the `:android:` marker now passes because the check became accurate, not
 because it was loosened. No source change was needed: the source was already
-correct, and `1:30030184374:android`, `b4dabb16a9c3a96e71cb17`, `AIzaSyBSJX`, and
+correct, and the Android app identifiers, Android API key, and
 `DEMO_TRACKS` all occur **zero** times in the bundle.
 
 ### Android toolchain: the remaining blocker

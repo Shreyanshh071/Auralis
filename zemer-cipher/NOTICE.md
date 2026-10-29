@@ -8,5 +8,6 @@ Auralis uses it to download age-restricted songs for users who signed in to YouT
 the web clients' signature and `n` parameter with YouTube's own player script, using remote player
 configs from the upstream repo's `player_configs.json` (refreshed at runtime), and mints PO tokens.
 
-`src/main` is copied unchanged; tests were not vendored. Only `build.gradle.kts` differs (Auralis's
-version catalog, no publishing).
+Local adaptations include build integration, WebView lifecycle and error handling, and reading
+the PoToken API key from generated BuildConfig instead of a hardcoded upstream value.
+Tests from upstream were not vendored. See `docs/client-configuration.md` for build configuration.

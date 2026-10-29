@@ -62,6 +62,7 @@ private data class ReadyComponents(
 )
 
 fun main(args: Array<String>) {
+    awaitRestartParent(args)
     val dev = System.getProperty("jpackage.app-version") == null
     if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
@@ -424,11 +425,21 @@ fun main(args: Array<String>) {
                 windowVisible = false
             } else closeApp()
         }
+        val restartApp: () -> Unit = {
+            runCatching { launchDesktopRestart(args) }
+                .onSuccess { closeApp() }
+                .onFailure {
+                    Log.e(TAG, "Could not restart Auralis", it)
+                    javax.swing.JOptionPane.showMessageDialog(composeWindow,
+                        "Auralis could not restart. Please try again or reopen the app.",
+                        "Restart Auralis", javax.swing.JOptionPane.ERROR_MESSAGE)
+                }
+        }
 
         // Install system tray at application scope so it stays present even when the window is hidden/minimized to tray
         DisposableEffect(systemSettings.closeToTray || systemSettings.songNotifications) {
             val tray = if (systemSettings.closeToTray || systemSettings.songNotifications)
-                com.auralis.music.windows.media.DesktopSystemTray(openWindow, closeApp).also { it.install() } else null
+                com.auralis.music.windows.media.DesktopSystemTray(openWindow, closeApp, onRestart = restartApp).also { it.install() } else null
             systemTray = tray
             onDispose { tray?.close(); if (systemTray === tray) systemTray = null }
         }

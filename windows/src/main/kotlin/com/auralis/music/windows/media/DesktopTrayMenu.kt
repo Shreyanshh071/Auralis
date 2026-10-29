@@ -7,11 +7,11 @@ import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /** AWT's heavyweight PopupMenu cannot be themed. Keep this lightweight window on the AWT EDT. */
-internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit) : AutoCloseable {
+internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit, onRestart: () -> Unit = {}) : AutoCloseable {
     private var window: JWindow? = null
     internal var outsideClicks: TrayOutsideClicks? = null
         private set
-    internal val content = TrayMenuPanel({ dismiss(); onOpen() }, { dismiss(); onQuit() })
+    internal val content = TrayMenuPanel({ dismiss(); onOpen() }, { dismiss(); onQuit() }, { dismiss(); onRestart() })
 
     init {
         content.actionMap.put("dismiss", object : AbstractAction() {
@@ -69,9 +69,12 @@ internal fun trayMenuLocation(anchor: Point, size: Dimension, usable: Rectangle)
         .coerceIn(usable.y, maxOf(usable.y, usable.y + usable.height - size.height))
 )
 
-internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() {
+internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit, onRestart: () -> Unit = {}) : JPanel() {
     internal val openButton = menuButton("Open Auralis", false, onOpen)
     internal val quitButton = menuButton("Quit Auralis", true, onQuit)
+    internal val restartButton = menuButton("Restart Auralis", false, onRestart).apply {
+        icon = TrayActionIcon(quit = false, restart = true)
+    }
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -86,6 +89,7 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
         }
         add(header)
         add(openButton)
+        add(restartButton)
         add(Box.createVerticalStrut(5))
         add(JSeparator().apply {
             alignmentX = LEFT_ALIGNMENT
@@ -95,7 +99,8 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
         })
         add(Box.createVerticalStrut(5))
         add(quitButton)
-        listOf(openButton, quitButton).forEachIndexed { index, button ->
+        val buttons = listOf(openButton, restartButton, quitButton)
+        buttons.forEachIndexed { index, button ->
             for (key in listOf("UP", "DOWN", "HOME", "END")) {
                 button.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(key), key)
                 button.actionMap.put(key, object : AbstractAction() {
@@ -103,7 +108,8 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
                         (when (key) {
                             "HOME" -> openButton
                             "END" -> quitButton
-                            else -> if (index == 0) quitButton else openButton
+                            "UP" -> buttons[(index + buttons.size - 1) % buttons.size]
+                            else -> buttons[(index + 1) % buttons.size]
                         }).requestFocusInWindow()
                     }
                 })
@@ -162,7 +168,7 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
     }
 }
 
-private class TrayActionIcon(private val quit: Boolean) : Icon {
+private class TrayActionIcon(private val quit: Boolean, private val restart: Boolean = false) : Icon {
     override fun getIconWidth() = 16
     override fun getIconHeight() = 16
     override fun paintIcon(c: Component, g: Graphics, x: Int, y: Int) {
@@ -172,7 +178,11 @@ private class TrayActionIcon(private val quit: Boolean) : Icon {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = c.foreground
             g2.stroke = BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-            if (quit) {
+            if (restart) {
+                g2.drawArc(2, 2, 12, 12, 45, 290)
+                g2.drawLine(13, 1, 13, 5)
+                g2.drawLine(9, 5, 13, 5)
+            } else if (quit) {
                 g2.drawArc(2, 2, 12, 12, 45, -270)
                 g2.drawLine(8, 1, 8, 7)
             } else {

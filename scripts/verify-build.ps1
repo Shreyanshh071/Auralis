@@ -371,15 +371,23 @@ if ($webCode -eq 0 -and (Test-Path -Path 'dist\index.html')) {
         # .env is filled, so only android and ios platforms are faults.
         $leakChecks = [ordered]@{}
         $leakChecks['no android/ios Firebase app ID'] = '1:[0-9]+:(android|ios):[0-9A-Za-z]+'
-        $leakChecks['no Android key from google-services.json'] = 'REDACTED_API_KEY'
+        $servicesPath = Join-Path $repoRoot 'android/app/google-services.json'
+        if (Test-Path -LiteralPath $servicesPath) {
+            $services = Get-Content -LiteralPath $servicesPath -Raw | ConvertFrom-Json
+            $androidKeys = @($services.client | ForEach-Object { $_.api_key } |
+                ForEach-Object { $_.current_key } | Where-Object { $_ })
+            if ($androidKeys.Count -gt 0) {
+                $leakChecks['no Android key from local google-services.json'] =
+                    ($androidKeys | ForEach-Object { [regex]::Escape($_) }) -join '|'
+            }
+        }
 
         foreach ($name in $leakChecks.Keys) {
             $rx = $leakChecks[$name]
             $key = "bundle: $name"
             $hit = [regex]::Match($js, $rx)
             if ($hit.Success) {
-                $found = $hit.Value
-                Write-Host "    [FAIL] $name, found '$found'" -ForegroundColor Red
+                Write-Host "    [FAIL] $name (matched value redacted)" -ForegroundColor Red
                 $results[$key] = 'FAIL'
             } else {
                 Write-Host "    [OK]   $name" -ForegroundColor Green

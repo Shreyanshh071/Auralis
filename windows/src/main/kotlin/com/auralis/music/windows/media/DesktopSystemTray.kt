@@ -11,7 +11,8 @@ import javax.imageio.ImageIO
 internal class DesktopSystemTray(
     private val onOpen: () -> Unit,
     private val onQuit: () -> Unit,
-    private val pointerLocation: () -> Point? = { MouseInfo.getPointerInfo()?.location }
+    private val pointerLocation: () -> Point? = { MouseInfo.getPointerInfo()?.location },
+    private val onRestart: () -> Unit
 ) : AutoCloseable {
     private var icon: TrayIcon? = null
     private var menu: DesktopTrayMenu? = null
@@ -22,7 +23,7 @@ internal class DesktopSystemTray(
         if (!SystemTray.isSupported()) return
         runCatching {
             val image = trayImage() ?: return
-            val popup = DesktopTrayMenu(onOpen, onQuit)
+            val popup = DesktopTrayMenu(onOpen, onQuit, onRestart)
             menu = popup
             fun showMenu(e: MouseEvent) {
                 if (!e.isPopupTrigger) return

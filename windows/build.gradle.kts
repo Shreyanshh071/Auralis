@@ -203,7 +203,7 @@ tasks.register<JavaExec>("verifyYouTubeLibrary") {
     mainClass.set("com.auralis.music.windows.dev.VerifyYouTubeLibraryKt")
 }
 
-// Owner-provided desktop OAuth client, outside version control.
+// Owner-provided desktop OAuth and Firebase configuration, outside version control.
 tasks.named<ProcessResources>("processResources") {
     from("local-resources")
     from("version.properties") { rename { "windows-version.properties" } }
