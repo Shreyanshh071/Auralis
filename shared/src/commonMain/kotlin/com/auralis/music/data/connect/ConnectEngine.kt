@@ -253,7 +253,7 @@ class ConnectEngine(
     fun setDeviceAvailable(available: Boolean) {
         if (deviceAvailable == available || stopped) return
         deviceAvailable = available
-        scope.launch { heartbeatNow() }
+        scope.launch { heartbeatNow(); locked {} }
     }
     @Volatile private var stopped = false
     @Volatile private var connected = false
@@ -358,7 +358,7 @@ class ConnectEngine(
         val s = current?.session ?: return false
         if (s.ownerId == me.id) return false
         val now = clock.now()
-        if (s.ownerActive(now)) {
+        if (s.ownerActive(now) && (s.playing || s.buffering || player?.canPlay != true)) {
             if (s.track == null && intent !is ConnectIntent.Load) return false
             optimisticFor(intent, s, now)
             val feedback = optimistic
@@ -368,11 +368,10 @@ class ConnectEngine(
         }
         if (s.track == null) return false
         return when (intent) {
-            // A new pick plays here; this client becomes the output as its audio starts.
-            is ConnectIntent.Load -> false
-            ConnectIntent.Pause -> true
+            ConnectIntent.Pause -> false
             else -> {
-                scope.launch { locked { takeOver(intent) } }
+                if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
+                else scope.launch { locked { takeOver(intent) } }
                 true
             }
         }
@@ -504,6 +503,9 @@ class ConnectEngine(
         val snap = current ?: return
         val s = snap.session
         val now = clock.now()
+        pendingLocalTransfer?.let { pending ->
+            if (s?.transfer?.id != pending.id || s.transfer.status == TransferStatus.FAILED) pendingLocalTransfer = null
+        }
 
         if (s != null) {
             val owned = ownerEpoch
@@ -514,13 +516,22 @@ class ConnectEngine(
                 startWatch = null
                 player?.silence()
             }
-            if (ownerEpoch == null && s.ownerId == me.id) {
+            if (ownerEpoch == null && s.ownerId == me.id && (deviceAvailable || player?.snapshot()?.playing == true)) {
                 val t = s.transfer
                 ownerEpoch = s.epoch
                 if (t != null && t.status == TransferStatus.COMMITTED && t.to == me.id && t.epoch == s.epoch && startedTransfer != t.id) {
                     startedTransfer = t.id
                     log("Output handed to this device by ${t.from}")
-                    startLocal(snap, s.playing, t.from)
+                    val pending = pendingLocalTransfer?.takeIf { it.id == t.id }
+                    pendingLocalTransfer = null
+                    val startsWithPlay = pending?.intents?.firstOrNull() == ConnectIntent.Play
+                    startLocal(snap, s.playing || startsWithPlay, t.from)
+                    player?.let { p ->
+                        pending?.intents?.forEachIndexed { index, intent ->
+                            if (!(index == 0 && startsWithPlay)) executeLocalIntent(intent, s, p)
+                        }
+                        if (pending != null && p.snapshot().playing) startWatch = StartWatch(t.from, localNow())
+                    }
                 } else if (s.track != null && player?.snapshot()?.playing != true) {
                     // Reopening the previous output restores the account's bookmark silently.
                     // Do this before publishing, or an empty/stale local queue overwrites it.
@@ -561,10 +572,16 @@ class ConnectEngine(
 
         val session = current?.session
         if (ownerEpoch != null && session != null) {
+            val local = player?.snapshot()
+            if (!deviceAvailable && local?.playing != true && local?.buffering != true && session.transfer?.status?.active != true) {
+                releaseIdleOutput(session, local)
+                return
+            }
             applyCommands(session, clock.now())
             publish(force = false)
         } else if (ownerEpoch == null) {
             val p = player ?: return
+            restoreLocalBookmark(current, p)
             warmRemoteSong(session, p)
             if (preparing?.isActive == true || !p.snapshot().playing) return
             if (session != null && session.ownerActive(clock.now()) && session.ownerId != me.id) {
@@ -575,6 +592,41 @@ class ConnectEngine(
                 claim(useSessionState = false)
             }
         }
+    }
+
+    /** Paused hidden clients must not keep renewing a lease for an unavailable output. */
+    private suspend fun releaseIdleOutput(session: ConnectSession, local: LocalPlayback?) {
+        val epoch = ownerEpoch ?: return
+        val now = clock.now()
+        val written = update { snapshot ->
+            val latest = snapshot.session ?: return@update null
+            val latestLocal = player?.snapshot()
+            if (deviceAvailable || latestLocal?.playing == true || latestLocal?.buffering == true) return@update null
+            if (latest.ownerId != me.id || latest.epoch != epoch || latest.transfer?.status?.active == true) return@update null
+            ConnectWrite(latest.copy(version = latest.version + 1, leaseUntilMs = 0L, playing = false,
+                buffering = false, positionMs = local?.positionMs ?: session.positionMs,
+                positionAtMs = now, updatedBy = me.id))
+        }
+        if (written != null) { ownerEpoch = null; lastPublished = null }
+    }
+
+    private data class RestoredBookmark(val owner: String, val epoch: Long, val track: ConnectTrack,
+        val position: Long, val index: Int, val queue: ConnectQueue?, val shuffle: Boolean,
+        val repeat: RepeatMode, val context: ConnectContext?)
+    private var restoredBookmark: RestoredBookmark? = null
+
+    /** Restore a resumable local player without claiming the account or starting audio. */
+    private fun restoreLocalBookmark(snapshot: ConnectSnapshot?, p: ConnectPlayer) {
+        val session = snapshot?.session ?: return
+        val track = session.track ?: return
+        if (!deviceAvailable || !p.canPlay || session.ownerId == me.id ||
+            (session.ownerActive(clock.now()) && (session.playing || session.buffering)) ||
+            session.transfer?.status?.active == true || preparing?.isActive == true || p.snapshot().playing) return
+        val bookmark = RestoredBookmark(session.ownerId, session.epoch, track, session.positionMs,
+            session.queueIndex, snapshot.queue, session.shuffle, session.repeat, session.context)
+        if (restoredBookmark == bookmark) return
+        restoredBookmark = bookmark
+        startLocal(snapshot, play = false, from = null)
     }
 
     private fun window(local: LocalPlayback): Triple<List<ConnectTrack>, Int, Int> {
@@ -769,7 +821,11 @@ class ConnectEngine(
                     locked {
                         val latest = pendingSeek ?: return@locked
                         pendingSeek = null
-                        sendCommand(latest.first, latest.second)
+                        val session = current?.session
+                        if (player?.canPlay == true && session != null &&
+                            (session.ownerId == me.id || !session.ownerActive(clock.now()) ||
+                                (!session.playing && !session.buffering))) takeOver(latest.first)
+                        else sendCommand(latest.first, latest.second)
                     }
                 }
             } finally { sendingSeek = false }
@@ -829,14 +885,37 @@ class ConnectEngine(
 
     private suspend fun takeOver(intent: ConnectIntent) {
         val s = current?.session ?: return
-        if (s.ownerActive(clock.now()) && s.ownerId != me.id) { sendCommand(intent); return }
-        val written = claim(useSessionState = true) ?: run { sendCommand(intent); return }
+        if (s.ownerId == me.id && ownerEpoch != null) {
+            player?.let { executeLocalIntent(intent, s, it) }
+            return
+        }
+        if (s.ownerActive(clock.now()) && s.ownerId != me.id && (s.playing || s.buffering)) { sendCommand(intent); return }
+        val written = claim(useSessionState = true)
+        if (written == null) {
+            val latest = current?.session ?: return
+            if (latest.ownerActive(clock.now()) && (latest.playing || latest.buffering)) { sendCommand(intent); return }
+            // A paused device can still hold a valid lease. Use the existing fenced
+            // handoff, then apply this local action instead of restarting that device.
+            requestTransfer(me.id, reason = "local-control")
+            val transfer = current?.session?.transfer?.takeIf { it.to == me.id && it.status.active } ?: return
+            val previous = pendingLocalTransfer?.takeIf { it.id == transfer.id }?.intents.orEmpty()
+            val actions = if (intent is ConnectIntent.Seek && previous.lastOrNull() is ConnectIntent.Seek)
+                previous.dropLast(1) + intent else previous + intent
+            pendingLocalTransfer = PendingLocalTransfer(transfer.id, actions.takeLast(MAX_COMMANDS))
+            return
+        }
         startLocal(written, play = intent == ConnectIntent.Play, from = null)
         val p = player ?: return
+        if (intent != ConnectIntent.Play && intent != ConnectIntent.Pause) executeLocalIntent(intent, written.session ?: s, p)
+    }
+
+    private data class PendingLocalTransfer(val id: String, val intents: List<ConnectIntent>)
+    private var pendingLocalTransfer: PendingLocalTransfer? = null
+
+    private fun executeLocalIntent(intent: ConnectIntent, session: ConnectSession, p: ConnectPlayer) {
         when (intent) {
-            ConnectIntent.Play, ConnectIntent.Pause -> Unit
-            is ConnectIntent.Load -> p.load(intent.tracks, intent.index, 0L, true, s.shuffle, s.repeat, intent.context)
-            else -> execute(commandFor(intent, written.session ?: s, clock.now()), p)
+            is ConnectIntent.Load -> p.load(intent.tracks, intent.index, 0L, true, session.shuffle, session.repeat, intent.context)
+            else -> execute(commandFor(intent, session, clock.now()), p)
         }
     }
 
@@ -1056,7 +1135,8 @@ class ConnectEngine(
      */
     private fun warmRemoteSong(session: ConnectSession?, p: ConnectPlayer) {
         val track = session?.track ?: return
-        if (!p.canPlay || !session.ownerActive(clock.now()) || session.ownerId == me.id || track.id == warmedSong) return
+        if (!p.canPlay || !session.ownerActive(clock.now()) || (!session.playing && !session.buffering) ||
+            session.ownerId == me.id || track.id == warmedSong) return
         warmedSong = track.id
         scope.launch {
             kotlinx.coroutines.delay(REMOTE_WARM_DELAY_MS)
@@ -1122,7 +1202,10 @@ class ConnectEngine(
                 ConnectTransferUi(t.to, labels[t.to] ?: t.toName, failed = true, reason = t.reason)
             else -> null
         }
-        val output = s?.takeIf { it.ownerId.isNotEmpty() }?.let {
+        val localDefault = player?.canPlay == true && deviceAvailable &&
+            (s == null || !s.ownerActive(now) || (!s.playing && !s.buffering)) && s?.transfer?.status?.active != true
+        val output = if (localDefault) ConnectOutput(me.id, myName(), me.type, true, true,
+            player?.snapshot()?.playing == true) else s?.takeIf { it.ownerId.isNotEmpty() }?.let {
             val active = it.ownerActive(now) || (it.ownerId == me.id && ownerEpoch != null)
             ConnectOutput(it.ownerId, labels[it.ownerId] ?: it.ownerName, it.ownerType, it.ownerId == me.id, active,
                 if (it.ownerId == me.id) player?.snapshot()?.playing == true else it.playing && active)
@@ -1140,7 +1223,7 @@ class ConnectEngine(
         }.sortedWith(compareByDescending<ConnectDeviceRow> { it.isThis }.thenByDescending { it.isOutput }
             .thenBy { it.state == ConnectRowState.UNAVAILABLE }.thenByDescending { it.device.lastSeenMs })
 
-        val remote = if (s != null && ownerEpoch == null && s.ownerId != me.id && s.track != null && output != null) {
+        val remote = if (s != null && ownerEpoch == null && s.ownerId != me.id && s.track != null && output != null && !output.isThis) {
             val q = current?.queue?.takeIf { it.rev == s.queueRev }
             val queue = q?.tracks?.map { it.toTrack() } ?: listOf(s.track.toTrack())
             val index = if (q != null) s.queueIndex.coerceIn(-1, queue.lastIndex) else 0

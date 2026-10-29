@@ -56,9 +56,11 @@ import com.auralis.music.ui.lyrics.smoothCenterLyric
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Compact sidebar layout using the same genuine word timing and renderer as the full player. */
@@ -66,7 +68,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SidebarLyricsView(lyrics: LyricsData?, position: State<Long>, onSeek: (Long) -> Unit, durationMs: Long? = lyrics?.durationMs, lineGap: androidx.compose.ui.unit.Dp = 0.dp,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
-    followAnchorFraction: Float = .30f,
+    followAnchorFraction: Float = .50f,
     introAnchorFraction: Float = followAnchorFraction) {
     val store = com.auralis.music.ui.theme.LocalAppearanceSettingsStore.current
     val settings = store?.settingsFlow?.collectAsState(store.getInitialSettings())?.value ?: LocalAppearanceSettings.current
@@ -149,9 +151,9 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     }
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
-    LaunchedEffect(lines, breaks, appearance.autoScrollLyrics, followAnchorFraction) {
+    var firstAnchor by remember(lines, list) { mutableStateOf(true) }
+    LaunchedEffect(lines, breaks, list, appearance.autoScrollLyrics, followAnchorFraction) {
         if (!appearance.autoScrollLyrics) return@LaunchedEffect
-        var firstAnchor = true
         snapshotFlow { Triple(scrollTarget, manualScroll, list.layoutInfo.viewportSize) }
             .distinctUntilChanged().collectLatest { (target, lastInput, viewport) ->
             followingScrollJob?.cancel()
@@ -160,6 +162,15 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
             snapshotFlow { list.isScrollInProgress }.first { !it }
             if (viewport.height <= 0) return@collectLatest
             val motion = followingScope.launch {
+            if (introActive) {
+                // The dots lead the list naturally below the header. Centering
+                // them creates a scroll offset that gets unwound DOWNWARD when
+                // the first phrase starts, fighting the dots' upward collapse.
+                if (firstAnchor && lastInput == 0L) list.scrollToItem(0)
+                else list.animateScrollToItem(0)
+                firstAnchor = false
+                return@launch
+            }
             if (firstAnchor && lastInput == 0L) {
                 // Content padding already supplies the anchor. Applying it again as a
                 // negative offset can put the active row below the visible viewport.
@@ -170,8 +181,19 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                     val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * followAnchorFraction
                     list.scroll { scrollBy(item.offset + item.size / 2f - anchor) }
                 }
-            } else list.smoothCenterLyric(target, followAnchorFraction, rowHeights, followingMotion)
+            }
             firstAnchor = false
+            while (currentCoroutineContext().isActive) {
+                list.smoothCenterLyric(target, followAnchorFraction, rowHeights, followingMotion)
+                // A wrapped row, disappearing intro, or font change can move the
+                // sung phrase after the spring settles without changing its index.
+                // Sleep until its layout changes, then restore the same anchor.
+                snapshotFlow {
+                    val info = list.layoutInfo
+                    val row = info.visibleItemsInfo.firstOrNull { it.index == target }
+                    Triple(info.viewportStartOffset, info.viewportEndOffset, row?.let { it.offset to it.size })
+                }.drop(1).first()
+            }
             }
             followingScrollJob = motion
             try { motion.join() } finally { motion.cancel() }
@@ -179,11 +201,13 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     }
     Column(Modifier.fillMaxSize()) {
     BoxWithConstraints(Modifier.weight(1f).hoverable(hover)) {
-        // Let the same anchor be reachable at the first and final phrase too;
-        // eight pixels of padding pinned those rows against the viewport edges.
+        // Keep the opening inset stable when the dots disappear. Increasing it
+        // to the sung-line anchor pushes the first phrase DOWN into empty space.
+        // The opening phrase stays near the header; later phrases can center as
+        // preceding rows scroll away. Trailing padding lets the final line center.
         LazyColumn(state = list, contentPadding = PaddingValues(start = 8.dp, end = 8.dp,
-                top = if (appearance.autoScrollLyrics) maxHeight * followAnchorFraction else 8.dp,
-                bottom = if (appearance.autoScrollLyrics) maxHeight * (1f - followAnchorFraction) else 8.dp),
+                top = if (appearance.autoScrollLyrics) maxHeight * minOf(introAnchorFraction, lyricsAnchorFraction) else 8.dp,
+                bottom = if (appearance.autoScrollLyrics) maxHeight * (1f - lyricsAnchorFraction) else 8.dp),
             verticalArrangement = Arrangement.spacedBy(lineGap),
             modifier = Modifier.fillMaxSize()
                 .then(lyricsWheelScroll(list, beginManualScroll))
@@ -231,12 +255,12 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         if (hovered) VerticalScrollbar(rememberScrollbarAdapter(list),
             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 16.dp).width(5.dp))
     }
-    // Linked credits have a larger touch target than a plain provider label. Reserve a
-    // fixed footer and align its first line at the top, so removing Spicy's link cannot
-    // move the provider down or make the lyric viewport grow by eight pixels.
-    Box(Modifier.fillMaxWidth().height(36.dp).offset {
+    // Measure wrapped credits outside the lyric viewport instead of clipping them
+    // to a single fixed-height strip. Popup controls retain their masked inset.
+    Box(Modifier.fillMaxWidth().heightIn(min = 36.dp).offset {
         androidx.compose.ui.unit.IntOffset(0, -(popupControlsInset?.value?.roundToPx() ?: 0))
-    }.padding(horizontal = 8.dp), contentAlignment = Alignment.TopStart) {
+    }.padding(horizontal = 8.dp),
+        contentAlignment = Alignment.TopStart) {
         com.auralis.music.ui.lyrics.LyricsCredits(lyrics, compact = true)
     }
     }

@@ -14,6 +14,7 @@ import com.auralis.music.data.datastore.SettingsDataStore
 import com.auralis.music.data.datastore.StorageDataStore
 import com.auralis.music.data.datastore.UpdaterDataStore
 import java.io.File
+import kotlinx.coroutines.flow.first
 
 /**
  * The phone's settings stores on desktop: the same DataStore Preferences files (one per store,
@@ -33,4 +34,10 @@ class DesktopDataStores(private val dir: File) : com.auralis.music.data.datastor
     override val updater by lazy { UpdaterDataStore(file("auralis_updater")) }
     override val aiTranslation by lazy { AiTranslationDataStore(file("auralis_ai_translation")) }
     override val discord by lazy { DiscordRpcDataStore(file("discord_rpc_preferences")) }
+    val accountPreferencesLocal by lazy { com.auralis.music.data.sync.DataStoreAccountPreferences(
+        appearance.preferenceSyncDataStore, settings.preferenceSyncDataStore) {
+            com.auralis.music.data.sync.AccountPreferenceSchema.values(appearance.settingsFlow.first(), settings.settingsFlow.first())
+        } }
+    val accountPreferencesJournal by lazy { com.auralis.music.data.sync.DataStorePreferencesJournal(
+        file("auralis_account_preferences_sync")) }
 }

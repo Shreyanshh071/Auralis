@@ -214,6 +214,23 @@ class SpicyLyricsTest {
         assertTrue(requests.isEmpty())
     }
 
+    @Test fun rateLimitedMetadataIsNotReportedAsMissingAndKnownIdentityCanUsePublicMetadata() = runBlocking {
+        val requests = mutableListOf<Request>()
+        val fake = client(requests).newBuilder().addInterceptor { chain ->
+            if (chain.request().url.host == "api.spotify.com")
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(429)
+                    .message("Limited").header("Retry-After", "3600")
+                    .body("{}".toResponseBody("application/json".toMediaType())).build()
+            else chain.proceed(chain.request())
+        }.build()
+        // Application interceptors run in order; put the failure interceptor before the fixture responder.
+        val ordered = fake.newBuilder().apply { interceptors().reverse() }.build()
+        val source = SpicyLyricsSource(ordered, { key }, { "spotify_token" })
+        kotlin.test.assertFailsWith<java.io.IOException> { source.search(query.copy(reportFailures = true)) }
+        assertNotNull(source.search(query.copy(spotifyId = id, reportFailures = true)))
+        assertNull(source.search(query)) // The API backoff remains active.
+    }
+
     @Test fun cachedMappingIsScopedToMetadataAndExpires() = runBlocking {
         val requests = mutableListOf<Request>()
         var now = 1000L

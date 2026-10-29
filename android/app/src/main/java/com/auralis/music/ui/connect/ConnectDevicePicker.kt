@@ -148,7 +148,8 @@ private fun ConnectStatusLine(ui: ConnectUi, accent: Color) {
     val text = when {
         t != null && !t.failed -> str(R.string.connect_connecting_to, t.label)
         t != null -> str(R.string.connect_failed_to, t.label)
-        ui.output?.isThis == true -> str(R.string.connect_playing_on_this_device)
+        ui.output?.isThis == true -> if (ui.output?.playing == true) str(R.string.connect_playing_on_this_device)
+            else str(R.string.connect_current_output)
         else -> connectOutputLine(ui.output)
     } ?: return
     Text(text, color = if (t?.failed == true) Color(0xFFFF8A80) else accent, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

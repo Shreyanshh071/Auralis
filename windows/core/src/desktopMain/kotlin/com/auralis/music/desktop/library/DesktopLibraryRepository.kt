@@ -30,6 +30,9 @@ class DesktopLibraryRepository(file: File) : LibraryRepository {
     private val artists = MutableStateFlow<List<SavedArtist>>(emptyList())
     private val albums = MutableStateFlow<List<SavedAlbum>>(emptyList())
 
+    fun tracksForLyrics(): Sequence<Track> = favorites.value.asSequence().map { it.track } +
+        playlists.value.asSequence().flatMap { it.tracks.asSequence() }
+
     init {
         store.read()?.let { json ->
             favorites.value = json.optJSONArray("favorites")?.let { a ->

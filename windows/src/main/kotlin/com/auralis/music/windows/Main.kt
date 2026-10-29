@@ -170,13 +170,19 @@ fun main(args: Array<String>) {
         com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
 
+        val libraryDeferred = async {
+            com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
+        }
+
         val lyricsDeferred = async {
             val playback = playbackDeferred.await()
+            val lyricsLibrary = libraryDeferred.await()
             playback?.let {
                 com.auralis.music.desktop.lyrics.DesktopLyricsController(
                     it,
                     com.auralis.music.desktop.lyrics.DesktopLyricsRepository(
-                        com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics"))
+                        com.auralis.music.desktop.lyrics.LyricsDiskCache(java.io.File(dataDir, "lyrics")),
+                        knownTracks = { lyricsLibrary.tracksForLyrics() }
                     ),
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default),
                     spicyMode = stores.appearance.settingsFlow.map {
@@ -185,10 +191,6 @@ fun main(args: Array<String>) {
                     }
                 )
             }
-        }
-
-        val libraryDeferred = async {
-            com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
         }
 
         val historyDeferred = async {
@@ -231,6 +233,11 @@ fun main(args: Array<String>) {
         val lyr = step("lyrics") { lyricsDeferred.await() }
         val acc = step("account") { accountDeferred.await() }
         val flags = step("flags") { libraryFlagsDeferred.await() }
+        val preferencesDeviceStore = PropertiesFileKeyValueStore(java.io.File(dataDir, "account-preferences.properties"))
+        val preferencesDevice = preferencesDeviceStore.getString("device", "")?.takeIf(String::isNotBlank)
+            ?: java.util.UUID.randomUUID().toString().also { preferencesDeviceStore.putStrings(mapOf("device" to it)) }
+        com.auralis.music.windows.profile.startDesktopPreferencesSync(acc, stores.accountPreferencesLocal,
+            stores.accountPreferencesJournal, preferencesDevice, recorderScope)
 
         val radioRecommendations = com.auralis.music.windows.player.DesktopRadioRecommendations(hist)
         pb?.radioCandidates = radioRecommendations::candidates

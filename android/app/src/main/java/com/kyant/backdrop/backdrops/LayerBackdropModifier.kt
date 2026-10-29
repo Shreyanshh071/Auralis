@@ -8,6 +8,7 @@ package com.kyant.backdrop.backdrops
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.State
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
@@ -72,7 +73,11 @@ private class LayerBackdropNode(
 ) : DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
 
     fun observeInvalidationSignal() {
-        observeReads { invalidationSignal?.value }
+        observeReads {
+            invalidationSignal?.value
+            backdrop.captureGeneration
+            backdrop.graphicsLayer
+        }
     }
 
     override fun onAttach() {
@@ -85,8 +90,12 @@ private class LayerBackdropNode(
     }
 
     override fun ContentDrawScope.draw() {
-        drawContent()
+        // Record the page once and reuse that display list for the visible page.
+        // Drawing content before recording traversed it twice per source; nested
+        // page/header captures multiplied that work on the UI thread.
         recordLayer(this, backdrop.graphicsLayer) { backdrop.onDraw(this@draw) }
+        backdrop.onRecorded()
+        drawLayer(backdrop.graphicsLayer)
     }
 
     var lastCoordinates: LayoutCoordinates? = null

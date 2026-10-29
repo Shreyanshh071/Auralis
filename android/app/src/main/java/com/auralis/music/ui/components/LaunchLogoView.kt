@@ -14,6 +14,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import com.auralis.music.R
 
+/** Start Compose's entrance when the native launch cover has actually gone away. */
+val LocalLaunchContentVisible = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 /** RenderThread draws the mark first; the finished mark covers the first expensive app frame. */
 internal class LaunchLogoView(
     context: Context,

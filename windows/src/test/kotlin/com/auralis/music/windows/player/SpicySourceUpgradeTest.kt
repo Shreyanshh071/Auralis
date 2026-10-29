@@ -10,6 +10,66 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.*
 
 class SpicySourceUpgradeTest {
+    @Test fun spicyResultSurvivesHigherQualityProviderAndRestartWithoutAnotherNetworkCall() = runBlocking {
+        val folder = Files.createTempDirectory("auralis-provider-cache").toFile()
+        try {
+            val disk = LyricsDiskCache(folder)
+            val query = LyricsSearchQuery("Fixture", "Artist", 180, "independent-cache", durationMs = 180000)
+            val id = "abcdefghijklmnopqrstuv"
+            val spicy = lyrics(LyricsProvider.SPICY_LYRICS, wordSync = false).copy(spotifyTrackId = id)
+            disk.write("independent-cache", lyrics(LyricsProvider.QQMUSIC))
+            var lookups = 0
+            val first = DesktopLyricsRepository(disk, spicyEnabled = { true }, spicyLookup = { lookups++; spicy })
+            assertEquals(LyricsProvider.QQMUSIC, first.upgradeSpicy(query)?.provider)
+            val restarted = DesktopLyricsRepository(disk, providerLookup = { _, _ ->
+                lookups++; throw java.io.IOException("offline")
+            })
+            assertEquals(LyricsProvider.SPICY_LYRICS, restarted.fetchProvider(LyricsProvider.SPICY_LYRICS, query)?.provider)
+            assertEquals(1, lookups, "A source known to have lyrics must not require another metadata lookup")
+        } finally { folder.listFiles()?.forEach { it.delete() }; folder.delete() }
+    }
+
+    @Test fun savedSpotifyIdentityIsReusedOnlyForTheSameRecording() = runBlocking {
+        val id = "abcdefghijklmnopqrstuv"
+        val saved = Track("sp_$id", "Fixture", "Artist", duration = 180)
+        var received: LyricsSearchQuery? = null
+        val repository = DesktopLyricsRepository(knownTracks = { sequenceOf(saved) },
+            providerLookup = { _, query -> received = query; null })
+        val query = LyricsSearchQuery("Fixture", "Artist", 180, "youtube-id", durationMs = 180000)
+        repository.fetchProvider(LyricsProvider.SPICY_LYRICS, query)
+        assertEquals(id, received?.spotifyId)
+        for (different in listOf(query.copy(title = "Fixture (Live)"), query.copy(artist = "Someone Else"),
+            query.copy(durationMs = 210000))) {
+            repository.fetchProvider(LyricsProvider.SPICY_LYRICS, different)
+            assertNull(received?.spotifyId, "Do not borrow metadata from a different recording")
+        }
+        val direct = "zyxwvutsrqponmlkjihgfe"
+        repository.fetchProvider(LyricsProvider.SPICY_LYRICS, query.copy(spotifyId = direct))
+        assertEquals(direct, received?.spotifyId)
+    }
+
+    @Test fun importedIdentityWithoutDurationIsALookupHintWithStrictIdentityAndAmbiguityChecks() = runBlocking {
+        val id = "abcdefghijklmnopqrstuv"
+        val imported = Track("sp_$id", "Fixture", "Artist", duration = 0, album = "Release")
+        var saved = listOf(imported, imported)
+        var received: LyricsSearchQuery? = null
+        val repository = DesktopLyricsRepository(knownTracks = { saved.asSequence() },
+            providerLookup = { _, query -> received = query; null })
+        val query = LyricsSearchQuery("Fixture", "Artist", 180, "youtube-id", album = "Release", durationMs = 180000)
+        repository.fetchProvider(LyricsProvider.SPICY_LYRICS, query)
+        assertEquals(id, received?.spotifyId, "Duplicate imports of one identity remain a usable metadata hint")
+        for (different in listOf(query.copy(title = "Fixture (Live)"), query.copy(artist = "Someone Else"))) {
+            repository.fetchProvider(LyricsProvider.SPICY_LYRICS, different)
+            assertNull(received?.spotifyId)
+        }
+        saved = listOf(imported, imported.copy(id = "sp_zyxwvutsrqponmlkjihgfe"))
+        repository.fetchProvider(LyricsProvider.SPICY_LYRICS, query)
+        assertNull(received?.spotifyId, "Do not guess between ambiguous recordings of unknown length")
+        saved = listOf(imported.copy(duration = 210))
+        repository.fetchProvider(LyricsProvider.SPICY_LYRICS, query)
+        assertNull(received?.spotifyId, "A known different duration cannot become an unverified hint")
+    }
+
     private val videoId = "source-upgrade"
     private val query = LyricsSearchQuery("Fixture", "Artist", 180, "source-upgrade", durationMs = 180000)
     private fun lyrics(provider: LyricsProvider, wordSync: Boolean = true) = LyricsData(

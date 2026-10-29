@@ -34,7 +34,7 @@ class LyricsContinuousFollowTest {
                 frames()
                 val info = state.layoutInfo
                 val item = assertNotNull(info.visibleItemsInfo.firstOrNull { it.index == index })
-                val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * .30f
+                val anchor = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * .50f
                 assertTrue(abs(item.offset + item.size / 2f - anchor) < 3f,
                     "Phrase $index must reach the normal sidebar anchor, including at a list boundary")
             }

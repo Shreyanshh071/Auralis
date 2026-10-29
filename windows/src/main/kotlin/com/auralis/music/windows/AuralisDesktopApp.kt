@@ -518,11 +518,14 @@ fun AuralisDesktopApp(
     com.auralis.music.windows.settings.DesktopThemeOverrides {
     val shortcutPinIds by remember(homeViewModel) { homeViewModel.uiState.map { it.pinnedSpeedDialIds }.distinctUntilChanged() }.collectAsState(emptySet())
     val popupGlass = rememberPopupGlassSource()
+    var showLyricsProviders by remember { mutableStateOf(false) }
     val menuInvocation = remember { com.auralis.music.windows.library.MenuInvocationAnchor() }
     com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette,
         modifier = Modifier.recordPopupGlass(popupGlass).then(com.auralis.music.windows.library.menuInvocationRecorder(menuInvocation))) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalPopupGlassSource provides popupGlass,
+        com.auralis.music.ui.lyrics.LocalLyricsProviderPicker provides
+            if (lyrics != null) ({ showLyricsProviders = true }) else null,
         com.auralis.music.ui.library.LocalPlaylistCreation provides { request -> playlistCreationRequest = request; showCreatePlaylist = true },
         com.auralis.music.ui.library.LocalImportSyncChoice provides importSyncChoice,
         com.auralis.music.windows.player.LocalPlayerPlaylists provides library,
@@ -565,6 +568,8 @@ fun AuralisDesktopApp(
         syncPlaylists.firstOrNull { it.id == syncPlaylistId }?.let { playlist ->
             com.auralis.music.ui.library.PlaylistSyncDialog(playlist, playlistSync) { syncPlaylistId = null }
         }
+        if (showLyricsProviders && lyrics != null)
+            com.auralis.music.windows.player.LyricsProviderPicker(lyrics) { showLyricsProviders = false }
         if (showImport) GlassDialog({ showImport = false }) {
             val libraryState by libraryViewModel.uiState.collectAsState()
             com.auralis.music.ui.screens.ImportPlaylistsScreen(

@@ -20,7 +20,9 @@ internal class DockGlassEffect : AutoCloseable {
             builder.uniform("offset", -padding, -padding)
             val radius = cornerRadius.coerceAtMost(minOf(width, height) / 2f)
             builder.uniform("cornerRadii", radius, radius, radius, radius)
-            builder.uniform("refractionHeight", lensHeightDp * density)
+            // A fixed rim is almost invisible on large menus. Keep the same
+            // lens curve across a proportional band of each glass surface.
+            builder.uniform("refractionHeight", maxOf(lensHeightDp * density, minOf(width, height) * .45f))
             builder.uniform("refractionAmount", -lensAmountDp * density)
             builder.uniform("depthEffect", 1f)
             builder.uniform("chromaticAberration", 1f)

@@ -171,10 +171,17 @@ class HomeViewModel(
     private val libraryRepository: LibraryRepository? = null,
     private val audioPlayer: com.auralis.music.data.service.AuralisAudioPlayer? = null,
     private val isOnline: StateFlow<Boolean> = com.auralis.music.data.network.ConnectivityMonitor.isOnline,
-    private val listeningTimes: Flow<Map<String, Long>>? = null
+    private val listeningTimes: Flow<Map<String, Long>>? = null,
+    private val speedDialListens: Flow<List<SpeedDialListen>>? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
+    private val cachedHomeReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+    private val _initialContentReady = MutableStateFlow(false)
+    val initialContentReady: StateFlow<Boolean> = _initialContentReady.asStateFlow()
+    private val backgroundWork = HomeBackgroundWork(context != null)
+    private var homeLoadJob: kotlinx.coroutines.Job? = null
+    fun onHomeScrollChanged(active: Boolean) = backgroundWork.onScrollChanged(active)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private fun updateMeasuredListening(times: Map<String, Long>) {
@@ -243,6 +250,29 @@ class HomeViewModel(
     }
 
     init {
+        // Qualification and recent/top songs do not depend on loading every
+        // playlist and its tracks. Publish them as soon as the small stats query
+        // returns, instead of hiding Speed Dial behind the full library combine.
+        viewModelScope.launch(ioDispatcher) {
+            // Pins/cache and measured eligibility form one first presentation.
+            // Never reveal an empty dial while either half is still restoring.
+            cachedHomeReady.await()
+            val listens = speedDialListens ?: if (context != null && libraryRepository != null) {
+                com.auralis.music.data.local.AuralisDatabase.getInstance(context).playbackEventDao().getSpeedDialListens()
+            } else null
+            if (listens == null) _initialContentReady.value = true
+            try {
+                listens?.distinctUntilChanged()?.collect {
+                    applyListeningTracks(it)
+                    _initialContentReady.value = true
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // A failed local query must not trap the user behind the launch logo.
+                _initialContentReady.value = true
+            }
+        }
         listeningTimes?.let { times ->
             viewModelScope.launch(ioDispatcher) {
                 times.collect { measured ->
@@ -284,12 +314,10 @@ class HomeViewModel(
         if (context != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
                 PlaylistListeningStore.load(context)
-                val trackListenTimes = com.auralis.music.data.local.AuralisDatabase.getInstance(context)
-                    .playbackEventDao().getSpeedDialListens()
-                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats, trackListenTimes) { playlists, stats, times ->
+                combine(libraryRepository.getPlaylists(), PlaylistListeningStore.stats) { playlists, stats ->
                     val top = PlaylistSpeedDialRanking.mostListened(playlists, stats, PlaylistSpeedDialRanking.MAX_PLAYLISTS)
-                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) } to times
-                }.distinctUntilChanged().collect { (ranked, times) ->
+                    top.map { it to (stats[it.id]?.listenedMs ?: 0L) }
+                }.distinctUntilChanged().collect { ranked ->
                     mostListenedPlaylistItems = ranked.map { (playlist, listenedMs) ->
                         SpeedDialItem(
                             id = "playlist-${playlist.id}",
@@ -298,7 +326,6 @@ class HomeViewModel(
                             image = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
                         ) to listenedMs
                     }
-                    applyListeningTracks(times)
                     _uiState.update { current ->
                         val pinned = inMemoryPinnedItems
                         current.copy(speedDialPages = buildSpeedDialPages(
@@ -314,6 +341,7 @@ class HomeViewModel(
         }
         // 1. Immediately restore cached speed dial & recommendation shelves to UI (0ms cold start latency)
         viewModelScope.launch(ioDispatcher) {
+            try {
             context?.let { ctx ->
                 val cachedSpeedDial = HomeRecommendationsCache.getCachedSpeedDial(ctx)
                 val cachedRecs = HomeRecommendationsCache.getCachedSimilarRecommendations(ctx)
@@ -346,12 +374,18 @@ class HomeViewModel(
                     }
                 }
             }
+            } finally {
+                cachedHomeReady.complete(Unit)
+            }
         }
 
         // Scan saved metadata once. Only missing or suspicious rows receive a verified lookup.
         if (context != null && libraryRepository != null) {
             viewModelScope.launch(ioDispatcher) {
                 val prefs = context.getSharedPreferences("auralis_verified_artwork_repair", Context.MODE_PRIVATE)
+                // Repair is maintenance, not a prerequisite for opening Home.
+                kotlinx.coroutines.delay(15_000)
+                backgroundWork.awaitIdle()
                 if (prefs.getInt("version", 0) < 11 &&
                     System.currentTimeMillis() - prefs.getLong("last_attempt_v11", 0L) > 24L * 60 * 60 * 1000) {
                     try {
@@ -470,6 +504,10 @@ class HomeViewModel(
      */
     /** Apply the picked artists immediately before opening Home for the first time. */
     fun applyOnboardingPicks() {
+        // The saved starter version is replayed when Compose attaches on EVERY
+        // launch. Never clear an established listener's restored Home for it.
+        val current = _uiState.value
+        if (trackListenMs.isNotEmpty() || hasListeningHistory(current.recentTracks, current.topPlayedTracks)) return
         _uiState.update { it.copy(
             speedDialPages = emptyList(),
             starterArtistNames = NewUserSeedProvider.SEED_ARTISTS,
@@ -480,11 +518,13 @@ class HomeViewModel(
         loadHomeData()
     }
 
+    @Synchronized
     fun loadHomeData(): kotlinx.coroutines.Job {
+        homeLoadJob?.takeIf { it.isActive }?.let { return it }
         // Do not display blocking skeleton if Speed Dial or recommendations are already present
         _uiState.update { it.copy(isLoading = it.speedDialPages.isEmpty() && it.similarRecommendations.isEmpty(), error = null) }
 
-        return viewModelScope.launch(ioDispatcher) {
+        return viewModelScope.launch(ioDispatcher, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 // Phase 1: Ultra-fast local SQLite queries (completes in ~5-15ms)
                 val history = historyRepository.getHistory().first().ifEmpty { measuredHistory }
@@ -530,13 +570,16 @@ class HomeViewModel(
                 // Offline: nothing from the network; the reconnect collector reloads the feed later.
                 if (!isOnline.value || (context != null && !com.auralis.music.data.datastore.OnboardingStore.state.value.pickerDone)) return@launch
 
+                backgroundWork.awaitStartup()
+
                 // Phase 2: Decoupled background network calls (never block UI or startup frame)
                 // 1. YouTube Music Home feed
-                viewModelScope.launch(Dispatchers.IO) {
+                run {
                     try {
                         val (chips, sections) = innerTubeClient.getHome()
                         val cleanChips = chips.filter { !isUnwantedNoiseChip(it) }
                         val cleanSections = orderHomeSections(sections.filter { !isUnwantedNoiseSection(it) })
+                        backgroundWork.awaitIdle()
                         _uiState.update {
                             it.copy(
                                 homeChips = cleanChips,
@@ -547,28 +590,32 @@ class HomeViewModel(
                 }
 
                 // 2. Quick Picks
-                viewModelScope.launch(Dispatchers.IO) {
+                backgroundWork.awaitIdle()
+                run {
                     try {
                         fetchQuickPicks()
                     } catch (_: Exception) {}
                 }
 
                 // 3. Daily Discover
-                viewModelScope.launch(Dispatchers.IO) {
+                backgroundWork.awaitIdle()
+                run {
                     try {
                         fetchDailyDiscover()
                     } catch (_: Exception) {}
                 }
 
                 // 4. Similar Recommendations
-                viewModelScope.launch(Dispatchers.IO) {
+                backgroundWork.awaitIdle()
+                run {
                     try {
                         fetchSimilarRecommendations()
                     } catch (_: Exception) {}
                 }
 
                 // 5. Community Playlists
-                viewModelScope.launch(Dispatchers.IO) {
+                backgroundWork.awaitIdle()
+                run {
                     try {
                         fetchCommunityPlaylists()
                     } catch (_: Exception) {}
@@ -583,7 +630,8 @@ class HomeViewModel(
                 val candidatePool = if (isNewUser) NewUserSeedProvider.getInitialSeedTracks() else (topTracks + historyTracks + likedSeeds + heavy)
                 val tracksToPrewarm = firstPageTrackIds.mapNotNull { id -> candidatePool.firstOrNull { it.id == id } }
                 if (tracksToPrewarm.isNotEmpty()) {
-                    viewModelScope.launch(Dispatchers.IO) {
+                    backgroundWork.awaitIdle()
+                    run {
                         for (trk in tracksToPrewarm) {
                             try {
                                 val isCached = AudioStreamResolver.getCachedStream(trk.id) != null
@@ -604,7 +652,8 @@ class HomeViewModel(
                         .distinct()
 
                     if (artistsToResolve.isNotEmpty()) {
-                        viewModelScope.launch(Dispatchers.IO) {
+                        backgroundWork.awaitIdle()
+                        run {
                             for (art in artistsToResolve.take(6)) {
                                 try {
                                     val searchHits = searchRepository.search(art)
@@ -621,7 +670,7 @@ class HomeViewModel(
             } catch (_: Exception) {
                 _uiState.update { it.copy(isLoading = false) }
             }
-        }
+        }.also { homeLoadJob = it; it.start() }
     }
 
 
@@ -654,6 +703,7 @@ class HomeViewModel(
             if (isNewUser) {
                 val seedDiscoveries = NewUserSeedProvider.fetchSeedDailyDiscover(searchRepository, innerTubeClient)
                 if (seedDiscoveries.isNotEmpty()) {
+                    backgroundWork.awaitIdle()
                     _uiState.update { it.copy(dailyDiscover = seedDiscoveries) }
                     context?.let { HomeRecommendationsCache.saveDailyDiscover(it, seedDiscoveries) }
                 }
@@ -709,6 +759,7 @@ class HomeViewModel(
 
             val finalItems = discoveries.distinctBy { it.recommendation.id }.shuffled()
             if (finalItems.isNotEmpty()) {
+                backgroundWork.awaitIdle()
                 _uiState.update { it.copy(dailyDiscover = finalItems) }
                 context?.let { HomeRecommendationsCache.saveDailyDiscover(it, finalItems) }
             }
@@ -729,6 +780,7 @@ class HomeViewModel(
             if (isNewUser || (NewUserSeedProvider.hasStarter && !SpeedDialEligibility.ready(trackListenMs))) {
                 val seedRecs = NewUserSeedProvider.fetchSeedSimilarRecommendations(searchRepository)
                 if (seedRecs.isNotEmpty()) {
+                    backgroundWork.awaitIdle()
                     _uiState.update { it.copy(similarRecommendations = seedRecs) }
                     context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, seedRecs) }
                 }
@@ -840,6 +892,7 @@ class HomeViewModel(
 
             val finalRecs = similarList.toList()
             if (finalRecs.isNotEmpty()) {
+                backgroundWork.awaitIdle()
                 _uiState.update { it.copy(similarRecommendations = finalRecs) }
                 context?.let { HomeRecommendationsCache.saveSimilarRecommendations(it, finalRecs) }
             }
@@ -877,6 +930,7 @@ class HomeViewModel(
                         }
                         .take(24)
                     if (picks.isNotEmpty()) {
+                        backgroundWork.awaitIdle()
                         _uiState.update { it.copy(quickPicks = picks) }
                         return@withContext
                     }
@@ -891,6 +945,7 @@ class HomeViewModel(
             if (allUserTracks.isEmpty()) {
                 val seedPicks = NewUserSeedProvider.fetchSeedQuickPicks(searchRepository)
                 if (seedPicks.isNotEmpty()) {
+                    backgroundWork.awaitIdle()
                     _uiState.update { it.copy(quickPicks = seedPicks) }
                 }
                 return@withContext
@@ -1032,6 +1087,7 @@ class HomeViewModel(
             }
 
             if (finalQuickPicks.isNotEmpty()) {
+                backgroundWork.awaitIdle()
                 _uiState.update { it.copy(quickPicks = finalQuickPicks) }
 
                 launch(Dispatchers.IO) {
@@ -1046,6 +1102,7 @@ class HomeViewModel(
                         } else trk
                     }
                     if (updated) {
+                        backgroundWork.awaitIdle()
                         _uiState.update { it.copy(quickPicks = resolvedPicks) }
                     }
                 }
@@ -1080,6 +1137,7 @@ class HomeViewModel(
             if (history.isEmpty() || topArtist.isNullOrBlank()) {
                 val seedPlaylists = NewUserSeedProvider.fetchSeedCommunityPlaylists(searchRepository)
                 if (seedPlaylists.isNotEmpty()) {
+                    backgroundWork.awaitIdle()
                     _uiState.update { it.copy(communityPlaylists = seedPlaylists) }
                     return@withContext
                 }
@@ -1094,6 +1152,7 @@ class HomeViewModel(
                 searchRepository.searchPlaylists("Popular Music Mix").take(8)
             }
             if (community.isNotEmpty()) {
+                backgroundWork.awaitIdle()
                 _uiState.update { it.copy(communityPlaylists = community) }
             }
         } catch (_: Exception) {}

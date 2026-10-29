@@ -769,7 +769,8 @@ fun NowPlayingModal(
     val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = lyricsClockSource,
         enabled = (currentTab == NowPlayingTab.LYRICS ||
-            (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying,
+            (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying &&
+            LocalPlayerModalVisualState.current?.animationsActive != false,
         fallbackPositionMs = playbackPositionState
     )
 

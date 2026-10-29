@@ -5,6 +5,9 @@ import com.auralis.music.data.network.RecordingMatches
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.Track
+import com.auralis.music.domain.model.LyricsProvider
+import com.auralis.music.domain.model.SyncType
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +30,11 @@ class DesktopLyricsController(
     private val scope: CoroutineScope,
     private val spicyMode: Flow<Boolean> = flowOf(true)
 ) {
-    data class State(val trackId: String? = null, val lyrics: LyricsData? = null, val isLoading: Boolean = false, val originalLyrics: LyricsData? = null)
+    enum class ProviderStatus { FETCHING, FOUND, NOT_FOUND, UNAVAILABLE }
+    data class State(val trackId: String? = null, val lyrics: LyricsData? = null, val isLoading: Boolean = false,
+        val originalLyrics: LyricsData? = null,
+        val providerStatus: Map<LyricsProvider, ProviderStatus> = emptyMap(),
+        val providerSyncTypes: Map<LyricsProvider, SyncType> = emptyMap())
 
     private val _state = MutableStateFlow(State())
     fun applyTranslation(trackId: String?, source: LyricsData, translated: LyricsData): Boolean {
@@ -47,6 +54,49 @@ class DesktopLyricsController(
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var job: Job? = null
+    private var providerJob: Job? = null
+    @Volatile private var shownTrack: Track? = null
+    @Volatile private var manualTrackId: String? = null
+    private val providerGeneration = java.util.concurrent.atomic.AtomicLong()
+
+    fun selectableProviders(): List<LyricsProvider> = repository.selectableProviders()
+
+    fun pickProvider(provider: LyricsProvider) {
+        val track = shownTrack ?: return
+        if (provider !in selectableProviders()) return
+        job?.cancel()
+        providerJob?.cancel()
+        manualTrackId = track.id
+        val generation = providerGeneration.incrementAndGet()
+        _state.update { if (it.trackId != track.id) it else
+            it.copy(providerStatus = it.providerStatus.filterValues { status -> status != ProviderStatus.FETCHING } +
+                (provider to ProviderStatus.FETCHING)) }
+        providerJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val videoId = RecordingMatches.getMatchedVideoId(track.id) ?: track.id
+            val durationMs = playback.connectRemote.value?.takeIf { it.track.id == track.id }?.durationMs
+                ?.takeIf { it > 0L } ?: (playback.lengthMs.value.takeIf { it > 0L } ?: track.duration * 1000L)
+            var unavailable = false
+            val result = try {
+                repository.fetchProvider(provider, LyricsSearchQuery(track.title, track.artist,
+                    durationSec = durationMs / 1000L, videoId = videoId, album = track.album,
+                    channelTitle = track.channelTitle, durationMs = durationMs,
+                    spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id)))
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+              catch (e: Exception) {
+                  com.auralis.music.util.Log.w("DesktopLyrics", "Provider $provider unavailable for '${track.title}': ${e.message}")
+                  unavailable = true; null
+              }
+            ensureActive()
+            _state.update { current ->
+                if (current.trackId != track.id || generation != providerGeneration.get()) current
+                else if (result == null) current.copy(providerStatus = current.providerStatus +
+                    (provider to if (unavailable) ProviderStatus.UNAVAILABLE else ProviderStatus.NOT_FOUND))
+                else current.copy(lyrics = result, originalLyrics = null, isLoading = false,
+                    providerStatus = current.providerStatus + (provider to ProviderStatus.FOUND),
+                    providerSyncTypes = current.providerSyncTypes + (provider to result.syncType))
+            }
+        }
+    }
 
     init {
         scope.launch {
@@ -66,6 +116,11 @@ class DesktopLyricsController(
     private val upgradeAttempted = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     private fun load(track: Track?, preferSpicy: Boolean) {
+        shownTrack = track
+        if (track != null && manualTrackId == track.id) return
+        manualTrackId = null
+        providerGeneration.incrementAndGet()
+        providerJob?.cancel()
         job?.cancel()
         if (track == null) {
             _state.value = State()
@@ -83,7 +138,7 @@ class DesktopLyricsController(
             fun applyResult(candidate: LyricsData?, loading: Boolean = false) {
                 while (true) {
                     val current = _state.value
-                    if (current.trackId != track.id || current.originalLyrics != null) return
+                    if (current.trackId != track.id || current.originalLyrics != null || manualTrackId == track.id) return
                     val selected = DesktopLyricsRepository.choose(current.lyrics, candidate, preferSpicy)
                     if (_state.compareAndSet(current, current.copy(lyrics = selected,
                             isLoading = selected == null && loading))) return

@@ -225,7 +225,7 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
                     devices.orEmpty().forEach { (id, name) ->
                         val selected = if (chosen == null || devices.orEmpty().none { it.first == chosen }) id.isEmpty() else id == chosen
                         com.auralis.music.windows.GlassDropdownMenuItem(
-                            text = { Text(name, maxLines = 2) },
+                            text = { Text(name) },
                             leadingIcon = {
                                 val isHeadphones = name.contains("headphone", ignoreCase = true) || name.contains("buds", ignoreCase = true) || name.contains("airpod", ignoreCase = true)
                                 Icon(

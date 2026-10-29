@@ -29,7 +29,6 @@ import com.auralis.music.ui.components.LiquidGlassPageTitle
 import com.auralis.music.ui.components.rememberPageHeaderGlass
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.auralis.music.ui.components.UnfoldIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
@@ -76,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
@@ -141,6 +141,7 @@ fun HomeScreen(
     onOpenStats: () -> Unit = {},
     onOpenWrapped: () -> Unit = {},
     onRefresh: () -> Unit = {},
+    onScrollStateChanged: (Boolean) -> Unit = {},
     onArtistClick: (Artist) -> Unit = {},
     onAlbumClick: (PlaylistResult) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -175,7 +176,22 @@ fun HomeScreen(
         !uiState.isOffline
     val context = LocalContext.current
     val homeScrollState = rememberLazyListState()
+    val scrollCallback by androidx.compose.runtime.rememberUpdatedState(onScrollStateChanged)
+    androidx.compose.runtime.LaunchedEffect(homeScrollState) {
+        androidx.compose.runtime.snapshotFlow { homeScrollState.isScrollInProgress }
+            .collect { scrollCallback(it) }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { scrollCallback(false) }
+    }
     val reducedScrollMotion = LocalReducedMotion.current
+    val launchContentVisible = com.auralis.music.ui.components.LocalLaunchContentVisible.current
+    val entrance = remember { androidx.compose.animation.core.Animatable(if (reducedScrollMotion) 1f else 0f) }
+    val entranceDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 12.dp.toPx() }
+    androidx.compose.runtime.LaunchedEffect(launchContentVisible) {
+        if (launchContentVisible) entrance.animateTo(1f, androidx.compose.animation.core.tween(380,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
     val headerScope = rememberCoroutineScope()
     // Observe dynamic theme tokens at root of HomeScreen so dynamic theme transitions
     // immediately recompose the screen and visible elements without requiring scroll.
@@ -206,8 +222,7 @@ fun HomeScreen(
             if (reducedScrollMotion) homeScrollState.scrollToItem(0) else homeScrollState.smoothScrollToTop()
         } }
     }
-    // When Home first appeared: its sections unfold in only during the first moments after launch.
-    val openedAtMs = remember { android.os.SystemClock.uptimeMillis() }
+    // All restored sections share the entrance above; keep their layout stable.
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<PlaylistResult?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
@@ -216,6 +231,10 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .then(Modifier.graphicsLayer {
+                alpha = entrance.value
+                translationY = entranceDistance * (1f - entrance.value)
+            })
             .background(themeBackground)
     ) {
         CompositionLocalProvider(
@@ -245,7 +264,7 @@ fun HomeScreen(
                                 if (homeScrollState.firstVisibleItemIndex == 0) homeScrollState.firstVisibleItemScrollOffset
                                 else Int.MAX_VALUE
                             }
-                        ) else UnfoldIn(0, openedAtMs) {
+                        ) else Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -327,7 +346,7 @@ fun HomeScreen(
                     // 3. SPEED DIAL (3x3 Grid Carousel with 3 Pagination Dots)
                     // ================================================================
                     if (uiState.speedDialPages.isNotEmpty()) {
-                        item(key = "home_speed_dial", contentType = "speed_dial") { UnfoldIn(1, openedAtMs) {
+                        item(key = "home_speed_dial", contentType = "speed_dial") { Column {
                             Text(
                                 text = str(R.string.speed_dial),
                                 style = MaterialTheme.typography.titleLarge,
@@ -491,47 +510,8 @@ fun HomeScreen(
                 // Settings → Content → Wrapped → Show Wrapped card.
                 if (showWrappedCard) {
                     item(key = "home_wrapped_card", contentType = "wrapped_card") {
-                        val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 6.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                        listOf(accent.copy(alpha = 0.30f), accent.copy(alpha = 0.10f))
-                                    )
-                                )
-                                .clickable(onClick = onOpenWrapped)
-                                .padding(horizontal = 18.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = accent,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = str(R.string.your_wrapped),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground
-                                )
-                                Text(
-                                    text = str(R.string.your_year_in_music_from_your_real_listen),
-                                    fontSize = 13.sp,
-                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = str(R.string.open_wrapped),
-                                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        WrappedHomeCard(onClick = onOpenWrapped,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
                     }
                 }
 
@@ -539,7 +519,7 @@ fun HomeScreen(
                 // 4. QUICK PICKS (Directly below Speed Dial - 4 Rows per column with "Play all")
                 // ================================================================
                 if (uiState.quickPicks.isNotEmpty()) {
-                    item(key = "home_quick_picks", contentType = "quick_picks") { UnfoldIn(2, openedAtMs) {
+                    item(key = "home_quick_picks", contentType = "quick_picks") { Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -687,7 +667,7 @@ fun HomeScreen(
                 // ================================================================
                 val keepList = if (uiState.keepListening.isNotEmpty()) uiState.keepListening else uiState.recentTracks.map { it.track }
                 if (keepList.isNotEmpty()) {
-                    item(key = "home_keep_listening", contentType = "keep_listening") { UnfoldIn(3, openedAtMs) {
+                    item(key = "home_keep_listening", contentType = "keep_listening") { Column {
                         Text(
                             text = str(R.string.keep_listening),
                             style = MaterialTheme.typography.titleLarge,
@@ -754,7 +734,7 @@ fun HomeScreen(
                 // ================================================================
                 uiState.similarRecommendations.forEachIndexed { idx, simRec ->
                     if (simRec.items.isNotEmpty()) {
-                        item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { UnfoldIn(4 + idx, openedAtMs) {
+                        item(key = "sim_rec_${simRec.seedTitle}_${simRec.artistId ?: ""}_$idx", contentType = "similar_shelf") { Column {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -863,7 +843,7 @@ fun HomeScreen(
                 // ================================================================
                 uiState.dynamicSections.forEachIndexed { sIdx, section ->
                     if (section.items.isNotEmpty() || section.albums.isNotEmpty()) {
-                        item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") { UnfoldIn(6 + sIdx, openedAtMs) {
+                        item(key = "dyn_section_${section.title}_$sIdx", contentType = "dynamic_shelf") { Column {
                             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text(
                                     text = section.title,

@@ -66,9 +66,9 @@ internal fun PlayerPlaylistButton(track: Track, modifier: Modifier = Modifier,
     }
     Box(Modifier.onGloballyPositioned { val p = it.positionInWindow(); anchor = IntOffset(p.x.toInt(), (p.y + it.size.height).toInt()) }) {
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        IconButton(onClick = { menu = true }, modifier = modifier.size(28.dp), enabled = !busy) {
-            Box(Modifier.size(18.dp).border(1.1.dp, Color.White.copy(alpha = .9f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Add, "Add to playlist", Modifier.size(12.dp), tint = Color.White)
+        IconButton(onClick = { menu = true }, modifier = modifier.size(22.dp), enabled = !busy) {
+            Box(Modifier.size(14.dp).border(1.dp, Color.White.copy(alpha = .8f), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, "Add to playlist", Modifier.size(9.dp), tint = Color.White.copy(alpha = .9f))
             }
         }
         }
@@ -111,11 +111,11 @@ internal fun PlayerPlaylistPickerContent(track: Track, playlists: List<Playlist>
     error: String?, onCreate: () -> Unit, onAdd: (Playlist) -> Unit) {
     val available = playlists.filter { it.isCustom }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        Text("Add to playlist", Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.titleMedium, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Add to playlist", Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.titleMedium, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            com.auralis.music.windows.search.DesktopArtwork(track.thumbnail, Modifier.size(40.dp), 6.dp, track.title)
-            Spacer(Modifier.width(12.dp))
+            com.auralis.music.windows.search.DesktopArtwork(track.thumbnail, Modifier.size(36.dp), 6.dp, track.title)
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(track.title, style = MaterialTheme.typography.titleMedium, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(track.artist, style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = Color.White.copy(alpha = .65f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -123,26 +123,24 @@ internal fun PlayerPlaylistPickerContent(track: Track, playlists: List<Playlist>
         }
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = !busy, onClick = onCreate)
             .padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = .09f)), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(23.dp).border(1.3.dp, Color.White.copy(alpha = .85f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(17.dp), tint = Color.White)
-                }
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .08f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Add, null, Modifier.size(18.dp), tint = Color.White.copy(alpha = .9f))
             }
-            Spacer(Modifier.width(12.dp))
-            Text("Create playlist", style = MaterialTheme.typography.titleMedium, fontSize = 16.sp)
+            Spacer(Modifier.width(10.dp))
+            Text("Create playlist", style = MaterialTheme.typography.bodyMedium, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Color.White.copy(alpha = .12f))
         LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 360.dp)) {
             items(available, key = { it.id }) { playlist ->
                 val added = playlist.tracks.any { it.id == track.id }
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = !busy && !added, onClick = { onAdd(playlist) })
-                    .padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp))) {
+                    .padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(6.dp))) {
                         com.auralis.music.ui.library.PlaylistCoverArt(playlist, emptyList(), 6.dp)
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(playlist.title, style = MaterialTheme.typography.titleMedium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(playlist.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(if (added) "Already added" else "${playlist.tracks.size} songs", style = MaterialTheme.typography.bodySmall,
                             fontSize = 11.sp, color = Color.White.copy(alpha = .65f))
                     }

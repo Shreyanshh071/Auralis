@@ -56,8 +56,8 @@ class PlayerPlaylistPickerTest {
                 scene.render(frame++*16_666_667L).close()
             }
             click(126f); assertEquals(1,creates,"Create playlist remains the first action")
-            click(199f); assertEquals("one",added)
-            added=null; click(259f); assertNull(added,"A playlist already containing the song must not add it again")
+            click(180f); assertEquals("one",added)
+            added=null; click(225f); assertNull(added,"A playlist already containing the song must not add it again")
         } finally {scene.close();dir.deleteRecursively()}
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.map
 import java.io.IOException
 
 class SettingsDataStore(private val dataStore: DataStore<Preferences>) {
+    val preferenceSyncDataStore: DataStore<Preferences> get() = dataStore
 
     companion object {
         val VOLUME = floatPreferencesKey("volume")

@@ -100,7 +100,11 @@ fun Modifier.liquidGlass(
     shape: CornerBasedShape,
     tint: Color = glassSurfaceTint(glass.isDark),
     press: GlassPress? = null,
-    pressedScale: Float = 1.12f
+    pressedScale: Float = 1.12f,
+    // Large modal surfaces need more frosting than a small dock or button.
+    blurRadius: androidx.compose.ui.unit.Dp = 8.dp,
+    lensDepth: androidx.compose.ui.unit.Dp = 24.dp,
+    edgeHighlight: Highlight? = Highlight.Default
 ): Modifier {
     // Held, the glass swells on a bouncy spring; the scale goes through the backdrop's layer
     // block so the library inverts it and the glass keeps showing what is really behind it.
@@ -124,9 +128,9 @@ fun Modifier.liquidGlass(
     val density = LocalDensity.current
     // Match BitChord's 8dp blur / 24dp lens at one-third capture resolution.
     // Effects stay constant during presses; only the surface transform animates.
-    val blurPx = with(density) { 8.dp.toPx() } * GLASS_RESOLUTION_SCALE
-    val lensHeightPx = with(density) { 24.dp.toPx() } * GLASS_RESOLUTION_SCALE
-    val lensAmountPx = with(density) { 24.dp.toPx() } * GLASS_RESOLUTION_SCALE
+    val blurPx = with(density) { blurRadius.toPx() } * GLASS_RESOLUTION_SCALE
+    val lensHeightPx = with(density) { lensDepth.toPx() } * GLASS_RESOLUTION_SCALE
+    val lensAmountPx = with(density) { lensDepth.toPx() } * GLASS_RESOLUTION_SCALE
     // The backdrop node clips its sampled layer; shaped tint also keeps circles and pills
     // contained without clipping the reference's outer shadow and directional highlight.
     return this.drawBackdrop(
@@ -141,14 +145,20 @@ fun Modifier.liquidGlass(
             blur(blurPx)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lens(
-                    refractionHeight = lensHeightPx,
+                    // Keep refraction visible on tall dialogs as well as pills.
+                    // The fixed 24dp band left almost the whole modal unwarped.
+                    refractionHeight = if (size.isSpecified && !size.isEmpty())
+                        maxOf(lensHeightPx, size.minDimension * .45f) else lensHeightPx,
                     refractionAmount = lensAmountPx,
                     depthEffect = true,
-                    chromaticAberration = true
+                    // The dispersion shader samples seven times per pixel. Keep
+                    // the lens geometry, using one sample so scrolling glass does
+                    // not pay for rainbow splitting across the whole surface.
+                    chromaticAberration = false
                 )
             }
         },
-        highlight = { Highlight.Default },
+        highlight = { edgeHighlight },
         shadow = { Shadow.Default },
         backdropScale = GLASS_RESOLUTION_SCALE,
         // Fill the tint in the element's own shape. A plain drawRect relied on the layer clipping
