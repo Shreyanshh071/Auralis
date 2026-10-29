@@ -51,7 +51,9 @@ internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit) : AutoClo
             requestFocus()
             content.openButton.requestFocusInWindow()
         }
-        outsideClicks = TrayOutsideClicks(checkNotNull(window), ::dismiss)
+        outsideClicks = if (System.getProperty("os.name").orEmpty().lowercase().contains("win")) {
+            runCatching { TrayOutsideClicks(checkNotNull(window), ::dismiss) }.getOrNull()
+        } else null
     }
 
     fun dismiss() {

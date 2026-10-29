@@ -23,7 +23,13 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         if (sessionFile.isFile) restoreJob = scope.launch(Dispatchers.IO) {
             var savedToken: String? = null
             try {
-                val saved = String(Crypt32Util.cryptUnprotectData(sessionFile.readBytes()), Charsets.UTF_8)
+                val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                val rawBytes = sessionFile.readBytes()
+                val saved = if (isWindows) {
+                    runCatching { String(Crypt32Util.cryptUnprotectData(rawBytes), Charsets.UTF_8) }.getOrElse { String(rawBytes, Charsets.UTF_8) }
+                } else {
+                    String(rawBytes, Charsets.UTF_8)
+                }
                 // Read the old token-only format as well as the protected profile snapshot.
                 if (saved.startsWith("{")) {
                     val snapshot = org.json.JSONObject(saved)
@@ -115,7 +121,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         mutable.value.profile?.takeIf { it.uid == api.uid }?.let { p -> snapshot.put("profile", org.json.JSONObject().put("uid", p.uid)
             .put("displayName", p.displayName).put("email", p.email).put("avatarUrl", p.avatarUrl.orEmpty())
             .put("google", p.isGoogleConnected)) }
-        val protected = Crypt32Util.cryptProtectData(snapshot.toString().toByteArray(Charsets.UTF_8))
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        val dataBytes = snapshot.toString().toByteArray(Charsets.UTF_8)
+        val protected = if (isWindows) runCatching { Crypt32Util.cryptProtectData(dataBytes) }.getOrDefault(dataBytes) else dataBytes
         sessionFile.parentFile?.mkdirs()
         val temporary = File(sessionFile.parentFile, sessionFile.name + ".tmp")
         temporary.outputStream().use { it.write(protected); it.fd.sync() }

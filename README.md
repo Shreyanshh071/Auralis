@@ -227,8 +227,8 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
 
 | Layer | Technologies |
 | :--- | :--- |
-| **UI & Presentation** | [Jetpack Compose](https://developer.android.com/jetpack/compose), [Material 3](https://m3.material.io/), [Haze Blur](https://github.com/chrisbanes/haze), [Coil 2.7](https://coil-kt.github.io/coil/) |
-| **Audio Engine** | [AndroidX Media3](https://developer.android.com/media/media3) (`ExoPlayer`, `MediaSessionService`, `ForwardingPlayer`), `AudioTrack` |
+| **UI & Presentation** | [Jetpack Compose](https://developer.android.com/jetpack/compose) (Android) & [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/) (Desktop: Windows & macOS), [Material 3](https://m3.material.io/), [Haze Blur](https://github.com/chrisbanes/haze), [Coil 2.7](https://coil-kt.github.io/coil/) |
+| **Audio Engine** | [AndroidX Media3](https://developer.android.com/media/media3) (`ExoPlayer`) on Android, libVLC / VLCJ on Desktop |
 | **Concurrency & Reactive** | [Kotlin Coroutines](https://kotlinlang.org/docs/coroutines-overview.html), [StateFlow & SharedFlow](https://developer.android.com/kotlin/flow) |
 | **Local Persistence** | [Room Database](https://developer.android.com/training/data-storage/room) (`AuralisDatabase`), [AndroidX DataStore](https://developer.android.com/topic/libraries/architecture/datastore) |
 | **Networking & Extraction** | [OkHttp 4](https://square.github.io/okhttp/), Custom InnerTube Web Client, NewPipe Extractor |
@@ -269,7 +269,9 @@ Auralis/
 │       │   │   └── MainActivity.kt     # Main Android Entry Point
 │       │   └── res/                    # Drawables, icons, layout values
 │       └── build.gradle.kts
-├── shared/                             # Kotlin Multiplatform code shared with the Windows app
+├── windows/                            # Desktop app (Compose Multiplatform for Windows & macOS)
+├── windows-core/                       # Desktop core models, playback controller & services
+├── shared/                             # Kotlin Multiplatform code shared between Android & Desktop
 ├── zemer-cipher/                       # Vendored YouTube cipher / PO token module
 ├── gradle/                             # Wrapper & version catalog (libs.versions.toml)
 ├── build.gradle.kts                    # Root Gradle build (run ./gradlew from the repo root)

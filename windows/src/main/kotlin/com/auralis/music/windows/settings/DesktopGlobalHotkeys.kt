@@ -36,7 +36,7 @@ internal class DesktopGlobalHotkeys(private val playback: DesktopPlaybackControl
         val errors = mutableErrors.asStateFlow()
     }
     @Volatile private var active = true
-    private val thread = Thread({
+    private val thread = if (System.getProperty("os.name").orEmpty().lowercase().contains("win")) Thread({
         val user = User32.INSTANCE
         var revision = ""
         val registered = mutableSetOf<Int>()
@@ -75,6 +75,6 @@ internal class DesktopGlobalHotkeys(private val playback: DesktopPlaybackControl
                 Thread.sleep(50)
             }
         } finally { registered.forEach { user.UnregisterHotKey(null, it) } }
-    }, "auralis-global-hotkeys").apply { isDaemon = true; start() }
-    override fun close() { active = false; thread.join(500) }
+    }, "auralis-global-hotkeys").apply { isDaemon = true; start() } else null
+    override fun close() { active = false; thread?.join(500) }
 }

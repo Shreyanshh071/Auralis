@@ -313,7 +313,12 @@ class VlcAudioPlayer private constructor(
         fun createOrNull(bundledVlcDir: java.io.File? = null): VlcAudioPlayer? {
             val started = System.currentTimeMillis()
             return try {
-                if (bundledVlcDir != null && java.io.File(bundledVlcDir, "libvlc.dll").exists()) {
+                val macVlcLib = java.io.File("/Applications/VLC.app/Contents/MacOS/lib")
+                if (macVlcLib.isDirectory && java.io.File(macVlcLib, "libvlc.dylib").exists()) {
+                    System.setProperty("jna.library.path", macVlcLib.absolutePath)
+                    System.setProperty("VLC_PLUGIN_PATH", "/Applications/VLC.app/Contents/MacOS/plugins")
+                }
+                if (bundledVlcDir != null && (java.io.File(bundledVlcDir, "libvlc.dll").exists() || java.io.File(bundledVlcDir, "libvlc.dylib").exists())) {
                     System.setProperty("jna.library.path", bundledVlcDir.absolutePath)
                     loadedFrom = "bundled (${bundledVlcDir.absolutePath})"
                 } else if (NativeDiscovery().discover()) {

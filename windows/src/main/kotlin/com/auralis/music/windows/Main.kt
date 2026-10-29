@@ -62,6 +62,12 @@ private data class ReadyComponents(
 )
 
 fun main(args: Array<String>) {
+    if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
+        System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl", "true")
+        System.setProperty("io.netty.handler.ssl.noOpenSsl", "true")
+        System.setProperty("io.grpc.netty.shaded.io.netty.transport.noNative", "true")
+        System.setProperty("io.netty.transport.noNative", "true")
+    }
     val dev = System.getProperty("jpackage.app-version") == null
     if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
@@ -303,6 +309,7 @@ fun main(args: Array<String>) {
 
     CaptureFrameEcho.installForAllWindows()
     application {
+        val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
         val systemSettings by com.auralis.music.windows.settings.DesktopSystemPreferences.store.settings.collectAsState()
         val nativeTitlebar = com.auralis.music.windows.settings.DesktopPreferences.store.bool("systemTitlebar")
         val launchMinimized = remember { "--autostart" in args && com.auralis.music.windows.settings.DesktopPreferences.store.bool("startMinimized") }
@@ -473,7 +480,7 @@ fun main(args: Array<String>) {
             },
             onCloseRequest = requestClose,
             visible = windowVisible,
-            undecorated = true,
+            undecorated = !isMac,
             title = if (dev) "Auralis Dev" else "Auralis",
             icon = icon,
             state = windowState
@@ -483,6 +490,13 @@ fun main(args: Array<String>) {
             var captionHover by remember { mutableStateOf(CaptionHover()) }
             DisposableEffect(window) {
                 composeWindow = window
+                if (isMac) {
+                    val rootPane = (window as? androidx.compose.ui.awt.ComposeWindow)?.rootPane
+                    rootPane?.putClientProperty("apple.awt.fullWindowContent", true)
+                    rootPane?.putClientProperty("apple.awt.transparentTitleBar", true)
+                    rootPane?.putClientProperty("apple.awt.windowTitleVisible", false)
+                    rootPane?.putClientProperty("apple.awt.fullscreenable", true)
+                }
                 // Every icon size Windows asks for (taskbar, Alt+Tab, Task Manager): one 256px
                 // image shrunk by Windows was an unrecognisable smudge at 16-32px.
                 appIconImages()?.let { window.iconImages = it }
@@ -491,8 +505,10 @@ fun main(args: Array<String>) {
                 java.awt.Color(0x0F, 0x0E, 0x13).let { window.background = it; window.contentPane.background = it }
                 window.minimumSize = java.awt.Dimension(900, 600)
                 singleInstanceLock?.recordWindowHandle(window.windowHandle)
-                val frame = runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
-                    .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
+                val frame = if (!isMac) {
+                    runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
+                        .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
+                } else null
                 nativeFrame = frame
                 val inputRestore = installWindowInputRestore(window)
                 java.awt.EventQueue.invokeLater {
@@ -559,7 +575,7 @@ fun main(args: Array<String>) {
             }
             LaunchedEffect(components?.stores) {
                 val st = components?.stores
-                if (st != null) {
+                if (st != null && !isMac) {
                     st.privacy.settingsFlow.collect { privacy ->
                         runCatching {
                             val affinity = com.sun.jna.NativeLibrary.getInstance("user32").getFunction("SetWindowDisplayAffinity")
@@ -571,7 +587,7 @@ fun main(args: Array<String>) {
             window.minimumSize = java.awt.Dimension(900, 600)
             LaunchedEffect(components?.playback) {
                 val pb = components?.playback
-                if (pb != null) {
+                if (pb != null && !isMac) {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, pb, this)
                 }
             }

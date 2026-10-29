@@ -29,9 +29,15 @@ configurations.configureEach { exclude(group = "com.google.protobuf", module = "
 
 // Keep Compose's compile API, but use the matching patched JVM/native renderer at runtime.
 // Both artifacts must move together; mixing the DLL with another Skiko JAR is unsafe.
+val osName = System.getProperty("os.name").lowercase()
+val osArch = System.getProperty("os.arch").lowercase()
+val skikoRuntime = when {
+    osName.contains("win") -> "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.25"
+    osName.contains("mac") -> if (osArch == "aarch64") "org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.8.25" else "org.jetbrains.skiko:skiko-awt-runtime-macos-x64:0.8.25"
+    else -> "org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.8.25"
+}
 configurations.matching { it.name in setOf("runtimeClasspath", "testRuntimeClasspath") }.configureEach {
-    resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25",
-        "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.25")
+    resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25", skikoRuntime)
 }
 
 dependencies {
@@ -78,7 +84,8 @@ tasks.register<JavaExec>("verifyRoomService") {
 // its COPYING.txt and README.txt go with it. No plugins.dat here: VLC's plugin cache stores file
 // times, which packaging and installing change. VlcAudioPlayer writes it on the installed copy
 // instead (scanning every plugin at each start took 5-20s inside the app).
-val vlcSourceDir = providers.environmentVariable("AURALIS_VLC_DIR").orElse("C:/Program Files/VideoLAN/VLC")
+val vlcSourceDir = providers.environmentVariable("AURALIS_VLC_DIR")
+    .orElse(if (osName.contains("win")) "C:/Program Files/VideoLAN/VLC" else "/Applications/VLC.app")
 val bundledVlcRoot = layout.buildDirectory.dir("vlc-resources")
 val prepareVlc by tasks.registering(Sync::class) {
     val source = file(vlcSourceDir.get())
@@ -105,7 +112,7 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
     into(bundledVlcRoot.map { it.dir("windows-x64/vlc") })
     doFirst {
-        if (!File(source, "libvlc.dll").isFile) {
+        if (osName.contains("win") && !File(source, "libvlc.dll").isFile) {
             throw GradleException("64-bit VLC 3 not found at $source. Install VLC or set AURALIS_VLC_DIR to its folder.")
         }
     }
@@ -117,21 +124,23 @@ val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
 compose.desktop {
     application {
         mainClass = "com.auralis.music.windows.MainKt"
-        jvmArgs(
-            // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
-            // only cost ~0.7s of the first frame (measured with the startup sampler).
-            "-Dsun.java2d.d3d=false",
-            // Keep hardware acceleration and current-frame Windows screenshots.
-            "-Dskiko.renderApi=DIRECT3D",
-            // Class data sharing: the first frame spent ~1.2s loading classes from the jars. Each
-            // start records the classes it loads; when this build's archive is missing, the app
-            // builds it from that list in a background process (DesktopClassArchive), and later
-            // starts map it. Each build names its own: JDK 21 ignores, never rebuilds, a stale one.
-            // (Its own record-at-exit mode made that one launch take 20-27s, so it isn't used.)
-            "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
-            "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
-            "-Dauralis.cdsArchive=$cdsArchive"
-        )
+        if (osName.contains("win")) {
+            jvmArgs(
+                "-Dsun.java2d.d3d=false",
+                "-Dskiko.renderApi=DIRECT3D",
+                "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
+                "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
+                "-Dauralis.cdsArchive=$cdsArchive"
+            )
+        } else if (osName.contains("mac")) {
+            jvmArgs(
+                "-Dskiko.renderApi=METAL",
+                "-Dio.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl=true",
+                "-Dio.netty.handler.ssl.noOpenSsl=true",
+                "-Dio.grpc.netty.shaded.io.netty.transport.noNative=true",
+                "-Dio.netty.transport.noNative=true"
+            )
+        }
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 
@@ -145,8 +154,16 @@ compose.desktop {
         }
 
         nativeDistributions {
-            appResourcesRootDir.set(bundledVlcRoot)
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            if (osName.contains("win")) {
+                appResourcesRootDir.set(bundledVlcRoot)
+                targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            } else if (osName.contains("mac")) {
+                targetFormats(TargetFormat.Dmg, TargetFormat.Pkg)
+                macOS {
+                    bundleID = "com.auralis.music"
+                    iconFile.set(project.file("icons/auralis.ico"))
+                }
+            }
             // From suggestRuntimeModules, plus jdk.crypto.ec (TLS with elliptic-curve ciphers, which
             // jdeps can't see) and java.naming.
             // jdk.httpserver: the local stream relay (LocalStreamRelay).
@@ -168,16 +185,20 @@ compose.desktop {
     }
 }
 
-tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(prepareVlc) }
+tasks.matching { it.name == "prepareAppResources" }.configureEach {
+    if (osName.contains("win")) dependsOn(prepareVlc)
+}
 
 // The installers keep gaming overlays (NVIDIA, RivaTuner) off Auralis (see scripts/add-msi-overlay-step.ps1).
 tasks.matching { it.name == "packageMsi" || it.name == "packageReleaseMsi" }.configureEach {
-    val script = rootProject.file("scripts/add-msi-overlay-step.ps1")
-    doLast {
-        outputs.files.asFileTree.matching { include("**/*.msi") }.forEach { msi ->
-            val process = ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.path, "-Msi", msi.path)
-                .inheritIO().start()
-            check(process.waitFor() == 0) { "Adding the gaming-overlay step to ${msi.name} failed" }
+    if (osName.contains("win")) {
+        val script = rootProject.file("scripts/add-msi-overlay-step.ps1")
+        doLast {
+            outputs.files.asFileTree.matching { include("**/*.msi") }.forEach { msi ->
+                val process = ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.path, "-Msi", msi.path)
+                    .inheritIO().start()
+                check(process.waitFor() == 0) { "Adding the gaming-overlay step to ${msi.name} failed" }
+            }
         }
     }
 }
@@ -297,14 +318,16 @@ tasks.register<JavaExec>("probeCanvas") {
 // The app builds its class-data archive with java.exe (see the jvmArgs above); jlink strips the
 // launcher from the runtime image, so the same JDK's one is put back.
 tasks.matching { it.name == "createRuntimeImage" }.configureEach {
-    doLast {
-        val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
-        val jdk = File(compose.desktop.application.javaHome ?: System.getProperty("java.home"))
-        fun version(home: File) = File(home, "release").takeIf { it.isFile }?.readLines()
-            ?.firstOrNull { it.startsWith("JAVA_VERSION=") }
-        check(version(image) != null && version(image) == version(jdk)) {
-            "Runtime ${version(image)} and JDK ${version(jdk)} differ; java.exe must match its jvm.dll"
+    if (osName.contains("win")) {
+        doLast {
+            val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
+            val jdk = File(compose.desktop.application.javaHome ?: System.getProperty("java.home"))
+            fun version(home: File) = File(home, "release").takeIf { it.isFile }?.readLines()
+                ?.firstOrNull { it.startsWith("JAVA_VERSION=") }
+            check(version(image) != null && version(image) == version(jdk)) {
+                "Runtime ${version(image)} and JDK ${version(jdk)} differ; java.exe must match its jvm.dll"
+            }
+            File(jdk, "bin/java.exe").copyTo(File(image, "bin/java.exe"), overwrite = true)
         }
-        File(jdk, "bin/java.exe").copyTo(File(image, "bin/java.exe"), overwrite = true)
     }
 }

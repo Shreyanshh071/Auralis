@@ -20,6 +20,7 @@ class DiscordIpc(private val clientId: String) {
     @Synchronized
     fun connect(): JSONObject? {
         close()
+        if (!System.getProperty("os.name").orEmpty().lowercase().contains("win")) return null
         for (i in 0..9) {
             val file = runCatching { RandomAccessFile("\\\\.\\pipe\\discord-ipc-$i", "rw") }.getOrNull() ?: continue
             pipe = file

@@ -37,6 +37,15 @@ object WindowsFilePicker {
         defaultExtension: String? = null, initialDirectory: File? = null,
         owner: Pointer? = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
             ?.let { runCatching { Native.getWindowPointer(it) }.getOrNull() }): File? = withContext(dispatcher) {
+        if (!System.getProperty("os.name").startsWith("Windows", true)) {
+            val dialog = java.awt.FileDialog(null as java.awt.Frame?, title, if (save) java.awt.FileDialog.SAVE else java.awt.FileDialog.LOAD)
+            if (initialDirectory?.isDirectory == true) dialog.directory = initialDirectory.absolutePath
+            if (defaultName != null) dialog.file = defaultName
+            dialog.isVisible = true
+            val file = dialog.file
+            val dir = dialog.directory
+            return@withContext if (file != null && dir != null) File(dir, file) else null
+        }
         val initialized = Ole32.INSTANCE.CoInitializeEx(null, 2).toInt()
         check(initialized >= 0) { "Cannot initialize the Windows photo picker" }
         try {

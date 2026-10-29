@@ -66,13 +66,14 @@ fun WindowTitleBar(
     minimizeBounds: (Rect) -> Unit = {}, closeBounds: (Rect) -> Unit = {}
 ) {
     // Where the left controls end and the right ones start, so the centred search never covers them.
+    val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
     var leftEnd by remember { mutableStateOf(0f) }
     var rightStart by remember { mutableStateOf(Float.MAX_VALUE) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
         val barWidth = with(density) { maxWidth.toPx() }
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.fillMaxHeight().onGloballyPositioned { brandBounds(it.boundsInWindow()) }.padding(start = 10.dp, end = 12.dp),
+            Row(Modifier.fillMaxHeight().onGloballyPositioned { brandBounds(it.boundsInWindow()) }.padding(start = if (isMac) 78.dp else 10.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // The Auralis glyph (the header logo), tinted to the bar's text colour.
                 Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), null, Modifier.size(22.dp),
@@ -102,15 +103,19 @@ fun WindowTitleBar(
             ChromeButton(Icons.Outlined.Groups, "Listen Together", actions.openTogether, width = 34)
             ChromeButton(Icons.Outlined.Link, "Import playlists", actions.openImport, width = 34)
             ChromeButton(Icons.Outlined.Settings, "Settings", actions.openSettings, width = 34)
-            Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
-            if (!systemDecorated) {
-            Spacer(Modifier.width(6.dp))
-            CaptionButton(CaptionGlyph.Minimize, minimize, captionHover, 8,
-                Modifier.onGloballyPositioned { minimizeBounds(it.boundsInWindow()) })
-            CaptionButton(if (maximized) CaptionGlyph.Restore else CaptionGlyph.Maximize, maximize, captionHover, 9,
-                Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
-            CaptionButton(CaptionGlyph.Close, close, captionHover, 20,
-                Modifier.onGloballyPositioned { closeBounds(it.boundsInWindow()) })
+            if (!isMac) {
+                Box(Modifier.width(1.dp).height(16.dp).background(Color(0xFF302B34)))
+                if (!systemDecorated) {
+                    Spacer(Modifier.width(6.dp))
+                    CaptionButton(CaptionGlyph.Minimize, minimize, captionHover, 8,
+                        Modifier.onGloballyPositioned { minimizeBounds(it.boundsInWindow()) })
+                    CaptionButton(if (maximized) CaptionGlyph.Restore else CaptionGlyph.Maximize, maximize, captionHover, 9,
+                        Modifier.onGloballyPositioned { maximizeBounds(it.boundsInWindow()) })
+                    CaptionButton(CaptionGlyph.Close, close, captionHover, 20,
+                        Modifier.onGloballyPositioned { closeBounds(it.boundsInWindow()) })
+                }
+            } else {
+                Spacer(Modifier.width(12.dp))
             }
         }
         // Centred and up to 620dp when that clears both sides by 12dp; in a narrow window, the free
