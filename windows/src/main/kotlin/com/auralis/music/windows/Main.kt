@@ -496,6 +496,16 @@ fun main(args: Array<String>) {
                     rootPane?.putClientProperty("apple.awt.transparentTitleBar", true)
                     rootPane?.putClientProperty("apple.awt.windowTitleVisible", false)
                     rootPane?.putClientProperty("apple.awt.fullscreenable", true)
+                    runCatching {
+                        if (java.awt.Taskbar.isTaskbarSupported()) {
+                            val taskbar = java.awt.Taskbar.getTaskbar()
+                            if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
+                                Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")?.use {
+                                    taskbar.iconImage = ImageIO.read(it)
+                                }
+                            }
+                        }
+                    }
                 }
                 // Every icon size Windows asks for (taskbar, Alt+Tab, Task Manager): one 256px
                 // image shrunk by Windows was an unrecognisable smudge at 16-32px.

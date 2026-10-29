@@ -161,7 +161,7 @@ compose.desktop {
                 targetFormats(TargetFormat.Dmg, TargetFormat.Pkg)
                 macOS {
                     bundleID = "com.auralis.music"
-                    iconFile.set(project.file("icons/auralis.ico"))
+                    iconFile.set(project.file("icons/auralis.icns"))
                 }
             }
             // From suggestRuntimeModules, plus jdk.crypto.ec (TLS with elliptic-curve ciphers, which
