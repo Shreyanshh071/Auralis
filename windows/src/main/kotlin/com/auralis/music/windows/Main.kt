@@ -500,7 +500,8 @@ fun main(args: Array<String>) {
                         if (java.awt.Taskbar.isTaskbarSupported()) {
                             val taskbar = java.awt.Taskbar.getTaskbar()
                             if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
-                                Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png")?.use {
+                                (Thread.currentThread().contextClassLoader.getResourceAsStream("app-icon/auralis_squircle.png")
+                                    ?: Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png"))?.use {
                                     taskbar.iconImage = ImageIO.read(it)
                                 }
                             }
