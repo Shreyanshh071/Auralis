@@ -941,6 +941,9 @@ fun AuralisApp(
             .background(MaterialTheme.dynamicBackground)
     ) {
     CompositionLocalProvider(
+        com.auralis.music.ui.player.LocalPlayerModalVisualState provides remember {
+            com.auralis.music.ui.player.PlayerModalVisualState()
+        },
         LocalBottomChrome provides mainBottomChrome,
           com.auralis.music.ui.library.LocalPlaylistCreation provides { playlistCreationRequest = it },
           com.auralis.music.ui.library.LocalImportSyncChoice provides importSyncChoice,
@@ -1249,6 +1252,7 @@ fun AuralisApp(
                                                     isStatsOpen = true
                                                 },
                                                 onRefresh = { homeViewModel.refresh() },
+                                                onScrollStateChanged = homeViewModel::onHomeScrollChanged,
                                                 // Wrapped lives above Stats (it renders only while Stats is open).
                                                 onOpenWrapped = {
                                                     obtainStatsViewModel().loadWrapped()
@@ -1976,6 +1980,13 @@ fun AuralisApp(
         if (effectiveTrack != null && activePV != null) {
             val isSubScreenOpen = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
             val playerSheetShape = remember { RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp) }
+            val playerBackgroundGlass = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+            val playerContentGlass = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+            val playerOverlayBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(
+                combinedGlassBackdrop, playerBackgroundGlass, playerContentGlass)
+            val playerOverlayGlass = remember(playerOverlayBackdrop, glassIsDark) {
+                com.auralis.music.ui.glass.LiquidGlassContext(playerOverlayBackdrop, glassIsDark, dockCollapse)
+            }
 
             // Atmospheric background layer behind sheet (static fullscreen blurred artwork / gradient)
             val currentTrack = effectiveTrack
@@ -1991,6 +2002,7 @@ fun AuralisApp(
                         // Before graphicsLayer so the pills blur it at its current fade.
                         .hazeSource(state = pillHazeState, zIndex = 3f)
                         .fillMaxSize()
+                        .then(if (glassEnabled) Modifier.layerBackdrop(playerBackgroundGlass) else Modifier)
                         .graphicsLayer {
                             shape = playerSheetShape
                             clip = true
@@ -2146,6 +2158,7 @@ fun AuralisApp(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .then(if (glassEnabled) Modifier.layerBackdrop(playerContentGlass) else Modifier)
                                 .graphicsLayer {
                                     val p = playerSheetProgress.value
                                     alpha = if (reducedMotion) {
@@ -2163,6 +2176,7 @@ fun AuralisApp(
                             val currentLibVM = obtainLibraryViewModel()
                             val modalPositionState = currentPV.playbackPositionMs.collectAsState()
                             CompositionLocalProvider(
+                                com.auralis.music.ui.glass.LocalLiquidGlass provides if (glassEnabled) playerOverlayGlass else null,
                                 com.auralis.music.ui.player.LocalClassicLyricsHazeState provides playerBackdropHazeState,
                                 com.auralis.music.ui.player.LocalPlayerSheetProgress provides { if (reducedMotion) 1f else playerSheetProgress.value }
                             ) {

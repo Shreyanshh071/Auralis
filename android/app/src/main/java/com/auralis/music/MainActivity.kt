@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
 
     private val launchTouchGate = com.auralis.music.ui.components.LaunchTouchGate()
     private var launchDrawingComplete by mutableStateOf(false)
+    private var launchOverlayRemoved by mutableStateOf(false)
     private var activeLaunchLogo: com.auralis.music.ui.components.LaunchLogoView? = null
 
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
         // mean Android killed the process, in which case the launch animation is needed.
         val recreatingInProcess = savedInstanceState != null && lastNonConfigurationInstance != null
         launchDrawingComplete = recreatingInProcess
+        launchOverlayRemoved = recreatingInProcess
         if (!recreatingInProcess) showFastLaunch(waitForSystemSplash = savedInstanceState == null)
         else launchTouchGate.splashRemoved()
         DiscordSocialSdkInit.setEngineActivity(this)
@@ -123,12 +125,12 @@ class MainActivity : ComponentActivity() {
         // Apply the refresh rate before the first frame. Applied from Compose, it switched the
         // panel (90 -> 120 Hz) right after Home first drew, and that switch blanks the screen for
         // ~0.5 s on many phones: the app flashed Home, went blank, then faded back in.
-        val startupHighRefresh = runCatching {
+        val startupAppearance = runCatching {
             kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeoutOrNull(150L) { appearanceDataStore.settingsFlow.first().highRefreshRate }
+                kotlinx.coroutines.withTimeoutOrNull(150L) { appearanceDataStore.settingsFlow.first() }
             }
-        }.getOrNull() ?: false
-        applyRefreshRate(startupHighRefresh)
+        }.getOrNull() ?: appearanceDataStore.getInitialSettings()
+        applyRefreshRate(startupAppearance.highRefreshRate)
         val audioPlayer = AuralisAudioPlayer.getInstance(applicationContext)
         com.auralis.music.data.service.ListeningTimeTracker.start(applicationContext)
 
@@ -167,6 +169,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
             kotlinx.coroutines.delay(3000L)
+            com.auralis.music.data.sync.AndroidAccountPreferences(applicationContext).start(this)
             googleAccountSyncManager.startContinuousCloudSync(this)
             // Listening stats live on the account too, so a reinstall doesn't wipe them.
             com.auralis.music.data.sync.StatsCloudSync.start(this)
@@ -194,8 +197,21 @@ class MainActivity : ComponentActivity() {
         // Never restore the previous song's artwork palette as the initial theme.
         ArtworkPaletteCache.resetToDefault()
 
+        // Restore local Home data while the native logo is drawing, rather than
+        // starting the database/cache work only after Home's first empty frame.
+        val viewModelProvider = com.auralis.music.ui.viewmodel.AppViewModelProvider(
+            activity = this, historyRepository = historyRepository,
+            searchRepository = searchRepository, libraryRepository = libraryRepository,
+            statsRepository = statsRepository, settingsRepository = settingsRepository,
+            lyricsRepository = lyricsRepository, audioPlayer = audioPlayer,
+            innerTubeClient = innerTubeClient, googleAccountSyncManager = googleAccountSyncManager,
+            youtubeImporter = youtubeImporter, spotifyImporter = spotifyImporter
+        )
+        val startupHome = viewModelProvider.getHomeViewModel()
+
         setContent {
-            if (!launchDrawingComplete) {
+            val homeContentReady by startupHome.initialContentReady.collectAsState()
+            if (!launchDrawingComplete || !homeContentReady) {
                 // Let the small native logo animate without composing Home, artwork, or effects.
                 Box(Modifier.fillMaxSize().background(
                     androidx.compose.ui.graphics.Color(getColor(R.color.launch_background))))
@@ -211,7 +227,10 @@ class MainActivity : ComponentActivity() {
                 onDispose { cancel?.invoke() }
             }
             val appearanceSettings by appearanceDataStore.settingsFlow.collectAsState(
-                initial = remember { appearanceDataStore.getInitialSettings() }
+                // The startup read above already obtained these settings. Using
+                // defaults here built a normal-theme Home first, then rebuilt it
+                // as glass when the same saved preferences arrived from the flow.
+                initial = remember { startupAppearance }
             )
             val privacyDataStore = remember { com.auralis.music.data.datastore.PrivacyDataStore(applicationContext) }
             val privacySettings by privacyDataStore.settingsFlow.collectAsState(
@@ -274,23 +293,6 @@ class MainActivity : ComponentActivity() {
                 appearanceSettings = appearanceSettings,
                 artworkPalette = artworkPaletteForTheme
             ) {
-                val viewModelProvider = remember {
-                    com.auralis.music.ui.viewmodel.AppViewModelProvider(
-                        activity = this@MainActivity,
-                        historyRepository = historyRepository,
-                        searchRepository = searchRepository,
-                        libraryRepository = libraryRepository,
-                        statsRepository = statsRepository,
-                        settingsRepository = settingsRepository,
-                        lyricsRepository = lyricsRepository,
-                        audioPlayer = audioPlayer,
-                        innerTubeClient = innerTubeClient,
-                        googleAccountSyncManager = googleAccountSyncManager,
-                        youtubeImporter = youtubeImporter,
-                        spotifyImporter = spotifyImporter
-                    )
-                }
-
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.dynamicBackground,
@@ -309,12 +311,16 @@ class MainActivity : ComponentActivity() {
                         (authUiState.profile.isGoogleConnected && authUiState.profile.uid.isNotBlank())
 
                     Box(modifier = Modifier.fillMaxSize()) {
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            com.auralis.music.ui.components.LocalLaunchContentVisible provides launchOverlayRemoved
+                        ) {
                         AuralisApp(
                             viewModelProvider = viewModelProvider,
                             appearanceSettings = appearanceSettings,
                             googleAccountSyncManager = googleAccountSyncManager,
                             initialNavDestination = liveNavDestination.value
                         )
+                        }
 
                         // Soft veil masking the moment sign-in hands off to the app: the welcome
                         // screen is mid-dissolve (see AuralisApp) while the app underneath still
@@ -448,6 +454,7 @@ class MainActivity : ComponentActivity() {
             this, onDrawingComplete = { launchDrawingComplete = true }
         ) {
             launchDrawingComplete = true
+            launchOverlayRemoved = true
             activeLaunchLogo = null
             launchTouchGate.splashRemoved()
             Log.d("AuralisStartup", "Home revealed ${android.os.SystemClock.uptimeMillis() - startMs}ms after launch setup")

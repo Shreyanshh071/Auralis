@@ -142,6 +142,11 @@ fun SyncedLyricsView(
     standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
     loadingAlignment: Alignment = Alignment.Center
 ) {
+    val animationsActive = com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive != false
+    val frozenPosition = remember(track?.id, animationsActive) { mutableStateOf(positionState.value) }
+    val positionState = if (animationsActive) positionState else frozenPosition
+    val isPlaying = isPlaying && animationsActive
+    val lyricsClockSource = lyricsClockSource.takeIf { animationsActive }
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
         if (lyrics != null) {
@@ -216,6 +221,7 @@ fun SyncedLyricsView(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 com.auralis.music.ui.components.SquirlyProgressRing(
+                    animationActive = animationsActive,
                     isIndeterminate = true,
                     strokeWidth = 4.dp,
                     trackColor = Color.Transparent,

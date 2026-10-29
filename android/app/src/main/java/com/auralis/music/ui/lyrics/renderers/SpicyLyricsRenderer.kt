@@ -266,7 +266,8 @@ fun SpicyLyricsLine(
     val measurer = rememberTextMeasurer()
     var layout by remember(line.text, style) { mutableStateOf<TextLayoutResult?>(null) }
     var frameNanos by remember { mutableLongStateOf(0L) }
-    val motionActive = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+    val motionActive = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false &&
+        com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive != false
     LaunchedEffect(motionActive) {
         if (motionActive) while (true) withFrameNanos { frameNanos = it }
     }

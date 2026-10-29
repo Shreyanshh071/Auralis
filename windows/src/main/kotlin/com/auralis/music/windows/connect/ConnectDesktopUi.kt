@@ -81,7 +81,8 @@ fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
         val status = when {
             t != null && !t.failed -> desktopText("Connecting to %1\$s…", t.label)
             t != null -> desktopText("Couldn't connect to %1\$s", t.label)
-            ui.output?.isThis == true -> desktopText("Playing on this device")
+            ui.output?.isThis == true -> if (ui.output?.playing == true) desktopText("Playing on this device")
+                else desktopText("Current device")
             else -> connectOutputLine(ui.output)
         }
         if (status != null) Text(status, style = MaterialTheme.typography.bodySmall,

@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.auralis.music.data.playlistsync.*
 import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.LibraryRepository
@@ -28,7 +29,11 @@ fun PlaylistImportSyncToggle() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("Keep imported playlists in sync")
-            Text("Two-way sync with each playlist’s original YouTube Music or Spotify source.", style = MaterialTheme.typography.bodySmall)
+            val descriptionStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 18.sp)
+            Text("Two-way sync with YouTube Music playlists.", style = descriptionStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Currently works with YouTube Music only. Spotify playlists can be imported, but changes won’t sync.",
+                style = descriptionStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(choice.enabled, { choice.enabled = it; choice.changed(it) })
     }

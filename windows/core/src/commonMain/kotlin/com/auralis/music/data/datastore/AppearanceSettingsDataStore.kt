@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
 class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>) : com.auralis.music.ui.theme.AppearanceSettingsStore {
+    val preferenceSyncDataStore: DataStore<Preferences> get() = dataStore
 
     /**
      * Instantly returns default AppearanceSettings for Frame 0 to guarantee non-blocking startup.

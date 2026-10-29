@@ -17,7 +17,9 @@ data class LyricsSearchQuery(
     val appleMusicId: String? = null,
     val audioLeadingSilenceMs: Long? = null,
     /** Original title, retaining version labels stripped from the general search query. */
-    val recordingTitle: String? = null
+    val recordingTitle: String? = null,
+    /** Explicit picks distinguish an unavailable service from an empty catalog result. */
+    val reportFailures: Boolean = false
 )
 
 data class LyricsCandidate(

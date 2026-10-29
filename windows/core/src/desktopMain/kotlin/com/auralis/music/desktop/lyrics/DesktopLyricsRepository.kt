@@ -23,7 +23,13 @@ class DesktopLyricsRepository(
         client.searchProvider(LyricsProvider.SPICY_LYRICS, q.title, q.artist, q.durationSec,
             q.videoId, q.album, q.channelTitle, q.durationMs, q.audioLeadingSilenceMs, q.spotifyId)
     },
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val providerLookup: suspend (LyricsProvider, LyricsSearchQuery) -> LyricsData? = { provider, q ->
+        client.searchProvider(provider, q.title, q.artist, q.durationSec,
+            q.videoId, q.album, q.channelTitle, q.durationMs, q.audioLeadingSilenceMs, q.spotifyId,
+            reportFailures = true)
+    },
+    private val knownTracks: () -> Sequence<com.auralis.music.domain.model.Track> = { emptySequence() }
 ) {
     companion object {
         @Volatile var preferredProviders: List<com.auralis.music.domain.model.LyricsProvider> = emptyList()
@@ -44,6 +50,57 @@ class DesktopLyricsRepository(
     private val spicyAttempts = mutableMapOf<String, Long>()
     private val storageLock = Any()
 
+    fun selectableProviders(): List<LyricsProvider> = client.selectableProviders()
+
+    /** Reuse imported recording identities after playback has become a YouTube ID. */
+    internal fun withKnownRecording(query: LyricsSearchQuery): LyricsSearchQuery {
+        if (com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(query.spotifyId) != null) return query
+        val matcher = com.auralis.music.data.network.SpicyRecordingMatcher
+        val cached = query.videoId?.lowercase()?.let { key -> synchronized(storageLock) {
+            memory[key] ?: disk?.read(key)
+        } }
+        if (cached != null && cached.spotifyTrackId != null && cached.trackName != null && cached.artistName != null &&
+            cached.durationMs != null && matcher.matches(query, com.auralis.music.data.network.SpicyRecording(
+                cached.spotifyTrackId, cached.trackName, cached.artistName, cached.durationMs)))
+            return query.copy(spotifyId = cached.spotifyTrackId)
+        val candidates = knownTracks().mapNotNull { track ->
+            matcher.spotifyId(track.id)?.let { id -> com.auralis.music.data.network.SpicyRecording(
+                id, track.title, track.artist, track.duration * 1000L, track.album) }
+        }.distinctBy { it.id }.filter { matcher.matchesIdentity(query, it) }.toList()
+        val verified = candidates.filter { matcher.matches(query, it) }
+        val match = verified.firstOrNull { !query.album.isNullOrBlank() && query.album.equals(it.album, true) }
+            ?: verified.firstOrNull()
+        if (match != null) return query.copy(spotifyId = match.id)
+        // Imported Spotify entries often omit duration. They identify a metadata lookup,
+        // not a verified recording: SpicyLyricsSource still checks the public metadata's
+        // measured duration, title, artist and version before requesting any lyrics.
+        val unknownLength = candidates.filter { it.durationMs <= 0 }
+        val sameAlbum = unknownLength.filter { !query.album.isNullOrBlank() && query.album.equals(it.album, true) }
+        val hint = (sameAlbum.ifEmpty { unknownLength }).singleOrNull() ?: return query
+        return query.copy(spotifyId = hint.id)
+    }
+
+    /** Explicit user choice may intentionally select plain/line lyrics over word sync. */
+    suspend fun fetchProvider(provider: LyricsProvider, query: LyricsSearchQuery): LyricsData? {
+        val cacheKey = query.videoId?.lowercase()?.let { "$it-provider-${provider.name}" }
+        if (provider == LyricsProvider.SPICY_LYRICS && cacheKey != null) synchronized(storageLock) {
+            memory[cacheKey] ?: disk?.read(cacheKey)?.also { memory[cacheKey] = it }
+        }?.let { cached ->
+            if (cached.trackName != null && cached.artistName != null && cached.spotifyTrackId != null &&
+                cached.durationMs != null && com.auralis.music.data.network.SpicyRecordingMatcher.matches(query,
+                    com.auralis.music.data.network.SpicyRecording(cached.spotifyTrackId, cached.trackName,
+                        cached.artistName, cached.durationMs))) return align(cached, query.durationMs ?: 0L)
+        }
+        val response = withTimeoutOrNull(if (provider == LyricsProvider.SPICY_LYRICS) 45_000L else 16_000L) {
+            Result.success(providerLookup(provider, withKnownRecording(query)))
+        } ?: throw java.io.IOException("Lyrics lookup timed out")
+        val result = response.getOrNull() ?: return null
+        if (provider == LyricsProvider.SPICY_LYRICS && cacheKey != null && result.lines.isNotEmpty())
+            synchronized(storageLock) { memory[cacheKey] = result; disk?.write(cacheKey, result) }
+        return result.takeIf { it.lines.isNotEmpty() || !it.plainLyrics.isNullOrBlank() }
+            ?.let { align(it, query.durationMs ?: 0L) }
+    }
+
     /** Independent of the provider race and of its word-cache early exit. */
     suspend fun upgradeSpicy(query: LyricsSearchQuery): LyricsData? {
         if (!spicyEnabled()) return null
@@ -61,7 +118,7 @@ class DesktopLyricsRepository(
             spicyAttempts[attemptKey] = clock()
         }
         val result = try {
-            withTimeoutOrNull(8_000L) { spicyLookup(query) }
+            withTimeoutOrNull(45_000L) { spicyLookup(withKnownRecording(query)) }
         } catch (e: CancellationException) {
             synchronized(spicyAttempts) { spicyAttempts.remove(attemptKey) }
             throw e
@@ -70,6 +127,10 @@ class DesktopLyricsRepository(
             null
         } ?: return null
         if (result.provider != LyricsProvider.SPICY_LYRICS || LyricsClient.tierOf(result) < LyricsClient.TIER_LINE) return null
+        synchronized(storageLock) {
+            val providerKey = "$key-provider-${LyricsProvider.SPICY_LYRICS.name}"
+            memory[providerKey] = result; disk?.write(providerKey, result)
+        }
         val selected = storeBest(key, result, preferSpicy = true)
         Log.i(TAG, "Spicy upgrade for '${query.title}': selected ${selected.provider} ${selected.syncType}")
         return align(selected, query.durationMs ?: 0L)

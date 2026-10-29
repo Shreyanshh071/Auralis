@@ -417,7 +417,14 @@ class DesktopConnect(
                     handoff = active
                 }
             })
-            add(scope.launch { while (isActive) { delay(1_000L); e.tick() } })
+            add(scope.launch { while (isActive) {
+                delay(1_000L)
+                // A hidden idle app is not an available output. Actual background
+                // playback stays reachable, matching the phone's media lifetime.
+                val local = player?.snapshot()
+                e.setDeviceAvailable(windowVisible() || local?.playing == true || local?.buffering == true)
+                e.tick()
+            } })
             // The session: read from the server, never assumed (a waking PC reads it first).
             add(scope.launch(Dispatchers.IO) {
                 while (isActive) {

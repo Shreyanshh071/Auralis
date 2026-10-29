@@ -4,6 +4,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -32,8 +33,19 @@ fun SquirlyProgressRing(
     trackColor: Color = Color.White.copy(alpha = 0.16f),
     progressColor: Color = Color.White.copy(alpha = 0.96f),
     waveCount: Int = 6,
-    waveAmplitudeRatio: Float = 0.11f
+    waveAmplitudeRatio: Float = 0.11f,
+    animationActive: Boolean = true
 ) {
+    val motion = rememberSquirlyMotion(isIndeterminate, animationActive)
+
+    SquirlyRingCanvas(modifier, progress, isIndeterminate, strokeWidth, trackColor, progressColor,
+        waveCount, waveAmplitudeRatio, motion)
+}
+
+@Composable
+private fun rememberSquirlyMotion(isIndeterminate: Boolean, active: Boolean): () -> FloatArray {
+    val last = remember { floatArrayOf(0f, 0f, 60f) }
+    if (!active) return { last }
     val infiniteTransition = rememberInfiniteTransition(label = "squirlyInfinite")
 
     // Continuous wave phase morphing
@@ -71,8 +83,21 @@ fun SquirlyProgressRing(
         ),
         label = "squirlySweep"
     )
+    return {
+        last[0] = phase; last[1] = rotationAngle; last[2] = indeterminateSweep
+        last
+    }
+}
 
+@Composable
+private fun SquirlyRingCanvas(modifier: Modifier, progress: Float, isIndeterminate: Boolean,
+    strokeWidth: Dp, trackColor: Color, progressColor: Color, waveCount: Int, waveAmplitudeRatio: Float,
+    motion: () -> FloatArray) {
     Canvas(modifier = modifier) {
+        val values = motion()
+        val phase = values[0]
+        val rotationAngle = values[1]
+        val indeterminateSweep = values[2]
         val sizePx = size.minDimension
         val strokeWidthPx = strokeWidth.toPx()
         val baseRadius = (sizePx - strokeWidthPx * 2.8f) / 2f

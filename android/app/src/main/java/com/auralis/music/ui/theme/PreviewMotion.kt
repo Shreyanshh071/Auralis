@@ -8,7 +8,8 @@ val LocalPreviewMotionActive = compositionLocalOf<Boolean?> { null }
 
 @Composable
 internal fun rememberPreviewRotation(durationMillis: Int, target: Float = 360f): State<Float> {
-    val active = LocalPreviewMotionActive.current
+    val modalActive = com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive
+    val active = LocalPreviewMotionActive.current?.let { it && modalActive != false } ?: modalActive
     if (active == null) {
         return rememberInfiniteTransition(label = "playerBackgroundRotation").animateFloat(
             initialValue = 0f, targetValue = target,
