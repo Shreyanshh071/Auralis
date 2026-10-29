@@ -103,6 +103,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -363,6 +364,12 @@ fun ImmersivePlayerContainer(
             }
     ) {
         // The cover's colours carried on below it; the seam rides the cover's bottom edge.
+        val foliaStyle = PlayerBackgroundStyle.fromKey(com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerBackgroundStyle)
+        if (foliaStyle.isFolia) {
+            val palette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
+            FoliaBackground(foliaStyle, track.thumbnail, palette, uiState.isPlaying,
+                sheetProgress() > .001f, Modifier.fillMaxSize().graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) })
+        } else {
         ImmersiveColorField(
             artworkUrl = track.thumbnail,
             cropArtwork = cropAlbumArt,
@@ -372,6 +379,7 @@ fun ImmersivePlayerContainer(
             },
             modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) }
         )
+        }
 
         // ── FULL-BLEED SLEEVE AT REST (runs up behind the status bar, swipes between songs) ──
         if (heroAtRest && !hidePlayerThumbnail) {

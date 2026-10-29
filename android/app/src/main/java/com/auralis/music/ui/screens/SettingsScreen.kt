@@ -85,6 +85,8 @@ fun SettingsScreen(
         }
     }
 
+    var showImportedLyrics by remember { mutableStateOf(false) }
+    if (showImportedLyrics) com.auralis.music.ui.lyrics.ImportedLyricsDialog(onDismiss = { showImportedLyrics = false })
     val themePrimary = MaterialTheme.dynamicPrimary
     val themeBackground = MaterialTheme.dynamicBackground
     val themeSurface = MaterialTheme.dynamicSurface
@@ -189,6 +191,13 @@ fun SettingsScreen(
                                 iconBackground = cardIconBg,
                                 onClick = { activeDialog = SettingsDialogType.CONTENT }
                             )
+                        }
+                        item(key = "hdr_lyrics_imports") { SettingsCategoryHeader(title = "Lyrics", color = cardPrimary) }
+                        item(key = "item_imported_lyrics") {
+                            SettingsRowItem(icon = Icons.Default.Lyrics, title = "Imported lyrics",
+                                cardBackground = cardBackground, borderColor = cardBorder, textColor = cardText,
+                                iconTint = cardPrimary, iconBackground = cardIconBg,
+                                onClick = { showImportedLyrics = true })
                         }
                         item(key = "item_ai_lyrics") {
                             SettingsRowItem(

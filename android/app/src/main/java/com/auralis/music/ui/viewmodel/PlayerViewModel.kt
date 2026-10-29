@@ -46,7 +46,7 @@ data class PlayerUiState(
     val audioLeadingSilenceMs: Long? = null
 )
 
-enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND }
+enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND, UNAVAILABLE }
 
 /** What the lyrics provider sheet knows for one song; [trackId] scopes it to that song. */
 data class LyricsProviderPicks(
@@ -63,6 +63,7 @@ internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, re
     val resultTier = lyricsTier(result)
     val winner = when {
         preferSpicy && result?.provider == LyricsProvider.SPICY_LYRICS && resultTier >= maxOf(cachedTier, displayedTier) -> result
+        displayed?.provider == LyricsProvider.SPICY_LYRICS && displayedTier >= resultTier && displayedTier >= cachedTier -> displayed
         // A cached Musixmatch word result is a fallback, not a terminal winner.
         // Let a different word source replace it even though both have the same tier.
         result != null && resultTier == 3 && result.provider != LyricsProvider.MUSIXMATCH &&
@@ -117,6 +118,8 @@ internal suspend fun searchForTimedLyrics(
     maxAttempts: Int = 3,
     retryDelayMs: Long = 500L,
     timedLyricsVisible: () -> Boolean,
+    /** Called when a full pass found no timed lyrics; the retries continue in the background. */
+    onUntimedAttempt: () -> Unit = {},
     search: suspend (attempt: Int) -> LyricsData?
 ): LyricsData? {
     require(maxAttempts > 0)
@@ -131,7 +134,10 @@ internal suspend fun searchForTimedLyrics(
         }
         if (lyricsTier(result) > lyricsTier(best)) best = result
         if (lyricsTier(best) >= 2 || timedLyricsVisible()) return best
-        if (attempt < maxAttempts - 1) delay(retryDelayMs)
+        if (attempt < maxAttempts - 1) {
+            onUntimedAttempt()
+            delay(retryDelayMs)
+        }
     }
     return best
 }
@@ -237,31 +243,58 @@ class PlayerViewModel(
 
     init {
         viewModelScope.launch {
-            connectRemote.map { remote -> remote?.track?.let { track ->
-                track.copy(duration = remote.durationMs.takeIf { it > 0 }?.div(1000L) ?: track.duration)
-            } }.distinctUntilChanged().collectLatest { track ->
+            com.auralis.music.data.local.ImportedLyricsStore.changes.drop(1).collect {
+                _uiState.value.currentTrack?.let { track ->
+                    _uiState.update { it.copy(lyrics = null) }
+                    loadLyrics(track, forceSourceRefresh = true)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            connectRemote.map { remote -> remote?.let {
+                it.track.copy(duration = it.durationMs.takeIf { value -> value > 0 }?.div(1000L) ?: it.track.duration) to it.lyricsSelection
+            } }.distinctUntilChanged().collectLatest { remote ->
+                val track = remote?.first
+                val selection = remote?.second
                 remoteLyricsState.value = PlayerUiState(currentTrack = track, isLoadingLyrics = track != null)
                 if (track != null) {
                     try {
                         val duration = connectRemote.value?.durationMs?.takeIf { it > 0 } ?: track.duration * 1000L
                         val result = withContext(Dispatchers.IO) {
-                            lyricsRepository.getLyrics(title = track.title, artist = track.artist,
-                                durationSec = duration / 1000L, videoId = track.id, album = track.album,
-                                channelTitle = track.channelTitle, durationMs = duration, forceRefresh = false)
-                        }
-                        remoteLyricsState.value = PlayerUiState(currentTrack = track, lyrics = result)
-                        if (isSpicyLyricsMode()) {
-                            val upgraded = withContext(Dispatchers.IO) {
-                                lyricsRepository.upgradeSpicy(track.title, track.artist, duration / 1000L,
-                                    track.id, track.album, track.channelTitle, duration, null,
-                                    com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id))
+                            if (selection != null) {
+                                if (selection.provider == LyricsProvider.LOCAL)
+                                    com.auralis.music.data.local.ImportedLyricsStore.read(track.id)
+                                else com.auralis.music.data.network.LyricsClient().searchProvider(
+                                    selection.provider, selection.title ?: track.title, selection.artist ?: track.artist,
+                                    (selection.durationMs ?: duration) / 1000L, track.id,
+                                    track.album, track.channelTitle, selection.durationMs ?: duration, spotifyId = selection.spotifyId,
+                                    reportFailures = true)
+                            } else {
+                                // Older outputs do not publish a provider. Prefer Spicy before exposing a fallback.
+                                val spicy = if (isSpicyLyricsMode()) kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                                    lyricsRepository.upgradeSpicy(track.title, track.artist, duration / 1000L,
+                                        track.id, track.album, track.channelTitle, duration, null,
+                                        com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id))
+                                } else null
+                                spicy ?: lyricsRepository.getLyrics(title = track.title, artist = track.artist,
+                                    durationSec = duration / 1000L, videoId = track.id, album = track.album,
+                                    channelTitle = track.channelTitle, durationMs = duration, forceRefresh = false)
                             }
-                            remoteLyricsState.update { state -> state.copy(
-                                lyrics = selectSettledLyrics(null, state.lyrics, upgraded, preferSpicy = true)) }
                         }
+                        val aligned = result?.let { if (duration > 0L && it.provider != LyricsProvider.LOCAL)
+                            com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(it, duration, null) else it }
+                        remoteLyricsState.value = PlayerUiState(currentTrack = track, lyrics = aligned,
+                            errorMessage = if (selection != null && result == null) "The playing device's lyrics source is unavailable on this device." else null)
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { remoteLyricsState.update { it.copy(isLoadingLyrics = false) } }
+                    catch (_: Exception) { remoteLyricsState.update { it.copy(isLoadingLyrics = false,
+                        errorMessage = "Could not reach the playing device's lyrics source. Try again shortly.") } }
                 }
+            }
+        }
+        viewModelScope.launch {
+            _uiState.map { it.currentTrack?.id to it.lyrics }.distinctUntilChanged().collect { (id, lyrics) ->
+                com.auralis.music.data.connect.ConnectLyricsState.publish(id, lyrics)
             }
         }
         context?.let { ctx ->
@@ -1370,6 +1403,15 @@ class PlayerViewModel(
             )
         }
         lyricsJob = viewModelScope.launch {
+            val imported = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                com.auralis.music.data.local.ImportedLyricsStore.read(track.id)
+                    ?: com.auralis.music.data.local.ImportedLyricsStore.read(resolvedIdAtStart)
+            }
+            if (!isActive()) return@launch
+            if (imported != null) {
+                _uiState.update { it.copy(lyrics = imported, isLoadingLyrics = false) }
+                return@launch
+            }
             val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
             val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
 
@@ -1394,8 +1436,8 @@ class PlayerViewModel(
                     audioLeadingSilenceMs = currentSilence
                 )
             }
-            suspend fun upgradeSpicy() {
-                if (!isActive() || !isSpicyLyricsMode()) return
+            suspend fun upgradeSpicy(): Boolean {
+                if (!isActive() || !isSpicyLyricsMode()) return false
                 val upgraded = try {
                     withContext(Dispatchers.IO) {
                         lyricsRepository.upgradeSpicy(track.title, track.artist, effectiveDurationSec,
@@ -1412,8 +1454,16 @@ class PlayerViewModel(
                         lyrics = selectSettledLyrics(null, state.lyrics, upgraded, preferSpicy = true),
                         isLoadingLyrics = false) }
                     if (_uiState.value.lyrics === upgraded) triggerAiTranslation(track, upgraded, requestId)
+                    return true
                 }
+                return false
             }
+            // A preferred source must never block the first usable lyric screen. Publish
+            // validated cache now, then let Spicy and the normal lookup run concurrently.
+            if (cached != null && lyricsTier(cached) >= 2 && isActive()) {
+                _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
+            }
+            launch { upgradeSpicy() }
             // Non-Musixmatch word sync can settle from cache. Musixmatch remains
             // visible while the other word sources get one chance to replace it.
             if (cached != null && lyricsTier(cached) == 3 && cached.provider != LyricsProvider.MUSIXMATCH) {
@@ -1451,7 +1501,6 @@ class PlayerViewModel(
                         triggerAiTranslation(track, enriched, requestId)
                     }
                 }
-                upgradeSpicy()
                 return@launch
             }
 
@@ -1469,7 +1518,6 @@ class PlayerViewModel(
 
             val trackKey = (effectiveVideoId.takeIf { it.isNotBlank() } ?: "${track.title}::${track.artist}::$effectiveDurationSec").lowercase()
             if (cachedIsUsable && !lyricsUpgradeAttempted.add(trackKey)) {
-                upgradeSpicy()
                 return@launch
             }
 
@@ -1481,6 +1529,12 @@ class PlayerViewModel(
                 val data = searchForTimedLyrics(
                     timedLyricsVisible = {
                         !forceSourceRefresh && isActive() && lyricsTier(_uiState.value.lyrics) >= 2
+                    },
+                    // A full pass can take 8-13s when only another version's lyrics exist (e.g. a
+                    // radio edit). End the spinner after it instead of holding it through every
+                    // retry; a retry's timed interim still replaces the empty state.
+                    onUntimedAttempt = {
+                        if (isActive()) _uiState.update { it.copy(isLoadingLyrics = false) }
                     },
                     search = { attempt ->
                         if (attempt > 0) Log.d("AuralisLyrics", "Retrying timed lyrics lookup: attempt ${attempt + 1}")
@@ -1509,7 +1563,7 @@ class PlayerViewModel(
                                 onInterim = { interim ->
                                     if (!finalDelivered.get() && lyricsTier(interim) >= 2 && isActive()) {
                                         _uiState.update { state ->
-                                            if (!finalDelivered.get() && lyricsTier(interim) > lyricsTier(state.lyrics)) {
+                                            if (!finalDelivered.get() && lyricsTier(state.lyrics) < 2) {
                                                 state.copy(lyrics = interim, isLoadingLyrics = false)
                                             } else state
                                         }
@@ -1542,7 +1596,6 @@ class PlayerViewModel(
                     _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 } ?: if (forceSourceRefresh) safeFallback else it.lyrics, isLoadingLyrics = false) }
                 }
             }
-            upgradeSpicy()
         }
     }
 
@@ -1690,7 +1743,11 @@ class PlayerViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (_uiState.value.currentTrack?.id == track.id)
+                    setProviderStatus(track.id, provider, LyricsProviderStatus.UNAVAILABLE)
                 Log.w("AuralisLyrics", "[pickLyricsProvider] $provider failed: ${e.message}")
+                return@launch
                 null
             }
             if (_uiState.value.currentTrack?.id != track.id) return@launch

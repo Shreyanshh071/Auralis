@@ -32,6 +32,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -778,6 +781,7 @@ fun AppearanceScreen(
             AppearanceOptionsDialog(
                 title = str(R.string.player_background_style),
                 options = bgOptions,
+                scrollable = true,
                 selectedOption = currentStyle.displayName,
                 onSelect = {
                     update { copy(playerBackgroundStyle = it) }
@@ -1218,7 +1222,8 @@ private fun AppearanceOptionsDialog(
     options: List<String>,
     selectedOption: String,
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    scrollable: Boolean = false
 ) {
     val primaryColor = MaterialTheme.dynamicPrimary
     val surfaceColor = MaterialTheme.dynamicSurface
@@ -1235,7 +1240,8 @@ private fun AppearanceOptionsDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = if (scrollable) Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()) else Modifier,
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 options.forEach { option ->
                     val isSelected = option.equals(selectedOption, ignoreCase = true)
                     Row(

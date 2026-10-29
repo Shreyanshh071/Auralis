@@ -16,7 +16,8 @@ data class LyricsSearchQuery(
     val spotifyId: String? = null,
     val appleMusicId: String? = null,
     val audioLeadingSilenceMs: Long? = null,
-    val recordingTitle: String? = null
+    val recordingTitle: String? = null,
+    val reportFailures: Boolean = false
 )
 
 data class LyricsCandidate(

@@ -189,7 +189,7 @@ class SpicyLyricsTest {
         assertNull(SpicyLyricsSource(client(mutableListOf(), lyrics = "not json"), { key }, { "spotify_token" }).search(query))
     }
 
-    @Test fun knownSpotifyIdentityUsesTrackLookupAndMissingTokensDoNotCallApi() = runBlocking {
+    @Test fun knownSpotifyIdentityUsesTrackLookupAndMissingTokensOnlyTryPublicCatalog() = runBlocking {
         val requests = mutableListOf<Request>()
         val source = SpicyLyricsSource(client(requests), { key }, { "spotify_token" })
         assertNotNull(source.search(query.copy(spotifyId = "sp_$id")))
@@ -197,7 +197,7 @@ class SpicyLyricsTest {
         assertTrue(requests.any { it.url.host == "api.spotify.com" && it.url.encodedPath == "/v1/tracks/$id" })
         requests.clear()
         assertNull(SpicyLyricsSource(client(requests), { key }, { null }).search(query))
-        assertTrue(requests.isEmpty())
+        assertTrue(requests.none { it.url.host == "api.spotify.com" || it.url.host == "api.spicylyrics.org" })
     }
 
     @Test fun cachedMappingIsScopedToMetadataAndExpires() = runBlocking {

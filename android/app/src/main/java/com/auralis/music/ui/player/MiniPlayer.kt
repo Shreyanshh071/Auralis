@@ -446,6 +446,7 @@ fun MiniPlayer(
         PlayerBackgroundStyle.LIVE_MESH -> 18.dp
         PlayerBackgroundStyle.GLOW_MOTION -> 16.dp
         PlayerBackgroundStyle.GRADIENT -> 16.dp
+        else -> 16.dp // Full-player-only backgrounds are never offered in this picker.
     }
 
     val spotShadowColor: Color = when (activeStyle) {
@@ -1243,6 +1244,7 @@ private fun NewMiniPlayerPillView(
             PlayerBackgroundStyle.LIVE_MESH -> Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
             PlayerBackgroundStyle.GLOW_MOTION -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
             PlayerBackgroundStyle.FOLLOW_THEME -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
+            else -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
         }
     }
 

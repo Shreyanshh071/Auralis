@@ -1,0 +1,164 @@
+package com.auralis.music
+
+import com.auralis.music.data.network.*
+import com.auralis.music.data.network.provider.*
+import com.auralis.music.domain.model.*
+import kotlinx.coroutines.runBlocking
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.Test
+import org.junit.Assert.*
+
+class SpicyAlbumCatalogTest {
+    private val albumId = "abcdefghijklmnopqrstuv"
+    private val trackId = "zyxwvutsrqponmlkjihgfe"
+    private fun album(duration: Long = 180000, uri: String = "spotify:album:$albumId") = """
+        <script id="__NEXT_DATA__">{"props":{"pageProps":{"state":{"data":{"entity":{
+        "type":"album","uri":"$uri","name":"Release","trackList":[
+        {"uri":"spotify:track:$trackId","title":"Fixture","subtitle":"Artist","duration":$duration}]}}}}}}</script>
+    """.trimIndent()
+
+    @Test fun albumIdentityAndMeasuredRecordingMustMatch() {
+        val tracks = SpicySpotifyMetadata.fromAlbumEmbed(album(), albumId)
+        assertEquals(1, tracks.size)
+        val query = LyricsSearchQuery("Fixture", "Artist", 180, durationMs = 180000)
+        assertTrue(SpicyRecordingMatcher.matches(query, tracks.single()))
+        assertFalse(SpicyRecordingMatcher.matches(query.copy(title = "Fixture (Live)"), tracks.single()))
+        assertFalse(SpicyRecordingMatcher.matches(query.copy(artist = "Other Artist"), tracks.single()))
+        assertFalse(SpicyRecordingMatcher.matches(query.copy(durationMs = 200000), tracks.single()))
+        assertTrue(SpicySpotifyMetadata.fromAlbumEmbed(album(uri = "spotify:album:another"), albumId).isEmpty())
+        assertTrue(SpicySpotifyMetadata.fromAlbumEmbed(album(duration = 0), albumId).isEmpty())
+    }
+
+    @Test fun missingIdentityUsesPublicReleaseMetadataWhenSpotifyApiIsLimitedAndCachesResult() = runBlocking {
+        var apiRequests = 0
+        var metadataRequests = 0
+        var temporaryFailure = true
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val url = chain.request().url
+            val body: String
+            val code: Int
+            when {
+                url.host == "api.spotify.com" -> { apiRequests++; code = 429; body = "{}" }
+                url.host == "musicbrainz.org" && url.encodedPath.endsWith("/release/") -> {
+                    metadataRequests++; code = 200
+                    body = """{"releases":[{"id":"11111111-2222-3333-4444-555555555555","media":[{"format":"Digital Media"}]}]}"""
+                }
+                url.host == "musicbrainz.org" -> {
+                    metadataRequests++
+                    if (temporaryFailure) { temporaryFailure = false; code = 503; body = "{}" }
+                    else {
+                        code = 200
+                        body = """{"relations":[{"url":{"resource":"https://open.spotify.com/album/$albumId"}}]}"""
+                    }
+                }
+                url.host == "open.spotify.com" -> { code = 200; body = album() }
+                url.host == "api.spicylyrics.org" -> {
+                    code = 200
+                    body = """{"Status":200,"Body":{"id":"$trackId","source":"apple_music","Type":"Syllable","Content":[
+                    {"Type":"Vocal","Lead":{"StartTime":10,"EndTime":12,"Syllables":[{"Text":"Fixture","StartTime":10,"EndTime":12}]}}]}}"""
+                }
+                else -> error("Unexpected metadata request: ${url.host}")
+            }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("fixture")
+                .header("Retry-After", if (code == 503) "1" else "7200").body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val source = SpicyLyricsSource(client, apiKey = { "sl_pk_fixture" }, spotifyToken = { "fixture" })
+        val query = LyricsSearchQuery("Fixture", "Artist", 180, "youtube-id", album = "Release", durationMs = 180000, reportFailures = true)
+        val found = source.search(query)!!.lyricsData
+        assertEquals(SyncType.RICHSYNC, found.syncType)
+        assertEquals(10000L, found.lines.single().words!!.single().time)
+        assertEquals(2000L, found.lines.single().words!!.single().duration)
+        assertNotNull(source.search(query.copy(videoId = "another-video", spotifyId = albumId)))
+        assertEquals(1, apiRequests)
+        assertEquals(3, metadataRequests)
+    }
+
+    @Test fun publicCatalogueHonorsServerBackoffAcrossDifferentAlbumRequests() = runBlocking {
+        var now = 1000L
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            requests++
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(429).message("Limited")
+                .header("Retry-After", "7200").body("{}".toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val catalog = SpicyAlbumCatalog(client, clock = { now })
+        val query = LyricsSearchQuery("Fixture", "Artist", 180, album = "Release", durationMs = 180000)
+        assertNull(catalog.resolve(query)); assertEquals(1, requests)
+        now += 300_000
+        assertNull(catalog.resolve(query.copy(album = "Another Release")))
+        assertEquals(1, requests)
+        now += 6_900_000
+        assertNull(catalog.resolve(query.copy(album = "Third Release")))
+        assertEquals(2, requests)
+    }
+
+
+    @Test fun communityLookupTriesValidatedEquivalentReleaseAfter404() = runBlocking {
+        val firstId = "abcdefghijklmnopqrstuv"
+        val secondId = "zyxwvutsrqponmlkjihgfe"
+        val queried = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val url = chain.request().url
+            val body: String
+            val code: Int
+            if (url.host == "api.spotify.com") {
+                code = 200
+                body = """{"tracks":{"items":[
+                {"id":"$firstId","name":"Fixture","duration_ms":180000,"artists":[{"name":"Artist"}]},
+                {"id":"$secondId","name":"Fixture","duration_ms":180000,"artists":[{"name":"Artist"}]},
+                {"id":"wrongwrongwrongwrongwro","name":"Fixture (Live)","duration_ms":180000,"artists":[{"name":"Artist"}]}]}}"""
+            } else {
+                queried += url.pathSegments.last()
+                code = if (queried.last() == firstId) 404 else 200
+                body = if (code == 404) "{}" else """{"Status":200,"Body":{"id":"$secondId","Type":"Syllable","Content":[
+                {"Type":"Vocal","Lead":{"StartTime":10,"EndTime":12,"Syllables":[{"Text":"Fixture","StartTime":10,"EndTime":12}]}}]}}"""
+            }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("fixture")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val source = SpicyLyricsSource(client, apiKey = { "sl_pk_fixture" }, spotifyToken = { "fixture" })
+        val result = source.search(LyricsSearchQuery("Fixture", "Artist", 180, durationMs = 180000))
+        assertNotNull(result)
+        assertEquals(listOf(firstId, secondId), queried)
+    }
+
+    @Test fun liveSmithsCommunityLookupWithoutSpotifySession() = runBlocking {
+        org.junit.Assume.assumeTrue(System.getenv("AURALIS_LIVE_SPICY_CATALOG") == "1")
+        val liveClient = NetworkClientProvider.lyricsHttpClient.newBuilder().addInterceptor { chain ->
+            chain.proceed(chain.request()).also { println("Smiths metadata: ${it.request.url.host} ${it.code}") }
+        }.build()
+        val source = SpicyLyricsSource(liveClient, spotifyToken = { null })
+        val result = source.search(LyricsSearchQuery("Please, Please, Please, Let Me Get What I Want - 2011 Remaster",
+            "The Smiths", durationSec = 112, album = "Hatful of Hollow", durationMs = 112706, reportFailures = true))
+        assertNotNull("Spicy should return the matched Smiths recording", result)
+        assertTrue(result!!.lyricsData.lines.isNotEmpty())
+        println("Smiths live lookup: provider=${result.provider}, sync=${result.syncType}, lines=${result.lyricsData.lines.size}")
+    }
+
+    @Test fun liveHeavenKnowsVariantsProbe() = runBlocking {
+        org.junit.Assume.assumeTrue(System.getenv("AURALIS_LIVE_HEAVEN") == "1")
+        val client = NetworkClientProvider.lyricsHttpClient.newBuilder().callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain -> chain.proceed(chain.request()).also {
+                println("Heaven lookup HTTP: ${it.request.url.host} ${it.code}")
+            } }.build()
+        val source = SpicyLyricsSource(client, spotifyToken = { null })
+        val variants = listOf(
+            LyricsSearchQuery("Heaven Knows I'm Miserable Now", "The Smiths", 216, "10z6-vQm23w",
+                album = "Hatful of Hollow", durationMs = 216000, reportFailures = true),
+            LyricsSearchQuery("Heaven Knows I'm Miserable Now - 2011 Remaster", "The Smiths", 215,
+                album = "Louder Than Bombs", durationMs = 215000, spotifyId = "1H5N26VqHR4JhuaRKY2I0u", reportFailures = true)
+        )
+        for (query in variants) {
+            try {
+                val result = source.search(query)
+                println("Heaven variant '${query.title}': " + (result?.let {
+                    "FOUND ${it.syncType}, ${it.lyricsData.lines.size} lines"
+                } ?: "NO_MATCHED_LYRICS"))
+            } catch (e: java.io.IOException) {
+                println("Heaven variant '${query.title}': UNAVAILABLE ${e.message}")
+            }
+        }
+    }
+}

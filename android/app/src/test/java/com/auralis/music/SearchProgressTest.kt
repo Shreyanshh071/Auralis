@@ -18,6 +18,27 @@ import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchProgressTest {
+    @Test fun firstUsefulResponseIsPublishedWithoutTheOldPreviewHold() = runBlocking {
+        val client = mockk<InnerTubeClient>()
+        coEvery { client.search(any(), any()) } coAnswers { awaitCancellation() }
+        val fast = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        coEvery { client.search("stereo hearts", InnerTubeClient.FILTER_SONGS) } coAnswers {
+            entered.complete(Unit)
+            fast.await(); SearchResults(songs=listOf(song.copy(title="Stereo Hearts",artist="Gym Class Heroes")))
+        }
+        val suggestions=mockk<SearchSuggestionsClient>()
+        coEvery { suggestions.getSuggestions(any()) } returns emptyList()
+        val repo=SearchRepositoryImpl(client,suggestions,mockk<SearchHistoryStore>())
+        val visible=CompletableDeferred<Unit>()
+        val job=launch { repo.search("stereo hearts") { if(it.songs.isNotEmpty())visible.complete(Unit) } }
+        try {
+            withTimeout(5_000) { entered.await() }
+            fast.complete(Unit)
+            withTimeout(500) { visible.await() }
+            assertTrue("Other slow lookups are still pending",job.isActive)
+        } finally { job.cancelAndJoin() }
+    }
     private val song = Track("song", "Any Song", "Any Artist", album = "Studio Album", albumId = "MPREstudio", views = "100M plays")
 
     @Test fun songsAndTheirCardsAppearWhileOtherSearchesAreStillPending() = runBlocking {

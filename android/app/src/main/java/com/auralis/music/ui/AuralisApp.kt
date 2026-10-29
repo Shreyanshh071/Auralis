@@ -2992,6 +2992,9 @@ fun AuralisApp(
                     Box(
                         modifier = Modifier
                             .wrapContentSize()
+                            .then(com.auralis.music.ui.glass.LocalLiquidGlass.current?.let { glass ->
+                                Modifier.liquidGlass(glass, pillShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
+                            } ?: Modifier
                             .shadow(
                                 elevation = 10.dp,
                                 shape = pillShape,
@@ -3015,6 +3018,7 @@ fun AuralisApp(
                                 width = 0.75.dp,
                                 color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
                                 shape = pillShape
+                            )
                             )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },

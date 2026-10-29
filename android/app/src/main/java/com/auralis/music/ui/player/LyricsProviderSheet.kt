@@ -85,7 +85,7 @@ private fun SyncType.label(): String = when (this) {
     SyncType.PLAIN -> str(R.string.sync_none)
 }
 
-private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE }
+private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE, UNAVAILABLE }
 
 /**
  * "Choose lyrics provider": every enabled source with what it has for this song.
@@ -154,6 +154,7 @@ internal fun LyricsProviderSheet(
                             LyricsProviderStatus.FOUND -> ProviderRowState.FOUND
                             LyricsProviderStatus.FETCHING -> ProviderRowState.FETCHING
                             LyricsProviderStatus.NOT_FOUND -> ProviderRowState.NOT_FOUND
+                            LyricsProviderStatus.UNAVAILABLE -> ProviderRowState.UNAVAILABLE
                             null -> ProviderRowState.IDLE
                         }
                     }
@@ -245,6 +246,7 @@ private fun ProviderRow(name: String, state: ProviderRowState, syncType: SyncTyp
                         ?: str(R.string.lyrics_found_tap_to_use)
                     ProviderRowState.FETCHING -> str(R.string.fetching_lyrics)
                     ProviderRowState.NOT_FOUND -> str(R.string.lyrics_not_found)
+                    ProviderRowState.UNAVAILABLE -> "Temporarily unavailable - tap to retry"
                     ProviderRowState.IDLE -> str(R.string.tap_to_fetch)
                 },
                 color = foreground.copy(alpha = if (glass != null) .82f else .7f),

@@ -108,4 +108,33 @@ class SpicyAlbumCatalogTest {
         assertTrue(result.lines.any { it.words?.any { word -> (word.duration ?: 0) > 0 } == true })
         println("Public recording lookup succeeded: Every Breath You Take (${result.syncType}; real word timestamps)")
     }
+
+    @Test fun communityLookupTriesValidatedEquivalentReleaseAfter404() = runBlocking {
+        val firstId = "abcdefghijklmnopqrstuv"
+        val secondId = "zyxwvutsrqponmlkjihgfe"
+        val queried = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val url = chain.request().url
+            val body: String
+            val code: Int
+            if (url.host == "api.spotify.com") {
+                code = 200
+                body = """{"tracks":{"items":[
+                {"id":"$firstId","name":"Fixture","duration_ms":180000,"artists":[{"name":"Artist"}]},
+                {"id":"$secondId","name":"Fixture","duration_ms":180000,"artists":[{"name":"Artist"}]},
+                {"id":"wrongwrongwrongwrongwro","name":"Fixture (Live)","duration_ms":180000,"artists":[{"name":"Artist"}]}]}}"""
+            } else {
+                queried += url.pathSegments.last()
+                code = if (queried.last() == firstId) 404 else 200
+                body = if (code == 404) "{}" else """{"Status":200,"Body":{"id":"$secondId","Type":"Syllable","Content":[
+                {"Type":"Vocal","Lead":{"StartTime":10,"EndTime":12,"Syllables":[{"Text":"Fixture","StartTime":10,"EndTime":12}]}}]}}"""
+            }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("fixture")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val source = SpicyLyricsSource(client, apiKey = { "sl_pk_fixture" }, spotifyToken = { "fixture" })
+        val result = source.search(LyricsSearchQuery("Fixture", "Artist", 180, durationMs = 180000))
+        assertNotNull(result)
+        assertEquals(listOf(firstId, secondId), queried)
+    }
 }

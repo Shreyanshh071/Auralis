@@ -1,5 +1,9 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.glass.OptionalGlassPage
+import com.auralis.music.ui.glass.OptionalGlassCard
+import com.auralis.music.ui.glass.pageGlassSelection
+import com.auralis.music.ui.glass.pageGlassActionColor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -253,7 +257,7 @@ fun StatsScreen(
         viewModel.generateDateChips(firstEventTs)
     }
 
-    Box(
+    OptionalGlassPage(background = themeBackground, accent = themePrimary,
         modifier = modifier
             .fillMaxSize()
             .background(themeBackground)
@@ -467,7 +471,7 @@ fun StatsScreen(
 
                                 // Card 1: Top Artist
                                 topArtist?.let { artist -> UnfoldIn(1, openedAtMs, statsUnfoldOpen) {
-                                    Surface(
+                                    OptionalGlassCard(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
                                         border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
@@ -564,7 +568,7 @@ fun StatsScreen(
 
                                 // Card 2: Top Song
                                 topSong?.let { song -> UnfoldIn(2, openedAtMs, statsUnfoldOpen) {
-                                    Surface(
+                                    OptionalGlassCard(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
                                         border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
@@ -625,8 +629,7 @@ fun StatsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .size(42.dp)
-                                                    .clip(CircleShape)
-                                                    .background(themePrimary)
+                                                    .pageGlassSelection(CircleShape, true, themePrimary, themePrimary)
                                                     .clickable(
                                                         interactionSource = remember { MutableInteractionSource() },
                                                         indication = null,
@@ -637,7 +640,7 @@ fun StatsScreen(
                                                 Icon(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = str(R.string.play_song),
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    tint = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary),
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -662,12 +665,22 @@ fun StatsScreen(
 
                             // Hero Card: Total Time Listened
                             UnfoldIn(4, openedAtMs, statsUnfoldOpen) {
-                            Surface(
+                            OptionalGlassCard(
                                 shape = RoundedCornerShape(24.dp),
                                 color = surfaceCardColor,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
+                                if (com.auralis.music.ui.glass.pageGlassEnabled()) {
+                                    Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                                            Text(str(R.string.total_time_listened),color=textSecondary,modifier=Modifier.weight(1f))
+                                            Icon(Icons.Rounded.Headphones,null,tint=themePrimary,modifier=Modifier.size(28.dp))
+                                        }
+                                        Text(makeDurationString(overview.totalPlayTimeMs),color=textPrimary,
+                                            fontSize=48.sp,fontWeight=FontWeight.Bold,letterSpacing=(-2).sp)
+                                    }
+                                } else {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -738,6 +751,7 @@ fun StatsScreen(
                                             color = textPrimary
                                         )
                                     }
+                                }
                                 }
                             }
                             }
@@ -1131,7 +1145,19 @@ private fun MetricMiniCard(
     iconBg: Color = cardBg,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    if (com.auralis.music.ui.glass.pageGlassEnabled()) {
+        OptionalGlassCard(RoundedCornerShape(26.dp),cardBg,null,modifier.height(128.dp)) {
+            Column(Modifier.fillMaxSize().padding(14.dp),verticalArrangement=Arrangement.SpaceBetween) {
+                Icon(icon,null,tint=iconTint,modifier=Modifier.size(23.dp))
+                Column {
+                    Text(count.toString(),fontSize=28.sp,fontWeight=FontWeight.Bold,color=textPrimary,letterSpacing=(-1).sp)
+                    Text(label,color=textSecondary,fontSize=12.sp)
+                }
+            }
+        }
+        return
+    }
+    OptionalGlassCard(
         shape = RoundedCornerShape(18.dp),
         color = cardBg,
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),

@@ -756,8 +756,9 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
+                val anchorIdx = activeLineIndices.filter { effectiveLines.getOrNull(it)?.isBackground == false }.minOrNull() ?: curIdx
                 val lineIdx = mergedLyricsList.indexOfFirst {
-                    it is ExperimentalLyricsListItem.Line && it.index == curIdx
+                    it is ExperimentalLyricsListItem.Line && it.index == anchorIdx
                 }
                 if (lineIdx >= 0) lineIdx else 0
             }
@@ -1000,7 +1001,16 @@ fun ExperimentalLyricsView(
                     .fillMaxSize()
                     .stationaryLyricsBlur(
                         enabled = standardLyricsBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && !isSelectionModeActive,
-                        focusFraction = LYRICS_ANCHOR_RATIO
+                        focusFraction = LYRICS_ANCHOR_RATIO,
+                        clearHalfHeightPx = {
+                            val info = listState.layoutInfo
+                            val focus = info.viewportStartOffset + (info.viewportEndOffset-info.viewportStartOffset)*LYRICS_ANCHOR_RATIO
+                            info.visibleItemsInfo.filter { item ->
+                                val row = mergedLyricsList.getOrNull(item.index)
+                                row is ExperimentalLyricsListItem.Line && row.index in activeLineIndices
+                            }.maxOfOrNull { item -> maxOf(kotlin.math.abs(item.offset-focus),
+                                kotlin.math.abs(item.offset+item.size-focus)) + with(density) { 28.dp.toPx() } } ?: 0f
+                        }
                     )
                     .fadingEdge(top = 44.dp, bottom = LYRICS_FADE_BOTTOM_DP)
                     .nestedScroll(lyricsNestedScrollConnection),
@@ -1344,7 +1354,8 @@ internal fun ExperimentalLyricsLine(
     // Speaker-aware MetroLyrics layout (7.7). Only lines the source attributed to a vocalist in
     // a multi-speaker song carry a side; every other line (and every line of a song without
     // multi-speaker metadata) keeps the original positioning below, unchanged.
-    val isSpicyStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val selectedStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val isSpicyStyle = selectedStyle == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
     val speakerSide = speakerStyle?.side
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
@@ -1477,7 +1488,7 @@ internal fun ExperimentalLyricsLine(
 
             // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
-            val blurModifier = if (standardBlur && animatedBlur > 0.1f) {
+            val blurModifier = if (standardBlur && !((isSpicyStyle) && isActiveLine) && animatedBlur > 0.1f) {
                 Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
             } else Modifier
 

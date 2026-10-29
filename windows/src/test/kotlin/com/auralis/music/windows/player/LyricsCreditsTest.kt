@@ -18,6 +18,21 @@ import java.io.File
 import kotlin.test.*
 
 class LyricsCreditsTest {
+    @Test fun onlyMainWritersAndRealUploadersAreShown() {
+        val data = LyricsData(SyncType.PLAIN, emptyList(), provider = LyricsProvider.SPICY_LYRICS, artistName = "Ravyn Lenae",
+            credits = listOf(LyricsCredit("Spicy Lyrics", "https://spicylyrics.org"), LyricsCredit("Uploaded by `", ""),
+                LyricsCredit("Written by Dacoury Natche, Ravyn Lenae, Spencer Eugene Stewart, Dominic Angelella, Paige IV", "")))
+        val labels = com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(data).map { it.label }
+        assertTrue("Written by Ravyn Lenae, Dacoury Natche, Spencer Eugene Stewart" in labels, labels.toString())
+        assertTrue(labels.none { it.startsWith("Uploaded by") })
+    }
+    @Test fun spicyProviderLeadsWhilePreservingAppleSourceAttribution() {
+        val data = LyricsData(SyncType.PLAIN, emptyList(), provider = LyricsProvider.SPICY_LYRICS,
+            credits = listOf(LyricsCredit("Apple Music", "https://music.apple.com")))
+        val credits = com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(data, compact = true)
+        assertEquals("Lyrics from Spicy Lyrics", credits.first().label)
+        assertTrue(credits.any { it.label == "Source: Apple Music" && it.url == "https://music.apple.com" })
+    }
     @Test fun sidebarOmitsSongwritersButKeepsSourceAndSyncContributors() {
         val data = LyricsData(SyncType.PLAIN, emptyList(), provider = LyricsProvider.SPICY_LYRICS, credits = listOf(
             LyricsCredit("Spicy Lyrics", "https://spicylyrics.org"), LyricsCredit("Uploaded by Uploader", "https://spicylyrics.org/uid/1"),
@@ -160,8 +175,8 @@ class LyricsCreditsTest {
         val unison = LyricsData(SyncType.LINE_SYNC, listOf(LyricLine(0, "Test")), provider = LyricsProvider.UNISON)
         assertEquals("Lyrics from Unison", com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison).single().label)
         val supplied = listOf(LyricsCredit("Apple Music", "https://music.apple.com"))
-        assertEquals(listOf(LyricsCredit("Lyrics from Apple Music", "https://music.apple.com"),
-            LyricsCredit("via Spicy Lyrics", "https://spicylyrics.org")),
+        assertEquals(listOf(LyricsCredit("Lyrics from Spicy Lyrics", "https://spicylyrics.org"),
+            LyricsCredit("Source: Apple Music", "https://music.apple.com")),
             com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison.copy(provider = LyricsProvider.SPICY_LYRICS, credits = supplied)))
         assertTrue(com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(null).isEmpty())
         assertTrue(com.auralis.music.ui.lyrics.lyricsCreditsForDisplay(unison.copy(provider = LyricsProvider.SPICY_LYRICS)).single().label.contains("Unknown source"))

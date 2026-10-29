@@ -22,7 +22,7 @@ import dev.chrisbanes.haze.hazeEffect
 internal object MiniPlayerBackgrounds {
     enum class Surface { PURE_BLACK, LIQUID_GLASS, FROSTED, ARTWORK }
     const val FROSTED = "Frosted blur"
-    val options: List<String> get() = PlayerBackgroundStyle.entries.map { it.displayName } + FROSTED
+    val options: List<String> get() = PlayerBackgroundStyle.entries.filterNot { it.isFolia }.map { it.displayName } + FROSTED
     fun isFrosted(key: String): Boolean = key.trim().equals(FROSTED, ignoreCase = true)
     fun label(key: String): String = if (isFrosted(key)) FROSTED else PlayerBackgroundStyle.fromKey(key).displayName
     /** The global glass theme controls app chrome, never the user's mini-player choice. */

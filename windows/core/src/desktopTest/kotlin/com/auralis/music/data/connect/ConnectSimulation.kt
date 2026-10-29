@@ -71,6 +71,7 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
     var playing = false
     var shuffled = false
     var repeatMode = RepeatMode.OFF
+    var lyricsSelection: ConnectLyricsSelection? = null
     var context: ConnectContext? = null
     private var position = 0L
     private var anchor = 0L
@@ -86,6 +87,7 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
     private fun setPosition(ms: Long) { position = ms; anchor = clock() }
 
     override fun snapshot() = LocalPlayback(
+        lyricsSelection = lyricsSelection,
         track = track, queue = queue, index = index, playing = playing, buffering = false,
         positionMs = positionMs, durationMs = (track?.duration ?: 0L) * 1000L, shuffle = shuffled, repeat = repeatMode,
         context = context, error = if (failStart && !playing && track != null) "stream failed" else null

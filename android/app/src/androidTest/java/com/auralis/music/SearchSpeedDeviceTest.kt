@@ -24,7 +24,7 @@ class SearchSpeedDeviceTest {
             override suspend fun clear() {}
         }
         val repo = SearchRepositoryImpl(InnerTubeClient(), SearchSuggestionsClient(), history)
-        for (query in listOf("middle of the night", "we are the people", "misery", "currents")) {
+        for (query in listOf("stereo hearts", "middle of the night", "we are the people", "misery", "currents")) {
             val started = System.nanoTime()
             val first = CompletableDeferred<Long>()
             val search = launch(Dispatchers.IO) {

@@ -90,6 +90,11 @@ fun TrackOptionsMenu(
     sheetBackground: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var showCustomLyrics by remember(track.id) { mutableStateOf(false) }
+    if (showCustomLyrics) {
+        com.auralis.music.ui.lyrics.ImportedLyricsDialog(track = track, onDismiss = onDismiss)
+        return
+    }
     val presentationActions = LocalSongPresentationActions.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -313,6 +318,7 @@ fun TrackOptionsMenu(
             if (isInListenTogetherRoom && onRecommendToRoom != null) {
                 add(GlassMenuItem(str(R.string.add_to_room_queue), Icons.Default.Group) { onRecommendToRoom(track) })
             }
+            add(GlassMenuItem("Custom lyrics", Icons.Default.Lyrics, dismisses = false) { showCustomLyrics = true })
             add(GlassMenuItem(str(R.string.share), Icons.Default.Share) { shareTrack() })
         }
         GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
@@ -619,6 +625,8 @@ fun TrackOptionsMenu(
                     }
 
                     // ── GROUP 4: DOWNLOAD ──
+                    TrackOptionRow(icon = Icons.Default.Lyrics, title = "Custom lyrics", subtitle = "Import or manage a TTML file",
+                        onClick = { showCustomLyrics = true })
                     presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
                             actions.openListenTogether?.let { open ->

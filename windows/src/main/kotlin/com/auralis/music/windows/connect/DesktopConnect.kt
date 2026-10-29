@@ -239,6 +239,7 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, pr
             shuffle = controller.shuffleActive,
             repeat = RepeatMode.valueOf(controller.repeatMode.value.name),
             context = null,
+            lyricsSelection = com.auralis.music.data.connect.ConnectLyricsState.current(track?.id),
             error = lastError?.takeIf { System.currentTimeMillis() - it.second < 15_000L }?.first
         )
     }

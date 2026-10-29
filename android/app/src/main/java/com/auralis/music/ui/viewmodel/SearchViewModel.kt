@@ -319,12 +319,13 @@ class SearchViewModel(
         }
 
         searchJob = viewModelScope.launch {
-            val isPaused = context?.let { ctx ->
-                com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseSearchHistory
-            } ?: false
-            if (!isPaused) launch {
-                try { searchRepository.recordSearchQuery(trimmed) }
-                catch (e: CancellationException) { throw e }
+            launch {
+                try {
+                    val isPaused = context?.let { ctx ->
+                        com.auralis.music.data.datastore.PrivacyDataStore(ctx).settingsFlow.first().pauseSearchHistory
+                    } ?: false
+                    if (!isPaused) searchRepository.recordSearchQuery(trimmed)
+                } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { }
             }
             val results = try {

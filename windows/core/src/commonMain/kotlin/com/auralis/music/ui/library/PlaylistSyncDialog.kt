@@ -66,7 +66,8 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
     val links by engine.store.links.collectAsState()
     val link = links.firstOrNull { it.localId == playlist.id }
     val status by engine.status.collectAsState()
-    val imported = remember(playlist.id) { PlaylistSyncStore.imported(playlist.id) }
+    // Spotify imports can't start a new sync link, so only a YouTube Music import pre-fills it.
+    val imported = remember(playlist.id) { PlaylistSyncStore.imported(playlist.id)?.takeIf { it.first == SyncService.YOUTUBE } }
     var service by remember { mutableStateOf(link?.service ?: imported?.first ?: SyncService.YOUTUBE) }
     var remoteId by remember { mutableStateOf(link?.remoteId ?: imported?.second.orEmpty()) }
     var createNew by remember { mutableStateOf(remoteId.isBlank()) }
@@ -92,7 +93,8 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
                     style = MaterialTheme.typography.bodySmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SyncService.entries.forEach { item -> FilterChip(selected = service == item, enabled = !busy && link == null,
+                // New links are YouTube Music only; an existing Spotify link still shows its service.
+                SyncService.entries.filter { it == SyncService.YOUTUBE || it == link?.service }.forEach { item -> FilterChip(selected = service == item, enabled = !busy && link == null,
                     onClick = { service = item; preview = null; choice = null; remoteId = ""; createNew = true }, label = { Text(item.label) }) }
             }
             if (link == null) {

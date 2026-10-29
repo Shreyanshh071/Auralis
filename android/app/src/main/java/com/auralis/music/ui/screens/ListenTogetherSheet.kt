@@ -1,5 +1,10 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.glass.OptionalGlassPage
+import com.auralis.music.ui.glass.pageCardSurface
+import com.auralis.music.ui.glass.pageGlassSelection
+import com.auralis.music.ui.glass.pageGlassActionColor
+import com.auralis.music.ui.glass.pageGlassButtonFill
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -67,6 +72,8 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -129,6 +136,11 @@ fun ListenTogetherSheet(
     modifier: Modifier = Modifier,
     isPopup: Boolean = false
 ) {
+    if (com.auralis.music.ui.glass.LocalLiquidGlass.current != null && uiState.activeRoom == null) {
+        GlassListenTogetherLobby(uiState, currentTrack, isPlaying, queue, playbackPositionMs,
+            onNameChange, onCreateRoom, onJoinRoom, onHostSettingsChange, onDismiss, modifier, isPopup)
+        return
+    }
     val context = LocalContext.current
     var joinCodeInput by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Join, 1 = Host
@@ -141,7 +153,7 @@ fun ListenTogetherSheet(
     val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val backgroundColor = MaterialTheme.dynamicBackground
 
-    Box(
+    OptionalGlassPage(background = backgroundColor, accent = primaryColor,
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
@@ -211,9 +223,7 @@ fun ListenTogetherSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceColor)
-                        .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, primaryColor.copy(alpha = 0.35f))
                         .padding(20.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -365,9 +375,7 @@ fun ListenTogetherSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceColor)
-                        .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
+                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
                         .padding(18.dp)
                 ) {
                     Column {
@@ -459,9 +467,7 @@ fun ListenTogetherSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(surfaceColor)
-                        .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
+                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
                         .padding(18.dp)
                 ) {
                     Column {
@@ -497,17 +503,15 @@ fun ListenTogetherSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(CircleShape)
-                        .background(surfaceColor)
-                        .border(1.dp, cardBorder, CircleShape)
+                        .pageCardSurface(CircleShape, surfaceColor, cardBorder)
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(CircleShape)
-                            .background(if (selectedTab == 0) primaryColor else Color.Transparent)
+                            .pageGlassSelection(CircleShape, selectedTab == 0,
+                                if (selectedTab == 0) primaryColor else Color.Transparent, primaryColor)
                             .clickable { selectedTab = 0 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -516,15 +520,15 @@ fun ListenTogetherSheet(
                             text = str(R.string.join_room),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 0) Color.Black else onBackground
+                            color = if (selectedTab == 0) pageGlassActionColor() else onBackground
                         )
                     }
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(CircleShape)
-                            .background(if (selectedTab == 1) primaryColor else Color.Transparent)
+                            .pageGlassSelection(CircleShape, selectedTab == 1,
+                                if (selectedTab == 1) primaryColor else Color.Transparent, primaryColor)
                             .clickable { selectedTab = 1 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -533,7 +537,7 @@ fun ListenTogetherSheet(
                             text = str(R.string.host_room),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 1) Color.Black else onBackground
+                            color = if (selectedTab == 1) pageGlassActionColor() else onBackground
                         )
                     }
                 }
@@ -545,9 +549,7 @@ fun ListenTogetherSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(surfaceColor)
-                            .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
+                            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
                             .padding(18.dp)
                     ) {
                         Column {
@@ -585,17 +587,18 @@ fun ListenTogetherSheet(
 
                             Button(
                                 onClick = { onJoinRoom(joinCodeInput) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().pageGlassSelection(RoundedCornerShape(14.dp), true, Color.Transparent, primaryColor,
+                                    enabled = joinCodeInput.length >= 4 && !uiState.isConnecting),
                                 enabled = joinCodeInput.length >= 4 && !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                colors = ButtonDefaults.buttonColors(containerColor = pageGlassButtonFill(primaryColor)),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 if (uiState.isConnecting) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = pageGlassActionColor(), strokeWidth = 2.dp)
                                 } else {
-                                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, tint = pageGlassActionColor(), modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(str(R.string.connect_sync_now), color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Text(str(R.string.connect_sync_now), color = pageGlassActionColor(), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -605,9 +608,7 @@ fun ListenTogetherSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(surfaceColor)
-                            .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
+                            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
                             .padding(18.dp)
                     ) {
                         Column {
@@ -638,17 +639,18 @@ fun ListenTogetherSheet(
 
                             Button(
                                 onClick = { onCreateRoom(currentTrack, queue, isPlaying, playbackPositionMs) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().pageGlassSelection(RoundedCornerShape(14.dp), true, Color.Transparent, primaryColor,
+                                    enabled = !uiState.isConnecting),
                                 enabled = !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                colors = ButtonDefaults.buttonColors(containerColor = pageGlassButtonFill(primaryColor)),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 if (uiState.isConnecting) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = pageGlassActionColor(), strokeWidth = 2.dp)
                                 } else {
-                                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = pageGlassActionColor(), modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(str(R.string.create_broadcast_room), color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Text(str(R.string.create_broadcast_room), color = pageGlassActionColor(), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -787,9 +789,7 @@ private fun RoomRulesCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(surfaceColor)
-            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, borderColor)
             .padding(horizontal = 18.dp, vertical = 14.dp)
     ) {
         Column {
@@ -814,9 +814,7 @@ private fun SongRequestsCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(surfaceColor)
-            .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, primaryColor.copy(alpha = 0.35f))
             .padding(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -844,7 +842,7 @@ private fun SongRequestsCard(
                     }
                     Button(
                         onClick = { onApprove(rec) },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        colors = ButtonDefaults.buttonColors(containerColor = pageGlassButtonFill(primaryColor)),
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
@@ -880,14 +878,99 @@ private fun GuestPermissionsCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(surfaceColor)
-            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, borderColor)
             .padding(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(str(R.string.what_you_can_do), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
             lines.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor) }
+        }
+    }
+}
+
+
+/** Dedicated glass layout; the original Material lobby remains the non-glass branch. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GlassListenTogetherLobby(
+    state: ListenTogetherUiState, track: Track?, playing: Boolean, queue: List<Track>, position: Long,
+    onName: (String) -> Unit, onCreate: (Track?, List<Track>, Boolean, Long) -> Unit,
+    onJoin: (String) -> Unit, onSettings: (RoomSettings) -> Unit, onClose: () -> Unit,
+    modifier: Modifier, popup: Boolean
+) {
+    var host by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf("") }
+    val accent = MaterialTheme.dynamicPrimary
+    val foreground = MaterialTheme.dynamicOnBackground
+    val muted = foreground.copy(alpha=.62f)
+    OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
+        .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding())) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=20.dp),
+            verticalArrangement=Arrangement.spacedBy(22.dp)) {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Icon(Icons.Default.Groups,null,tint=accent,modifier=Modifier.size(30.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text(str(R.string.listen_together),fontSize=32.sp,fontWeight=FontWeight.Bold,
+                        letterSpacing=(-1).sp,color=foreground)
+                }
+                IconButton(onClick=onClose,modifier=Modifier.size(44.dp)
+                    .pageCardSurface(CircleShape,Color.Transparent,Color.Transparent)) {
+                    Icon(Icons.Default.Close,str(R.string.close),tint=foreground)
+                }
+            }
+            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(26.dp),Color.Transparent,Color.Transparent)
+                .padding(horizontal=18.dp,vertical=8.dp)) {
+                TextField(value=state.myDisplayName,onValueChange=onName,singleLine=true,
+                    label={ Text(str(R.string.display_name)) },
+                    leadingIcon={ Icon(Icons.Default.Person,null,tint=accent) },
+                    colors=TextFieldDefaults.colors(focusedContainerColor=Color.Transparent,unfocusedContainerColor=Color.Transparent,
+                        focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,
+                        focusedTextColor=foreground,unfocusedTextColor=foreground),modifier=Modifier.fillMaxWidth())
+            }
+            Row(Modifier.fillMaxWidth().pageCardSurface(CircleShape,Color.Transparent,Color.Transparent).padding(5.dp),
+                horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                listOf(str(R.string.join_room),str(R.string.host_room)).forEachIndexed { index,label ->
+                    val selected=host == (index==1)
+                    Row(Modifier.weight(1f).pageGlassSelection(CircleShape,selected,Color.Transparent,accent)
+                        .clickable { host=index==1 }.padding(vertical=14.dp),horizontalArrangement=Arrangement.Center,
+                        verticalAlignment=Alignment.CenterVertically) {
+                        Icon(if(index==0) Icons.AutoMirrored.Filled.Login else Icons.Default.Radio,null,
+                            tint=if(selected) foreground else muted,modifier=Modifier.size(17.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(label,fontWeight=FontWeight.SemiBold,color=if(selected) foreground else muted)
+                    }
+                }
+            }
+            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(30.dp),Color.Transparent,Color.Transparent)
+                .padding(22.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
+                Text(str(if(host) R.string.start_live_broadcast else R.string.enter_room_code),
+                    fontSize=23.sp,fontWeight=FontWeight.Bold,color=foreground)
+                Text(str(if(host) R.string.start_a_room_and_listen_together_everyon else R.string.enter_the_6_character_room_code_provided),
+                    color=muted,style=MaterialTheme.typography.bodyMedium)
+                if(host) RoomRuleRows(state.hostSettings,onSettings,accent,foreground,muted)
+                else OutlinedTextField(value=code,onValueChange={if(it.length<=6)code=it.uppercase()},
+                    placeholder={Text("AUR921",letterSpacing=6.sp)},singleLine=true,
+                    textStyle=MaterialTheme.typography.headlineMedium.copy(letterSpacing=6.sp,fontWeight=FontWeight.SemiBold),
+                    shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxWidth(),
+                    colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=accent.copy(alpha=.6f),
+                        unfocusedBorderColor=foreground.copy(alpha=.14f),focusedTextColor=foreground,unfocusedTextColor=foreground))
+                val enabled=!state.isConnecting && (host || code.length>=4)
+                Button(onClick={if(host)onCreate(track,queue,playing,position)else onJoin(code)},enabled=enabled,
+                    modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,Color.Transparent,accent,enabled),
+                    shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,
+                        disabledContainerColor=Color.Transparent,disabledContentColor=foreground.copy(alpha=.35f))) {
+                    if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=foreground,strokeWidth=2.dp)
+                    else {
+                        Icon(if(host)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=foreground.copy(alpha=if(enabled)1f else .35f))
+                        Spacer(Modifier.width(10.dp))
+                        Text(str(if(host)R.string.create_broadcast_room else R.string.connect_sync_now),
+                            color=foreground.copy(alpha=if(enabled)1f else .35f),fontWeight=FontWeight.Bold)
+                    }
+                }
+            }
+            state.errorMessage?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

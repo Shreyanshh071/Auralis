@@ -1,5 +1,7 @@
 package com.auralis.music.ui.components
 
+import com.auralis.music.ui.glass.liquidGlass
+import com.auralis.music.ui.glass.liquidGlassDialog
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -51,15 +53,25 @@ fun PlaylistPickerBottomSheet(
     var newPlaylistName by remember { mutableStateOf("") }
     var recentlyAddedId by remember { mutableStateOf<String?>(null) }
 
+    val glass = com.auralis.music.ui.glass.LocalLiquidGlass.current
+    val modalVisual = com.auralis.music.ui.player.LocalPlayerModalVisualState.current
+    DisposableEffect(modalVisual, glass != null) {
+        if (glass != null) modalVisual?.opened()
+        onDispose { if (glass != null) modalVisual?.closed() }
+    }
+    val pageView = androidx.compose.ui.platform.LocalView.current
+    val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     val dynamicSurface = MaterialTheme.colorScheme.surface
     val dynamicPrimary = MaterialTheme.colorScheme.primary
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = dynamicSurface,
+        containerColor = if (glass == null) dynamicSurface else Color.Transparent,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
+        Box(Modifier.fillMaxWidth()) {
+            if (glass != null) Box(Modifier.matchParentSize().liquidGlassDialog(glass,sheetShape,pageView))
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -138,7 +150,7 @@ fun PlaylistPickerBottomSheet(
                     .fillMaxWidth()
                     .height(48.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF262021))
+                    .then(if (glass == null) Modifier.background(Color(0xFF262021)) else Modifier.liquidGlass(glass, RoundedCornerShape(16.dp)))
                     .clickable { showCreateDialog = true },
                 contentAlignment = Alignment.Center
             ) {
@@ -201,18 +213,17 @@ fun PlaylistPickerBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    items(userPlaylists, key = { it.id }) { playlist ->
+                    items(userPlaylists, key = { it.id }, contentType = { "playlist" }) { playlist ->
                         val isAdded = recentlyAddedId == playlist.id
-                        val alreadyInPlaylist = playlist.tracks.any { it.id == track.id }
+                        val alreadyInPlaylist = remember(playlist.tracks, track.id) { playlist.tracks.any { it.id == track.id } }
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    if (alreadyInPlaylist || isAdded) dynamicPrimary.copy(alpha = 0.15f)
-                                    else Color(0xFF262021)
-                                )
+                                .then(if (glass == null) Modifier.background(
+                                    if (alreadyInPlaylist || isAdded) dynamicPrimary.copy(alpha = 0.15f) else Color(0xFF262021))
+                                else Modifier.playlistRowGlass(glass.isDark, alreadyInPlaylist || isAdded, dynamicPrimary))
                                 .clickable {
                                     if (alreadyInPlaylist) {
                                         com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
@@ -231,6 +242,8 @@ fun PlaylistPickerBottomSheet(
                                     url = coverUrl,
                                     modifier = Modifier.size(44.dp),
                                     cornerRadius = 8.dp,
+                                    sizeToConstraints = true,
+                                    crossfade = false,
                                     contentDescription = playlist.title
                                 )
                             } else {
@@ -280,6 +293,7 @@ fun PlaylistPickerBottomSheet(
                     }
                 }
             }
+        }
         }
     }
 

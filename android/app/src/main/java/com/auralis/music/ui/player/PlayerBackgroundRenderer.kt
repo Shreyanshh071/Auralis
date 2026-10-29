@@ -82,10 +82,25 @@ enum class PlayerBackgroundStyle(val displayName: String) {
     GLOW_MOTION("Glow motion"),
     // Mini-player only: real liquid glass on the mini player alone (stored key unchanged).
     APPLE_MUSIC("Liquid glass"),
-    LIVE_MESH("Live Mesh");
+    LIVE_MESH("Live Mesh"),
+    FOLIA_LATENT("Folia · Latent"),
+    FOLIA_MONET("Folia · Monet"),
+    FOLIA_NOMAND_PAPER("Folia · Paper texture"),
+    FOLIA_NOMAND_LENS("Folia · Lens distortion"),
+    FOLIA_SORA("Folia · Sora");
+
+    val isFolia: Boolean get() = name.startsWith("FOLIA_")
 
     companion object {
         fun fromKey(key: String?): PlayerBackgroundStyle {
+            when (key?.trim()?.lowercase()) {
+                "folia · nomand · paper texture" -> return FOLIA_NOMAND_PAPER
+                "folia · nomand · lens distortion" -> return FOLIA_NOMAND_LENS
+                "folia · common", "folia_common", "folia · nomand · dithering", "folia_nomand",
+                "folia · nomand · fluted glass", "folia_nomand_glass",
+                "folia · nomand · halftone dots", "folia_nomand_halftone" -> return BLUR
+            }
+            entries.firstOrNull { it.isFolia && (it.displayName.equals(key?.trim(), true) || it.name.equals(key?.trim(), true)) }?.let { return it }
             return when (key?.trim()?.lowercase()) {
                 "follow theme", "follow_theme", "theme" -> FOLLOW_THEME
                 "gradient", "dynamic artwork gradient", "artwork tinted", "dynamic artwork tint" -> GRADIENT
@@ -514,6 +529,11 @@ fun PlayerBackground(
         label = "playerBackgroundStyleCrossfade"
     ) { currentStyle ->
         when (currentStyle) {
+            PlayerBackgroundStyle.FOLIA_LATENT, PlayerBackgroundStyle.FOLIA_MONET,
+            PlayerBackgroundStyle.FOLIA_NOMAND_PAPER, PlayerBackgroundStyle.FOLIA_NOMAND_LENS,
+            PlayerBackgroundStyle.FOLIA_SORA -> FoliaBackground(currentStyle, artworkUrl, extractedColors,
+                isPlaying, isVisible && !isMiniPlayer, Modifier.fillMaxSize())
+
             PlayerBackgroundStyle.FOLLOW_THEME -> {
                 if (isMiniPlayer) {
                     Box(

@@ -112,7 +112,7 @@ class DesktopLyricsRepository(
         val attemptKey = listOf(key, query.spotifyId, query.title, query.artist, query.durationMs).joinToString("|")
         synchronized(spicyAttempts) {
             val last = spicyAttempts[attemptKey]
-            if (last != null && clock() - last < 5 * 60_000L) return null
+            if (last != null && clock() - last < 15_000L) return null
             // Bound session bookkeeping as well as repeated offline/rate-limit requests.
             if (spicyAttempts.size >= 512) spicyAttempts.clear()
             spicyAttempts[attemptKey] = clock()

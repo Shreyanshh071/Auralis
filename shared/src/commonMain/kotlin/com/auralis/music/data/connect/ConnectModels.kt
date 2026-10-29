@@ -41,7 +41,10 @@ data class ConnectTrack(
     val albumId: String? = null,
     val thumbnail: String = "",
     val durationSec: Long = 0L,
-    val local: Boolean = false
+    val local: Boolean = false,
+    val lyricsProvider: String? = null,
+    val lyricsSpotifyId: String? = null,
+    val lyricsTitle: String? = null, val lyricsArtist: String? = null, val lyricsDurationMs: Long? = null
 ) {
     fun toTrack(): Track = Track(
         id = id, title = title, artist = artist, album = album, albumId = albumId, duration = durationSec,
@@ -261,7 +264,10 @@ object ConnectCodec {
 
     private fun encodeTrack(t: ConnectTrack): Map<String, Any?> = mapOf(
         "id" to t.id, "title" to t.title, "artist" to t.artist, "album" to t.album, "albumId" to t.albumId,
-        "thumbnail" to t.thumbnail, "duration" to t.durationSec, "local" to t.local
+        "thumbnail" to t.thumbnail, "duration" to t.durationSec, "local" to t.local,
+        "lyricsProvider" to t.lyricsProvider, "lyricsSpotifyId" to t.lyricsSpotifyId,
+        "lyricsTitle" to t.lyricsTitle?.take(MAX_TEXT), "lyricsArtist" to t.lyricsArtist?.take(MAX_TEXT),
+        "lyricsDurationMs" to t.lyricsDurationMs
     )
 
     private fun decodeTrack(m: Map<String, Any?>): ConnectTrack? {
@@ -269,7 +275,12 @@ object ConnectCodec {
         return ConnectTrack(
             id = id, title = m.str("title"), artist = m.str("artist"),
             album = m.str("album").takeIf { it.isNotBlank() }, albumId = m.str("albumId").takeIf { it.isNotBlank() },
-            thumbnail = m.str("thumbnail"), durationSec = m.long("duration"), local = m["local"] == true
+            thumbnail = m.str("thumbnail"), durationSec = m.long("duration"), local = m["local"] == true,
+            lyricsProvider = m.str("lyricsProvider").takeIf { name -> com.auralis.music.domain.model.LyricsProvider.entries.any { it.name == name } },
+            lyricsSpotifyId = m.str("lyricsSpotifyId").takeIf { Regex("[A-Za-z0-9]{22}").matches(it) },
+            lyricsTitle = m.str("lyricsTitle").take(MAX_TEXT).takeIf { it.isNotBlank() },
+            lyricsArtist = m.str("lyricsArtist").take(MAX_TEXT).takeIf { it.isNotBlank() },
+            lyricsDurationMs = m.long("lyricsDurationMs").takeIf { it in 1..86_400_000L }
         )
     }
 

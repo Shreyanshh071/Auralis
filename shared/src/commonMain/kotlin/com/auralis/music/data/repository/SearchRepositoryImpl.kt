@@ -76,7 +76,7 @@ class SearchRepositoryImpl(
         /** How long the ranked result may wait for its release card's lookups (album / Single). */
         const val RELEASE_CARD_WAIT_MS = 400L
         /** Partial results are shown only if the ranked result is not ready this long after the first answer. */
-        const val PREVIEW_AFTER_MS = 600L
+        const val PREVIEW_AFTER_MS = 0L
         const val FINISHED_SEARCH_TTL_MS = 30 * 60_000L
     }
 
@@ -191,7 +191,10 @@ class SearchRepositoryImpl(
                 }
                 received += next
                 startEarlyReleaseLookup()
-                if (firstUsefulNs == 0L && next.isNotEmpty()) firstUsefulNs = System.nanoTime()
+                if (firstUsefulNs == 0L && next.isNotEmpty()) {
+                    firstUsefulNs = System.nanoTime()
+                    previewsShown = true
+                }
                 if (previewsShown) searchPreview(trimmed, received).takeIf { it.isNotEmpty() }?.let(emit)
             }
             if (received.size == coreRequests.size && received.all { it.isEmpty() } && received.any { it.requestFailed }) {

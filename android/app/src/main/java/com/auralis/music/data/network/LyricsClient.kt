@@ -1184,7 +1184,8 @@ class LyricsClient(
         channelTitle: String? = null,
         durationMs: Long? = null,
         audioLeadingSilenceMs: Long? = null,
-        spotifyId: String? = null
+        spotifyId: String? = null,
+        reportFailures: Boolean = false
     ): LyricsData? = withContext(Dispatchers.IO) {
         val source: LyricsSource = when (provider) {
             LyricsProvider.SPICY_LYRICS -> spicyLyricsSource
@@ -1205,8 +1206,14 @@ class LyricsClient(
         }
         val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
         val candidate = try {
-            withTimeoutOrNull(SINGLE_PROVIDER_TIMEOUT_MS) { source.search(query.copy(spotifyId = spotifyId)) }
+            val response = withTimeoutOrNull(if (provider == LyricsProvider.SPICY_LYRICS) 44_000L else SINGLE_PROVIDER_TIMEOUT_MS) {
+                Result.success(source.search(query.copy(spotifyId = spotifyId, reportFailures = reportFailures)))
+            }
+            if (response == null && reportFailures) throw java.io.IOException("Lyrics lookup timed out")
+            response?.getOrNull()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (reportFailures) throw e
             Log.w(TAG, "[Provider pick: $provider] exception: ${e.message}")
             null
         } ?: return@withContext null

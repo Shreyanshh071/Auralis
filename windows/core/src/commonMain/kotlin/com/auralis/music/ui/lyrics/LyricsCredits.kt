@@ -28,17 +28,33 @@ val LocalLyricsProviderPicker = staticCompositionLocalOf<(() -> Unit)?> { null }
 private fun LyricsCredit.isSongwriterCredit(): Boolean =
     label.startsWith("Written by ", ignoreCase = true) || label.startsWith("Writer:", ignoreCase = true)
 
+/** Spicy lists every credited writer; only the main writers are shown: anyone who also
+ *  performs the song, then the rest in Spicy's order (main writers come first), at most three. */
+internal fun mainWritersCredit(credit: LyricsCredit, artist: String?): LyricsCredit {
+    val prefix = "Written by "
+    if (!credit.label.startsWith(prefix, ignoreCase = true)) return credit
+    val names = credit.label.substring(prefix.length).split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    val performers = artist.orEmpty().lowercase()
+    val (performing, others) = names.partition { performers.isNotBlank() && performers.contains(it.lowercase()) }
+    return credit.copy(label = prefix + (performing + others).take(3).joinToString(", "))
+}
+
+/** Community uploads sometimes carry a placeholder name such as "`"; those say nothing. */
+private fun LyricsCredit.isEmptyUploaderCredit(): Boolean =
+    label.startsWith("Uploaded by ", ignoreCase = true) && label.substring(12).none { it.isLetterOrDigit() }
+
 /** Older providers/cache entries may identify the provider without a separate credit list. */
 fun lyricsCreditsForDisplay(lyrics: LyricsData?, compact: Boolean = false): List<LyricsCredit> {
     if (lyrics == null) return emptyList()
     if (lyrics.credits.isNotEmpty()) {
         val source = lyrics.credits.first()
-        val providerCredit = source.copy(label = "Lyrics from ${source.label}")
-        val contributors = lyrics.credits.drop(1).filterNot { compact && it.isSongwriterCredit() }
-        val viaSpicy = if (lyrics.provider == LyricsProvider.SPICY_LYRICS &&
-            source.label in setOf("Apple Music", "Spotify")) {
-            listOf(LyricsCredit("via Spicy Lyrics", "https://spicylyrics.org"))
-        } else emptyList()
+        val providerCredit = if (lyrics.provider == LyricsProvider.SPICY_LYRICS)
+            LyricsCredit("Lyrics from Spicy Lyrics", "https://spicylyrics.org")
+        else source.copy(label = "Lyrics from ${source.label}")
+        val contributors = lyrics.credits.drop(1).filterNot { (compact && it.isSongwriterCredit()) || it.isEmptyUploaderCredit() }
+            .map { mainWritersCredit(it, lyrics.artistName) }
+        val viaSpicy = if (lyrics.provider == LyricsProvider.SPICY_LYRICS && source.label != "Spicy Lyrics")
+            listOf(source.copy(label = "Source: ${source.label}")) else emptyList()
         return listOf(providerCredit) + contributors + viaSpicy
     }
     val name = when (lyrics.provider) {

@@ -79,6 +79,7 @@ enum class LyricsAnimationMode(val displayName: String) {
     companion object {
         fun fromDisplayName(name: String?): LyricsAnimationMode {
             if (name == null) return AURALIS
+            if (name.equals("Beautiful Lyrics", ignoreCase = true) || name.equals("BEAUTIFUL_LYRICS", ignoreCase = true)) return SPICY_LYRICS
             return entries.firstOrNull { it.displayName.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
                 ?: when {
                     name.contains("auralis", ignoreCase = true) || name.contains("default", ignoreCase = true) -> AURALIS

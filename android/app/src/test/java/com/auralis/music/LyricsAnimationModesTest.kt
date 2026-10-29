@@ -23,6 +23,15 @@ import org.junit.Test
  * 4. Multi-agent vocal positioning and distance-from-current logic.
  */
 class LyricsAnimationModesTest {
+    @Test
+    fun removedBeautifulStyle_fallsBackToSpicy() {
+        assertEquals(LyricsAnimationMode.SPICY_LYRICS, LyricsAnimationMode.fromDisplayName("Beautiful Lyrics"))
+        assertEquals(LyricsAnimationMode.SPICY_LYRICS, LyricsAnimationMode.fromDisplayName("BEAUTIFUL_LYRICS"))
+        assertTrue(AppearanceSettings(lyricsAnimation = "Beautiful Lyrics").shouldUseExperimentalLyrics)
+        assertFalse(LyricsAnimationMode.entries.any { it.displayName == "Beautiful Lyrics" })
+    }
+
+
 
     @Test
     fun progressiveBlur_isSymmetricAroundActiveLine() {
@@ -54,10 +63,11 @@ class LyricsAnimationModesTest {
             LyricsAnimationMode.GLOW,
             LyricsAnimationMode.APPLE_MUSIC_V2,
             LyricsAnimationMode.LYRICS_V2_FLUID,
-            LyricsAnimationMode.METRO_LYRICS
+            LyricsAnimationMode.METRO_LYRICS,
+            LyricsAnimationMode.SPICY_LYRICS
         )
 
-        assertEquals("Must have exactly 7 distinct animation modes", 7, LyricsAnimationMode.entries.size)
+        assertEquals("Must preserve the eight existing animation modes", 8, LyricsAnimationMode.entries.size)
         assertEquals(expectedModes, LyricsAnimationMode.entries)
 
         // Verify distinct display names (no duplicate aliases)
@@ -103,8 +113,8 @@ class LyricsAnimationModesTest {
         val defaultSettings = AppearanceSettings()
 
         assertFalse("experimentalLyrics defaults to false", defaultSettings.experimentalLyrics)
-        // New installs start on MetroLyrics (product decision, 2026-09-25).
-        assertEquals(LyricsAnimationMode.METRO_LYRICS.displayName, defaultSettings.lyricsAnimation)
+        // Preserve the current Spicy Lyrics default.
+        assertEquals(LyricsAnimationMode.SPICY_LYRICS.displayName, defaultSettings.lyricsAnimation)
         assertFalse("enableGlowingLyricsEffect defaults to false", defaultSettings.enableGlowingLyricsEffect)
         assertTrue("standardLyricsBlur defaults to true", defaultSettings.standardLyricsBlur)
         assertEquals(22f, defaultSettings.lyricsTextSize, 0.001f)

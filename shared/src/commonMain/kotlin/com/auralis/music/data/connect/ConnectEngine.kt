@@ -68,7 +68,8 @@ data class LocalPlayback(
     val shuffle: Boolean = false,
     val repeat: RepeatMode = RepeatMode.OFF,
     val context: ConnectContext? = null,
-    val error: String? = null
+    val error: String? = null,
+    val lyricsSelection: ConnectLyricsSelection? = null
 )
 
 /**
@@ -151,7 +152,8 @@ data class ConnectRemoteView(
     val shuffle: Boolean,
     val repeat: RepeatMode,
     val context: ConnectContext?,
-    val output: ConnectOutput
+    val output: ConnectOutput,
+    val lyricsSelection: ConnectLyricsSelection? = null
 ) {
     fun positionAt(localNowMs: Long): Long {
         if (!playing || buffering) return positionMs
@@ -647,7 +649,11 @@ class ConnectEngine(
             ownerName = myName(),
             ownerType = me.type,
             leaseUntilMs = now + LEASE_MS,
-            track = local.track?.let(ConnectTrack::from),
+            track = local.track?.let { track ->
+                val selected = local.lyricsSelection?.takeIf { it.trackId == track.id }
+                ConnectTrack.from(track).copy(lyricsProvider = selected?.provider?.name, lyricsSpotifyId = selected?.spotifyId,
+                    lyricsTitle = selected?.title, lyricsArtist = selected?.artist, lyricsDurationMs = selected?.durationMs)
+            },
             playing = local.playing,
             buffering = local.buffering && local.playing,
             positionMs = local.positionMs.coerceAtLeast(0L),
@@ -667,6 +673,7 @@ class ConnectEngine(
 
     private fun significant(a: LocalPlayback, b: LocalPlayback, elapsedMs: Long): Boolean {
         if (a.track?.id != b.track?.id || a.playing != b.playing || a.buffering != b.buffering) return true
+        if (a.lyricsSelection != b.lyricsSelection) return true
         if (a.index != b.index || a.shuffle != b.shuffle || a.repeat != b.repeat || a.context != b.context) return true
         if (a.queue.size != b.queue.size || window(a).first.map { it.id } != window(b).first.map { it.id }) return true
         if (abs(a.durationMs - b.durationMs) > DRIFT_MS) return true
@@ -1243,7 +1250,10 @@ class ConnectEngine(
                 shuffle = s.shuffle,
                 repeat = s.repeat,
                 context = s.context,
-                output = output
+                output = output,
+                lyricsSelection = s.track.lyricsProvider?.let { name ->
+                    com.auralis.music.domain.model.LyricsProvider.entries.firstOrNull { it.name == name }
+                }?.let { ConnectLyricsSelection(s.track.id, it, s.track.lyricsSpotifyId, s.track.lyricsTitle, s.track.lyricsArtist, s.track.lyricsDurationMs) }
             )
         } else null
 

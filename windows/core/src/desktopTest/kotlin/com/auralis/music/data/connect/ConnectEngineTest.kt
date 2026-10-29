@@ -21,6 +21,31 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectEngineTest {
+    @Test fun lyricsSelectionFollowsTheOutputAndClearsOnSongChange() = runTest {
+        val w = World(this)
+        val pc = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        val phone = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        pc.start()
+        pc.user(ConnectIntent.Load(songs(3), 0))
+        w.run(4000)
+        phone.start()
+        w.run(3000)
+        val selection = ConnectLyricsSelection("song1", com.auralis.music.domain.model.LyricsProvider.QQMUSIC)
+        pc.player.lyricsSelection = selection
+        w.run(1500)
+        assertEquals(selection, phone.engine.ui.value.remote?.lyricsSelection)
+        val spicy = selection.copy(provider = com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS,
+            spotifyId = "abcdefghijklmnopqrstuv", title = "Song 1 - 2011 Remaster", artist = "Artist", durationMs = 180000)
+        pc.player.lyricsSelection = spicy
+        w.run(1500)
+        assertEquals(spicy, phone.engine.ui.value.remote?.lyricsSelection)
+        pc.user(ConnectIntent.Next)
+        w.run(2000)
+        assertEquals("song2", phone.engine.ui.value.remote?.track?.id)
+        assertNull(phone.engine.ui.value.remote?.lyricsSelection, "Never attach the old song's selection to the new song")
+        assertTrue(w.server.violations.isEmpty())
+    }
+
     @Test fun activePlaybackMirrorsButIdleAppsSelectThemselvesInBothDirections() = runTest {
         for (phoneStarts in listOf(true, false)) {
             val w = World(this)

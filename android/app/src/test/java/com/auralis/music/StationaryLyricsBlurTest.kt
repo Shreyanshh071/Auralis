@@ -5,6 +5,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StationaryLyricsBlurTest {
+    @Test fun `multi line sung phrase expands the sharp band`() {
+        for (y in listOf(180f,350f,520f)) assertEquals(0f,Profile.amount(y,1000f,.35f,190f),0f)
+        assertTrue(Profile.amount(800f,1000f,.35f,190f)>0f)
+        assertEquals(0f,Profile.amount(800f,1000f,.35f,600f),0f)
+    }
     @Test fun `focus band stays sharp and blur increases at fixed screen positions`() {
         fun at(y: Float) = Profile.amount(y, 1000f, .35f, 48f)
         assertEquals(0f, at(350f), 0f)
