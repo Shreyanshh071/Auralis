@@ -12,7 +12,9 @@ The biggest Android update since 1.1.0: a new look across the app, three player 
 
 - **Three player designs** — choose between New, Old and Immersive. Immersive has full-bleed artwork, auto-hiding controls and its own lyric fillers.
 - **Animated covers** with several sources. They start once a song has been playing for two seconds, so swiping stays smooth.
-- **Ambient player mode** and a frosted blur background for the mini player.
+- **Folia player backgrounds** — five new styles: Latent, Monet, Paper texture, Lens distortion and Sora.
+- **Frosted mini player** — a new frosted blur background for the mini player.
+- **Ambient player mode.**
 - **Mini player design picker** and a Liquid Glass dock that minimises as you scroll.
 
 ### Lyrics
