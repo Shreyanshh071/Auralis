@@ -263,71 +263,36 @@ fun StatsScreen(
             .background(themeBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top App Bar
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = str(R.string.stats),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp
-                        ),
-                        color = textPrimary
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.tactileBounce(0.88f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = textPrimary
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = onOpenWrapped,
-                        modifier = Modifier.tactileBounce(0.88f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = str(R.string.your_wrapped),
-                            tint = textPrimary
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { showStatsMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = str(R.string.stats_options),
-                                tint = textPrimary
-                            )
-                        }
-                        com.auralis.music.ui.components.AuralisDropdownMenu(
-                            expanded = showStatsMenu,
-                            onDismissRequest = { showStatsMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(str(R.string.clear_listening_stats)) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = null)
-                                },
-                                onClick = {
-                                    showStatsMenu = false
-                                    showClearConfirmation = true
-                                }
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = if (statsGlass != null) Color.Transparent else themeBackground
-                ),
+            com.auralis.music.ui.glass.PageHeading(
+                title = str(R.string.stats),
+                onBack = onDismiss,
+                backdrop = contentBackdrop,
                 modifier = Modifier.statusBarsPadding()
-            )
+            ) {
+                com.auralis.music.ui.glass.FloatingPageButton(
+                    Icons.Rounded.AutoAwesome, str(R.string.your_wrapped), contentBackdrop, onClick = onOpenWrapped
+                )
+                Box {
+                    com.auralis.music.ui.glass.FloatingPageButton(
+                        Icons.Default.MoreVert, str(R.string.stats_options), contentBackdrop, onClick = { showStatsMenu = true }
+                    )
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
+                        expanded = showStatsMenu,
+                        onDismissRequest = { showStatsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(str(R.string.clear_listening_stats)) },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                            },
+                            onClick = {
+                                showStatsMenu = false
+                                showClearConfirmation = true
+                            }
+                        )
+                    }
+                }
+            }
 
             // Period Filter Chips Row; the pills scroll off the screen edge, not short of it
             Row(

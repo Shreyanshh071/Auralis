@@ -199,7 +199,7 @@ fun HomeScreen(
     val themeBackground = MaterialTheme.dynamicBackground
     val themeOnBackground = MaterialTheme.dynamicOnBackground
     val headerBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit =
-        remember(themeBackground, homeScrollState) {
+        remember(homeScrollState) {
             {
                 // Reading scroll offset establishes a Compose snapshot dependency so this layer
                 // automatically re-records and updates the header glass as content scrolls
@@ -207,7 +207,6 @@ fun HomeScreen(
                 val scrollOffset = homeScrollState.firstVisibleItemScrollOffset
                 @Suppress("UNUSED_VARIABLE")
                 val scrollIndex = homeScrollState.firstVisibleItemIndex
-                drawRect(themeBackground)
                 drawContent()
             }
         }
@@ -228,7 +227,10 @@ fun HomeScreen(
     var selectedPlaylistForMenu by remember { mutableStateOf<Playlist?>(null) }
     var activeMood by remember { mutableStateOf<String?>(null) }
 
-    Box(
+    com.auralis.music.ui.glass.OptionalGlassPage(
+        background = themeBackground,
+        accent = themePrimary,
+        glowBehindStatusBar = true,
         modifier = modifier
             .fillMaxSize()
             .then(Modifier.graphicsLayer {
@@ -246,7 +248,6 @@ fun HomeScreen(
                 indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
                 modifier = Modifier.fillMaxSize()
                     .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
-                    .background(themeBackground)
             ) {
                 LazyColumn(
                     state = homeScrollState,

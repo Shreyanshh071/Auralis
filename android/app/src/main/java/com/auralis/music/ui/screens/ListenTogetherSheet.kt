@@ -1,5 +1,18 @@
 package com.auralis.music.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.ui.glass.OptionalGlassPage
 import com.auralis.music.ui.glass.pageCardSurface
 import com.auralis.music.ui.glass.pageGlassSelection
@@ -905,21 +918,17 @@ private fun GlassListenTogetherLobby(
     val foreground = MaterialTheme.dynamicOnBackground
     val muted = foreground.copy(alpha=.62f)
     val card = foreground.copy(alpha=.07f)
-    val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
     OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
         .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding()),
         glowWithoutGlass = true) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=20.dp),
+        // Read inside the page, where its glass is known: glass needs light text, a solid button its own.
+        val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
+        val lobbyBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+        Column(Modifier.fillMaxSize().layerBackdrop(lobbyBackdrop).verticalScroll(rememberScrollState())
+            .padding(start=16.dp,end=16.dp,top=70.dp,bottom=20.dp),
             verticalArrangement=Arrangement.spacedBy(22.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                IconButton(onClick=onClose,modifier=Modifier.size(44.dp)
-                    .pageCardSurface(CircleShape,card,Color.Transparent)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack,str(R.string.back),tint=foreground)
-                }
-                Text(str(R.string.listen_together),fontSize=28.sp,fontWeight=FontWeight.Bold,
-                    letterSpacing=(-.5).sp,color=foreground)
-            }
+            Text(str(R.string.listen_together),fontSize=30.sp,fontWeight=FontWeight.ExtraBold,
+                color=foreground,modifier=Modifier.padding(start=6.dp))
             Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(26.dp),card,Color.Transparent)
                 .padding(horizontal=18.dp,vertical=8.dp)) {
                 TextField(value=state.myDisplayName,onValueChange=onName,singleLine=true,
@@ -929,49 +938,72 @@ private fun GlassListenTogetherLobby(
                         focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,
                         focusedTextColor=foreground,unfocusedTextColor=foreground),modifier=Modifier.fillMaxWidth())
             }
-            Row(Modifier.fillMaxWidth().pageCardSurface(CircleShape,card,Color.Transparent).padding(5.dp),
-                horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                listOf(str(R.string.join_room),str(R.string.host_room)).forEachIndexed { index,label ->
-                    val selected=host == (index==1)
-                    Row(Modifier.weight(1f).pageGlassSelection(CircleShape,selected,if(selected) accent else Color.Transparent,accent)
-                        .clickable { host=index==1 }.padding(vertical=14.dp),horizontalArrangement=Arrangement.Center,
-                        verticalAlignment=Alignment.CenterVertically) {
-                        Icon(if(index==0) Icons.AutoMirrored.Filled.Login else Icons.Default.Radio,null,
-                            tint=if(selected) onAccent else muted,modifier=Modifier.size(17.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(label,fontWeight=FontWeight.SemiBold,color=if(selected) onAccent else muted)
+            BoxWithConstraints(Modifier.fillMaxWidth().pageCardSurface(CircleShape,card,Color.Transparent).padding(5.dp)) {
+                val tabWidth=(maxWidth-6.dp)/2
+                val pillOffset by animateDpAsState(if(host) tabWidth+6.dp else 0.dp,
+                    spring(dampingRatio=.82f,stiffness=420f),label="lobbyTabPill")
+                Box(Modifier.offset { IntOffset(pillOffset.roundToPx(),0) }.width(tabWidth).height(48.dp)
+                    .pageGlassSelection(CircleShape,true,accent,accent))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                    listOf(str(R.string.join_room),str(R.string.host_room)).forEachIndexed { index,label ->
+                        val selected=host == (index==1)
+                        val tint by animateColorAsState(if(selected) onAccent else muted,tween(220),label="lobbyTabTint")
+                        Row(Modifier.weight(1f).height(48.dp).clip(CircleShape).clickable { host=index==1 },
+                            horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                            Icon(if(index==0) Icons.AutoMirrored.Filled.Login else Icons.Default.Radio,null,
+                                tint=tint,modifier=Modifier.size(17.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(label,fontWeight=FontWeight.SemiBold,color=tint)
+                        }
                     }
                 }
             }
             Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(30.dp),card,Color.Transparent)
                 .padding(22.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-                Text(str(if(host) R.string.start_live_broadcast else R.string.enter_room_code),
-                    fontSize=23.sp,fontWeight=FontWeight.Bold,color=foreground)
-                Text(str(if(host) R.string.start_a_room_and_listen_together_everyon else R.string.enter_the_6_character_room_code_provided),
-                    color=muted,style=MaterialTheme.typography.bodyMedium)
-                if(host) RoomRuleRows(state.hostSettings,onSettings,accent,foreground,muted)
-                else OutlinedTextField(value=code,onValueChange={if(it.length<=6)code=it.uppercase()},
-                    placeholder={Text("AUR921",letterSpacing=6.sp)},singleLine=true,
-                    textStyle=MaterialTheme.typography.headlineMedium.copy(letterSpacing=6.sp,fontWeight=FontWeight.SemiBold),
-                    shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxWidth(),
-                    colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=accent.copy(alpha=.6f),
-                        unfocusedBorderColor=foreground.copy(alpha=.14f),focusedTextColor=foreground,unfocusedTextColor=foreground))
-                val enabled=!state.isConnecting && (host || code.length>=4)
-                Button(onClick={if(host)onCreate(track,queue,playing,position)else onJoin(code)},enabled=enabled,
-                    modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,if(enabled) accent else card,accent,enabled),
-                    shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,
-                        disabledContainerColor=Color.Transparent,disabledContentColor=foreground.copy(alpha=.35f))) {
-                    if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=onAccent,strokeWidth=2.dp)
-                    else {
-                        Icon(if(host)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=if(enabled) onAccent else foreground.copy(alpha=.35f))
-                        Spacer(Modifier.width(10.dp))
-                        Text(str(if(host)R.string.create_broadcast_room else R.string.connect_sync_now),
-                            color=if(enabled) onAccent else foreground.copy(alpha=.35f),fontWeight=FontWeight.Bold)
+                AnimatedContent(
+                    targetState=host,
+                    transitionSpec={
+                        val direction=if(targetState) 1 else -1
+                        (slideInHorizontally(tween(300)) { it/6*direction }+fadeIn(tween(240,delayMillis=60)))
+                            .togetherWith(slideOutHorizontally(tween(300)) { -it/6*direction }+fadeOut(tween(140)))
+                            .using(SizeTransform(clip=false))
+                    },
+                    label="lobbyTabContent"
+                ) { isHost ->
+                    Column(verticalArrangement=Arrangement.spacedBy(18.dp)) {
+                        Text(str(if(isHost) R.string.start_live_broadcast else R.string.enter_room_code),
+                            fontSize=23.sp,fontWeight=FontWeight.Bold,color=foreground)
+                        Text(str(if(isHost) R.string.start_a_room_and_listen_together_everyon else R.string.enter_the_6_character_room_code_provided),
+                            color=muted,style=MaterialTheme.typography.bodyMedium)
+                        if(isHost) RoomRuleRows(state.hostSettings,onSettings,accent,foreground,muted)
+                        else OutlinedTextField(value=code,onValueChange={if(it.length<=6)code=it.uppercase()},
+                            placeholder={Text("AUR921",letterSpacing=6.sp)},singleLine=true,
+                            textStyle=MaterialTheme.typography.headlineMedium.copy(letterSpacing=6.sp,fontWeight=FontWeight.SemiBold),
+                            shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxWidth(),
+                            colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=accent.copy(alpha=.6f),
+                                unfocusedBorderColor=foreground.copy(alpha=.14f),focusedTextColor=foreground,unfocusedTextColor=foreground))
+                        val enabled=!state.isConnecting && (isHost || code.length>=4)
+                        Button(onClick={if(isHost)onCreate(track,queue,playing,position)else onJoin(code)},enabled=enabled,
+                            modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,if(enabled) accent else card,accent,enabled),
+                            shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,
+                                disabledContainerColor=Color.Transparent,disabledContentColor=foreground.copy(alpha=.6f))) {
+                            if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=onAccent,strokeWidth=2.dp)
+                            else {
+                                Icon(if(isHost)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=if(enabled) onAccent else foreground.copy(alpha=.6f))
+                                Spacer(Modifier.width(10.dp))
+                                Text(str(if(isHost)R.string.create_broadcast_room else R.string.connect_sync_now),
+                                    color=if(enabled) onAccent else foreground.copy(alpha=.6f),fontWeight=FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
             state.errorMessage?.let { Text(it,color=MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(24.dp))
         }
+        com.auralis.music.ui.glass.FloatingPageButton(
+            Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), lobbyBackdrop,
+            Modifier.align(Alignment.TopStart).padding(start=14.dp,top=12.dp), onClick = onClose
+        )
     }
 }

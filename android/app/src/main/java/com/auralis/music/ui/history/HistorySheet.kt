@@ -261,7 +261,7 @@ fun HistorySheet(
         // from flashing through.
         com.auralis.music.ui.glass.FloatingPageButton(
             Icons.Default.Close, str(R.string.close), listBackdrop,
-            Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp), onDismiss
+            Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp), onClick = onDismiss
         )
         if (history.isNotEmpty()) {
             com.auralis.music.ui.glass.FloatingPageButton(

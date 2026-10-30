@@ -169,39 +169,11 @@ fun DownloadedHubView(
             .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            com.auralis.music.ui.glass.PageHeading(
+                title = str(R.string.downloaded),
+                onBack = onBack,
+                subtitle = str(R.string.x_offline_songs_x_folders, downloadedTracks.size, folders.size)
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.tactileBounce()) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
-                        tint = MaterialTheme.dynamicOnBackground
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
-                ) {
-                    Text(
-                        text = str(R.string.downloaded),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.dynamicOnBackground
-                    )
-                    Text(
-                        text = str(R.string.x_offline_songs_x_folders, downloadedTracks.size, folders.size),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.6f)
-                    )
-                }
-
                 // Search Toggle
                 IconButton(onClick = {
                     isSearchActive = !isSearchActive
@@ -240,6 +212,7 @@ fun DownloadedHubView(
                         )
                     }
                 }
+            
             }
 
             // ── SEARCH BAR (if active) ──

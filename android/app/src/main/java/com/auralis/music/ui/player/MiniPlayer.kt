@@ -89,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,6 +183,7 @@ fun MiniPlayer(
     onNextClick: (() -> Unit)? = null,
     onPreviousClick: (() -> Unit)? = null,
     onSelectQueueTrack: ((Int) -> Unit)? = null,
+    onSwipeToQueueTrack: ((Int) -> Unit)? = onSelectQueueTrack,
     onFavoriteToggle: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onArtistClick: (() -> Unit)? = null,
@@ -243,7 +245,7 @@ fun MiniPlayer(
 
     val currentSafeIndexState = rememberUpdatedState(safeCurrentIndex)
     val currentQueueTracksState = rememberUpdatedState(queueTracks)
-    val currentOnSelectQueueTrackState = rememberUpdatedState(onSelectQueueTrack)
+    val currentOnSwipeToQueueTrackState = rememberUpdatedState(onSwipeToQueueTrack)
     val currentOnNextClickState = rememberUpdatedState(onNextClick)
     val currentOnPreviousClickState = rememberUpdatedState(onPreviousClick)
 
@@ -328,11 +330,14 @@ fun MiniPlayer(
     LaunchedEffect(pagerState) {
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
-            .collect { (isScrolling, newPage) ->
+            .collectLatest { (isScrolling, newPage) ->
                 val curSafeIndex = currentSafeIndexState.value
                 val curTracks = currentQueueTracksState.value
                 if (!isScrolling) {
                     if (userSwipedPager && !isProgrammaticScroll) {
+                        // Swiping through several songs only plays the one they stop on: a new
+                        // swipe cancels this wait, so the song, colours and background change once.
+                        kotlinx.coroutines.delay(SWIPE_SETTLE_MS)
                         userSwipedPager = false
                         if (curTracks.isNotEmpty() && newPage in curTracks.indices && newPage != curSafeIndex) {
                             pendingTargetIndex = newPage
@@ -341,7 +346,7 @@ fun MiniPlayer(
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                                 com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
                             }
-                            val onSelect = currentOnSelectQueueTrackState.value
+                            val onSelect = currentOnSwipeToQueueTrackState.value
                             if (onSelect != null) {
                                 onSelect(newPage)
                             } else if (newPage > curSafeIndex) {

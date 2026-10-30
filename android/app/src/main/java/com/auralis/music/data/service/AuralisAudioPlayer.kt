@@ -1515,7 +1515,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         startIndex: Int = 0,
         isUserQueue: Boolean = false,
         initialPositionMs: Long = 0L,
-        preserveQueueSource: Boolean = false
+        preserveQueueSource: Boolean = false,
+        keepQueueOrder: Boolean = false
     ) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack blocked - user is listener in Listen Together room")
@@ -1556,7 +1557,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
         val qState = if (isSameQueue && preserveQueueSource) {
-            queueManager.selectIndex(targetIndex, retainUnplayed = !isGuestListenTogether.value)
+            queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder && !isGuestListenTogether.value)
         } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = isUserQueue)
         _queueState.value = qState
 

@@ -1,8 +1,11 @@
 package com.auralis.music.domain.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Full artist details page data model matching YouTube Music.
  */
+@Serializable
 data class ArtistPage(
     val artist: Artist,
     val bannerUrl: String? = null,
@@ -22,12 +25,14 @@ data class ArtistPage(
     val radioParams: String? = null
 )
 
+@Serializable
 data class ArtistLatestRelease(
     val release: PlaylistResult,
     val year: Int,
     val isAlbum: Boolean
 )
 
+@Serializable
 data class ArtistShelf(
     val title: String,
     val tracks: List<Track> = emptyList(),

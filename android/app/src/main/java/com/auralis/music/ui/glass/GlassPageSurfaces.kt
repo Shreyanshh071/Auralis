@@ -1,5 +1,7 @@
 package com.auralis.music.ui.glass
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.tactileBounce
@@ -21,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -83,11 +86,16 @@ internal fun pageGlassEnabled(): Boolean = LocalPageCardGlass.current != null
 internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modifier = Modifier,
     /** Keeps the glow on the normal theme too, for pages that would otherwise read as flat. */
     glowWithoutGlass: Boolean = false,
+    /** For pages that start below the status bar: carries the glow up behind it. */
+    glowBehindStatusBar: Boolean = false,
     content: @Composable BoxScope.() -> Unit) {
     val backdrop = rememberLayerBackdrop()
     val glass = rememberPageHeaderGlass(backdrop)
     val pageGlow = remember { PageGlow() }
     pageGlow.enabled = glass != null || glowWithoutGlass
+    if (glowBehindStatusBar) DisposableEffect(pageGlow) {
+        onDispose { if (StatusBarGlow.image === pageGlow.image) StatusBarGlow.image = null }
+    }
     CompositionLocalProvider(LocalPageCardGlass provides glass, LocalPageGlow provides pageGlow) {
         // Switching the theme rebuilds the page: cards already drawn kept the old look until they
         // next redrew, so the page looked stale until it was scrolled.
@@ -99,12 +107,35 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
                     val pageSize = IntSize(size.width.toInt(), size.height.toInt())
                     pageGlow.image = image
                     pageGlow.pageSize = pageSize
-                    onDrawBehind { drawImage(image, dstSize = pageSize, filterQuality = FilterQuality.Low) }
+                    onDrawBehind {
+                    // Set on draw: a tab kept alive in the background must take the strip back.
+                    if (glowBehindStatusBar) StatusBarGlow.image = image
+                    drawImage(image, dstSize = pageSize, filterQuality = FilterQuality.Low)
+                }
                 })
                 content()
             }
         }
     }
+}
+
+/** The glow of the page showing below the status bar, for [StatusBarGlowBand] to continue. */
+internal object StatusBarGlow {
+    var image by mutableStateOf<ImageBitmap?>(null)
+}
+
+/** The strip behind the status bar: the top edge of the page's glow, carried up so there's no seam. */
+@Composable
+internal fun StatusBarGlowBand(modifier: Modifier = Modifier) {
+    Box(modifier.drawBehind {
+        val image = StatusBarGlow.image ?: return@drawBehind
+        drawImage(
+            image,
+            srcSize = IntSize(image.width, 1),
+            dstSize = IntSize(size.width.toInt() + 1, size.height.toInt() + 1),
+            filterQuality = FilterQuality.Low
+        )
+    })
 }
 
 /**
@@ -136,6 +167,53 @@ internal fun FloatingPageButton(
     }
 }
 
+/**
+ * A page's top: the round back button in the same spot on every page, any actions across from it,
+ * then the title large beneath. [backdrop] records what scrolls behind the buttons, if anything.
+ */
+@Composable
+internal fun PageHeading(
+    title: String,
+    onBack: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    backdrop: com.kyant.backdrop.Backdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(),
+    subtitle: String? = null,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}
+) {
+    androidx.compose.foundation.layout.Column(modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+        ) {
+            if (onBack != null) FloatingPageButton(
+                androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                com.auralis.music.ui.i18n.str(com.auralis.music.R.string.back),
+                backdrop,
+                onClick = onBack
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            actions()
+        }
+        androidx.compose.material3.Text(
+            text = title,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = androidx.compose.ui.unit.TextUnit(30f, androidx.compose.ui.unit.TextUnitType.Sp),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 12.dp)
+        )
+        if (subtitle != null) androidx.compose.material3.Text(
+            text = subtitle,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = androidx.compose.ui.unit.TextUnit(13f, androidx.compose.ui.unit.TextUnitType.Sp),
+            modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 2.dp)
+        )
+    }
+}
+
 /** Lets a list fade out under a pinned bar, in the page's own colours, glow included. */
 @Composable
 internal fun PageGlowTopFade(height: Dp, background: Color, modifier: Modifier = Modifier) {
@@ -160,7 +238,7 @@ internal fun Modifier.pageCardSurface(shape: CornerBasedShape, color: Color, bor
     val glass=LocalPageCardGlass.current
     return if (glass == null) clip(shape).background(color).border(1.dp,border,shape)
     else liquidGlass(glass,shape,tint=glassSurfaceTint(glass.isDark).copy(alpha=if(glass.isDark) .30f else .48f),
-        blurRadius=20.dp,lensDepth=8.dp)
+        blurRadius=20.dp,lensDepth=8.dp,rimLens=true)
 }
 
 /** Keeps the existing Material surface byte-for-byte in the off branch. */
@@ -172,7 +250,7 @@ internal fun OptionalGlassCard(shape: CornerBasedShape, color: Color, border: Bo
         border=if(glass == null) border else null,
         modifier=if(glass == null) modifier else modifier.liquidGlass(glass,shape,
             tint=glassSurfaceTint(glass.isDark).copy(alpha=if(glass.isDark) .30f else .48f),
-            blurRadius=20.dp,lensDepth=8.dp),content=content)
+            blurRadius=20.dp,lensDepth=8.dp,rimLens=true),content=content)
 }
 
 @Composable

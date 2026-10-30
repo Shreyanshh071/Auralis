@@ -908,6 +908,18 @@ class SearchRepositoryImpl(
         if (fresh.requestFailed && cached != null) cached else fresh
     }
 
+    /**
+     * The songs filter lists no play counts and the general search does, and ranking goes by plays.
+     * Keeping only the filtered row sank the real song below covers that had a count of their own.
+     */
+    private fun mergeSongResults(filtered: List<Track>, general: List<Track>): List<Track> {
+        val generalById = general.associateBy { it.id }
+        return (filtered.map { song ->
+            val views = generalById[song.id]?.views
+            if (song.views.isNullOrBlank() && !views.isNullOrBlank()) song.copy(views = views) else song
+        } + general).distinctBy { it.id }
+    }
+
     override suspend fun searchLiveSongs(query: String, onResults: (List<Track>) -> Unit) = coroutineScope {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@coroutineScope
@@ -923,7 +935,7 @@ class SearchRepositoryImpl(
         repeat(2) {
             val (filtered, songs) = responses.receive()
             if (filtered) filteredSongs = songs else generalSongs = songs
-            val candidates = (filteredSongs + generalSongs).distinctBy { it.id }
+            val candidates = mergeSongResults(filteredSongs, generalSongs)
             val (matched, remaining) = SearchQueryMatcher.partitionResults(candidates, trimmed)
             if (candidates.isNotEmpty()) onResults(if (matched.isNotEmpty()) matched else remaining.take(10))
         }
@@ -947,7 +959,7 @@ class SearchRepositoryImpl(
 
         val filtered = filteredDef.await()
         val general = generalDef.await()
-        val candidates = (filtered + general).distinctBy { it.id }
+        val candidates = mergeSongResults(filtered, general)
 
         val (matchedSongs, remaining) = com.auralis.music.domain.search.SearchQueryMatcher.partitionResults(candidates, trimmed)
         if (matchedSongs.isNotEmpty()) matchedSongs else remaining.take(10)

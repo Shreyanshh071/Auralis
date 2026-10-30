@@ -730,7 +730,10 @@ class PlayerViewModel(
         initialPositionMs: Long = 0L,
         sourcePlaylistTitle: String? = null,
         preserveQueueSource: Boolean = false,
-        sourcePlaylistId: String? = null
+        sourcePlaylistId: String? = null,
+        // A swipe walks the cards in order. Moving the skipped songs ahead of the rest, as a queue
+        // tap does, would change which song sits under every card, so it must leave them in place.
+        keepQueueOrder: Boolean = false
     ) {
         // A Listen Together guest's pick goes to the room; this phone changes song only when the
         // host's does. Updating the screen first showed a new cover and lyrics over the old audio.
@@ -828,12 +831,13 @@ class PlayerViewModel(
                 startIndex = targetIndex,
                 isUserQueue = effectiveIsUserQueue,
                 initialPositionMs = initialPositionMs,
-                preserveQueueSource = preserveQueueSource
+                preserveQueueSource = preserveQueueSource,
+                keepQueueOrder = keepQueueOrder
             )
         } else {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex)
+            val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder)
                 else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = effectiveIsUserQueue)
             _uiState.update {
                 it.copy(

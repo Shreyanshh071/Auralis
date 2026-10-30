@@ -942,7 +942,7 @@ internal fun BoxScope.ArtistFloatingButtons(
             .align(Alignment.TopCenter)
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {

@@ -799,6 +799,9 @@ fun ExperimentalLyricsView(
     val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
     val lyricsGlide = remember { LyricsScrollGlide() }
     val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+    // Read when a scroll runs: the follow-the-song effect keeps the scroll it started with, and that
+    // one can be from while this tab was still hidden, which made every line jump.
+    val lyricsOnScreenNow = androidx.compose.runtime.rememberUpdatedState(lyricsOnScreen)
     // The tab stays composed while hidden, so leaving it has to end a selection itself.
     LaunchedEffect(lyricsOnScreen) {
         if (!lyricsOnScreen) {
@@ -869,7 +872,7 @@ fun ExperimentalLyricsView(
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
                                 // Even short corrections should ease into place instead of snapping.
-                                if (animate && lyricsOnScreen) {
+                                if (animate && lyricsOnScreenNow.value) {
                                     lyricsGlide.glide(listState, scrollDelta)
                                 } else {
                                     listState.scrollBy(scrollDelta)

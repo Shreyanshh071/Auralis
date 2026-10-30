@@ -469,7 +469,12 @@ fun ClassicPlayerView(
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 if (pageTrack.id == uiState.currentTrack?.id) {
-                                    AnimatedCover(pageTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize(), visible = coverAtRest)
+                                    AnimatedCover(
+                                        pageTrack,
+                                        uiState.isPlaying && coverAtRest && !pagerState.isScrollInProgress,
+                                        Modifier.fillMaxSize(),
+                                        visible = coverAtRest && !pagerState.isScrollInProgress
+                                    )
                                 }
                             }
                         }

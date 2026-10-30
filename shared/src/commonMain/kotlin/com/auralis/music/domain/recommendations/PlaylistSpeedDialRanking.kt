@@ -58,4 +58,21 @@ object PlaylistSpeedDialRanking {
         while (next < playlists.size) result.add(playlists[next++])
         return result
     }
+
+    /**
+     * Moves [playlists] up to slots 2, 4 and 6 of [ranked] when listening time left them further
+     * down. Songs keep gaining time, and past the row's last slot a playlist simply vanished.
+     */
+    fun <T> keepInReach(ranked: List<T>, playlists: List<T>): List<T> {
+        val result = ranked.toMutableList()
+        playlists.forEachIndexed { index, playlist ->
+            val reach = 1 + index * 2
+            val at = result.indexOf(playlist)
+            if (at > reach) {
+                result.removeAt(at)
+                result.add(reach, playlist)
+            }
+        }
+        return result
+    }
 }

@@ -66,4 +66,16 @@ class PlaylistSpeedDialRankingTest {
         )
         assertEquals(listOf("s", "p"), ranked.map { it.first })
     }
+
+    @Test fun playlistsOutlistenedBySongsStayOnTheFirstPage() {
+        val songs = (1..26).map { "s$it" }
+        val ranked = PlaylistSpeedDialRanking.keepInReach(songs + listOf("p1", "p2"), listOf("p1", "p2"))
+        assertEquals(listOf("s1", "p1", "s2", "p2", "s3"), ranked.take(5))
+        assertEquals(28, ranked.size)
+    }
+
+    @Test fun aPlaylistAlreadyUpFrontStaysWhereListeningPutIt() {
+        val ranked = PlaylistSpeedDialRanking.keepInReach(listOf("p1", "s1", "s2"), listOf("p1"))
+        assertEquals(listOf("p1", "s1", "s2"), ranked)
+    }
 }

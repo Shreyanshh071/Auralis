@@ -613,7 +613,7 @@ fun LyricShareBottomSheet(
 
     // Edit Lyric Text Dialog
     if (isEditingText) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = { isEditingText = false },
             title = { Text(str(R.string.edit_lyric_text)) },
             text = {

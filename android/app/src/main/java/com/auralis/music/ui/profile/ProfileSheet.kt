@@ -1,5 +1,10 @@
 package com.auralis.music.ui.profile
 
+import com.auralis.music.ui.screens.SettingsGroup
+import com.auralis.music.ui.screens.SettingsNavRow
+import com.auralis.music.ui.screens.SettingsPage
+import com.auralis.music.ui.theme.dynamicPrimary
+import androidx.compose.ui.res.vectorResource
 import com.auralis.music.ui.components.*
 import androidx.compose.material.icons.filled.WarningAmber
 import com.auralis.music.data.datastore.DiscordRpcDataStore
@@ -150,106 +155,106 @@ fun ProfileSheet(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val connected = profile.isGoogleConnected || profile.accessToken != null
 
-    AccountPageTheme {
-        AccountPage(
-            title = str(R.string.profile_account),
-            modifier = modifier.auralisPushParent(subPagePush),
-            actions = {
-                IconButton(onClick = { isSettingsOpen = true }) {
-                    Icon(Icons.Default.Settings, str(R.string.settings), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, str(R.string.close), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        ) {
-            AccountPanel(padding = 20.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(64.dp).clip(CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                        .background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+    SettingsPage(
+        title = str(R.string.profile_account),
+        onBack = onDismiss,
+        modifier = modifier.auralisPushParent(subPagePush),
+        actions = { backdrop ->
+            com.auralis.music.ui.glass.FloatingPageButton(
+                Icons.Default.Settings, str(R.string.settings), backdrop, onClick = { isSettingsOpen = true }
+            )
+        }
+    ) {
+        item(key = "profile_identity", contentType = "identity") {
+            SettingsGroup(null) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier.size(68.dp).clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = .09f)),
+                        contentAlignment = Alignment.Center
+                    ) {
                         if (profile.avatarUrl != null) {
                             ArtworkCard(url = profile.avatarUrl, modifier = Modifier.fillMaxSize(),
-                                cornerRadius = 32.dp, contentDescription = profile.displayName)
+                                cornerRadius = 34.dp, contentDescription = profile.displayName)
                         } else {
                             Text(profile.displayName.firstOrNull()?.uppercase() ?: "A",
-                                fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                fontSize = 26.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Text(profile.displayName.ifBlank { str(R.string.account_ui_listener) },
-                            fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                            fontSize = 19.sp, fontWeight = FontWeight.Bold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (profile.email.isNotBlank()) Text(profile.email,
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Spacer(Modifier.height(6.dp))
-                        AccountBadge(str(if (connected && playerSettings.cloudSyncEnabled)
-                            R.string.account_ui_cloud_active else R.string.account_ui_local_library))
+                        Spacer(Modifier.height(4.dp))
+                        Text(str(if (connected && playerSettings.cloudSyncEnabled)
+                            R.string.account_ui_cloud_active else R.string.account_ui_local_library),
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.dynamicPrimary)
                     }
                 }
             }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AccountSectionLabel(str(R.string.account_ui_integrations))
-                AccountPanel(padding = 0.dp) {
-                    AccountRow(str(R.string.account_ui_discord_presence),
-                        str(if (discord.isLoggedIn && discord.enableRichPresence)
-                            R.string.account_ui_discord_sharing else R.string.connect_rich_presence_display_song_activ),
-                        onClick = { isDiscordIntegrationOpen = true },
-                        icon = { AccountGlyph {
-                            Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_discord), null,
-                                modifier = Modifier.size(20.dp))
-                        } })
-                    AccountDivider()
-                    AccountRow(str(R.string.youtube_account),
-                        if (youTubeSignedIn) youtubeLabel.ifBlank { str(R.string.signed_in) } +
-                            " · " + str(R.string.age_restricted_songs_unlocked)
-                        else str(R.string.sign_in_to_download_age_restricted_songs),
-                        onClick = { isYouTubeAccountOpen = true },
-                        icon = { AccountGlyph(Icons.Default.PlayArrow) })
-                    AccountDivider()
-                    AccountRow(str(R.string.import_playlists), str(R.string.from_youtube_music_or_spotify),
-                        onClick = { isImportPlaylistsOpen = true }, icon = { AccountGlyph(Icons.Default.SwapHoriz) })
+        }
+        item(key = "profile_integrations", contentType = "group") {
+            SettingsGroup(str(R.string.account_ui_integrations)) {
+                SettingsNavRow(
+                    androidx.compose.ui.graphics.vector.ImageVector.vectorResource(R.drawable.ic_discord),
+                    str(R.string.account_ui_discord_presence),
+                    str(if (discord.isLoggedIn && discord.enableRichPresence)
+                        R.string.account_ui_discord_sharing else R.string.connect_rich_presence_display_song_activ)
+                ) { isDiscordIntegrationOpen = true }
+                SettingsNavRow(
+                    Icons.Default.PlayArrow,
+                    str(R.string.youtube_account),
+                    if (youTubeSignedIn) youtubeLabel.ifBlank { str(R.string.signed_in) } +
+                        " · " + str(R.string.age_restricted_songs_unlocked)
+                    else str(R.string.sign_in_to_download_age_restricted_songs)
+                ) { isYouTubeAccountOpen = true }
+                SettingsNavRow(Icons.Default.SwapHoriz, str(R.string.import_playlists), str(R.string.from_youtube_music_or_spotify)) {
+                    isImportPlaylistsOpen = true
                 }
             }
-
-            if (connected) {
-                AccountPanel(padding = 0.dp) {
-                    AccountRow(str(R.string.disconnect_account), str(R.string.account_ui_disconnect_description),
-                        onClick = { showDisconnectDialog = true },
-                        icon = { AccountGlyph(Icons.AutoMirrored.Filled.ExitToApp) })
-                    AccountDivider()
-                    AccountRow(str(R.string.account_ui_delete_data), str(R.string.account_ui_delete_description),
-                        onClick = { onClearDeleteAccountError(); showDeleteDialog = true },
-                        icon = { AccountGlyph(Icons.Default.Delete) },
-                        trailing = { Icon(Icons.Default.WarningAmber, null,
-                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) })
+        }
+        if (connected) item(key = "profile_account", contentType = "group") {
+            SettingsGroup(null) {
+                SettingsNavRow(Icons.AutoMirrored.Filled.ExitToApp, str(R.string.disconnect_account), str(R.string.account_ui_disconnect_description)) {
+                    showDisconnectDialog = true
+                }
+                SettingsNavRow(Icons.Default.Delete, str(R.string.account_ui_delete_data), str(R.string.account_ui_delete_description)) {
+                    onClearDeleteAccountError()
+                    showDeleteDialog = true
                 }
             }
+        }
+        item(key = "profile_version", contentType = "footer") {
             Text(str(R.string.account_ui_version, com.auralis.music.BuildConfig.VERSION_NAME),
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally))
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth())
         }
-        if (showDisconnectDialog) {
-            com.auralis.music.ui.components.AuralisConfirmDialog(
-                title = str(R.string.account_ui_disconnect_confirmation_title),
-                message = str(R.string.account_ui_disconnect_confirmation_message),
-                confirmLabel = str(R.string.disconnect_account),
-                onDismiss = { showDisconnectDialog = false },
-                icon = Icons.AutoMirrored.Filled.ExitToApp,
-                onConfirm = {
-                        showDisconnectDialog = false
-                        onDisconnect()
-                    },
-            )
-        }
-        if (showDeleteDialog) DeleteAccountDialog(
-            needsPassword = deleteAccountNeedsPassword, isDeleting = authUiState.isDeletingAccount,
-            error = authUiState.deleteAccountError, onConfirm = onDeleteAccount,
-            onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false })
     }
+    if (showDisconnectDialog) {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.account_ui_disconnect_confirmation_title),
+            message = str(R.string.account_ui_disconnect_confirmation_message),
+            confirmLabel = str(R.string.disconnect),
+            onDismiss = { showDisconnectDialog = false },
+            icon = Icons.AutoMirrored.Filled.ExitToApp,
+            onConfirm = {
+                    showDisconnectDialog = false
+                    onDisconnect()
+                },
+        )
+    }
+    if (showDeleteDialog) DeleteAccountDialog(
+        needsPassword = deleteAccountNeedsPassword, isDeleting = authUiState.isDeletingAccount,
+        error = authUiState.deleteAccountError, onConfirm = onDeleteAccount,
+        onDismiss = { if (!authUiState.isDeletingAccount) showDeleteDialog = false })
 
     AuralisPushedPage(page = subPage) { page ->
         when (page) {
@@ -406,46 +411,58 @@ private fun DeleteAccountDialog(
     onDismiss: () -> Unit
 ) {
     var password by remember { mutableStateOf("") }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(str(R.string.delete_your_account)) },
-        text = {
+    val foreground = com.auralis.music.ui.glass.LocalLiquidGlass.current?.let {
+        com.auralis.music.ui.glass.glassContentColor(it.isDark)
+    } ?: MaterialTheme.colorScheme.onSurface
+    com.auralis.music.ui.components.AuralisConfirmDialog(
+        title = str(R.string.delete_your_account),
+        message = str(R.string.this_permanently_deletes_your_auralis_ac) +
+            "playlists, liked songs, saved artists and listening stats. It can't be undone.\n\n" +
+            str(R.string.songs_and_playlists_on_this_phone_stay_t),
+        confirmLabel = str(if (isDeleting) R.string.deleting else R.string.delete),
+        onConfirm = { onConfirm(if (needsPassword) password else null) },
+        onDismiss = onDismiss,
+        enabled = !isDeleting && (!needsPassword || password.isNotBlank()),
+        dismissEnabled = !isDeleting,
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    str(R.string.this_permanently_deletes_your_auralis_ac) +
-                        "playlists, liked songs, saved artists and listening stats. It can't be undone.\n\n" +
-                        str(R.string.songs_and_playlists_on_this_phone_stay_t)
-                )
                 if (needsPassword) {
-                    OutlinedTextField(
+                    androidx.compose.material3.TextField(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text(str(R.string.password)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                         singleLine = true,
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                        enabled = !isDeleting
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                        ),
+                        enabled = !isDeleting,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedTextColor = foreground,
+                            unfocusedTextColor = foreground,
+                            cursorColor = foreground,
+                            focusedLabelColor = foreground,
+                            unfocusedLabelColor = foreground.copy(alpha = .7f),
+                            focusedContainerColor = foreground.copy(alpha = .10f),
+                            unfocusedContainerColor = foreground.copy(alpha = .06f),
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent
+                        )
                     )
                 } else {
                     Text(
                         str(R.string.you_ll_be_asked_to_sign_in_with_google_a),
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        color = foreground.copy(alpha = .7f)
                     )
                 }
                 if (error != null) {
                     Text(error, color = Color(0xFFEF4444), fontSize = 13.sp)
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(if (needsPassword) password else null) },
-                enabled = !isDeleting && (!needsPassword || password.isNotBlank())
-            ) {
-                Text(if (isDeleting) str(R.string.deleting) else str(R.string.delete), color = Color(0xFFEF4444))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isDeleting) { Text(str(R.string.cancel)) }
         }
     )
 }

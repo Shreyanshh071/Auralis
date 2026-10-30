@@ -118,6 +118,8 @@ class SearchViewModel(
     private val liveSongCache = linkedMapOf<String, List<Track>>()
     private val artistPages = java.util.concurrent.ConcurrentHashMap<String, ArtistPage>()
     private val artistRequests = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ArtistPage?>>()
+    private val albumPages = java.util.concurrent.ConcurrentHashMap<String, List<Track>>()
+    private val browseCache = context?.let { BrowseCache(it) }
 
     private fun artistPageRequest(artist: Artist): kotlinx.coroutines.Deferred<ArtistPage?> {
         val key = artist.name.lowercase()
@@ -134,6 +136,7 @@ class SearchViewModel(
             if (page != null && (page.topSongs.isNotEmpty() || page.albums.isNotEmpty() || page.singles.isNotEmpty())) {
                 if (artistPages.size >= 24) artistPages.remove(artistPages.keys.first())
                 artistPages[key] = page
+                browseCache?.saveArtist(key, page)
             }
             page
         }
@@ -485,34 +488,59 @@ class SearchViewModel(
         }
 
         if (cachedPage != null) return
-        val request = artistPageRequest(artist)
         viewModelScope.launch {
-            val page = request.await() ?: initialPage
-            _uiState.update { current ->
-                val updatedStack = current.detailStack.map { detail ->
-                    if (detail is ExploreDetail.Artist && (detail.artistPage.artist.id == artist.id || detail.artistPage.artist.name.equals(artist.name, ignoreCase = true))) {
-                        detail.copy(artistPage = page, isLoading = false, loadFailed = page.topSongs.isEmpty())
-                    } else {
-                        detail
+            val stored = browseCache?.artist(artist.name)
+            if (stored != null) showArtistPage(artist, stored)
+            val knownChannel = stored?.artist?.id?.takeIf { !artist.id.startsWith("UC") && it.startsWith("UC") }
+            val page = artistPageRequest(if (knownChannel != null) artist.copy(id = knownChannel) else artist).await()
+            showArtistPage(artist, page ?: stored ?: initialPage)
+            page?.let(::preloadAlbums)
+        }
+    }
+
+    private fun showArtistPage(artist: Artist, page: ArtistPage) {
+        _uiState.update { current ->
+            val updatedStack = current.detailStack.map { detail ->
+                if (detail is ExploreDetail.Artist && (detail.artistPage.artist.id == artist.id || detail.artistPage.artist.name.equals(artist.name, ignoreCase = true))) {
+                    detail.copy(artistPage = page, isLoading = false, loadFailed = page.topSongs.isEmpty())
+                } else {
+                    detail
+                }
+            }
+            val topArtist = updatedStack.lastOrNull() as? ExploreDetail.Artist
+            current.copy(
+                detailStack = updatedStack,
+                selectedArtistPage = topArtist?.artistPage ?: if (updatedStack.isEmpty()) null else current.selectedArtistPage,
+                isLoadingArtist = topArtist?.isLoading ?: false
+            )
+        }
+    }
+
+    /** The releases someone is most likely to tap next, spaced out so they never look like a burst. */
+    private fun preloadAlbums(page: ArtistPage) {
+        val browse = browseCache ?: return
+        viewModelScope.launch {
+            (listOfNotNull(page.latestRelease?.release) + page.albums.take(2)).distinctBy { it.id }.forEach { album ->
+                if (albumPages[album.id] == null && browse.album(album.id) == null) {
+                    kotlinx.coroutines.delay(500L)
+                    val tracks = com.auralis.music.data.network.LocalizedContent.run { searchRepository.getAlbumTracks(album) }
+                    if (tracks.isNotEmpty()) {
+                        albumPages[album.id] = tracks
+                        browse.saveAlbum(album.id, tracks)
                     }
                 }
-                val topArtist = updatedStack.lastOrNull() as? ExploreDetail.Artist
-                current.copy(
-                    detailStack = updatedStack,
-                    selectedArtistPage = topArtist?.artistPage ?: if (updatedStack.isEmpty()) null else current.selectedArtistPage,
-                    isLoadingArtist = topArtist?.isLoading ?: false
-                )
             }
         }
     }
 
     fun openAlbum(album: com.auralis.music.domain.model.PlaylistResult, resetStack: Boolean = false) {
-        val initialTracks = if (album.id.startsWith("artist_top_songs:")) {
+        val isTopSongs = album.id.startsWith("artist_top_songs:")
+        val initialTracks = if (isTopSongs) {
             _uiState.value.selectedArtistPage?.topSongs ?: emptyList()
         } else {
-            emptyList()
+            albumPages[album.id] ?: emptyList()
         }
-        val newEntry = ExploreDetail.Album(album = album, tracks = initialTracks, isLoading = true)
+        val newEntry = ExploreDetail.Album(album = album, tracks = initialTracks, isLoading = initialTracks.isEmpty())
 
         _uiState.update { current ->
             val updatedStack = if (resetStack) listOf(newEntry) else current.detailStack + newEntry
@@ -520,39 +548,49 @@ class SearchViewModel(
                 detailStack = updatedStack,
                 selectedAlbum = album,
                 selectedAlbumTracks = initialTracks,
-                isLoadingAlbum = true,
+                isLoadingAlbum = initialTracks.isEmpty(),
                 selectedArtistPage = if (resetStack) null else current.selectedArtistPage,
                 isLoadingArtist = if (resetStack) false else current.isLoadingArtist
             )
         }
 
         viewModelScope.launch {
+            // The last copy shows at once; the fresh one replaces it when it arrives.
+            val stored = if (initialTracks.isEmpty() && !isTopSongs) browseCache?.album(album.id) else null
+            if (!stored.isNullOrEmpty()) showAlbumTracks(album, stored)
             val tracks = com.auralis.music.data.network.LocalizedContent.run { searchRepository.getAlbumTracks(album) }
-            val finalTracks = if (tracks.isNotEmpty()) tracks else initialTracks
-            _uiState.update { current ->
-                val updatedStack = current.detailStack.map { detail ->
-                    if (detail is ExploreDetail.Album && (detail.album.id == album.id || detail.album.title.equals(album.title, ignoreCase = true))) {
-                        val firstTrk = finalTracks.firstOrNull()
-                        val enrichedAlbum = if (firstTrk != null && (detail.album.thumbnail.isNullOrBlank() || detail.album.thumbnail!!.contains("default"))) {
-                            detail.album.copy(
-                                thumbnail = firstTrk.thumbnail.takeIf { it.isNotBlank() } ?: detail.album.thumbnail
-                            )
-                        } else {
-                            detail.album
-                        }
-                        detail.copy(album = enrichedAlbum, tracks = finalTracks, isLoading = false)
-                    } else {
-                        detail
-                    }
-                }
-                val topAlbum = updatedStack.lastOrNull() as? ExploreDetail.Album
-                current.copy(
-                    detailStack = updatedStack,
-                    selectedAlbum = topAlbum?.album ?: if (updatedStack.isEmpty()) null else current.selectedAlbum,
-                    selectedAlbumTracks = topAlbum?.tracks ?: if (updatedStack.isEmpty()) emptyList() else current.selectedAlbumTracks,
-                    isLoadingAlbum = topAlbum?.isLoading ?: false
-                )
+            if (tracks.isNotEmpty() && !isTopSongs) {
+                albumPages[album.id] = tracks
+                browseCache?.saveAlbum(album.id, tracks)
             }
+            showAlbumTracks(album, tracks.ifEmpty { stored?.takeIf { it.isNotEmpty() } ?: initialTracks })
+        }
+    }
+
+    private fun showAlbumTracks(album: com.auralis.music.domain.model.PlaylistResult, finalTracks: List<Track>) {
+        _uiState.update { current ->
+            val updatedStack = current.detailStack.map { detail ->
+                if (detail is ExploreDetail.Album && (detail.album.id == album.id || detail.album.title.equals(album.title, ignoreCase = true))) {
+                    val firstTrk = finalTracks.firstOrNull()
+                    val enrichedAlbum = if (firstTrk != null && (detail.album.thumbnail.isNullOrBlank() || detail.album.thumbnail!!.contains("default"))) {
+                        detail.album.copy(
+                            thumbnail = firstTrk.thumbnail.takeIf { it.isNotBlank() } ?: detail.album.thumbnail
+                        )
+                    } else {
+                        detail.album
+                    }
+                    detail.copy(album = enrichedAlbum, tracks = finalTracks, isLoading = false)
+                } else {
+                    detail
+                }
+            }
+            val topAlbum = updatedStack.lastOrNull() as? ExploreDetail.Album
+            current.copy(
+                detailStack = updatedStack,
+                selectedAlbum = topAlbum?.album ?: if (updatedStack.isEmpty()) null else current.selectedAlbum,
+                selectedAlbumTracks = topAlbum?.tracks ?: if (updatedStack.isEmpty()) emptyList() else current.selectedAlbumTracks,
+                isLoadingAlbum = topAlbum?.isLoading ?: false
+            )
         }
     }
 

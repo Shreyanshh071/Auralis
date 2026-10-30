@@ -112,7 +112,7 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
                         AccountBadge(str(if (signedIn) R.string.account_ui_connected else R.string.account_ui_unlinked))
                     }
                     Spacer(Modifier.height(16.dp))
-                    AccountPanel(padding = 12.dp) {
+                    Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Verified, null, modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant)

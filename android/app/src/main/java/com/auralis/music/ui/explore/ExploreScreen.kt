@@ -378,7 +378,10 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                     }
                 }
 
-                Box(
+                com.auralis.music.ui.glass.OptionalGlassPage(
+                    background = themeBackground,
+                    accent = MaterialTheme.dynamicPrimary,
+                    glowBehindStatusBar = true,
                     modifier = modifier
                         .fillMaxSize()
                         .background(themeBackground)

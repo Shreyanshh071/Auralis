@@ -104,7 +104,9 @@ fun Modifier.liquidGlass(
     // Large modal surfaces need more frosting than a small dock or button.
     blurRadius: androidx.compose.ui.unit.Dp = 8.dp,
     lensDepth: androidx.compose.ui.unit.Dp = 24.dp,
-    edgeHighlight: Highlight? = Highlight.Default
+    edgeHighlight: Highlight? = Highlight.Default,
+    /** Bends only the rim. On a tall card a wide lens's inner edge shows as a faint rectangle. */
+    rimLens: Boolean = false
 ): Modifier {
     // Held, the glass swells on a bouncy spring; the scale goes through the backdrop's layer
     // block so the library inverts it and the glass keeps showing what is really behind it.
@@ -147,7 +149,7 @@ fun Modifier.liquidGlass(
                 lens(
                     // Keep refraction visible on tall dialogs as well as pills. It stops well short
                     // of the middle: bands from both sides meeting there drew a seam down the glass.
-                    refractionHeight = if (size.isSpecified && !size.isEmpty())
+                    refractionHeight = if (!rimLens && size.isSpecified && !size.isEmpty())
                         maxOf(lensHeightPx, size.minDimension * .3f) else lensHeightPx,
                     refractionAmount = lensAmountPx,
                     depthEffect = true,

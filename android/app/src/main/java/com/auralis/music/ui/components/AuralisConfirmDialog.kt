@@ -49,13 +49,15 @@ internal fun AuralisConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     icon: ImageVector = Icons.Default.DeleteOutline,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    dismissEnabled: Boolean = enabled,
+    content: (@Composable () -> Unit)? = null
 ) {
     val glass = LocalLiquidGlass.current
     val pageView = LocalView.current
     val shape = RoundedCornerShape(30.dp)
     val foreground = if (glass != null) glassContentColor(glass.isDark) else MaterialTheme.colorScheme.onSurface
-    BasicAlertDialog(onDismissRequest = onDismiss) {
+    BasicAlertDialog(onDismissRequest = { if (dismissEnabled) onDismiss() }) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -88,6 +90,10 @@ internal fun AuralisConfirmDialog(
                 lineHeight = 20.sp,
                 textAlign = TextAlign.Center
             )
+            if (content != null) {
+                Spacer(Modifier.height(18.dp))
+                content()
+            }
             Spacer(Modifier.height(24.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
@@ -96,7 +102,7 @@ internal fun AuralisConfirmDialog(
                         .height(50.dp)
                         .clip(CircleShape)
                         .background(foreground.copy(alpha = 0.10f))
-                        .clickable(enabled = enabled, onClick = onDismiss),
+                        .clickable(enabled = dismissEnabled, onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(str(R.string.cancel), color = foreground, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
@@ -111,7 +117,8 @@ internal fun AuralisConfirmDialog(
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(confirmLabel, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                    Text(confirmLabel, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1,
+                        softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
         }

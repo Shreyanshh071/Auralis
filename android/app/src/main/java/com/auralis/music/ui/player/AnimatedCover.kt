@@ -29,6 +29,8 @@ import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 
+private const val COVER_SETTLE_MS = 2_000L
+
 /**
  * Silent, lifecycle-aware cover loop. The caller keeps the still artwork underneath.
  * With [visible] false the loop stays loaded but fades away, leaving that still artwork.
@@ -41,6 +43,13 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
     val context = LocalContext.current.applicationContext
     val wifi = rememberCoverWifiAvailable(settings.animatedCoversWifiOnly)
     if (!wifi) return
+    // A video player is heavy to start and stop, so skipping through songs never starts one.
+    var settled by remember(track.id) { mutableStateOf(false) }
+    LaunchedEffect(track.id) {
+        kotlinx.coroutines.delay(COVER_SETTLE_MS)
+        settled = true
+    }
+    if (!settled) return
     val source = CanvasSource.from(settings.animatedCoverSource)
     var url by remember(track.id, track.title, track.artist, track.album, source) { mutableStateOf<String?>(null) }
     LaunchedEffect(track.id, track.title, track.artist, track.album, source) {

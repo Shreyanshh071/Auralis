@@ -145,14 +145,8 @@ fun ImportPlaylistsScreen(
 
     AccountPageTheme {
         AccountPage(title = str(R.string.import_playlists), onBack = onDismiss, modifier = modifier) {
-            AccountPanel {
-                AccountBadge(str(R.string.account_ui_migration_tool))
-                Spacer(Modifier.height(10.dp))
-                Text(str(R.string.import_playlists), fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp,
-                    lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp, lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 com.auralis.music.ui.library.PlaylistImportSyncToggle()
@@ -347,17 +341,15 @@ private fun UniversalSmartLinkCard(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(str(R.string.import_by_link), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(str(R.string.import_by_link), fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Text(str(R.string.account_ui_link_description), fontSize = 12.sp, lineHeight = 18.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = AccountButtonShape,
-            color = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-            Row(Modifier.fillMaxWidth().padding(3.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Surface(shape = AccountButtonShape, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f)) {
+            Row(Modifier.fillMaxWidth().padding(5.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("youtube" to str(R.string.youtube_music), "spotify" to str(R.string.spotify)).forEach { (id, label) ->
                     val selected = id == platform
                     Surface(Modifier.weight(1f), shape = AccountButtonShape,
-                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f) else Color.Transparent) {
+                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f) else Color.Transparent) {
                         Row(Modifier.selectable(selected = selected, enabled = !isImporting, role = Role.Tab,
                             onClick = { platform = id; validationMessage = null })
                             .heightIn(min = 48.dp).padding(horizontal = 4.dp),
@@ -365,8 +357,8 @@ private fun UniversalSmartLinkCard(
                             Icon(if (id == "youtube") Icons.Default.PlayCircle else Icons.Default.GraphicEq,
                                 null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(label, fontSize = 12.sp,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                            Text(label, fontSize = 13.5.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
                         }
                     }
                 }
@@ -406,9 +398,9 @@ private fun UniversalSmartLinkCard(
             isError = validationMessage != null,
             supportingText = validationMessage?.let { message -> { Text(message) } },
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f),
-                focusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
+                unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f),
+                focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.09f),
+                unfocusedBorderColor = Color.Transparent))
 
         AccountAction(
             label = str(if (isImporting) R.string.importing_songs else R.string.account_ui_fetch_import),

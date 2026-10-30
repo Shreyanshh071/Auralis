@@ -1,5 +1,10 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.glass.pageGlassActionColor
+import com.auralis.music.ui.glass.pageGlassSelection
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import com.auralis.music.ui.i18n.str
 
 import android.content.Intent
@@ -124,506 +129,141 @@ fun DiscordIntegrationScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = TEXT_PRIMARY
-                        )
-                    }
-                },
-                actions = { },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = THEME_BG
-                )
-            )
-        },
-        containerColor = THEME_BG
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-            contentPadding = PaddingValues(top = 0.dp, bottom = 40.dp)
-        ) {
-            // ── LARGE PAGE TITLE ──
-            item {
-                Text(
-                    text = str(R.string.discord_integration),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TEXT_PRIMARY,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                )
-            }
-
-            // ── 1. ACCOUNT SECTION ──
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = str(R.string.account),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = PEACH_ACCENT,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
-                        modifier = Modifier.fillMaxWidth()
+    SettingsPage(title = str(R.string.discord_integration), onBack = onDismiss) {
+            item(key = "discord_account", contentType = "account") {
+                SettingsGroup(null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        Box(
+                            Modifier.size(64.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = .09f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // Avatar & Status Row
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(CircleShape)
-                                        .background(PILL_BG),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (settings.isLoggedIn && settings.discordAvatarUrl.isNotBlank()) {
-                                        ArtworkCard(
-                                            url = settings.discordAvatarUrl,
-                                            modifier = Modifier.fillMaxSize(),
-                                            cornerRadius = 32.dp
-                                        )
-                                    } else {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_discord),
-                                            contentDescription = str(R.string.discord),
-                                            tint = PEACH_ACCENT,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(18.dp))
-
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = if (settings.isLoggedIn && settings.discordUsername.isNotBlank()) settings.discordUsername else str(R.string.not_logged_in),
-                                        fontWeight = FontWeight.Bold,
-                                        color = TEXT_PRIMARY,
-                                        fontSize = 21.sp
-                                    )
-                                    if (!settings.isLoggedIn) {
-                                        Text(
-                                            text = str(R.string.discord_presence_authorization_required),
-                                            color = TEXT_SECONDARY,
-                                            fontSize = 12.5.sp
-                                        )
-                                    }
-                                }
+                            if (settings.isLoggedIn && settings.discordAvatarUrl.isNotBlank()) {
+                                ArtworkCard(url = settings.discordAvatarUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 32.dp)
+                            } else {
+                                Icon(painter = painterResource(id = R.drawable.ic_discord), contentDescription = str(R.string.discord),
+                                    tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(30.dp))
                             }
-
-                            // Waiting for Discord authorization loading card
-                            if (isAuthorizing && !settings.isLoggedIn) {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = PEACH_ACCENT,
-                                            strokeWidth = 2.5.dp,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(14.dp))
-                                        Text(
-                                            text = str(R.string.waiting_for_discord_authorization),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Enable Rich Presence Inner Card
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = BUTTON_SECONDARY_BG,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(THEME_BG),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = null,
-                                                tint = PEACH_ACCENT,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(14.dp))
-                                        Text(
-                                            text = str(R.string.enable_rich_presence),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = TEXT_PRIMARY,
-                                            fontSize = 14.5.sp
-                                        )
-                                    }
-
-                                    Switch(
-                                        checked = settings.enableRichPresence,
-                                        onCheckedChange = { checked ->
-                                            scope.launch { dataStore.setEnableRichPresence(checked) }
-                                        },
-                                        colors = SwitchDefaults.colors(
-                                            checkedThumbColor = THEME_BG,
-                                            checkedTrackColor = PEACH_ACCENT,
-                                            uncheckedThumbColor = THEME_BG,
-                                            uncheckedTrackColor = PILL_BG
-                                        )
-                                    )
-                                }
-                            }
-
-                            // Main Auth Button (Solid Accent Pill / Error Red on Disconnect)
-                            Button(
-                                enabled = !isAuthorizing,
-                                onClick = {
-                                    if (settings.isLoggedIn) {
-                                        scope.launch {
-                                            dataStore.setLoggedIn(false)
-                                            dataStore.setEnableRichPresence(false)
-                                        }
-                                        isAuthorizing = false
-                                        DiscordGatewayManager.getInstance(context).disconnect()
-                                        Toast.makeText(context, str(R.string.logged_out_of_discord), Toast.LENGTH_SHORT).show()
-                                    } else {
-                                isAuthorizing = true
-                                DiscordGatewayManager.getInstance(context).beginAuthorization { success, username, detail ->
-                                    isAuthorizing = false
-                                    val message = if (success) {
-                                        str(R.string.connected_to_discord_as_x, username.ifBlank { "your account" })
-                                    } else {
-                                        detail
-                                    }
-                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                                }
-                                    }
-                                },
-                                shape = RoundedCornerShape(24.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = when {
-                                        settings.isLoggedIn -> MaterialTheme.colorScheme.error
-                                        isAuthorizing -> BUTTON_SECONDARY_BG
-                                        else -> PEACH_ACCENT
-                                    }
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                ) {
-                                    Text(
-                                        text = when {
-                                            settings.isLoggedIn -> str(R.string.disconnect_discord_account)
-                                            isAuthorizing -> str(R.string.open_discord_authorization)
-                                            else -> str(R.string.open_discord_authorization)
-                                        },
-                                        fontWeight = FontWeight.Bold,
-                                        color = when {
-                                            settings.isLoggedIn -> MaterialTheme.colorScheme.onError
-                                            isAuthorizing -> TEXT_SECONDARY.copy(alpha = 0.6f)
-                                            else -> BUTTON_DARK_TEXT
-                                        },
-                                        fontSize = 14.5.sp
-                                    )
-                                }
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = if (settings.isLoggedIn && settings.discordUsername.isNotBlank()) settings.discordUsername else str(R.string.discord),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 19.sp
+                            )
+                            if (!settings.isLoggedIn) Text(
+                                text = str(R.string.discord_presence_authorization_required),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp
+                            )
                         }
                     }
-                }
-            }
-
-            // ── 2. OPTIONS SECTION ──
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = str(R.string.options),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = PEACH_ACCENT,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    if (isAuthorizing && !settings.isLoggedIn) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = null,
-                                    tint = PEACH_ACCENT,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(
-                                        text = str(R.string.refresh),
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = TEXT_PRIMARY,
-                                        fontSize = 15.5.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = str(R.string.manually_refresh_discord_rich_presence),
-                                        color = TEXT_SECONDARY,
-                                        fontSize = 12.5.sp
-                                    )
-                                }
+                            CircularProgressIndicator(color = PEACH_ACCENT, strokeWidth = 2.5.dp, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text(str(R.string.waiting_for_discord_authorization), color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                        }
+                    }
+                    SettingsSwitchRow(Icons.Default.Refresh, str(R.string.enable_rich_presence), checked = settings.enableRichPresence, onCheckedChange = { checked ->
+                        scope.launch { dataStore.setEnableRichPresence(checked) }
+                    })
+                }
+            }
+            item(key = "discord_authorize", contentType = "action") {
+                val onAuthClick = {
+                    if (settings.isLoggedIn) {
+                        scope.launch {
+                            dataStore.setLoggedIn(false)
+                            dataStore.setEnableRichPresence(false)
+                        }
+                        isAuthorizing = false
+                        DiscordGatewayManager.getInstance(context).disconnect()
+                        Toast.makeText(context, str(R.string.logged_out_of_discord), Toast.LENGTH_SHORT).show()
+                    } else {
+                        isAuthorizing = true
+                        DiscordGatewayManager.getInstance(context).beginAuthorization { success, username, detail ->
+                            isAuthorizing = false
+                            val message = if (success) {
+                                str(R.string.connected_to_discord_as_x, username.ifBlank { "your account" })
+                            } else {
+                                detail
                             }
-
-                            Text(
-                                text = str(R.string.refresh),
-                                color = TEXT_SECONDARY.copy(alpha = 0.6f),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.5.sp,
-                                modifier = Modifier
-                                    .clickable {
-                                        DiscordGatewayManager.getInstance(context).pushPresence()
-                                        Toast.makeText(context, str(R.string.discord_rich_presence_refreshed), Toast.LENGTH_SHORT).show()
-                                    }
-                                    .padding(8.dp)
-                            )
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                         }
                     }
+                    Unit
+                }
+                val danger = MaterialTheme.colorScheme.error
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .then(
+                            if (settings.isLoggedIn) Modifier.clip(CircleShape).background(danger.copy(alpha = .16f))
+                            else Modifier.pageGlassSelection(CircleShape, true, PEACH_ACCENT, PEACH_ACCENT, !isAuthorizing)
+                        )
+                        .clickable(enabled = !isAuthorizing, onClick = onAuthClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = str(if (settings.isLoggedIn) R.string.disconnect_discord_account else R.string.open_discord_authorization),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = if (settings.isLoggedIn) danger else pageGlassActionColor(BUTTON_DARK_TEXT)
+                    )
                 }
             }
-
-            // ── 3. CONNECTION SECTION ──
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = str(R.string.connection),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = PEACH_ACCENT,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Refresh,
-                                title = str(R.string.activity_status),
-                                value = settings.activityStatus,
-                                onClick = { showStatusDialog = true }
-                            )
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Timer,
-                                title = str(R.string.update_interval),
-                                value = when (settings.updateIntervalSeconds) {
-                                    0 -> "Disabled"
-                                    60 -> "1m"
-                                    300 -> "5m"
-                                    else -> "${settings.updateIntervalSeconds}s"
-                                },
-                                onClick = { showIntervalDialog = true }
-                            )
-
-                        }
-                    }
+            item(key = "discord_options", contentType = "group") {
+                SettingsGroup(str(R.string.options)) {
+                    SettingsRow(Icons.Default.Refresh, str(R.string.refresh), str(R.string.manually_refresh_discord_rich_presence), onClick = {
+                        DiscordGatewayManager.getInstance(context).pushPresence()
+                        Toast.makeText(context, str(R.string.discord_rich_presence_refreshed), Toast.LENGTH_SHORT).show()
+                    })
                 }
             }
-
-            // ── 4. ACTIVITY CONTENT SECTION ──
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = str(R.string.activity_content),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = PEACH_ACCENT,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_name),
-                                value = settings.activityName,
-                                onClick = {
-                                    customActivityNameInput = settings.activityName
-                                    showActivityNameDialog = true
-                                }
-                            )
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_details),
-                                value = settings.activityDetails,
-                                onClick = { showActivityDetailsDialog = true }
-                            )
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.TextFields,
-                                title = str(R.string.activity_state),
-                                value = settings.activityState,
-                                onClick = { showActivityStateDialog = true }
-                            )
-
-                            // Show RPC when paused row
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 18.dp, vertical = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Pause,
-                                    contentDescription = null,
-                                    tint = PEACH_ACCENT,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = str(R.string.show_rpc_when_paused),
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = TEXT_PRIMARY,
-                                        fontSize = 15.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = str(R.string.if_enabled_rich_presence_will_remain_vis),
-                                        color = TEXT_SECONDARY,
-                                        fontSize = 12.sp,
-                                        lineHeight = 16.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Switch(
-                                    checked = settings.showRpcWhenPaused,
-                                    onCheckedChange = { checked ->
-                                        scope.launch { dataStore.setShowRpcWhenPaused(checked) }
-                                    },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Color(0xFF1B1714),
-                                        checkedTrackColor = PEACH_ACCENT,
-                                        uncheckedThumbColor = Color(0xFF1B1714),
-                                        uncheckedTrackColor = Color(0xFF382C24)
-                                    )
-                                )
-                            }
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Headphones,
-                                title = str(R.string.activity_type),
-                                value = settings.activityType,
-                                onClick = { showActivityTypeDialog = true }
-                            )
+            item(key = "discord_connection", contentType = "group") {
+                SettingsGroup(str(R.string.connection)) {
+                    DiscordSettingRowItem(Icons.Default.Refresh, str(R.string.activity_status), settings.activityStatus) { showStatusDialog = true }
+                    DiscordSettingRowItem(
+                        Icons.Default.Timer,
+                        str(R.string.update_interval),
+                        when (settings.updateIntervalSeconds) {
+                            0 -> "Disabled"
+                            60 -> "1m"
+                            300 -> "5m"
+                            else -> "${settings.updateIntervalSeconds}s"
                         }
-                    }
+                    ) { showIntervalDialog = true }
                 }
             }
-
-            // ── 5. IMAGE OPTIONS SECTION ──
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = str(R.string.image_options),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = PEACH_ACCENT,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Image,
-                                title = str(R.string.large_image),
-                                value = settings.largeImage,
-                                onClick = { showLargeImageDialog = true }
-                            )
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.TextFields,
-                                title = str(R.string.large_text),
-                                value = settings.largeText,
-                                onClick = { showLargeTextDialog = true }
-                            )
-
-                            DiscordSettingRowItem(
-                                icon = Icons.Default.Image,
-                                title = str(R.string.small_image),
-                                value = settings.smallImage,
-                                onClick = { showSmallImageDialog = true }
-                            )
-                        }
+            item(key = "discord_activity", contentType = "group") {
+                SettingsGroup(str(R.string.activity_content)) {
+                    DiscordSettingRowItem(Icons.Default.TextFields, str(R.string.activity_name), settings.activityName) {
+                        customActivityNameInput = settings.activityName
+                        showActivityNameDialog = true
                     }
+                    DiscordSettingRowItem(Icons.Default.TextFields, str(R.string.activity_details), settings.activityDetails) { showActivityDetailsDialog = true }
+                    DiscordSettingRowItem(Icons.Default.TextFields, str(R.string.activity_state), settings.activityState) { showActivityStateDialog = true }
+                    SettingsSwitchRow(Icons.Default.Pause, str(R.string.show_rpc_when_paused), str(R.string.if_enabled_rich_presence_will_remain_vis), settings.showRpcWhenPaused, { checked ->
+                        scope.launch { dataStore.setShowRpcWhenPaused(checked) }
+                    })
+                    DiscordSettingRowItem(Icons.Default.Headphones, str(R.string.activity_type), settings.activityType) { showActivityTypeDialog = true }
+                }
+            }
+            item(key = "discord_images", contentType = "group") {
+                SettingsGroup(str(R.string.image_options)) {
+                    DiscordSettingRowItem(Icons.Default.Image, str(R.string.large_image), settings.largeImage) { showLargeImageDialog = true }
+                    DiscordSettingRowItem(Icons.Default.TextFields, str(R.string.large_text), settings.largeText) { showLargeTextDialog = true }
+                    DiscordSettingRowItem(Icons.Default.Image, str(R.string.small_image), settings.smallImage) { showSmallImageDialog = true }
                 }
             }
 
@@ -632,15 +272,16 @@ fun DiscordIntegrationScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         text = str(R.string.preview),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TEXT_PRIMARY,
-                        modifier = Modifier.padding(start = 4.dp)
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
 
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = CARD_BG,
+                    com.auralis.music.ui.glass.OptionalGlassCard(
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                        border = null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -853,8 +494,8 @@ fun DiscordIntegrationScreen(
                     }
                 }
             }
-        }
     }
+
 
     // ── CONFIGURATION PICKER DIALOGS ──
 
@@ -887,9 +528,8 @@ fun DiscordIntegrationScreen(
         var customIntervalInput by remember { mutableStateOf(if (settings.updateIntervalSeconds > 0) settings.updateIntervalSeconds.toString() else "20") }
 
         if (showCustomIntervalDialog) {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisAlertDialog(
                 onDismissRequest = { showCustomIntervalDialog = false },
-                containerColor = CARD_BG,
                 title = { Text(str(R.string.custom_interval), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
                 text = {
                     Column {
@@ -973,9 +613,8 @@ fun DiscordIntegrationScreen(
     }
 
     if (showActivityNameDialog) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = { showActivityNameDialog = false },
-            containerColor = CARD_BG,
             title = { Text(str(R.string.activity_name_2), fontWeight = FontWeight.Bold, color = TEXT_PRIMARY) },
             text = {
                 OutlinedTextField(
@@ -1090,56 +729,7 @@ private fun DiscordSettingRowItem(
     title: String,
     value: String,
     onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = PEACH_ACCENT,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TEXT_PRIMARY,
-                    fontSize = 15.sp
-                )
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = PILL_BG
-                ) {
-                    Text(
-                        text = value,
-                        color = PEACH_ACCENT,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                    )
-                }
-            }
-        }
-
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = TEXT_SECONDARY.copy(alpha = 0.6f),
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
+) = SettingsNavRow(icon, title, value, onClick = onClick)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

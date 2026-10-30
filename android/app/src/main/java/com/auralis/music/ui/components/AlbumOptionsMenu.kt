@@ -548,7 +548,7 @@ fun AlbumOptionsMenu(
             playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(onCreated = { onAddToPlaylist(it); onDismiss() }))
         }
     } else if (showCreatePlaylistDialog) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false
                 newPlaylistName = ""
@@ -591,10 +591,7 @@ fun AlbumOptionsMenu(
                 }) {
                     Text(str(R.string.cancel))
                 }
-            },
-            containerColor = dynamicSurface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface
+            }
         )
     }
 }

@@ -125,7 +125,7 @@ fun TrackOptionsMenu(
         }
     }
     if (showArtistPicker) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = { showArtistPicker = false },
             title = { Text(str(R.string.choose_artist)) },
             text = {
@@ -861,7 +861,7 @@ fun TrackOptionsMenu(
             playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(listOf(track))); onDismiss()
         }
     } else if (showCreatePlaylistDialog) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false
                 newPlaylistName = ""
@@ -904,10 +904,7 @@ fun TrackOptionsMenu(
                 }) {
                     Text(str(R.string.cancel))
                 }
-            },
-            containerColor = dynamicSurface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface
+            }
         )
     }
 }

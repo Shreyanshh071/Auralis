@@ -1333,11 +1333,14 @@ class HomeViewModel(
         val playlists = mostListenedPlaylistItems.filter { (item, _) -> allItems.none { it.id == item.id } }
         val playlistMs = playlists.associate { (item, ms) -> item.id to ms }
         val times = trackListenMs
-        val ranked = PlaylistSpeedDialRanking.interleave(
-            items = trackItems,
-            itemMs = { item -> item.track?.id?.let { times[it] } ?: 0L },
-            playlists = playlists.map { it.first },
-            playlistMs = { item -> playlistMs[item.id] ?: 0L }
+        val ranked = PlaylistSpeedDialRanking.keepInReach(
+            PlaylistSpeedDialRanking.interleave(
+                items = trackItems,
+                itemMs = { item -> item.track?.id?.let { times[it] } ?: 0L },
+                playlists = playlists.map { it.first },
+                playlistMs = { item -> playlistMs[item.id] ?: 0L }
+            ),
+            playlists.map { it.first }
         )
         allItems.addAll(ranked.take((26 - allItems.size).coerceAtLeast(0)))
 

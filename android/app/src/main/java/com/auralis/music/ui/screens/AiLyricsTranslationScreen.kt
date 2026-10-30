@@ -141,10 +141,8 @@ fun AiLyricsTranslationScreen(
             var showCustomUrl by remember { mutableStateOf(settings.provider == "Custom") }
             var customUrlText by remember { mutableStateOf(settings.customBaseUrl) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
-                shape = RoundedCornerShape(24.dp),
                 text = {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
@@ -205,7 +203,6 @@ fun AiLyricsTranslationScreen(
                                 )
                             }
                         }
-
                         if (showCustomUrl || settings.provider == "Custom") {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -256,9 +253,8 @@ fun AiLyricsTranslationScreen(
             var keyInput by remember { mutableStateOf(settings.apiKey) }
             var isPasswordVisible by remember { mutableStateOf(false) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.api_key_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -333,10 +329,8 @@ fun AiLyricsTranslationScreen(
             var showCustomInput by remember { mutableStateOf(settings.model !in presets) }
             var customModelText by remember { mutableStateOf(if (settings.model !in presets) settings.model else "") }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
-                shape = RoundedCornerShape(24.dp),
                 text = {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
@@ -374,7 +368,6 @@ fun AiLyricsTranslationScreen(
                                 )
                             }
                         }
-
                         item {
                             val isCustomSel = showCustomInput || settings.model !in presets
                             Column {
@@ -404,7 +397,6 @@ fun AiLyricsTranslationScreen(
                                         fontWeight = if (isCustomSel) FontWeight.SemiBold else FontWeight.Normal
                                     )
                                 }
-
                                 if (showCustomInput) {
                                     Spacer(modifier = Modifier.height(6.dp))
                                     OutlinedTextField(
@@ -450,9 +442,8 @@ fun AiLyricsTranslationScreen(
                 "Translation" to "Translate meaning into target language",
                 "Transcription" to "Phonetic script / Romanization (Romaji/Pinyin/Hinglish)"
             )
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.translation_mode_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -490,9 +481,8 @@ fun AiLyricsTranslationScreen(
         AiTranslationDialog.PROMPT -> {
             var promptInput by remember { mutableStateOf(if (settings.systemPrompt == "Default") AiTranslationSettings.STANDARD_SYSTEM_PROMPT else settings.systemPrompt) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.system_prompt_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -540,9 +530,8 @@ fun AiLyricsTranslationScreen(
             var query by remember { mutableStateOf("") }
             val filtered = languages.filter { it.contains(query, ignoreCase = true) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.target_language_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -589,9 +578,8 @@ fun AiLyricsTranslationScreen(
         }
 
         AiTranslationDialog.PROVIDER_INFO -> {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.about_providers), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Text(
@@ -608,9 +596,8 @@ fun AiLyricsTranslationScreen(
         }
 
         AiTranslationDialog.MODE_INFO -> {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.translation_modes), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

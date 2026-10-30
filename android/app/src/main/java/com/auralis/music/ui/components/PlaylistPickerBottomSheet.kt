@@ -305,7 +305,7 @@ fun PlaylistPickerBottomSheet(
             playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(listOf(track))); onDismiss()
         }
     } else if (showCreateDialog) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = { showCreateDialog = false },
             title = { Text(str(R.string.new_playlist), fontWeight = FontWeight.Bold) },
             text = {
@@ -339,10 +339,7 @@ fun PlaylistPickerBottomSheet(
                 TextButton(onClick = { showCreateDialog = false }) {
                     Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onBackground,
-            textContentColor = MaterialTheme.colorScheme.onBackground
+            }
         )
     }
 }

@@ -121,7 +121,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
         }, onDismiss = { showSpotifyLogin = false })
         return
     }
-    if (showCatalogPicker) AlertDialog(
+    if (showCatalogPicker) com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = { showCatalogPicker = false },
         title = { Text("Search catalog") },
         text = { Column {
@@ -137,7 +137,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
             Text("Spotify supplies catalog details. Audio plays from YouTube. If Spotify is unavailable, search falls back to YouTube Music.", style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { TextButton(onClick = { showCatalogPicker = false }) { Text("Close") } }
-    )
+                           )
 
     val primary = MaterialTheme.dynamicPrimary
     val surface = MaterialTheme.dynamicSurface
@@ -382,7 +382,7 @@ private fun SwitchRow(
 
 @Composable
 private fun ValueRow(icon: ImageVector, title: String, value: String, onClick: () -> Unit) =
-    SettingsNavRow(icon, title, value, onClick)
+    SettingsNavRow(icon, title, value, onClick = onClick)
 
 @Composable
 private fun ChoiceDialog(
@@ -393,9 +393,8 @@ private fun ChoiceDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.dynamicSurface,
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
             Column {
@@ -436,9 +435,8 @@ private fun CheckListDialog(
     onDismiss: () -> Unit
 ) {
     var current by remember { mutableStateOf(checked) }
-    AlertDialog(
+    com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.dynamicSurface,
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 460.dp)) {
@@ -475,9 +473,8 @@ private fun CheckListDialog(
 private fun TopLengthDialog(current: Int, onSave: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(current.toString()) }
     val parsed = text.toIntOrNull()?.takeIf { it in 1..500 }
-    AlertDialog(
+    com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.dynamicSurface,
         title = { Text(str(R.string.my_top_list_length), fontWeight = FontWeight.Bold) },
         text = {
             OutlinedTextField(
@@ -506,9 +503,8 @@ private fun ProxyDialog(
     var user by remember { mutableStateOf(settings.proxyUsername) }
     var pass by remember { mutableStateOf(settings.proxyPassword) }
     val valid = ContentProxy.parseHostPort(url) != null && (!auth || user.isNotBlank())
-    AlertDialog(
+    com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.dynamicSurface,
         title = { Text(str(R.string.configure_proxy), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

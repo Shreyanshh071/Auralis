@@ -505,9 +505,8 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.MINI_PLAYER_SENSITIVITY -> {
             var tempSensitivity by remember { mutableStateOf(settings.miniPlayerSwipeSensitivity.toFloat()) }
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(str(R.string.mini_player_swipe_sensitivity), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column {
@@ -570,9 +569,8 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.LYRICS_TEXT_SIZE -> {
             var tempSize by remember { mutableFloatStateOf(settings.lyricsTextSize) }
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(str(R.string.lyrics_text_size), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -613,9 +611,8 @@ fun AppearanceScreen(
         }
         AppearanceDialogType.LYRICS_LINE_SPACING -> {
             var tempSpacing by remember { mutableFloatStateOf(settings.lyricsLineSpacing) }
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(str(R.string.lyrics_line_spacing), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -741,7 +738,7 @@ private fun AppearanceClickableItem(
     title: String,
     subtitle: String,
     onClick: () -> Unit
-) = SettingsNavRow(icon, title, subtitle, onClick)
+) = SettingsNavRow(icon, title, subtitle, onClick = onClick)
 
 @Composable
 private fun AppearanceOptionsDialog(
@@ -752,59 +749,23 @@ private fun AppearanceOptionsDialog(
     onDismiss: () -> Unit,
     scrollable: Boolean = false
 ) {
-    val primaryColor = MaterialTheme.dynamicPrimary
-    val surfaceColor = MaterialTheme.dynamicSurface
-    val onSurface = MaterialTheme.colorScheme.onSurface
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = surfaceColor,
-        title = {
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                color = onSurface
-            )
-        },
-        text = {
-            Column(modifier = if (scrollable) Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()) else Modifier,
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { option ->
-                    val isSelected = option.equals(selectedOption, ignoreCase = true)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) primaryColor.copy(alpha = 0.20f) else Color.Transparent)
-                            .clickable { onSelect(option) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = com.auralis.music.ui.i18n.UiLabels.of(option),
-                            color = if (isSelected) primaryColor else onSurface,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 15.sp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = primaryColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(str(R.string.cancel), color = onSurface.copy(alpha = 0.7f))
+    com.auralis.music.ui.components.AuralisOptionSheet(
+        onDismiss = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
+    ) { close ->
+        Column(
+            modifier = if (scrollable) Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()) else Modifier,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            options.forEach { option ->
+                com.auralis.music.ui.components.AuralisOptionRow(
+                    label = com.auralis.music.ui.i18n.UiLabels.of(option),
+                    selected = option.equals(selectedOption, ignoreCase = true),
+                    onClick = { close { onSelect(option) } }
+                )
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -826,21 +787,13 @@ private fun PlayerSliderStyleChooserDialog(
         listOf("Slim", "Squiggly")
     )
 
-    // Wide sheet-like dialog (16dp side margins) with large outlined tiles, each showing the
-    // real, live-animating seekbar so the preview is exactly what the player will draw.
-    androidx.compose.ui.window.Dialog(
+    // Keep the visual chooser centred, with the real animated slider in each tile.
+    com.auralis.music.ui.components.AuralisAlertDialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.dynamicSurface)
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        confirmButton = {},
+        title = { Text(str(R.string.player_slider_style), fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+        text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             styles.forEach { rowStyles ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -860,18 +813,9 @@ private fun PlayerSliderStyleChooserDialog(
                     }
                 }
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) {
-                    Text(
-                        text = str(R.string.cancel),
-                        color = MaterialTheme.dynamicPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
-                }
-            }
         }
-    }
+        }
+    )
 }
 
 @Composable

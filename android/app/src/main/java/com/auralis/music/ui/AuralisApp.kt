@@ -846,7 +846,9 @@ fun AuralisApp(
     // The pages are recorded into glassBackdrop (over the app background, so the glass never
     // samples transparency); the dock and mini player render it as glass. Scrolling a page down
     // minimizes the dock and tucks the mini player into the dock row.
-    val glassEnabled = appearanceSettings.liquidGlass
+    // Glass is built for dark pages: it turns off on light themes and returns with a dark one.
+    val glassEnabled = appearanceSettings.liquidGlass &&
+        androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < .5f
     // "Liquid glass" as the mini-player background style: glass on the mini player only.
     val miniPlayerSurface = com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(appearanceSettings)
     val miniPlayerGlass = miniPlayerSurface == com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS
@@ -1028,6 +1030,9 @@ fun AuralisApp(
                 }
             }
         ) { _ ->
+            com.auralis.music.ui.glass.StatusBarGlowBand(
+                Modifier.fillMaxWidth().windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1750,7 +1755,7 @@ fun AuralisApp(
         val songRequest = listenTogetherUiState.songRequests.firstOrNull()
         if (listenTogetherUiState.isHost && songRequest != null) {
             val ltVM = obtainListenTogetherViewModel()
-            androidx.compose.material3.AlertDialog(
+            com.auralis.music.ui.components.AuralisAlertDialog(
                 onDismissRequest = { },
                 title = {
                     Text(
@@ -1814,7 +1819,7 @@ fun AuralisApp(
                     ltVM.dismissSlowConnectionPrompt()
                 }
             } else {
-                androidx.compose.material3.AlertDialog(
+                com.auralis.music.ui.components.AuralisAlertDialog(
                     onDismissRequest = { ltVM.dismissSlowConnectionPrompt() },
                     title = { Text(str(R.string.your_internet_is_slow_right_now)) },
                     text = {
@@ -2189,6 +2194,28 @@ fun AuralisApp(
                                 com.auralis.music.ui.player.LocalClassicLyricsHazeState provides playerBackdropHazeState,
                                 com.auralis.music.ui.player.LocalPlayerSheetProgress provides { if (reducedMotion) 1f else playerSheetProgress.value }
                             ) {
+                                val selectQueueTrack: (Int, Boolean) -> Unit = { index, keepQueueOrder ->
+                                    if (guestNow()) {
+                                        when (index - playerUiState.currentIndex) {
+                                            1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.next()
+                                            -1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.previous()
+                                            else -> playOrRequest(playerUiState.queue.getOrNull(index)) {}
+                                        }
+                                    } else {
+                                        val q = playerUiState.queue
+                                        val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
+                                        val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
+                                        if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
+                                            currentPV.playTrack(
+                                                t,
+                                                if (q.isNotEmpty()) q else listOf(t),
+                                                index,
+                                                preserveQueueSource = true,
+                                                keepQueueOrder = keepQueueOrder
+                                            )
+                                        }
+                                    }
+                                }
                                 NowPlayingSheet(
                                     followHostOnly = isGuestInRoom && !guestCanSwipe,
                                     uiState = playerUiState,
@@ -2229,27 +2256,8 @@ fun AuralisApp(
                                     onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
                                     onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
                                     onSleepTimerSelect = { currentPV.setSleepTimer(it) },
-                                    onSelectQueueTrack = { index ->
-                                        if (guestNow()) {
-                                            when (index - playerUiState.currentIndex) {
-                                                1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.next()
-                                                -1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.previous()
-                                                else -> playOrRequest(playerUiState.queue.getOrNull(index)) {}
-                                            }
-                                        } else {
-                                            val q = playerUiState.queue
-                                            val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
-                                            val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
-                                            if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
-                                                currentPV.playTrack(
-                                                    t,
-                                                    if (q.isNotEmpty()) q else listOf(t),
-                                                    index,
-                                                    preserveQueueSource = true
-                                                )
-                                            }
-                                        }
-                                    },
+                                    onSelectQueueTrack = { selectQueueTrack(it, false) },
+                                    onSwipeToQueueTrack = { selectQueueTrack(it, true) },
                                     onRemoveQueueItem = { index ->
                                         if (guestNow()) {
                                             obtainListenTogetherViewModel().requestQueueEdit(index)
@@ -2623,7 +2631,7 @@ fun AuralisApp(
         }
 
         if (artistChoices.isNotEmpty()) {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisAlertDialog(
                 onDismissRequest = { artistChoices = emptyList() },
                 title = { Text(str(R.string.choose_artist)) },
                 text = {
@@ -3142,6 +3150,35 @@ private fun MiniPlayerHost(
     }
 
     key(appearanceSettings.miniPlayerDesign) {
+        val selectQueueTrack: (Int, Boolean) -> Unit = { index, keepQueueOrder ->
+            if (isGuestInRoom) {
+                // A one-song swipe is a next/previous for the room, like the buttons.
+                when (index - playerUiState.currentIndex) {
+                    1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.next()
+                    -1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.previous()
+                    else -> requestGuestPlay(playerUiState.queue.getOrNull(index))
+                }
+            } else {
+                val q = playerUiState.queue
+                val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
+                val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
+                if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
+                    playerViewModel.playTrack(
+                        t,
+                        if (q.isNotEmpty()) q else listOf(t),
+                        index,
+                        preserveQueueSource = true,
+                        keepQueueOrder = keepQueueOrder
+                    )
+                } else if (t == null) {
+                    if (index > playerUiState.currentIndex) {
+                        playerViewModel.next()
+                    } else if (index < playerUiState.currentIndex) {
+                        playerViewModel.previous()
+                    }
+                }
+            }
+        }
         MiniPlayer(
             track = currentTrack,
             connect = miniConnect,
@@ -3172,34 +3209,8 @@ private fun MiniPlayerHost(
                     playerViewModel.previous()
                 }
             },
-            onSelectQueueTrack = { index ->
-                if (isGuestInRoom) {
-                    // A one-song swipe is a next/previous for the room, like the buttons.
-                    when (index - playerUiState.currentIndex) {
-                        1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.next()
-                        -1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.previous()
-                        else -> requestGuestPlay(playerUiState.queue.getOrNull(index))
-                    }
-                } else {
-                    val q = playerUiState.queue
-                    val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
-                    val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
-                    if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
-                        playerViewModel.playTrack(
-                            t,
-                            if (q.isNotEmpty()) q else listOf(t),
-                            index,
-                            preserveQueueSource = true
-                        )
-                    } else if (t == null) {
-                        if (index > playerUiState.currentIndex) {
-                            playerViewModel.next()
-                        } else if (index < playerUiState.currentIndex) {
-                            playerViewModel.previous()
-                        }
-                    }
-                }
-            },
+            onSelectQueueTrack = { selectQueueTrack(it, false) },
+            onSwipeToQueueTrack = { selectQueueTrack(it, true) },
             onFavoriteToggle = { playerViewModel.toggleFavorite() },
             onAddToPlaylist = onAddToPlaylist,
             onArtistClick = onOpenArtist,
