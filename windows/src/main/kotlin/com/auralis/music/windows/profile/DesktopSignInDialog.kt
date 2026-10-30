@@ -746,7 +746,9 @@ internal fun BrowserYouTubePicker(
 
     LaunchedEffect(Unit) {
         if (previewProfiles == null) {
-            profiles = withContext(Dispatchers.IO) { BrowserYouTubeLogin.profiles() }
+            profiles = withContext(Dispatchers.IO) {
+                runCatching { BrowserYouTubeLogin.profiles() }.getOrElse { emptyList() }
+            }
         }
     }
 
@@ -925,13 +927,14 @@ internal fun BrowserYouTubePicker(
             profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
             profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste a YouTube cookie below."))
             else -> profiles!!.forEach { profile ->
+                val isWin = System.getProperty("os.name").orEmpty().lowercase().contains("win")
                 val isCurrentlyActive = signedIn && (workingCandidate?.label == profile.label || profile.label == label)
                 val isCandidate = !signedIn && workingCandidate?.label == profile.label
                 val isChromeOrEdge = profile.browser == "Chrome" || profile.browser == "Edge" || profile.browser == "Brave"
                 val subtitle = when {
-                    isCurrentlyActive -> "Active session connected on this PC"
+                    isCurrentlyActive -> if (isWin) "Active session connected on this PC" else "Active session connected on this device"
                     isCandidate -> "Same Google account as Auralis • Click to connect"
-                    isChromeOrEdge -> "App-Bound protected by Chrome • Click to paste cookie"
+                    isChromeOrEdge -> if (isWin) "App-Bound protected by Chrome • Click to paste cookie" else "Protected by Chrome • Click to paste cookie"
                     else -> "Click to import session"
                 }
                 val icon = when (profile.browser) {
@@ -965,7 +968,8 @@ internal fun BrowserYouTubePicker(
                         isErrorMessage = false
                     } else if (isChromeOrEdge) {
                         paste = true
-                        message = "Chrome & Edge cookies are protected by Windows App-Bound encryption. Please copy your cookie from Chrome DevTools (F12) and paste it below."
+                        message = if (isWin) "Chrome & Edge cookies are protected by Windows App-Bound encryption. Please copy your cookie from Chrome DevTools (F12) and paste it below."
+                            else "Chrome & Edge cookies are protected by the browser. Please copy your cookie from DevTools and paste it below."
                         isErrorMessage = false
                     } else {
                         import { BrowserYouTubeLogin.read(profile).also { YouTubeSessionSource.remember(profile) } to profile.label }

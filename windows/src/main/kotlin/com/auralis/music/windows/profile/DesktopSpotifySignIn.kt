@@ -49,7 +49,13 @@ internal fun DesktopSpotifySignIn(onSignedIn: () -> Unit, onDismiss: () -> Unit,
     var message by remember { mutableStateOf<String?>(null) }
     var paste by remember { mutableStateOf(false) }
     var cookie by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { if (previewProfiles == null) profiles = withContext(Dispatchers.IO) { BrowserYouTubeLogin.profiles() } }
+    LaunchedEffect(Unit) {
+        if (previewProfiles == null) {
+            profiles = withContext(Dispatchers.IO) {
+                runCatching { BrowserYouTubeLogin.profiles() }.getOrElse { emptyList() }
+            }
+        }
+    }
     fun connect(read: () -> Pair<String, String>) {
         busy = true; message = null
         scope.launch {

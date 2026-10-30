@@ -12,7 +12,7 @@ internal class ProtectedYouTubeStore(file: File) : KeyValueStore {
     private val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
     override fun getString(key: String, default: String): String? {
         val value = store.getString(key, default) ?: return null
-        return if (key == "cookie" && value.startsWith("dpapi:")) runCatching {
+        return if (isWindows && key == "cookie" && value.startsWith("dpapi:")) runCatching {
             String(Crypt32Util.cryptUnprotectData(Base64.getDecoder().decode(value.removePrefix("dpapi:"))), Charsets.UTF_8)
         }.getOrDefault(default) else value
     }
