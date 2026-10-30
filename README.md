@@ -129,7 +129,7 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Playlist import** for Spotify and YouTube Music.
 - **Discord Rich Presence** — show your song, artist, cover and progress.
 - **Listening stats** — real listening time, top songs, top artists and Wrapped.
-- **Cloud sync** — back up your likes, playlists, artists, stats and settings with your account.
+- **Cloud sync** — back up your likes, playlists, artists, stats and settings with your Auralis account.
 
 </td>
 <td valign="top" width="50%">
