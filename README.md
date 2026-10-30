@@ -125,6 +125,7 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 #### Together & Accounts
 
 - **Listen Together** — join a room with a code and hear the same song with friends.
+- **Auralis Connect** — move your music between your phone and PC, and control playback from either one.
 - **Spotify integration** — sign in to bring over your playlists and Liked Songs.
 - **Playlist import** for Spotify and YouTube Music.
 - **Discord Rich Presence** — show your song, artist, cover and progress.
