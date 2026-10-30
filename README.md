@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#whats-new-in-110) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -31,18 +31,6 @@
 [Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.2.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.2)
 
 The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
-
-## What's New in 1.1.0
-
-The biggest update so far. [Full release notes →](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.1.0)
-
-- **Stats that follow your account** — listening stats can be backed up when you're signed in and restored after a reinstall or on a new phone.
-- **Offline song cache** — cached songs can replay without another download; fully cached tracks can play without internet.
-- **Smarter search** — an album and a song sharing a name can appear as the Top result and under **Also matching**, based on relevance and available play counts.
-- **Rebuilt Listen Together** — hosts decide who can play, skip or seek; playback coordinates song starts across the room; optional Allow / Decline for guests' picks.
-- **Word-by-word lyrics** — smoother karaoke highlighting, optional Latin-script transliteration when available, and improved timing after you tap a line.
-- **Smoother screens** — reduced launch flashing, faster Home artwork, sections that unfold into place, and a new wavy volume dial.
-- **Remove from queue**, a **Discord profile** in Discord Integration, and dozens of fixes.
 
 ---
 
