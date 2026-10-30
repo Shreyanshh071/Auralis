@@ -42,6 +42,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private const val TAG = "AuralisWindows"
+private val isMacPlatform = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
 
 private data class ReadyComponents(
     val searchRepository: SearchRepositoryImpl,
@@ -63,7 +64,11 @@ private data class ReadyComponents(
 
 fun main(args: Array<String>) {
     if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
+        if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
+            System.setProperty("skiko.renderApi", "METAL")
+        }
         System.setProperty("apple.awt.enableTemplateImages", "true")
+        System.setProperty("apple.laf.useScreenMenuBar", "true")
         System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl", "true")
         System.setProperty("io.netty.handler.ssl.noOpenSsl", "true")
         System.setProperty("io.grpc.netty.shaded.io.netty.transport.noNative", "true")
@@ -112,7 +117,7 @@ fun main(args: Array<String>) {
     val launchStarted = System.currentTimeMillis()
     com.auralis.music.windows.dev.StartupSampler.startIfRequested(dataDir)
     com.auralis.music.windows.dev.ClassArchive.maintainIfPackaged()
-    Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
+    Log.i(TAG, "Starting Auralis for ${if (isMacPlatform) "macOS" else "Windows"} ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
 
     // Load icon immediately (<2ms) so window can display with icon without waiting for repositories
     val icon = runCatching {
@@ -315,6 +320,7 @@ fun main(args: Array<String>) {
         val nativeTitlebar = com.auralis.music.windows.settings.DesktopPreferences.store.bool("systemTitlebar")
         val launchMinimized = remember { "--autostart" in args && com.auralis.music.windows.settings.DesktopPreferences.store.bool("startMinimized") }
         var windowVisible by remember { mutableStateOf(true) }
+        var settingsRequestTrigger by remember { mutableStateOf(0) }
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
         val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
         var playerFullscreen by remember { mutableStateOf(false) }
@@ -426,6 +432,7 @@ fun main(args: Array<String>) {
                         }
                     }
                     finally {
+                        runCatching { if (isMac) com.auralis.music.windows.media.MacPlaybackActivity.stopPlaybackActivity() }
                         runCatching { comp.listenRecorder?.close() }
                         runCatching { comp.playback?.release() }
                         runCatching { comp.discord.close() }
@@ -444,7 +451,7 @@ fun main(args: Array<String>) {
             } else closeApp()
         }
 
-        // macOS Dock click (reopen) and Application Menu Quit handling
+        // macOS Dock click (reopen) and Application Menu (Preferences, About, Quit) handling
         DisposableEffect(Unit) {
             val desktop = if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop() else null
             val reopenListener = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_EVENT_REOPENED)) {
@@ -453,6 +460,24 @@ fun main(args: Array<String>) {
                         openWindow()
                     }
                 }.also { desktop.addAppEventListener(it) }
+            } else null
+
+            val prefHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_PREFERENCES)) {
+                java.awt.desktop.PreferencesHandler {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                        settingsRequestTrigger++
+                    }
+                }.also { desktop.setPreferencesHandler(it) }
+            } else null
+
+            val aboutHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_ABOUT)) {
+                java.awt.desktop.AboutHandler {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                        settingsRequestTrigger++
+                    }
+                }.also { desktop.setAboutHandler(it) }
             } else null
 
             val quitHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_QUIT_HANDLER)) {
@@ -465,6 +490,8 @@ fun main(args: Array<String>) {
 
             onDispose {
                 reopenListener?.let { runCatching { desktop?.removeAppEventListener(it) } }
+                prefHandler?.let { runCatching { desktop?.setPreferencesHandler(null) } }
+                aboutHandler?.let { runCatching { desktop?.setAboutHandler(null) } }
                 quitHandler?.let { runCatching { desktop?.setQuitHandler(null) } }
             }
         }
@@ -503,7 +530,7 @@ fun main(args: Array<String>) {
                         pb.queue.value.current?.id == track?.id
                     val isHidden = com.auralis.music.windows.media.isApplicationInBackground(composeWindow) || windowState.isMinimized || !windowVisible
                     tracker.started(track, actuallyPlaying, notificationSettings.value.songNotifications, isHidden)?.let {
-                        if (!isMac) com.auralis.music.windows.media.WindowsSongNotifications.show(it)
+                        com.auralis.music.windows.media.DesktopSongNotifications.show(it)
                     }
                 }
             }
@@ -700,6 +727,9 @@ fun main(args: Array<String>) {
                     account = ready.account,
                     playerFullscreen = playerFullscreen,
                     onPlayerFullscreen = ::setPlayerFullscreen,
+                    onCloseWindow = requestClose,
+                    onMinimizeWindow = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
+                    openSettingsTrigger = settingsRequestTrigger,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
                         val chrome: @Composable () -> Unit = {

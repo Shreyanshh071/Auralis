@@ -103,6 +103,9 @@ fun AuralisDesktopApp(
     titleBar: @Composable (TitleBarActions) -> Unit = {},
     playerFullscreen: Boolean = false,
     onPlayerFullscreen: (Boolean) -> Unit = {},
+    onCloseWindow: () -> Unit = {},
+    onMinimizeWindow: () -> Unit = {},
+    openSettingsTrigger: Int = 0,
 ) {
     var showPlayer by remember { mutableStateOf(false) }
     var playerCoversHome by remember { mutableStateOf(false) }
@@ -201,6 +204,7 @@ fun AuralisDesktopApp(
     var showDiscord by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openSettingsTrigger) { if (openSettingsTrigger > 0) showSettings = true }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
@@ -421,6 +425,9 @@ fun AuralisDesktopApp(
             override fun togglePlayer() { showPlayer = !showPlayer && playback?.queue?.value?.current != null }
             override fun showLyrics() = openPanel(com.auralis.music.windows.player.PlayerPanel.LYRICS)
             override fun showQueue() = openPanel(com.auralis.music.windows.player.PlayerPanel.QUEUE)
+            override fun openSettings() { showSettings = true }
+            override fun closeWindow() { onCloseWindow() }
+            override fun minimizeWindow() { onMinimizeWindow() }
             private fun openPanel(panel: com.auralis.music.windows.player.PlayerPanel) {
                 if (playback?.queue?.value?.current == null) return
                 playerPanel = panel

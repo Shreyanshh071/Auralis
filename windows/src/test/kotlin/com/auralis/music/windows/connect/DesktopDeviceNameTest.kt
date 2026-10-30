@@ -8,7 +8,8 @@ class DesktopDeviceNameTest {
         assertEquals("Dell XPS 13", desktopDeviceName("Work-PC", "Dell", null, "XPS 13"))
     }
     @Test fun missingHardwareInfoStillHasAnHonestDeviceName() {
+        val expectedFallback = if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) "Mac" else "Windows computer"
         assertEquals("My-PC", desktopDeviceName("My-PC", null, "System Family", "System Product Name"))
-        assertEquals("Windows computer", desktopDeviceName(null, null, null, null))
+        assertEquals(expectedFallback, desktopDeviceName(null, null, null, null))
     }
 }

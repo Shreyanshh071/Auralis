@@ -82,8 +82,12 @@ internal fun DesktopSpotifySignIn(onSignedIn: () -> Unit, onDismiss: () -> Unit,
                 Text(desktopText("Sign in to Spotify"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, desktopText("Close")) }
             }
-            Text(desktopText("Choose the browser profile where you're signed in to open.spotify.com. Only its Spotify session is used, and it's saved securely on this PC."),
-                color = Color.White.copy(alpha = .72f))
+            val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+            val spotifySecureText = if (isMac)
+                "Choose the browser profile where you're signed in to open.spotify.com. Only its Spotify session is used, and it's saved securely on this Mac."
+            else
+                "Choose the browser profile where you're signed in to open.spotify.com. Only its Spotify session is used, and it's saved securely on this PC."
+            Text(desktopText(spotifySecureText), color = Color.White.copy(alpha = .72f))
             when {
                 profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste your sp_dc cookie below."))

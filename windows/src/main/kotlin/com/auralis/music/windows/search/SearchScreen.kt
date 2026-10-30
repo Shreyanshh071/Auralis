@@ -75,6 +75,8 @@ import com.auralis.music.ui.search.SearchResultsList
 import com.auralis.music.ui.search.SearchUiPlatform
 import com.auralis.music.ui.search.SearchUiStrings
 
+private val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+
 /** Width of the results column: a phone-like list stays readable in a wide window. */
 private val ContentMaxWidth = 860.dp
 
@@ -289,11 +291,11 @@ fun SearchScreen(
     isPlaying: Boolean,
     onPlay: ((com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit)?,
     onUnavailable: (String) -> Unit,
-    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable("Artist pages on Windows come next") },
-    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable("Album pages on Windows come next") },
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable(if (isMac) "Artist pages on macOS come next" else "Artist pages on Windows come next") },
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable(if (isMac) "Album pages on macOS come next" else "Album pages on Windows come next") },
     onPlayNext: (com.auralis.music.domain.model.Track) -> Unit = {},
     onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit = {},
-    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit = { onUnavailable("Song options on Windows come next") },
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit = { onUnavailable(if (isMac) "Song options on macOS come next" else "Song options on Windows come next") },
     /** Changes each time Ctrl+F asks for the search field. */
     focusRequests: Int = 0,
     onTypingChange: (Boolean) -> Unit = {}

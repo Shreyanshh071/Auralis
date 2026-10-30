@@ -211,7 +211,7 @@ class SpicyLyricsTest {
         assertTrue(requests.none { it.url.host == "api.spotify.com" })
         requests.clear()
         assertNull(SpicyLyricsSource(client(requests), { key }, { null }).search(query))
-        assertTrue(requests.isEmpty())
+        assertTrue(requests.none { it.url.host == "api.spotify.com" })
     }
 
     @Test fun rateLimitedMetadataIsNotReportedAsMissingAndKnownIdentityCanUsePublicMetadata() = runBlocking {

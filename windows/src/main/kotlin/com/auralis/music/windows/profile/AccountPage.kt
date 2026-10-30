@@ -95,8 +95,13 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                     }
                 }
             }
+            val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+            val accountMsg = if (isMac)
+                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this Mac stay."
+            else
+                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay."
             Text(
-                desktopText("Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay."),
+                desktopText(accountMsg),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

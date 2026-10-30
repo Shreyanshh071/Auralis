@@ -52,7 +52,7 @@ internal class DesktopGlobalHotkeys(private val playback: DesktopPlaybackControl
                         val combo = prefs.text("hotkey.${action.id}", action.default)
                         if (combo.isNotBlank()) runCatching {
                             val (mods, key) = parseHotkey(combo)
-                            check(user.RegisterHotKey(null, index + 1, mods, key)) { "Shortcut is already used by Windows or another app." }
+                            check(user.RegisterHotKey(null, index + 1, mods, key)) { "Shortcut is already used by the system or another app." }
                             registered += index + 1
                         }.onFailure { errors[action.id] = it.message ?: "Couldn't register shortcut." }
                     }

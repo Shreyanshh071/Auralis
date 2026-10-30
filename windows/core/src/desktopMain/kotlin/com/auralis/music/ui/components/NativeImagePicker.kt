@@ -38,13 +38,26 @@ object WindowsFilePicker {
         owner: Pointer? = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
             ?.let { runCatching { Native.getWindowPointer(it) }.getOrNull() }): File? = withContext(dispatcher) {
         if (!System.getProperty("os.name").startsWith("Windows", true)) {
-            val dialog = java.awt.FileDialog(null as java.awt.Frame?, title, if (save) java.awt.FileDialog.SAVE else java.awt.FileDialog.LOAD)
-            if (initialDirectory?.isDirectory == true) dialog.directory = initialDirectory.absolutePath
-            if (defaultName != null) dialog.file = defaultName
-            dialog.isVisible = true
-            val file = dialog.file
-            val dir = dialog.directory
-            return@withContext if (file != null && dir != null) File(dir, file) else null
+            val isMac = System.getProperty("os.name").lowercase().contains("mac")
+            val prevFolderProp = if (isMac && folder) {
+                val prev = System.getProperty("apple.awt.fileDialogForDirectories")
+                System.setProperty("apple.awt.fileDialogForDirectories", "true")
+                prev
+            } else null
+            try {
+                val dialog = java.awt.FileDialog(null as java.awt.Frame?, title, if (save) java.awt.FileDialog.SAVE else java.awt.FileDialog.LOAD)
+                if (initialDirectory?.isDirectory == true) dialog.directory = initialDirectory.absolutePath
+                if (defaultName != null) dialog.file = defaultName
+                dialog.isVisible = true
+                val file = dialog.file
+                val dir = dialog.directory
+                return@withContext if (file != null && dir != null) File(dir, file) else if (folder && dir != null) File(dir) else null
+            } finally {
+                if (isMac && folder) {
+                    if (prevFolderProp != null) System.setProperty("apple.awt.fileDialogForDirectories", prevFolderProp)
+                    else System.clearProperty("apple.awt.fileDialogForDirectories")
+                }
+            }
         }
         val initialized = Ole32.INSTANCE.CoInitializeEx(null, 2).toInt()
         check(initialized >= 0) { "Cannot initialize the Windows photo picker" }

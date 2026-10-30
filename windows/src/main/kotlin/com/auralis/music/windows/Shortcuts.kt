@@ -4,10 +4,12 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.type
+import java.awt.event.KeyEvent.VK_COMMA
 import java.awt.event.KeyEvent.VK_DOWN
 import java.awt.event.KeyEvent.VK_ESCAPE
 import java.awt.event.KeyEvent.VK_F
@@ -19,7 +21,9 @@ import java.awt.event.KeyEvent.VK_P
 import java.awt.event.KeyEvent.VK_Q
 import java.awt.event.KeyEvent.VK_RIGHT
 import java.awt.event.KeyEvent.VK_SPACE
+import java.awt.event.KeyEvent.VK_U
 import java.awt.event.KeyEvent.VK_UP
+import java.awt.event.KeyEvent.VK_W
 
 /** What the keyboard shortcuts can do. */
 interface ShortcutActions {
@@ -35,46 +39,74 @@ interface ShortcutActions {
     fun showQueue()
     /** Closes the player, otherwise goes back through local pages and navigation history. */
     fun closePlayer(): Boolean
+    fun openSettings() {}
+    fun closeWindow() {}
+    fun minimizeWindow() {}
 }
 
 /**
- * The Windows keyboard shortcuts, checked before the focused control sees the key. Keys that
- * also edit text (Space, arrows, Ctrl+arrows, K, M) only act when no text field has focus, so
+ * Desktop keyboard shortcuts, checked before the focused control sees the key. Keys that
+ * also edit text (Space, arrows, Ctrl/Cmd+arrows, K, M) only act when no text field has focus, so
  * typing and moving through a search is never interrupted.
+ *
+ * Modifiers adapt to the OS: Command (⌘) on macOS, Control (Ctrl) on Windows.
  *
  * | Keys | Action |
  * |---|---|
  * | Space / K | Play / pause |
- * | Ctrl+→ / Ctrl+← | Next / previous song |
+ * | Ctrl+→ / ⌘→ / Ctrl+← / ⌘← | Next / previous song |
  * | → / ← | Forward / back 5 s (Shift: 15 s) |
- * | Ctrl+↑ / Ctrl+↓ | Volume up / down |
+ * | Ctrl+↑ / ⌘↑ / Ctrl+↓ / ⌘↓ | Volume up / down |
  * | M | Mute / unmute |
- * | Ctrl+F or Ctrl+K | Search |
- * | Ctrl+P | Open / close the player |
- * | Ctrl+L / Ctrl+Q | Player with lyrics / queue |
+ * | Ctrl+F / ⌘F or Ctrl+K / ⌘K | Search |
+ * | ⌘, | Settings (macOS) |
+ * | ⌘W / ⌘M | Close window to tray / Minimize (macOS) |
+ * | Ctrl+P / ⌘P | Open / close the player |
+ * | Ctrl+L / ⌘L | Player with lyrics |
+ * | Ctrl+Q / ⌘U | Player with queue |
  * | Esc | Close the player, otherwise return to the previous page |
  */
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    val ctrl = event.isCtrlPressed
+    val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+    val cmdOrCtrl = if (isMac) event.isMetaPressed || event.isCtrlPressed else event.isCtrlPressed
     // Compare key codes, not keys: an arrow on the number pad (Num Lock off) is a different Key
     // from the main arrow key but the same key code, and both should work.
     val code = runCatching { event.key.nativeKeyCode }.getOrDefault(0)
+
     // Work everywhere, even in the search field.
-    if (ctrl) {
+    if (cmdOrCtrl) {
         when (code) {
             VK_UP -> { actions.volumeBy(0.05f); return true }
             VK_DOWN -> { actions.volumeBy(-0.05f); return true }
             VK_F, VK_K -> { actions.focusSearch(); return true }
+            VK_COMMA -> { actions.openSettings(); return true }
             VK_P -> { actions.togglePlayer(); return true }
             VK_L -> { actions.showLyrics(); return true }
-            VK_Q -> { actions.showQueue(); return true }
             else -> {}
         }
     }
+
+    // macOS window management shortcuts: ⌘W (close window) and ⌘M (minimize)
+    if (isMac && event.isMetaPressed) {
+        when (code) {
+            VK_W -> { actions.closeWindow(); return true }
+            VK_M -> { actions.minimizeWindow(); return true }
+            VK_U -> { actions.showQueue(); return true }
+            else -> {}
+        }
+    }
+
+    // Windows queue shortcut (Ctrl+Q), or Ctrl+Q on Mac
+    if ((!isMac && event.isCtrlPressed && code == VK_Q) || (isMac && event.isCtrlPressed && !event.isMetaPressed && code == VK_Q)) {
+        actions.showQueue()
+        return true
+    }
+
     if ((code == VK_ESCAPE || event.key == Key.Escape) && actions.closePlayer()) return true
     if (typing) return false
-    if (ctrl) {
+
+    if (cmdOrCtrl) {
         when (code) {
             VK_RIGHT -> actions.next()
             VK_LEFT -> actions.previous()

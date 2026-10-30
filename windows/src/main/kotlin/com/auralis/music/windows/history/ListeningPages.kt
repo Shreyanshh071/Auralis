@@ -204,7 +204,12 @@ fun ListeningStatsPage(
                 }
             }
             if (selected.isEmpty()) item {
-                Text(desktopText("Play some music to build your stats. Only time you actually listen on this PC is counted."),
+                val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+                val emptyStatsText = if (isMac)
+                    "Play some music to build your stats. Only time you actually listen on this Mac is counted."
+                else
+                    "Play some music to build your stats. Only time you actually listen on this PC is counted."
+                Text(desktopText(emptyStatsText),
                     color = colours.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
             } else {
                 item { SectionTitle("Your Highlights", Icons.Rounded.AutoAwesome) }
@@ -270,7 +275,14 @@ fun ListeningStatsPage(
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
     if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text(desktopText("Clear listening stats?")) },
-        text = { Text(desktopText("This removes measured listening stats on this PC. Your library and listening history are kept.")) },
+        text = {
+            val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+            val clearStatsText = if (isMac)
+                "This removes measured listening stats on this Mac. Your library and listening history are kept."
+            else
+                "This removes measured listening stats on this PC. Your library and listening history are kept."
+            Text(desktopText(clearStatsText))
+        },
         confirmButton = { TextButton(onClick = { stats.clear(); confirmClear = false }) { Text(desktopText("Clear")) } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(desktopText("Cancel")) } })
 }

@@ -78,8 +78,10 @@ object WindowsAudioOutputs {
 
     /** The blank id is VLC's real follow-Windows-default route, labelled with its endpoint. */
     fun menu(devices: List<WindowsAudioOutput>, vlcDevices: List<Pair<String, String>>): List<Pair<String, String>> {
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        val defaultPrefix = if (isMac) "System default" else "Windows default"
         val default = devices.firstOrNull { it.isDefault }
-        return listOf("" to (default?.let { "Windows default — ${it.name}" } ?: "Windows default")) +
+        return listOf("" to (default?.let { "$defaultPrefix — ${it.name}" } ?: defaultPrefix)) +
             (if (devices.isNotEmpty()) devices.filterNot { it.isDefault }.map { it.id to it.name }
                 else vlcDevices.filter { it.first.isNotBlank() }).distinctBy { it.first }
     }

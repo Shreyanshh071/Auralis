@@ -48,8 +48,10 @@ import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.windows.discord.*
 import kotlinx.coroutines.*
 
+private val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+
 internal enum class SettingsTab(val englishLabel: String, private val englishHint: String, val icon: ImageVector, val keywords: String) {
-    GENERAL("General", "Language, activity and Windows integration", Icons.Outlined.Tune, "tray song notifications startup login title bar"),
+    GENERAL("General", if (isMac) "Language, activity and macOS integration" else "Language, activity and Windows integration", Icons.Outlined.Tune, "tray song notifications startup login title bar"),
     APPEARANCE("Appearance", "Theme, typography and player presentation", Icons.Outlined.Palette, "zoom font accent colour color artwork animation covers roundness"),
     PLAYBACK("Playback", "Audio, queue behaviour and lyrics", Icons.Outlined.Headphones, "quality normalize volume crossfade speed autoplay shuffle video"),
     HOTKEYS("Global hotkeys", "Control Auralis while another app is in front", Icons.Outlined.Keyboard, "keyboard shortcuts bindings"),
@@ -341,12 +343,13 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     val system by DesktopSystemPreferences.store.settings.collectAsState()
     val prefs = DesktopPreferences.store
     val revision by prefs.changes.collectAsState()
-    var autostart by remember { mutableStateOf(runCatching { WindowsAutostart.enabled() }.getOrDefault(false)) }
+    val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
+    var autostart by remember { mutableStateOf(if (!isMac) runCatching { WindowsAutostart.enabled() }.getOrDefault(false) else false) }
     var error by remember { mutableStateOf("") }
     var testingNotification by remember { mutableStateOf(false) }
     val focused = LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(focused) {
-        if (focused) runCatching { WindowsAutostart.enabled() }.onSuccess { autostart = it }
+        if (focused && !isMac) runCatching { WindowsAutostart.enabled() }.onSuccess { autostart = it }
     }
     val languages = remember { listOf("" to "System default") + DesktopAppLanguage.available().map {
         it to java.util.Locale.forLanguageTag(it).getDisplayName(java.util.Locale.forLanguageTag(it))
@@ -358,7 +361,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         }
     }
     SettingsGroup("Activity") {
-        SettingToggle("Play history", "Record songs played on this PC", !privacy.pauseListenHistory) { scope.launch { stores.privacy.setPauseListenHistory(!it) } }
+        SettingToggle("Play history", if (isMac) "Record songs played on this Mac" else "Record songs played on this PC", !privacy.pauseListenHistory) { scope.launch { stores.privacy.setPauseListenHistory(!it) } }
     }
     SettingsGroup("System") {
         SettingToggle("Close to system tray", "Keep playing when the window is closed", system.closeToTray) { DesktopSystemPreferences.store.update { s -> s.copy(closeToTray = it) } }
@@ -367,19 +370,21 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             testingNotification = true
             scope.launch {
                 try {
-                    com.auralis.music.windows.media.WindowsSongNotifications.test()
+                    com.auralis.music.windows.media.DesktopSongNotifications.test()
                     error = ""
                 } catch (failure: Exception) {
                     error = failure.message.orEmpty()
                 } finally { testingNotification = false }
             }
         }) { Text(desktopText("Test notification")) }
-        SettingToggle("Start at login", "Launch Auralis with your Windows account", autostart) { value ->
-            runCatching { WindowsAutostart.set(value); WindowsAutostart.enabled() }
-                .onSuccess { autostart = it; error = "" }.onFailure { error = it.message.orEmpty() }
+        if (!isMac) {
+            SettingToggle("Start at login", "Launch Auralis with your Windows account", autostart) { value ->
+                runCatching { WindowsAutostart.set(value); WindowsAutostart.enabled() }
+                    .onSuccess { autostart = it; error = "" }.onFailure { error = it.message.orEmpty() }
+            }
+            if (autostart) SettingToggle("Start minimized", "Only for automatic startup; opening Auralis normally shows its window", prefs.bool("startMinimized")) { prefs.set("startMinimized", it) }
+            SettingToggle("System title bar", "Use Windows window decorations", prefs.bool("systemTitlebar")) { prefs.set("systemTitlebar", it) }
         }
-        if (autostart) SettingToggle("Start minimized", "Only for automatic startup; opening Auralis normally shows its window", prefs.bool("startMinimized")) { prefs.set("startMinimized", it) }
-        SettingToggle("System title bar", "Use Windows window decorations", prefs.bool("systemTitlebar")) { prefs.set("systemTitlebar", it) }
         if (error.isNotEmpty()) Text(desktopText(error), color = MaterialTheme.colorScheme.error)
     }
 }
@@ -401,8 +406,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
                 listOf("Default") + java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames.toList()
             }
         }
+        val fontSubtitle = if (isMac) "Installed macOS fonts" else "Installed Windows fonts"
         for ((key, label) in listOf("bodyFont" to "Body font", "headingFont" to "Heading font")) {
-            SettingSearchableChoice(label, "Installed Windows fonts", prefs.text(key,"Default"), prefs.text(key,"Default"), fonts.map { it to it }) { prefs.set(key,it) }
+            SettingSearchableChoice(label, fontSubtitle, prefs.text(key,"Default"), prefs.text(key,"Default"), fonts.map { it to it }) { prefs.set(key,it) }
         }
         var message by remember {mutableStateOf("")}
         SettingAction("Load font file", message.ifBlank { "Add a TTF or OTF font to the font lists" }, "Choose file") {pickerScope.launch {runCatching {
@@ -432,7 +438,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     SettingsGroup("Queue") {
         SettingToggle("Prevent duplicates", "Do not add the same song twice to the upcoming queue", prefs.bool("preventDuplicates",true)) { prefs.set("preventDuplicates",it) }
-
+        SettingToggle("Sticky shuffle", "Keep shuffling when you start a different album or playlist", prefs.bool("stickyShuffle")) { prefs.set("stickyShuffle", it) }
         SettingToggle("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track", prefs.bool("shuffleWholeQueue")) { prefs.set("shuffleWholeQueue",it) }
     }
     SettingsGroup("Video") {
@@ -480,7 +486,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             }.onFailure { error=it.message.orEmpty() } }) { Text(desktopText("Apply")) }
         }
     }
-    Text(desktopText("Examples: Ctrl+Alt+P, Ctrl+Shift+F9. Clear a field and Apply to remove a binding."), style=MaterialTheme.typography.bodySmall)
+    val hotkeyExamples = if (isMac) "Examples: ⌥+⌘+P, ⇧+⌘+F9. Clear a field and Apply to remove a binding."
+        else "Examples: Ctrl+Alt+P, Ctrl+Shift+F9. Clear a field and Apply to remove a binding."
+    Text(desktopText(hotkeyExamples), style=MaterialTheme.typography.bodySmall)
     TextButton({ hotkeyActions.forEach { prefs.set("hotkey.${it.id}",it.default) } }) { Text(desktopText("Reset bindings")) }
 }
 
@@ -490,7 +498,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     fun action(block: () -> String) { busy=true; scope.launch { message=withContext(Dispatchers.IO) { runCatching(block).getOrElse { it.message ?: "Connection failed" } }; busy=false } }
     fun set(key:String,value:Any) = ScrobblePreferences.set(key,value)
     SettingsGroup("Last.fm") {
-        Text(desktopText("Use your Last.fm API application key and shared secret. Your credentials are protected by your Windows account."), style=MaterialTheme.typography.bodySmall)
+        val lastfmCredentialsNote = if (isMac) "Use your Last.fm API application key and shared secret. Your credentials are protected on your Mac."
+            else "Use your Last.fm API application key and shared secret. Your credentials are protected by your Windows account."
+        Text(desktopText(lastfmCredentialsNote), style=MaterialTheme.typography.bodySmall)
         SecretField("API key", "apiKey"); SecretField("Shared secret", "apiSecret")
         if (ScrobblePreferences.text("session").isBlank()) {
             Button({ action { val url=ScrobbleApi.beginLastfm(); java.awt.Desktop.getDesktop().browse(java.net.URI(url)); "Approve Auralis in your browser, then finish connecting." } }, enabled=!busy) { Text(desktopText("Connect in browser")) }
@@ -612,7 +622,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     val scope=rememberCoroutineScope();var message by remember {mutableStateOf("")};var url by remember {mutableStateOf<String?>(null)};var busy by remember {mutableStateOf(false)}
     val prefs=DesktopPreferences.store;val revision by prefs.changes.collectAsState()
     Text("Auralis · ${DesktopReleaseCheck.version}",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
-    Text(desktopText("Auralis for Windows · Compose Multiplatform · VLC"))
+    Text(desktopText(if (isMac) "Auralis for macOS · Compose Multiplatform · VLC" else "Auralis for Windows · Compose Multiplatform · VLC"))
     SettingsGroup("Credits") {
         TextButton({ java.awt.Desktop.getDesktop().browse(java.net.URI("https://github.com/Spikerko/spicy-lyrics")) }) {
             Text(desktopText("Animation inspired by Spicy Lyrics"))

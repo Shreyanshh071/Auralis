@@ -7,6 +7,8 @@ import kotlin.test.*
 
 class WindowsStartupRegistrationTest {
     @Test fun realWindowsRegistrationRoundTripsAndRepairsDisabledOrStaleEntries() {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        if (!isWindows) return
         // Isolated keys never participate in Windows login or modify the user's Auralis entry.
         val root = "Software\\Auralis\\IntegrationTests\\${UUID.randomUUID()}"
         val run = "$root\\Run"

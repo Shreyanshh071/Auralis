@@ -259,8 +259,9 @@ internal fun DesktopSignInDialog(
                                 }
                                 Column(Modifier.weight(1f)) {
                                     Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                                     Text(
-                                        text = ytLabel.ifBlank { "Active session linked to this PC" },
+                                        text = ytLabel.ifBlank { if (isMac) "Active session linked to this Mac" else "Active session linked to this PC" },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.White.copy(alpha = 0.7f)
                                     )
@@ -816,9 +817,10 @@ internal fun BrowserYouTubePicker(
                         Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     }
                     Column(Modifier.weight(1f)) {
+                        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                         Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, color = Color.White)
                         Text(
-                            text = label.ifBlank { "Active session linked to this PC" },
+                            text = label.ifBlank { if (isMac) "Active session linked to this Mac" else "Active session linked to this PC" },
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.7f)
                         )
@@ -939,11 +941,12 @@ internal fun BrowserYouTubePicker(
             profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste a YouTube cookie below."))
             else -> profiles!!.forEach { profile ->
                 val isWin = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                 val isCurrentlyActive = signedIn && (workingCandidate?.label == profile.label || profile.label == label)
                 val isCandidate = !signedIn && workingCandidate?.label == profile.label
                 val isChromeOrEdge = profile.browser == "Chrome" || profile.browser == "Edge" || profile.browser == "Brave"
                 val subtitle = when {
-                    isCurrentlyActive -> if (isWin) "Active session connected on this PC" else "Active session connected on this device"
+                    isCurrentlyActive -> if (isMac) "Active session connected on this Mac" else if (isWin) "Active session connected on this PC" else "Active session connected on this device"
                     isCandidate -> "Same Google account as Auralis • Click to connect"
                     isChromeOrEdge -> if (isWin) "App-Bound protected by Chrome • Click to paste cookie" else "Protected by Chrome • Click to paste cookie"
                     else -> "Click to import session"

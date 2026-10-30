@@ -55,6 +55,13 @@ fun bindMediaControls(windowHandle: Long, playback: DesktopPlaybackController, s
     }
     scope.launch {
         playback.state.collect { state ->
+            if (isMac) {
+                if (state == VlcAudioPlayer.State.PLAYING) {
+                    MacPlaybackActivity.startPlaybackActivity()
+                } else {
+                    MacPlaybackActivity.stopPlaybackActivity()
+                }
+            }
             controls.setStatus(
                 when (state) {
                     VlcAudioPlayer.State.PLAYING -> DesktopMediaControls.Status.PLAYING

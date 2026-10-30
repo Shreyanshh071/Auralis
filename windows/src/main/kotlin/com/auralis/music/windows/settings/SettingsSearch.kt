@@ -42,11 +42,13 @@ private class GroupEntries(val tab: SettingsTab, val group: String, val into: Mu
     fun other(title: String, description: String = "", keywords: String = "") { into += SettingEntry(tab, group, title, description, keywords, onRow = false) }
 }
 
+private val isMacPlatform = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+
 /** Every setting in the Settings window, in the order the tabs show them. */
 internal val settingEntries: List<SettingEntry> = buildList {
     tab(SettingsTab.GENERAL) {
         group("Language") { row("App language", "Applies to translated app text", "translation locale") }
-        group("Activity") { row("Play history", "Record songs played on this PC", "listening recents stats") }
+        group("Activity") { row("Play history", if (isMacPlatform) "Record songs played on this Mac" else "Record songs played on this PC", "listening recents stats") }
         group("System") {
             row("Close to system tray", "Keep playing when the window is closed", "minimise background")
             row("Song notifications", "Show the next song while Auralis is in the background", "toast popup")
@@ -66,8 +68,9 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Tabbed player", "Switch between lyrics and queue; turn off to show both")
         }
         group("Typography") {
-            row("Body font", "Installed Windows fonts", "typeface text")
-            row("Heading font", "Installed Windows fonts", "typeface title")
+            val fontSubtitle = if (isMacPlatform) "Installed macOS fonts" else "Installed Windows fonts"
+            row("Body font", fontSubtitle, "typeface text")
+            row("Heading font", fontSubtitle, "typeface title")
             other("Load font file", "Use a TTF or OTF font", "typeface")
         }
         group("Player & seek bar") {

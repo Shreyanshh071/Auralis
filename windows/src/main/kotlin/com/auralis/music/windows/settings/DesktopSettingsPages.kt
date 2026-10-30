@@ -36,7 +36,8 @@ fun DesktopAudioSettings(onDismiss: () -> Unit) {
         item { HorizontalDivider() }
         item { BlockedArtistsSection() }
         item { HorizontalDivider() }
-        item { Text(desktopText("Not implemented on Windows yet"), style = MaterialTheme.typography.titleMedium) }
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        item { Text(desktopText(if (isMac) "Not implemented on macOS yet" else "Not implemented on Windows yet"), style = MaterialTheme.typography.titleMedium) }
         item { Text(desktopText("Skip silence, Android spatial audio, Bluetooth reconnection, system-mute detection and keeping the screen awake are not connected.")) }
     }
 }
@@ -100,7 +101,10 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
         item { Toggle("Automatically scroll lyrics", settings.autoScrollLyrics) { update { copy(autoScrollLyrics = it) } } }
         item { Choice("Open on launch", settings.defaultOpenTab, listOf("Home", "Search", "Library")) { update { copy(defaultOpenTab = it) } } }
         item { Choice("Display density", settings.displayDensity, listOf("Compact (85%)", "Native (100%)", "Large (115%)")) { update { copy(displayDensity = it) } } }
-        item { Text(desktopText("Phone player/mini-player designs, alternative lyric renderers and glass refraction are not ported yet. The desktop player uses MetroLyrics. Wallpaper-based Material You colours are not available on Windows."), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        val wallpaperNote = if (isMac) "Phone player/mini-player designs, alternative lyric renderers and glass refraction are not ported yet. The desktop player uses MetroLyrics. Wallpaper-based Material You colours are not available on macOS."
+            else "Phone player/mini-player designs, alternative lyric renderers and glass refraction are not ported yet. The desktop player uses MetroLyrics. Wallpaper-based Material You colours are not available on Windows."
+        item { Text(desktopText(wallpaperNote), color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

@@ -85,4 +85,26 @@ class MacDesktopLifecycleTest {
             assertEquals(before, system.trayIcons.toSet(), "Closing tray must remove the TrayIcon")
         }
     }
+
+    @Test
+    fun testMacPlaybackActivityAcquiresAndReleases() {
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        if (!isMac) return
+
+        assertFalse(MacPlaybackActivity.isAcquired)
+        MacPlaybackActivity.startPlaybackActivity()
+        assertTrue(MacPlaybackActivity.isAcquired, "Playback activity assertion should be held during playback")
+
+        MacPlaybackActivity.stopPlaybackActivity()
+        assertFalse(MacPlaybackActivity.isAcquired, "Playback activity assertion should be released when stopped")
+    }
+
+    @Test
+    fun testMacSongNotificationsSend() {
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        if (!isMac) return
+
+        // Verify notification sends cleanly via osascript without exception
+        MacSongNotifications.send("Test Track", "Test Artist")
+    }
 }
