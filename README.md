@@ -125,7 +125,7 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 #### Lyrics
 
 - **Syllable-synced lyrics** — every word and syllable lights up as it's sung, with fluid animations that go well beyond standard animated lyrics. Sync and motion at this level are rarely found in a music player.
-- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com) and [Genius](https://genius.com).
+- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com), [Genius](https://genius.com) and [YouTube Music](https://music.youtube.com).
 
 #### Experience
 
@@ -282,15 +282,42 @@ Fresh installs start with a starter set of songs from curated artists (*Tame Imp
 
 ## 🙏 Credits
 
-Auralis is built on the work of these projects and services:
+Auralis is built on the work of many people. Thank you to all of them.
+
+**Lyrics**
 
 - **[Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics)** by Spikerko — syllable-synced lyrics, and the inspiration for the Spicy lyric style in Auralis.
-- **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**, **[Unison](https://unison.boidu.dev)** and **[LyricsPlus](https://github.com/ibratabian17/LyricsPlus)** — word-synced lyrics.
+- **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**, **[Unison](https://unison.boidu.dev)**, **[LyricsPlus](https://github.com/ibratabian17/LyricsPlus)** and **[Paxsenix](https://lyrics.paxsenix.org)** — word-synced lyrics.
 - **[AMLL TTML Database](https://github.com/amll-dev/amll-ttml-db)** — community-made word-synced lyrics.
 - **[LRCLIB](https://lrclib.net)** — open, community-synced lyrics.
-- **[Paxsenix](https://lyrics.paxsenix.org)**, **[Musixmatch](https://www.musixmatch.com)**, **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)** and **[Genius](https://genius.com)** — lyrics.
+- **[Musixmatch](https://www.musixmatch.com)**, **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)**, **[Genius](https://genius.com)** and **[YouTube Music](https://music.youtube.com)** — lyrics.
 
-All lyrics and trademarks belong to their respective owners.
+**Music & playback**
+
+- **[NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor)** — YouTube Music streams and metadata.
+- **[Zemer Cipher](https://github.com/ZemerTeam/zemer-cipher)** by alltechdev and the Zemer team — age-restricted downloads, along with the upstream work credited there, including yt-dlp, NewPipe and BgUtils.
+- **[Media3 / ExoPlayer](https://github.com/androidx/media)** — audio and animated cover playback.
+- **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
+- **shazam_identifier** by Shashwat and **Shazam** — music recognition.
+
+**Design & interface**
+
+- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation and motion references.
+- **[Android Liquid Glass (Backdrop)](https://github.com/Kyant0/AndroidLiquidGlass)** by Kyant0 — the glass rendering library.
+- **[Haze](https://github.com/chrisbanes/haze)** by Chris Banes — blur effects.
+- **[Beautiful Lyrics](https://github.com/surfbryce/beautiful-lyrics)** by surfbryce, and **Beautiful Lyrics Reborn** and **Folia** — the Folia-inspired player backgrounds.
+- **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
+- **[MaterialKolor](https://github.com/jordond/MaterialKolor)** — artwork-based colour themes.
+- **[Reorderable](https://github.com/Calvin-LL/Reorderable)** by Calvin Liang — drag-to-reorder lists.
+- **[Coil](https://github.com/coil-kt/coil)** — image loading.
+- **[TinyPinyin](https://github.com/promeG/TinyPinyin)** — Pinyin romanization.
+
+**Services**
+
+- **[Discord Social SDK](https://discord.com/developers)** — Rich Presence.
+- **[Firebase](https://firebase.google.com)** — accounts, sync and Listen Together.
+
+All lyrics, artwork and trademarks belong to their respective owners.
 
 ---
 
