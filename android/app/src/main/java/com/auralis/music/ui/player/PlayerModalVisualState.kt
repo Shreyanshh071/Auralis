@@ -6,7 +6,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 
-/** Suspend only visual work obscured by a modal. Audio and provider requests keep running. */
+/**
+ * Suspend only decorative work behind a modal. Lyrics stay visible above a sheet, so they keep
+ * running, as do audio and provider requests.
+ */
 @Stable
 class PlayerModalVisualState {
     var openCount by mutableIntStateOf(0)

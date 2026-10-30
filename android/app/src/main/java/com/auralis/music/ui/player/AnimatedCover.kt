@@ -63,7 +63,8 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
                 volume = 0f
                 // Artwork must never compete with the music service for audio focus or output.
                 trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-                    .setMaxVideoSize(1280, 1280).build()
+                    // Adaptive HLS opens on a low variant and a short loop never climbs out of it.
+                    .setMaxVideoSize(1280, 1280).setForceHighestSupportedBitrate(true).build()
                 repeatMode = Player.REPEAT_MODE_ONE
             }
         }

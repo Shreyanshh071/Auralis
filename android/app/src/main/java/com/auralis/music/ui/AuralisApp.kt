@@ -3143,6 +3143,7 @@ private fun MiniPlayerHost(
             currentIndex = playerUiState.currentIndex,
             isFavorite = playerUiState.isFavorite,
             userScrollEnabled = (!isGuestInRoom || guestCanSwipe) && isFullyCollapsed,
+            isFullyCollapsed = isFullyCollapsed,
             hazeState = hazeState,
             onPlayPauseClick = {
                 if (guestControlBlocked()) notifyGuestControlBlocked()

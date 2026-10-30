@@ -33,6 +33,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
+private const val MODAL_REFRESH_MS = 100L
 
 @Composable
 fun rememberLayerBackdrop(
@@ -76,11 +77,30 @@ class LayerBackdrop internal constructor(
     internal var captureGeneration by mutableIntStateOf(0)
     private var recordingVersion by mutableIntStateOf(0)
     private val recordingCounter = java.util.concurrent.atomic.AtomicInteger()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastPublishedAt = 0L
+    private var publishQueued = false
 
     internal fun onRecorded() {
         // A different Android window does not receive RenderNode invalidations
-        // from the page. Notify modal consumers whenever the capture changes.
+        // from the page. Notify modal consumers when the capture changes, at a
+        // capped rate: lyrics re-record every frame, and a sheet re-blurring at
+        // that rate janks. The queued publish delivers the last change too.
         // Never read this state here: that would make recording invalidate itself.
+        if (publishQueued) return
+        val wait = lastPublishedAt + MODAL_REFRESH_MS - android.os.SystemClock.uptimeMillis()
+        if (wait <= 0) publishRecording()
+        else {
+            publishQueued = true
+            mainHandler.postDelayed({
+                publishQueued = false
+                publishRecording()
+            }, wait)
+        }
+    }
+
+    private fun publishRecording() {
+        lastPublishedAt = android.os.SystemClock.uptimeMillis()
         recordingVersion = recordingCounter.incrementAndGet()
     }
 

@@ -246,11 +246,9 @@ fun StatsScreen(
     val textPrimary = MaterialTheme.dynamicOnSurface
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
 
-    val contentBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit = {
-        drawRect(themeBackground)
-        drawContent()
-    }
-    val contentBackdrop = rememberLayerBackdrop(onDraw = contentBackdropDraw)
+    // No fill of its own: an opaque capture hid the page glow under the list, leaving it
+    // visible only as a band behind the filter pills.
+    val contentBackdrop = rememberLayerBackdrop()
     val statsGlass = rememberPageHeaderGlass(contentBackdrop)
 
     val dateChips = remember(selectedOption, firstEventTs) {
@@ -324,16 +322,16 @@ fun StatsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = themeBackground
+                    containerColor = if (statsGlass != null) Color.Transparent else themeBackground
                 ),
                 modifier = Modifier.statusBarsPadding()
             )
 
-            // Period Filter Chips Row
+            // Period Filter Chips Row; the pills scroll off the screen edge, not short of it
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Dropdown Chip
@@ -814,14 +812,47 @@ fun StatsScreen(
                     // Section: Top Songs
                     if (topSongs.isNotEmpty()) {
                         item(key = "top_songs_header") { UnfoldIn(6, openedAtMs, statsUnfoldOpen) {
-                            Text(
-                                text = str(R.string.top_songs),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                ),
-                                color = themePrimary
-                            )
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = str(R.string.top_songs),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp
+                                    ),
+                                    color = themePrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                // In the header, not floating: a floating button always sat on some row's menu.
+                                val shuffleContent = com.auralis.music.ui.glass.pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
+                                Row(
+                                    modifier = Modifier
+                                        .pageGlassSelection(CircleShape, true, themePrimary, themePrimary)
+                                        .tactileBounce(0.92f) {
+                                            val shuffled = topSongs.map { it.track }.shuffled()
+                                            if (shuffled.isNotEmpty()) {
+                                                onPlayTrack(shuffled.first(), shuffled)
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Shuffle,
+                                        contentDescription = null,
+                                        tint = shuffleContent,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Text(
+                                        text = str(R.string.shuffle),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp
+                                        ),
+                                        color = shuffleContent
+                                    )
+                                }
+                            }
                         } }
 
                         itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
@@ -1003,59 +1034,6 @@ fun StatsScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // Floating Action Button: Shuffle Top Songs (Bottom Right)
-        AnimatedVisibility(
-            visible = topSongs.isNotEmpty(),
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 20.dp, bottom = if (hasActiveMiniPlayer) 150.dp else 90.dp)
-        ) {
-            val shuffleModifier = if (statsGlass != null) {
-                Modifier.liquidGlass(statsGlass, CircleShape, tint = com.auralis.music.ui.glass.glassIndicatorTint(statsGlass.isDark))
-            } else {
-                Modifier.clip(CircleShape)
-            }
-            Surface(
-                onClick = {
-                    val shuffled = topSongs.map { it.track }.shuffled()
-                    if (shuffled.isNotEmpty()) {
-                        onPlayTrack(shuffled.first(), shuffled)
-                    }
-                },
-                shape = CircleShape,
-                color = if (statsGlass != null) Color.Transparent else themePrimary,
-                border = null,
-                shadowElevation = if (statsGlass != null) 0.dp else 6.dp,
-                modifier = Modifier
-                    .then(shuffleModifier)
-                    .tactileBounce(0.92f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = str(R.string.shuffle),
-                        tint = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = str(R.string.shuffle),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        ),
-                        color = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
-                    )
                 }
             }
         }

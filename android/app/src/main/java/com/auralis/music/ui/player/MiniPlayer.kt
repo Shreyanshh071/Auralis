@@ -191,6 +191,8 @@ fun MiniPlayer(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     /** Auralis Connect: the device line and button; null when signed out or nothing to connect. */
     connect: com.auralis.music.ui.connect.MiniConnect? = null,
+    /** False while the full player is up; the pill's play/pause fades 5s after this turns true. */
+    isFullyCollapsed: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (track == null && queue.isEmpty()) return
@@ -566,6 +568,7 @@ fun MiniPlayer(
                 onArtistClick = onArtistClick,
                 onClick = onClick,
                 connect = connect,
+                isFullyCollapsed = isFullyCollapsed,
                 modifier = miniPlayerModifier
             )
         }
@@ -1159,6 +1162,7 @@ private fun NewMiniPlayerPillView(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     hazeState: HazeState? = null,
+    isFullyCollapsed: Boolean = true,
     onPlayPauseClick: () -> Unit,
     onFavoriteToggle: (() -> Unit)?,
     onAddToPlaylist: (() -> Unit)?,
@@ -1347,6 +1351,7 @@ private fun NewMiniPlayerPillView(
                             isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
                             sharedTransitionScope = if (isSharedActive) sharedTransitionScope else null,
                             animatedVisibilityScope = if (isSharedActive) animatedVisibilityScope else null,
+                            isFullyCollapsed = isFullyCollapsed,
                             onPlayPauseClick = onPlayPauseClick
                         )
 
@@ -1485,6 +1490,7 @@ private fun MiniPlayerArtworkDisc(
     isLiquidGlass: Boolean = false,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
+    isFullyCollapsed: Boolean = true,
     onPlayPauseClick: () -> Unit
 ) {
     val sharedArtwork = playerSharedArtwork(
@@ -1496,6 +1502,24 @@ private fun MiniPlayerArtworkDisc(
     val playIconExit = auralisIconSwapExit()
 
     val strokeWidth = 3.dp
+
+    // The button rests out of sight during playback so the cover shows. It stays up while paused,
+    // and every play/pause or close of the full player brings it back for 5s. The disc's whole
+    // tap target keeps working while it is hidden.
+    var controlRevealed by remember { mutableStateOf(true) }
+    LaunchedEffect(isPlaying, isFullyCollapsed) {
+        controlRevealed = true
+        if (isFullyCollapsed) {
+            kotlinx.coroutines.delay(5_000L)
+            controlRevealed = false
+        }
+    }
+    val controlAlpha = animateFloatAsState(
+        targetValue = if (controlRevealed || !isPlaying) 1f else 0f,
+        animationSpec = if (com.auralis.music.ui.theme.LocalReducedMotion.current) androidx.compose.animation.core.snap()
+            else tween(600),
+        label = "miniPlayPauseReveal"
+    )
 
     Box(
         contentAlignment = Alignment.Center,
@@ -1587,6 +1611,7 @@ private fun MiniPlayerArtworkDisc(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer { alpha = controlAlpha.value }
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.35f)),
                 contentAlignment = Alignment.Center

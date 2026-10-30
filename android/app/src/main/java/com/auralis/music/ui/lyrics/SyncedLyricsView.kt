@@ -143,10 +143,6 @@ fun SyncedLyricsView(
     loadingAlignment: Alignment = Alignment.Center
 ) {
     val animationsActive = com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive != false
-    val frozenPosition = remember(track?.id, animationsActive) { mutableStateOf(positionState.value) }
-    val positionState = if (animationsActive) positionState else frozenPosition
-    val isPlaying = isPlaying && animationsActive
-    val lyricsClockSource = lyricsClockSource.takeIf { animationsActive }
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
         if (lyrics != null) {
@@ -623,6 +619,8 @@ fun SyncedLyricsView(
             }
         }
 
+        val lyricsGlide = remember { LyricsScrollGlide() }
+
         // Suspend function to accurately and smoothly center any lyric line or interval in the viewport
         val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
             if (targetIndex in mergedLyricsItems.indices) {
@@ -687,13 +685,7 @@ fun SyncedLyricsView(
                             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                                 try {
                                     if (animate) {
-                                        listState.animateScrollBy(
-                                            value = scrollDelta,
-                                            animationSpec = tween(
-                                                durationMillis = 260,
-                                                easing = FastOutSlowInEasing
-                                            )
-                                        )
+                                        lyricsGlide.glide(listState, scrollDelta)
                                     } else {
                                         listState.scrollBy(scrollDelta)
                                     }

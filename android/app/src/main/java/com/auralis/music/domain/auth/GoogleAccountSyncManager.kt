@@ -82,7 +82,10 @@ class GoogleAccountSyncManager(
                 uid = uid,
                 displayName = displayName,
                 email = email,
-                avatarUrl = fbUser.photoUrl?.toString() ?: prefs.getString("avatar_url", null),
+                // Accounts that linked Google to an email sign-in hold the photo on the provider only.
+                avatarUrl = fbUser.photoUrl?.toString()
+                    ?: fbUser.providerData.firstNotNullOfOrNull { it.photoUrl?.toString() }
+                    ?: prefs.getString("avatar_url", null),
                 isGoogleConnected = true,
                 isYouTubeSynced = prefs.getBoolean("is_yt_synced", false),
                 lastSyncedTimestamp = prefs.getLong("last_synced_ts", 0L),
@@ -229,7 +232,8 @@ class GoogleAccountSyncManager(
                 uid = user.uid,
                 displayName = name,
                 email = user.email ?: email.trim(),
-                avatarUrl = user.photoUrl?.toString(),
+                avatarUrl = user.photoUrl?.toString()
+                    ?: user.providerData.firstNotNullOfOrNull { it.photoUrl?.toString() },
                 isGoogleConnected = true
             )
             _userProfile.value = updated

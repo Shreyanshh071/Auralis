@@ -4,75 +4,78 @@ import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
-import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.ArtistPage
 import com.auralis.music.domain.model.Playlist
+import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.SwipeableTrackContainer
 import com.auralis.music.ui.components.TrackOptionsMenu
-import com.auralis.music.ui.components.specularHighlight
+import com.auralis.music.ui.components.bottomChromePadding
+import com.auralis.music.ui.components.getHighResArtworkUrl
+import com.auralis.music.ui.components.rememberPageHeaderGlass
 import com.auralis.music.ui.components.tactileBounce
-import com.auralis.music.ui.glass.LocalLiquidGlass
+import com.auralis.music.ui.glass.OptionalGlassCard
+import com.auralis.music.ui.glass.OptionalGlassPage
+import com.auralis.music.ui.glass.glassBarTint
+import com.auralis.music.ui.glass.liquidGlass
+import com.auralis.music.ui.glass.pageGlassActionColor
+import com.auralis.music.ui.glass.pageGlassSelection
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
-import com.auralis.music.ui.components.bottomChromePadding
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.luminance
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
-private val LIME_ACCENT: Color
-    @Composable get() = MaterialTheme.dynamicPrimary
-private val DARK_BG: Color
-    @Composable get() = MaterialTheme.dynamicBackground
-private val PILL_BG: Color
-    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+private const val TOP_SONGS_SHOWN = 5
+private val PillShape = RoundedCornerShape(26.dp)
 
 /**
- * Pure Jetpack Compose Artist Screen matching the exact YouTube Music layout:
- * - Immersive portrait photo header with dark gradient scrim
- * - Back button and Share link
- * - Artist title, Subscribed pill, Radio pill, and Shuffle FAB
- * - About section (Subscribers, description, expandable "Show more")
- * - Top songs ranked list with durations and track options menu
- * - Discography shelves (Albums, Singles, and Similar artists)
+ * Artist page, with the same layout on the normal and liquid glass themes:
+ * - A parallax portrait that melts into the page, with the name and audience below it
+ * - A bar that stays pinned over the scroll and takes the artist's name once the portrait is gone
+ * - Play, Shuffle, Radio and Subscribe
+ * - Top songs, then every shelf the artist has (albums, singles, videos, featured on...)
+ * - About, and fans might also like
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -95,18 +98,18 @@ fun ArtistScreen(
     onCreatePlaylistAndAdd: (String, Track) -> Unit = { _, _ -> },
     onPlayNext: (Track) -> Unit = {},
     onAddToQueue: (Track) -> Unit = {},
-    onPlayNextAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
-    onAddToQueueAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
-    onShuffleAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
-    onDownloadAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
-    onAddAlbumToPlaylist: ((String, com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
-    onCreatePlaylistAndAddAlbum: ((String, com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onPlayNextAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddToQueueAlbum: ((PlaylistResult) -> Unit)? = null,
+    onShuffleAlbum: ((PlaylistResult) -> Unit)? = null,
+    onDownloadAlbum: ((PlaylistResult) -> Unit)? = null,
+    onAddAlbumToPlaylist: ((String, PlaylistResult) -> Unit)? = null,
+    onCreatePlaylistAndAddAlbum: ((String, PlaylistResult) -> Unit)? = null,
     onStartRadio: (Track) -> Unit = {},
     onOpenArtist: (Artist) -> Unit = {},
-    onAlbumClick: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {},
+    onAlbumClick: (PlaylistResult) -> Unit = {},
     isAlbumPinned: ((String) -> Boolean)? = null,
     pinnedSpeedDialIds: Set<String> = emptySet(),
-    onPinAlbumToSpeedDial: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
+    onPinAlbumToSpeedDial: ((PlaylistResult) -> Unit)? = null,
     isTrackPinned: ((String) -> Boolean)? = null,
     onPinTrackToSpeedDial: ((Track) -> Unit)? = null,
     onBack: () -> Unit,
@@ -117,42 +120,34 @@ fun ArtistScreen(
     val context = LocalContext.current
     val contentSettings by com.auralis.music.data.datastore.ContentSettingsStore.current.collectAsState()
     val isSubscribed = savedArtists.any { it.id == artistPage.artist.id || it.name.equals(artistPage.artist.name, ignoreCase = true) }
-    var isBioExpanded by remember { mutableStateOf(false) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
-    var selectedAlbumForMenu by remember { mutableStateOf<Pair<com.auralis.music.domain.model.PlaylistResult, Boolean>?>(null) }
+    var selectedAlbumForMenu by remember { mutableStateOf<Pair<PlaylistResult, Boolean>?>(null) }
 
-    val isLiquidGlass = LocalLiquidGlass.current != null
-    val themePrimary = MaterialTheme.dynamicPrimary
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val accent = MaterialTheme.dynamicPrimary
+    val pageBackground = MaterialTheme.dynamicBackground
+    val listState = rememberLazyListState()
+    // Records the list alone, so the pinned bar's glass bends the page without sampling itself.
+    val contentBackdrop = rememberLayerBackdrop()
+    val barGlass = rememberPageHeaderGlass(contentBackdrop)
 
-    val glassSpecularRim = remember(isDark) {
-        Brush.verticalGradient(
-            if (isDark) listOf(
-                Color.White.copy(alpha = 0.45f),
-                Color.White.copy(alpha = 0.15f),
-                Color.White.copy(alpha = 0.05f)
-            ) else listOf(
-                Color.White.copy(alpha = 0.95f),
-                Color.White.copy(alpha = 0.50f),
-                Color.Black.copy(alpha = 0.08f)
-            )
-        )
+    val density = LocalDensity.current
+    val barFadeStart = with(density) { 210.dp.toPx() }
+    val barFadeEnd = with(density) { 290.dp.toPx() }
+    val barProgress by remember(listState, barFadeStart, barFadeEnd) {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else ((listState.firstVisibleItemScrollOffset - barFadeStart) / (barFadeEnd - barFadeStart)).coerceIn(0f, 1f)
+        }
     }
-    val glassActiveRim = remember(themePrimary) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.80f),
-                themePrimary.copy(alpha = 0.40f),
-                Color.White.copy(alpha = 0.20f)
-            )
-        )
-    }
-    val glassPillBg = if (isDark) Color(0xFF1E1E22).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
-    val glassActiveBg = remember(themePrimary) {
-        Brush.verticalGradient(
-            listOf(
-                themePrimary.copy(alpha = 0.95f),
-                themePrimary.copy(alpha = 0.72f)
+    val barCollapsed by remember { derivedStateOf { barProgress > .5f } }
+
+    val openTopSongs = {
+        onAlbumClick(
+            PlaylistResult(
+                id = "artist_top_songs:${artistPage.artist.id.ifBlank { artistPage.artist.name }}",
+                title = "${artistPage.artist.name} - Top songs",
+                author = artistPage.artist.name,
+                thumbnail = artistPage.artist.thumbnail ?: artistPage.bannerUrl
             )
         )
     }
@@ -161,173 +156,43 @@ fun ArtistScreen(
         onBack()
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DARK_BG)
-    ) {
-        val stableTopSongKeys = remember(artistPage.topSongs) {
-            val counts = HashMap<String, Int>()
-            artistPage.topSongs.map { track ->
-                val count = counts[track.id] ?: 0
-                counts[track.id] = count + 1
-                if (count == 0) track.id else "${track.id}__dup$count"
-            }
-        }
+    OptionalGlassPage(background = pageBackground, accent = accent,
+        modifier = modifier.fillMaxSize().background(pageBackground)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = bottomChromePadding()
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (barGlass != null) Modifier.layerBackdrop(contentBackdrop) else Modifier),
+            contentPadding = bottomChromePadding(),
+            verticalArrangement = Arrangement.spacedBy(26.dp)
         ) {
-            // ================================================================
-            // 1. IMMERSIVE HERO HEADER (Artist Portrait Photo + Dark Scrim)
-            // ================================================================
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(340.dp)
-                ) {
-                    val isKanye = artistPage.artist.name.equals("Kanye West", ignoreCase = true) || artistPage.artist.name.equals("Ye", ignoreCase = true)
-                    val defaultKanye = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
-                    val rawBanner = artistPage.bannerUrl ?: artistPage.artist.thumbnail
-                    val banner = when {
-                        isKanye && (rawBanner.isNullOrBlank() || rawBanner.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA")) -> defaultKanye
-                        else -> rawBanner
+            item(key = "hero", contentType = "hero") {
+                ArtistHero(
+                    artistPage = artistPage,
+                    audience = listOfNotNull(
+                        artistPage.monthlyAudience.takeIf { contentSettings.showMonthlyListeners },
+                        artistPage.subscribers.takeIf { contentSettings.showArtistSubscriberCount }
+                    ).joinToString(" · "),
+                    parallaxOffset = {
+                        if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
                     }
-                    if (!banner.isNullOrBlank()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(getHighResArtworkUrl(banner))
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = artistPage.artist.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(MaterialTheme.colorScheme.primaryContainer, DARK_BG)
-                                    )
-                                )
-                        )
-                    }
-
-                    // Multi-stop cinema gradient scrim to melt photo into page background
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.0f to Color.Transparent,
-                                    0.45f to Color.Black.copy(alpha = 0.35f),
-                                    0.80f to Color.Black.copy(alpha = 0.85f),
-                                    1.0f to DARK_BG
-                                )
-                            )
-                    )
-
-                    // Top navigation bar (Back + Share)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                    val topButtonBaseModifier = if (isLiquidGlass) {
-                        Modifier
-                            .size(40.dp)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = CircleShape,
-                                ambientColor = Color.Black.copy(alpha = 0.45f),
-                                spotColor = Color.Black.copy(alpha = 0.35f)
-                            )
-                            .clip(CircleShape)
-                            .background(glassPillBg)
-                            .border(
-                                width = 1.dp,
-                                brush = glassSpecularRim,
-                                shape = CircleShape
-                            )
-                            .specularHighlight(CircleShape, highlightAlpha = 0.30f)
-                    } else {
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                    }
-
-                    Box(
-                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) {
-                            val sendIntent = android.content.Intent().apply {
-                                action = android.content.Intent.ACTION_SEND
-                                putExtra(
-                                    android.content.Intent.EXTRA_TEXT,
-                                    str(R.string.listen_to_x_on_auralis_music_https_music, artistPage.artist.name, artistPage.artist.id)
-                                )
-                                type = "text/plain"
-                            }
-                            context.startActivity(android.content.Intent.createChooser(sendIntent, str(R.string.share_artist)))
-                        },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = str(R.string.share),
-                            tint = Color.White,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    }
-
-                    // Artist Name Title (Anchored at bottom-left of hero portrait)
-                    Text(
-                        text = artistPage.artist.name,
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 32.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(horizontal = 18.dp, vertical = 12.dp)
-                    )
-                }
+                )
             }
 
-            // ================================================================
-            // 2. ACTION ROW ([ Subscribed ]  [ Radio ]  [ Shuffle FAB ])
-            // ================================================================
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Subscribe / Follow Button (Synced with Library)
-                    val subscribeShape = RoundedCornerShape(24.dp)
-                    val subscribeAction = {
+            item(key = "actions", contentType = "actions") {
+                ArtistActions(
+                    isSubscribed = isSubscribed,
+                    enabled = artistPage.topSongs.isNotEmpty(),
+                    accent = accent,
+                    onPlay = { artistPage.topSongs.firstOrNull()?.let { onTrackClick(it, artistPage.topSongs) } },
+                    onShuffle = {
+                        if (artistPage.topSongs.isNotEmpty()) {
+                            val shuffled = artistPage.topSongs.shuffled()
+                            onTrackClick(shuffled.first(), shuffled)
+                        }
+                    },
+                    onRadio = { artistPage.topSongs.firstOrNull()?.let(onStartRadio) },
+                    onToggleSubscribe = {
                         onToggleSubscribe(
                             com.auralis.music.domain.model.SavedArtist(
                                 id = artistPage.artist.id,
@@ -337,505 +202,154 @@ fun ArtistScreen(
                             )
                         )
                     }
+                )
+            }
 
-                    if (isLiquidGlass) {
-                        Box(
-                            modifier = Modifier
-                                .shadow(elevation = 4.dp, shape = subscribeShape)
-                                .clip(subscribeShape)
-                                .background(if (isSubscribed) themePrimary.copy(alpha = 0.22f) else glassPillBg)
-                                .border(1.dp, if (isSubscribed) glassActiveRim else glassSpecularRim, subscribeShape)
-                                .specularHighlight(subscribeShape, highlightAlpha = if (isSubscribed) 0.30f else 0.22f)
-                                .tactileBounce(scaleDown = 0.94f) { subscribeAction() }
-                                .padding(horizontal = 20.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSubscribed) themePrimary else Color.White
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .clip(subscribeShape)
-                                .background(if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant)
-                                .border(1.dp, if (isSubscribed) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, subscribeShape)
-                                .clickable { subscribeAction() }
-                                .padding(horizontal = 20.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = if (isSubscribed) str(R.string.subscribed) else str(R.string.subscribe),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSubscribed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Shuffle / Quick Play Floating Button (Liquid Glass enabled)
-                    val shuffleAction = {
-                        if (artistPage.topSongs.isNotEmpty()) {
-                            val shuffled = artistPage.topSongs.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
-                        }
-                    }
-
-                    if (isLiquidGlass) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .shadow(
-                                    elevation = 10.dp,
-                                    shape = CircleShape,
-                                    ambientColor = themePrimary.copy(alpha = 0.50f),
-                                    spotColor = Color.Black.copy(alpha = 0.35f)
-                                )
-                                .clip(CircleShape)
-                                .background(glassActiveBg)
-                                .border(1.2.dp, glassActiveRim, CircleShape)
-                                .specularHighlight(CircleShape, highlightAlpha = 0.40f)
-                                .tactileBounce(scaleDown = 0.90f) { shuffleAction() },
+            item(key = "top_songs", contentType = "top_songs") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ArtistSectionHeader(str(R.string.top_songs_2), accent, onClick = openTopSongs,
+                        actionDescription = str(R.string.view_all_top_songs))
+                    when {
+                        isLoading && artistPage.topSongs.isEmpty() -> Box(
+                            Modifier.fillMaxWidth().height(180.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = str(R.string.shuffle),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            CircularProgressIndicator(color = accent, modifier = Modifier.size(32.dp), strokeWidth = 2.5.dp)
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .tactileBounce(scaleDown = 0.90f) { shuffleAction() },
-                            contentAlignment = Alignment.Center
+                        artistPage.topSongs.isEmpty() -> Column(
+                            Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = str(R.string.shuffle),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-            }
-
-            // ================================================================
-            // 3. ABOUT SECTION (Subscribers, Monthly Audience, Bio)
-            // ================================================================
-            // Settings → Content → Artist page decides which of the three show.
-            val shownSubscribers = artistPage.subscribers.takeIf { contentSettings.showArtistSubscriberCount }
-            val shownMonthly = artistPage.monthlyAudience.takeIf { contentSettings.showMonthlyListeners }
-            val shownDescription = artistPage.description.takeIf { contentSettings.showArtistDescription }
-            if (!shownDescription.isNullOrBlank() || !shownSubscribers.isNullOrBlank() || !shownMonthly.isNullOrBlank()) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp)
-                    ) {
-                        Text(
-                            text = str(R.string.about),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontSize = 17.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        shownSubscribers?.let {
                             Text(
-                                text = it,
+                                text = str(if (loadFailed) R.string.artist_load_failed else R.string.no_songs_found_for_this_artist),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 14.sp
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-
-                        shownMonthly?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        shownDescription?.let { bio ->
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = bio,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = if (isBioExpanded) 20 else 3,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = 20.sp,
-                                fontSize = 13.5.sp
-                            )
-
-                            if (bio.length > 100) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (isBioExpanded) str(R.string.show_less) else str(R.string.show_more),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = LIME_ACCENT,
-                                    modifier = Modifier
-                                        .clickable { isBioExpanded = !isBioExpanded }
-                                        .padding(vertical = 4.dp)
-                                )
+                            if (loadFailed) {
+                                TextButton(onClick = onRetry) { Text(str(R.string.retry)) }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-                    }
-                }
-            }
-
-            // ================================================================
-            // 4. TOP SONGS SECTION (Ranked Track List)
-            // ================================================================
-            item {
-                val onOpenTopSongs = {
-                    onAlbumClick(
-                        com.auralis.music.domain.model.PlaylistResult(
-                            id = "artist_top_songs:${artistPage.artist.id.ifBlank { artistPage.artist.name }}",
-                            title = "${artistPage.artist.name} - Top songs",
-                            author = artistPage.artist.name,
-                            thumbnail = artistPage.artist.thumbnail ?: artistPage.bannerUrl
-                        )
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onOpenTopSongs() }
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = str(R.string.top_songs_2),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
-                        fontSize = 20.sp
-                    )
-
-                    IconButton(
-                        onClick = { onOpenTopSongs() },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = str(R.string.view_all_top_songs),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-
-            if (isLoading && artistPage.topSongs.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = LIME_ACCENT,
-                            modifier = Modifier.size(32.dp),
-                            strokeWidth = 2.5.dp
-                        )
-                    }
-                }
-            } else if (artistPage.topSongs.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = str(if (loadFailed) R.string.artist_load_failed else R.string.no_songs_found_for_this_artist),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (loadFailed) {
-                            TextButton(onClick = onRetry) { Text(str(R.string.retry)) }
-                        }
-                    }
-                }
-            } else {
-                itemsIndexed(
-                    items = artistPage.topSongs,
-                    key = { index, track -> stableTopSongKeys.getOrElse(index) { "${track.id}_$index" } },
-                    contentType = { _, _ -> "track" }
-                ) { index, track ->
-                    val isCurrent = track.id == currentTrackId
-
-                    SwipeableTrackContainer(
-                        onPlayNext = { onPlayNext(track) },
-                        onAddToQueue = { onAddToQueue(track) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .contextMenuAnchor { onTrackClick(track, artistPage.topSongs) }
-                                .combinedClickable(
-                                    onClick = { onTrackClick(track, artistPage.topSongs) },
-                                    onLongClick = { selectedTrackForMenu = track }
-                                )
-                                .padding(horizontal = 18.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        else -> OptionalGlassCard(
+                            shape = RoundedCornerShape(24.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = null,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                         ) {
-                            ArtworkCard(
-                                sizeToConstraints = true,
-                                url = track.thumbnail,
-                                modifier = Modifier.size(48.dp),
-                                cornerRadius = 8.dp,
-                                contentDescription = track.title
-                            )
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) LIME_ACCENT else MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                Spacer(modifier = Modifier.height(2.dp))
-
-                                val durationStr = if (track.duration > 0) {
-                                    val mins = track.duration / 60
-                                    val secs = track.duration % 60
-                                    " • %d:%02d".format(mins, secs)
-                                } else ""
-
-                                Text(
-                                    text = "${track.artist}$durationStr",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            IconButton(onClick = { selectedTrackForMenu = track }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = str(R.string.options),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            Column(Modifier.padding(vertical = 6.dp)) {
+                                artistPage.topSongs.take(TOP_SONGS_SHOWN).forEachIndexed { index, track ->
+                                    key(index, track.id) {
+                                        ArtistTopSongRow(
+                                            rank = index + 1,
+                                            track = track,
+                                            isCurrent = track.id == currentTrackId,
+                                            isPlaying = isPlaying,
+                                            accent = accent,
+                                            onClick = { onTrackClick(track, artistPage.topSongs) },
+                                            onShowOptions = { selectedTrackForMenu = track },
+                                            onPlayNext = { onPlayNext(track) },
+                                            onAddToQueue = { onAddToQueue(track) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
-
-                item {
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
             }
 
-            // ================================================================
-            // 5. ALBUMS & SINGLES DISCOGRAPHY CAROUSELS
-            // ================================================================
             if (artistPage.albums.isNotEmpty()) {
-                item {
-                    Text(
-                        text = str(R.string.albums),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(
-                            items = artistPage.albums,
-                            key = { it.id },
-                            contentType = { "album" }
-                        ) { album ->
-                            Column(
-                                modifier = Modifier
-                                    .width(135.dp)
-                                    .contextMenuAnchor { onAlbumClick(album) }
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .combinedClickable(
-                                        onClick = { onAlbumClick(album) },
-                                        onLongClick = { selectedAlbumForMenu = album to false }
-                                    )
-                                    .padding(4.dp)
-                            ) {
-                                ArtworkCard(
-                                    url = album.thumbnail ?: "",
-                                    modifier = Modifier.size(135.dp),
-                                    cornerRadius = 12.dp,
-                                    contentDescription = album.title
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = album.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = album.author ?: str(R.string.album),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
+                item(key = "albums", contentType = "releases") {
+                    ArtistReleaseShelf(str(R.string.albums), artistPage.albums, str(R.string.album), accent,
+                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to false })
                 }
             }
 
             if (artistPage.singles.isNotEmpty()) {
-                item {
-                    Text(
-                        text = str(R.string.singles_eps),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
-
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(
-                            items = artistPage.singles,
-                            key = { it.id },
-                            contentType = { "single" }
-                        ) { single ->
-                            Column(
-                                modifier = Modifier
-                                    .width(135.dp)
-                                    .contextMenuAnchor { onAlbumClick(single) }
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .combinedClickable(
-                                        onClick = { onAlbumClick(single) },
-                                        onLongClick = { selectedAlbumForMenu = single to true }
-                                    )
-                                    .padding(4.dp)
-                            ) {
-                                ArtworkCard(
-                                    url = single.thumbnail ?: "",
-                                    modifier = Modifier.size(135.dp),
-                                    cornerRadius = 12.dp,
-                                    contentDescription = single.title
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = single.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = single.author ?: str(R.string.single),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(18.dp))
+                item(key = "singles", contentType = "releases") {
+                    ArtistReleaseShelf(str(R.string.singles_eps), artistPage.singles, str(R.string.single), accent,
+                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to true })
                 }
             }
 
-            // ================================================================
-            // 6. FANS MIGHT ALSO LIKE (Similar Artists)
-            // ================================================================
-            if (artistPage.similarArtists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = str(R.string.fans_might_also_like),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = LIME_ACCENT,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
-                    )
+            artistPage.shelves.forEach { shelf ->
+                if (shelf.tracks.isNotEmpty()) {
+                    item(key = "shelf_tracks_${shelf.title}", contentType = "videos") {
+                        ArtistVideoShelf(shelf.title, shelf.tracks, accent,
+                            onClick = { onTrackClick(it, shelf.tracks) }, onLongClick = { selectedTrackForMenu = it })
+                    }
+                }
+                if (shelf.playlists.isNotEmpty()) {
+                    item(key = "shelf_playlists_${shelf.title}", contentType = "releases") {
+                        ArtistReleaseShelf(shelf.title, shelf.playlists, "", accent,
+                            onClick = onAlbumClick, onLongClick = null)
+                    }
+                }
+            }
 
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(
-                            items = artistPage.similarArtists,
-                            key = { it.id },
-                            contentType = { "artist" }
-                        ) { similar ->
-                            Column(
-                                modifier = Modifier
-                                    .width(105.dp)
-                                    .clickable { onOpenArtist(similar) }
-                                    .padding(4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                ArtworkCard(
-                                    url = similar.thumbnail,
-                                    modifier = Modifier
-                                        .size(90.dp)
-                                        .clip(CircleShape),
-                                    cornerRadius = 45.dp,
-                                    contentDescription = similar.name
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = similar.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+            // Settings → Content → Artist page decides whether the biography shows.
+            val shownDescription = artistPage.description.takeIf { contentSettings.showArtistDescription }
+            if (!shownDescription.isNullOrBlank()) {
+                item(key = "about", contentType = "about") {
+                    ArtistAbout(shownDescription, accent)
+                }
+            }
+
+            if (artistPage.similarArtists.isNotEmpty()) {
+                item(key = "similar", contentType = "similar") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ArtistSectionHeader(str(R.string.fans_might_also_like), accent)
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            items(items = artistPage.similarArtists, key = { it.id }, contentType = { "artist" }) { similar ->
+                                Column(
+                                    modifier = Modifier.width(112.dp).clip(RoundedCornerShape(16.dp))
+                                        .clickable { onOpenArtist(similar) }.padding(6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    ArtworkCard(
+                                        url = similar.thumbnail,
+                                        modifier = Modifier.size(100.dp).clip(CircleShape),
+                                        cornerRadius = 50.dp,
+                                        contentDescription = similar.name
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = similar.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(20.dp))
                 }
             }
         }
+
+        ArtistPinnedBar(
+            title = artistPage.artist.name,
+            progress = { barProgress },
+            collapsed = barCollapsed,
+            background = pageBackground,
+            glass = barGlass,
+            onBack = onBack,
+            onShare = {
+                val sendIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        str(R.string.listen_to_x_on_auralis_music_https_music, artistPage.artist.name, artistPage.artist.id)
+                    )
+                    type = "text/plain"
+                }
+                context.startActivity(Intent.createChooser(sendIntent, str(R.string.share_artist)))
+            }
+        )
     }
 
     // Options Menu Bottom Sheet
@@ -932,5 +446,469 @@ fun ArtistScreen(
             },
             onDismiss = { selectedAlbumForMenu = null }
         )
+    }
+}
+
+@Composable
+private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset: () -> Float) {
+    val context = LocalContext.current
+    val isKanye = artistPage.artist.name.equals("Kanye West", ignoreCase = true) || artistPage.artist.name.equals("Ye", ignoreCase = true)
+    val defaultKanye = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
+    val rawBanner = artistPage.bannerUrl ?: artistPage.artist.thumbnail
+    val banner = when {
+        isKanye && (rawBanner.isNullOrBlank() || rawBanner.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA")) -> defaultKanye
+        else -> rawBanner
+    }
+    Box(Modifier.fillMaxWidth().height(430.dp)) {
+        // The photo fades to nothing instead of to a colour, so it melts into the page's own
+        // background on both themes, including the glass page's glow.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    translationY = parallaxOffset() * .45f
+                }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.verticalGradient(0.5f to Color.Black, 0.97f to Color.Transparent),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+        ) {
+            if (!banner.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(getHighResArtworkUrl(banner))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = artistPage.artist.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer))
+            }
+            // Keeps the status bar and pinned buttons readable on a bright photo.
+            Box(
+                Modifier.fillMaxWidth().height(130.dp).background(
+                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = .45f), Color.Transparent))
+                )
+            )
+        }
+
+        Column(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = artistPage.artist.name,
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 40.sp,
+                lineHeight = 44.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (audience.isNotBlank()) {
+                Text(
+                    text = audience,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistActions(
+    isSubscribed: Boolean,
+    enabled: Boolean,
+    accent: Color,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    onRadio: () -> Unit,
+    onToggleSubscribe: () -> Unit
+) {
+    val neutral = MaterialTheme.colorScheme.surfaceContainerHigh
+    val neutralContent = pageGlassActionColor(MaterialTheme.colorScheme.onSurface)
+    val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .height(52.dp)
+                .pageGlassSelection(PillShape, true, accent, accent)
+                .tactileBounce(scaleDown = 0.95f, enabled = enabled) { onPlay() },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.PlayArrow, null, tint = onAccent, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(str(R.string.play), color = onAccent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        }
+        ArtistRoundAction(Icons.Default.Shuffle, str(R.string.shuffle), neutral, neutralContent, enabled, onShuffle)
+        ArtistRoundAction(Icons.Default.Radio, str(R.string.radio), neutral, neutralContent, enabled, onRadio)
+        ArtistRoundAction(
+            icon = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
+            description = str(if (isSubscribed) R.string.subscribed else R.string.subscribe),
+            fill = if (isSubscribed) accent.copy(alpha = .22f) else neutral,
+            content = if (isSubscribed) accent else neutralContent,
+            enabled = true,
+            onClick = onToggleSubscribe
+        )
+    }
+}
+
+@Composable
+private fun ArtistRoundAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    fill: Color,
+    content: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier
+            .size(52.dp)
+            .pageGlassSelection(CircleShape, true, fill, fill)
+            .tactileBounce(scaleDown = 0.90f, enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, description, tint = content, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun ArtistSectionHeader(
+    title: String,
+    accent: Color,
+    onClick: (() -> Unit)? = null,
+    actionDescription: String? = null
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 20.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = accent,
+            fontSize = 21.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (onClick != null) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = actionDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ArtistTopSongRow(
+    rank: Int,
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    onShowOptions: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit
+) {
+    SwipeableTrackContainer(onPlayNext = onPlayNext, onAddToQueue = onAddToQueue) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .contextMenuAnchor { onClick() }
+                .combinedClickable(onClick = onClick, onLongClick = onShowOptions)
+                .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.width(26.dp), contentAlignment = Alignment.Center) {
+                if (isCurrent && isPlaying) {
+                    Icon(Icons.Default.GraphicEq, null, tint = accent, modifier = Modifier.size(18.dp))
+                } else {
+                    Text(
+                        text = rank.toString(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = if (isCurrent) accent else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            ArtworkCard(
+                sizeToConstraints = true,
+                url = track.thumbnail,
+                modifier = Modifier.size(50.dp),
+                cornerRadius = 10.dp,
+                contentDescription = track.title
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCurrent) accent else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val duration = if (track.duration > 0) {
+                    " • %d:%02d".format(track.duration / 60, track.duration % 60)
+                } else ""
+                Text(
+                    text = "${track.artist}$duration",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onShowOptions) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = str(R.string.options),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ArtistReleaseShelf(
+    title: String,
+    releases: List<PlaylistResult>,
+    fallbackSubtitle: String,
+    accent: Color,
+    onClick: (PlaylistResult) -> Unit,
+    onLongClick: ((PlaylistResult) -> Unit)?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ArtistSectionHeader(title, accent)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(items = releases, key = { it.id }, contentType = { "release" }) { release ->
+                Column(
+                    Modifier
+                        .width(156.dp)
+                        .contextMenuAnchor { onClick(release) }
+                        .clip(RoundedCornerShape(18.dp))
+                        .combinedClickable(
+                            onClick = { onClick(release) },
+                            onLongClick = onLongClick?.let { { it(release) } }
+                        )
+                        .padding(4.dp)
+                ) {
+                    ArtworkCard(
+                        url = release.thumbnail ?: "",
+                        modifier = Modifier.size(148.dp),
+                        cornerRadius = 16.dp,
+                        contentDescription = release.title
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = release.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    (release.author ?: fallbackSubtitle).takeIf { it.isNotBlank() }?.let { subtitle ->
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ArtistVideoShelf(
+    title: String,
+    tracks: List<Track>,
+    accent: Color,
+    onClick: (Track) -> Unit,
+    onLongClick: (Track) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ArtistSectionHeader(title, accent)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(items = tracks, key = { it.id }, contentType = { "video" }) { track ->
+                Column(
+                    Modifier
+                        .width(248.dp)
+                        .contextMenuAnchor { onClick(track) }
+                        .clip(RoundedCornerShape(18.dp))
+                        .combinedClickable(onClick = { onClick(track) }, onLongClick = { onLongClick(track) })
+                        .padding(4.dp)
+                ) {
+                    AsyncImage(
+                        model = track.thumbnail,
+                        contentDescription = track.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(135.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = track.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistAbout(description: String, accent: Color) {
+    var expanded by remember(description) { mutableStateOf(false) }
+    val expandable = description.length > 100
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ArtistSectionHeader(str(R.string.about), accent)
+        OptionalGlassCard(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = null,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        ) {
+            Column(
+                Modifier
+                    .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
+                    .padding(18.dp)
+                    .animateContentSize()
+            ) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 4,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 21.sp
+                )
+                if (expandable) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = str(if (expanded) R.string.show_less else R.string.show_more),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.ArtistPinnedBar(
+    title: String,
+    progress: () -> Float,
+    collapsed: Boolean,
+    background: Color,
+    glass: com.auralis.music.ui.glass.LiquidGlassContext?,
+    onBack: () -> Unit,
+    onShare: () -> Unit
+) {
+    val iconColor by animateColorAsState(
+        targetValue = if (collapsed) MaterialTheme.colorScheme.onBackground else Color.White,
+        label = "artistBarIcon"
+    )
+    Row(
+        Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .drawBehind { drawRect(background.copy(alpha = progress() * .94f)) }
+            .statusBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ArtistBarButton(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), iconColor, glass, onBack)
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).graphicsLayer { alpha = progress() }
+        )
+        ArtistBarButton(Icons.Default.Share, str(R.string.share), iconColor, glass, onShare)
+    }
+}
+
+@Composable
+private fun ArtistBarButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    tint: Color,
+    glass: com.auralis.music.ui.glass.LiquidGlassContext?,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier
+            .size(42.dp)
+            .then(
+                if (glass != null) Modifier.liquidGlass(glass, CircleShape, tint = glassBarTint(glass.isDark))
+                else Modifier.clip(CircleShape).background(Color.Black.copy(alpha = .35f))
+            )
+            .tactileBounce(scaleDown = 0.88f) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, description, tint = tint, modifier = Modifier.size(20.dp))
     }
 }

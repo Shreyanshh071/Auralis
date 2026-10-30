@@ -756,7 +756,9 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
-                val anchorIdx = activeLineIndices.filter { effectiveLines.getOrNull(it)?.isBackground == false }.minOrNull() ?: curIdx
+                // The newest line sung: following the oldest held the list still through an
+                // overlap, then dropped 2-3 lines at once when that line ended.
+                val anchorIdx = activeLineIndices.filter { effectiveLines.getOrNull(it)?.isBackground == false }.maxOrNull() ?: curIdx
                 val lineIdx = mergedLyricsList.indexOfFirst {
                     it is ExperimentalLyricsListItem.Line && it.index == anchorIdx
                 }
@@ -791,6 +793,7 @@ fun ExperimentalLyricsView(
         }
     }
 
+    val lyricsGlide = remember { LyricsScrollGlide() }
     val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
         if (targetIndex in mergedLyricsList.indices) {
             isProgrammaticScroll = true
@@ -855,11 +858,7 @@ fun ExperimentalLyricsView(
                             try {
                                 // Even short corrections should ease into place instead of snapping.
                                 if (animate) {
-                                    val durationMs = (220 + kotlin.math.abs(scrollDelta) / 10f).toInt().coerceIn(220, 360)
-                                    listState.animateScrollBy(
-                                        value = scrollDelta,
-                                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
-                                    )
+                                    lyricsGlide.glide(listState, scrollDelta)
                                 } else {
                                     listState.scrollBy(scrollDelta)
                                 }

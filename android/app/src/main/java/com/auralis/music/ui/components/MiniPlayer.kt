@@ -36,6 +36,7 @@ fun MiniPlayer(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     connect: com.auralis.music.ui.connect.MiniConnect? = null,
+    isFullyCollapsed: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     PlayerMiniPlayer(
@@ -61,6 +62,7 @@ fun MiniPlayer(
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         connect = connect,
+        isFullyCollapsed = isFullyCollapsed,
         modifier = modifier
     )
 }
