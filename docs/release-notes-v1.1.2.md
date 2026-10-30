@@ -25,7 +25,7 @@ The biggest Android update since 1.1.0: a new look across the app, three player 
 
 ### Listening across devices
 
-- **Auralis Connect** — one listening session across your devices. Hand playback between your phone and desktop.
+- **Auralis Connect** — one listening session across your devices. Hand playback between your phone and desktop. The PC app is coming soon.
 - **Listening from your other devices appears live** in your stats, instead of waiting for the next sync.
 
 ### Listen Together
