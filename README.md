@@ -303,14 +303,7 @@ Auralis is built on the work of many people. Thank you to all of them.
 **Design & interface**
 
 - **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation and motion references.
-- **[Android Liquid Glass (Backdrop)](https://github.com/Kyant0/AndroidLiquidGlass)** by Kyant0 — the glass rendering library.
-- **[Haze](https://github.com/chrisbanes/haze)** by Chris Banes — blur effects.
-- **[Beautiful Lyrics](https://github.com/surfbryce/beautiful-lyrics)** by surfbryce, and **Beautiful Lyrics Reborn** and **Folia** — the Folia-inspired player backgrounds.
 - **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
-- **[MaterialKolor](https://github.com/jordond/MaterialKolor)** — artwork-based colour themes.
-- **[Reorderable](https://github.com/Calvin-LL/Reorderable)** by Calvin Liang — drag-to-reorder lists.
-- **[Coil](https://github.com/coil-kt/coil)** — image loading.
-- **[TinyPinyin](https://github.com/promeG/TinyPinyin)** — Pinyin romanization.
 
 **Services**
 
