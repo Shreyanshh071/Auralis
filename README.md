@@ -44,8 +44,8 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <sub><b>Now Playing</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/lyrics.jpg" alt="Synced Lyrics" width="100%" /><br />
-        <sub><b>Synced Karaoke Lyrics</b></sub>
+        <img src="docs/screenshots/lyrics.jpg" alt="Karaoke lyrics with word-by-word sync" width="100%" /><br />
+        <sub><b>Karaoke Lyrics · Word-by-Word Sync</b></sub>
       </td>
       <td align="center" width="25%">
         <img src="docs/screenshots/artist.jpg" alt="Artist Profile" width="100%" /><br />
