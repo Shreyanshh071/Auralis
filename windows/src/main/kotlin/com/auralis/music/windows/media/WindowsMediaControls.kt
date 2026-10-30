@@ -13,6 +13,9 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
 
+private typealias Button = DesktopMediaControls.Button
+private typealias Status = DesktopMediaControls.Status
+
 /**
  * The Windows media overlay (System Media Transport Controls): the song in the volume flyout and
  * on the lock screen, and the keyboard's media keys. It talks to the Windows Runtime through JNA,
@@ -24,9 +27,7 @@ import java.util.concurrent.Executors
 class WindowsMediaControls private constructor(
     private val smtc: Pointer,
     private val onButton: (Button) -> Unit
-) {
-    enum class Button { PLAY, PAUSE, STOP, NEXT, PREVIOUS }
-    enum class Status(val value: Int) { CLOSED(0), CHANGING(1), STOPPED(2), PLAYING(3), PAUSED(4) }
+) : DesktopMediaControls {
 
     private var handler: ButtonHandler? = null
 
@@ -51,9 +52,9 @@ class WindowsMediaControls private constructor(
         if (hr != 0) Log.w(TAG, "add_ButtonPressed failed: 0x%08x".format(hr))
     }
 
-    fun setStatus(status: Status) = onWinRtThread { call(smtc, SMTC_PUT_PLAYBACK_STATUS, status.value) }
+    override fun setStatus(status: Status) = onWinRtThread { call(smtc, SMTC_PUT_PLAYBACK_STATUS, status.value) }
 
-    fun setCanGoNext(enabled: Boolean) = onWinRtThread { call(smtc, SMTC_PUT_IS_NEXT_ENABLED, if (enabled) 1 else 0) }
+    override fun setCanGoNext(enabled: Boolean) = onWinRtThread { call(smtc, SMTC_PUT_IS_NEXT_ENABLED, if (enabled) 1 else 0) }
 
     /** Title, artist and artwork (an https URL) shown in the overlay. */
     fun setMetadata(title: String, artist: String, artworkUrl: String?) = onWinRtThread {
@@ -78,7 +79,17 @@ class WindowsMediaControls private constructor(
         }
     }
 
-    fun clear() = onWinRtThread {
+    override fun setMetadata(
+        title: String,
+        artist: String,
+        artworkUrl: String?,
+        durationSeconds: Double,
+        elapsedSeconds: Double
+    ) {
+        setMetadata(title, artist, artworkUrl)
+    }
+
+    override fun clear() = onWinRtThread {
         call(smtc, SMTC_PUT_PLAYBACK_STATUS, Status.CLOSED.value)
         val updater = PointerByReference()
         if (call(smtc, SMTC_GET_DISPLAY_UPDATER, updater.pointer) == 0) {

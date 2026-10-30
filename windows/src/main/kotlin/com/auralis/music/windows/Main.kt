@@ -502,7 +502,7 @@ fun main(args: Array<String>) {
                         pb.queue.value.current?.id == track?.id
                     val isHidden = com.auralis.music.windows.media.isApplicationInBackground(composeWindow) || windowState.isMinimized || !windowVisible
                     tracker.started(track, actuallyPlaying, notificationSettings.value.songNotifications, isHidden)?.let {
-                        com.auralis.music.windows.media.WindowsSongNotifications.show(it)
+                        if (!isMac) com.auralis.music.windows.media.WindowsSongNotifications.show(it)
                     }
                 }
             }
@@ -634,7 +634,7 @@ fun main(args: Array<String>) {
             window.minimumSize = java.awt.Dimension(900, 600)
             LaunchedEffect(components?.playback) {
                 val pb = components?.playback
-                if (pb != null && !isMac) {
+                if (pb != null) {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, pb, this)
                 }
             }
