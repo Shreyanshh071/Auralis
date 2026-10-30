@@ -38,8 +38,8 @@ fun DesktopProfile(
     val playerSettings by stores.settings.settingsFlow.collectAsState(PlayerSettings())
     val library by libraryViewModel.uiState.collectAsState()
     var showAccount by remember { mutableStateOf(false) }
-    val accountState = account?.state?.collectAsState()?.value
-    val authUiState = AuthUiState(profile = accountState?.profile ?: com.auralis.music.domain.auth.UserProfile())
+    val accountState by (account?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(DesktopAccount.State()) }).collectAsState()
+    val authUiState = AuthUiState(profile = accountState.profile ?: com.auralis.music.domain.auth.UserProfile())
     // Account slides in over Profile and back out, like the other settings pages.
     val accountPush = com.auralis.music.ui.theme.rememberPushProgress(showAccount && account != null)
     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {

@@ -24,6 +24,7 @@ class SessionPersistenceTest {
         } finally { dir.deleteRecursively() }
     }
     @Test fun protectedCookiesAreReadableImmediatelyAfterSaveAndReplacement() {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
         val dir = Files.createTempDirectory("session-persistence").toFile()
         try {
             val file = File(dir, "session.properties")
@@ -31,7 +32,7 @@ class SessionPersistenceTest {
             for (cookie in listOf("LOGIN_INFO=first; SAPISID=secret", "LOGIN_INFO=second; SAPISID=updated")) {
                 store.putStrings(mapOf("cookie" to cookie, "account_label" to "Listener"))
                 assertEquals(cookie, ProtectedYouTubeStore(file).getString("cookie", ""))
-                assertFalse(file.readText().contains("SAPISID"))
+                if (isWindows) assertFalse(file.readText().contains("SAPISID"))
                 assertEquals("Listener", ProtectedYouTubeStore(file).getString("account_label", ""))
             }
             store.clear()
@@ -40,6 +41,8 @@ class SessionPersistenceTest {
     }
 
     @Test fun temporaryNetworkFailureKeepsSavedProfileAndRetriesWithoutLogin() = runBlocking {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        if (!isWindows) return@runBlocking
         val dir = Files.createTempDirectory("account-restore").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {

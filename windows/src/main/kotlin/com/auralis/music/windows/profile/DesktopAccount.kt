@@ -74,7 +74,11 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 api.signInEmail(email, password, create)
                 save()
                 refreshProfile()
-                try { save() } catch (_: Exception) { mutable.value = mutable.value.copy(message = "Signed in for this session. Windows couldn't save the protected sign-in.") }
+                val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                try { save() } catch (_: Exception) {
+                    val platform = if (isWindows) "Windows" else "Auralis"
+                    mutable.value = mutable.value.copy(message = "Signed in for this session. $platform couldn't save the protected sign-in.")
+                }
             } catch (e: Exception) { mutable.value = mutable.value.copy(busy = false, browser = false, message = errorMessage(e)) }
         }
     }
@@ -86,10 +90,27 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         mutable.value = mutable.value.copy(busy = true, browser = true, message = "Complete sign-in in your browser")
         googleJob = scope.launch(Dispatchers.IO) {
             try {
-                api.signInGoogle(DesktopGoogleLogin.idToken())
+                val idToken = DesktopGoogleLogin.idToken()
+                val idTokenAvatar = runCatching {
+                    val parts = idToken.split('.')
+                    if (parts.size >= 2) {
+                        val payload = String(java.util.Base64.getUrlDecoder().decode(parts[1]), Charsets.UTF_8)
+                        org.json.JSONObject(payload).optString("picture").takeIf { it.isNotBlank() }
+                    } else null
+                }.getOrNull()
+                api.signInGoogle(idToken)
+                if (idTokenAvatar != null) {
+                    mutable.value = mutable.value.copy(
+                        profile = (mutable.value.profile ?: UserProfile()).copy(avatarUrl = idTokenAvatar)
+                    )
+                }
                 save()
                 refreshProfile()
-                try { save() } catch (_: Exception) { mutable.value = mutable.value.copy(message = "Signed in for this session. Windows couldn't save the protected sign-in.") }
+                val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                try { save() } catch (_: Exception) {
+                    val platform = if (isWindows) "Windows" else "Auralis"
+                    mutable.value = mutable.value.copy(message = "Signed in for this session. $platform couldn't save the protected sign-in.")
+                }
             } catch (_: CancellationException) { mutable.value = mutable.value.copy(busy = false, browser = false, message = "Google sign-in cancelled") }
             catch (e: Exception) { mutable.value = mutable.value.copy(busy = false, browser = false, message = errorMessage(e)) }
         }
@@ -103,17 +124,31 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         val isGoogle = (0 until (providers?.length() ?: 0)).any {
             providers?.optJSONObject(it)?.optString("providerId") == "google.com"
         } || mutable.value.browser
+        val resolvedAvatar = profile.optString("photoUrl").takeIf { it.isNotBlank() }
+            ?: (0 until (providers?.length() ?: 0)).firstNotNullOfOrNull {
+                providers?.optJSONObject(it)?.optString("photoUrl")?.takeIf { u -> u.isNotBlank() }
+            }
+            ?: mutable.value.profile?.avatarUrl
+        val resolvedName = profile.optString("displayName").ifBlank {
+            (0 until (providers?.length() ?: 0)).firstNotNullOfOrNull {
+                providers?.optJSONObject(it)?.optString("displayName")?.takeIf { n -> n.isNotBlank() }
+            } ?: email.substringBefore('@')
+        }
         mutable.value = State(
             profile = UserProfile(
                 uid = api.uid,
-                displayName = profile.optString("displayName").ifBlank { email.substringBefore('@') },
-                email = email,
-                avatarUrl = profile.optString("photoUrl").takeIf { it.isNotBlank() },
+                displayName = resolvedName,
+                email = email.ifBlank {
+                    (0 until (providers?.length() ?: 0)).firstNotNullOfOrNull {
+                        providers?.optJSONObject(it)?.optString("email")?.takeIf { e -> e.isNotBlank() }
+                    }.orEmpty()
+                },
+                avatarUrl = resolvedAvatar,
                 isGoogleConnected = isGoogle
             ),
             busy = false,
             browser = false,
-            message = "Signed in as ${profile.optString("displayName").ifBlank { email }}."
+            message = "Signed in as $resolvedName."
         )
     }
     private fun save() {

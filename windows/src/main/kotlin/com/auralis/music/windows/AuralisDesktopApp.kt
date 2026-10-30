@@ -649,7 +649,8 @@ fun AuralisDesktopApp(
                         }
                     },
                     accountLabel = if (youtubeSignedIn) youtubeState.identity?.name ?: "YouTube Music" else accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: "Sign in",
-                    accountAvatar = if (youtubeSignedIn) youtubeState.identity?.avatar else null,
+                    accountAvatar = (if (youtubeSignedIn) youtubeState.identity?.avatar?.takeIf { it.isNotBlank() } else null)
+                        ?: accountState.profile?.avatarUrl?.takeIf { it.isNotBlank() },
                     accountMenu = {
                         com.auralis.music.windows.profile.YouTubeAccountMenu(expanded = showYouTubeAccounts, state = youtubeState,
                             onSelect = { youtubeLibrary.switchAccount(it); showYouTubeAccounts = false },

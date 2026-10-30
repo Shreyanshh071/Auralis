@@ -68,7 +68,48 @@ class AccountFlowTest {
         api.forgetAccount(); assertEquals("", api.uid); assertEquals("", api.accountRefreshToken())
     }
 
+    @Test fun accountProfileResolvesAvatarFromProviderUserInfoWhenRootIsEmpty() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("account-avatar-test").toFile()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        try {
+            val file = java.io.File(dir, "session.bin")
+            val api = FirestoreRest("test", "test-key") { url, _, _, _ ->
+                when {
+                    url.contains("securetoken") -> JSONObject().put("id_token", "new-id").put("refresh_token", "refresh").put("user_id", "uid").put("expires_in", "3600")
+                    url.contains("accounts:lookup") -> JSONObject().put("users", JSONArray().put(
+                        JSONObject()
+                            .put("email", "alter@example.com")
+                            .put("displayName", "Alter")
+                            .put("photoUrl", "") // empty root photo
+                            .put("providerUserInfo", JSONArray().put(
+                                JSONObject()
+                                    .put("providerId", "google.com")
+                                    .put("displayName", "Alter Google")
+                                    .put("photoUrl", "https://lh3.googleusercontent.com/avatar123")
+                            ))
+                    ))
+                    else -> error("Unexpected url: $url")
+                }
+            }
+            val account = DesktopAccount(file, scope, api, restoreRetryMs = 500)
+            file.writeText(JSONObject().put("refreshToken", "refresh").put("profile", JSONObject()
+                .put("uid", "uid").put("displayName", "Alter").put("email", "alter@example.com").put("avatarUrl", "")).toString())
+            val restored = DesktopAccount(file, scope, api, restoreRetryMs = 500)
+            kotlinx.coroutines.withTimeout(5000) {
+                while (restored.state.value.profile?.avatarUrl == null) kotlinx.coroutines.delay(10)
+            }
+            assertEquals("https://lh3.googleusercontent.com/avatar123", restored.state.value.profile?.avatarUrl)
+            assertEquals("Alter", restored.state.value.profile?.displayName)
+            assertTrue(restored.state.value.profile?.isGoogleConnected == true)
+        } finally {
+            scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun windowsCanProtectAndRestoreSignInWithoutPlaintextOnDisk() {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        if (!isWindows) return
         val token = "temporary-test-token".toByteArray()
         val protected = Crypt32Util.cryptProtectData(token)
         assertFalse(protected.contentEquals(token))
