@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#-whats-new-in-111) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#whats-new-in-110) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -26,70 +26,11 @@
 
 ---
 
-## 🆕 What's New in 1.1.2
+## 📦 Download
 
-### Added
+[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.2.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.2)
 
-- **Eight-page interactive app tour** with silent previews of the real player, lyrics styles and Home layout, alongside audio quality, permissions and region/language choices.
-- **Liquid glass comparison** — switch between solid and glass controls in the tour. The Home preview includes enough songs to scroll, collapse the mini-player and dock, and expand them again. Your appearance choice is saved.
-- **Animated tour introduction** — the Auralis mark draws using the startup logo's paths. The brown-and-gold background starts with a fast rotation, slows as the logo finishes, and gradually reveals its contour lines. Page swipes briefly speed up the background.
-- **Disconnect confirmation** so an accidental tap does not immediately sign you out.
-
-### Fixed
-
-- **Tour appearing before sign-in** — newcomers enter the tour after authentication; account restoration is checked before deciding whether a returning listener needs onboarding.
-- **Laggy tour page changes** — finger dragging and Next navigation now use the same optimized pager rendering. Quick reversals, held drags and cancelled swipes keep the incoming preview visible.
-- **Screens showing through account pages** — profile and settings navigation keeps an opaque backdrop while pages move and fade.
-- **Sign-out waiting on the network** — disconnecting clears the local account state immediately instead of waiting for a cloud upload. Local changes remain associated with their account for a later sync.
-- **Lyrics glow artifacts** — Fluid highlighting no longer redraws fragments of adjacent words, and MetroLyrics highlights reuse the correct shaped glyphs instead of a mismatched font.
-- **Lyrics after seeking** — seek notifications are sent after the playback clock has moved, reducing incorrect re-sync positions when jumping within a song.
-
-### Improved
-
-- **Touch responsiveness** — tour previews are prepared ahead of page movement, hidden animations pause, and cached page images avoid repeatedly rendering player effects during a drag. Slow and fast touchscreen swipes, direction changes, preview-area drags and cancellation have device-test coverage.
-- **Startup handoff** — the drawn logo stays visible until the first app frame is ready, with better handling of process restoration and activity recreation.
-- **Account and import screens** — refreshed Profile & Account, YouTube account and playlist-import layouts with clearer integration status and account actions.
-- **Seeking across connected devices** — Android and Windows publish explicit seeks promptly, apply incoming seek commands without waiting on unrelated state work, and prioritize the latest position during repeated scrubbing.
-- **Appearance preference consistency** — missing settings use the shared defaults while existing saved choices and legacy player settings remain supported.
-
-### Updated appearance defaults
-
-- **Liquid glass is off by default** and can be enabled in the tour or Appearance settings.
-- **Old player**, **New mini player** with a **Live Mesh** background, and **Spicy Lyrics** are the starting appearance choices. Landscape scaling is enabled.
-- **Swipe to remove a song from a playlist is off by default**. Top, weekly-most-played and monthly-most-played automatic playlists start hidden.
-
-These defaults apply when a preference has not been saved; they do not overwrite your existing appearance choices.
-
----
-
-## 🆕 What's New in 1.1.1
-
-### Fixed
-
-- **Background playback** — fixes for disappearing mini-player/media controls and offline queues switching away from downloaded playback.
-- **Spotify artwork** — existing Spotify release artwork is preserved during YouTube playback matching.
-- **Playlist reordering** — drag songs using the handle; holding the song title or artwork no longer starts reordering.
-- **Lyrics wording and timing** — preserves full wording and handles defective word timing more reliably.
-- **Account and room cleanup** — improved account deletion, listener membership/vote cleanup, and host room closure.
-
-### Added
-
-- **Playlist downloads** with progress, folder display and removal controls.
-- **Playlist order locking**, listening statistics and Speed Dial support.
-- **YouTube account and playlist picker** in the import screen.
-- **Listen Together cleanup retries** and warnings before alone/idle rooms close.
-
-### Improved
-
-- **Search and imports** — selected ranking improvements, stable playlist identity and identifiable Shorts filtering.
-- **Lyrics presentation** — scrolling, alignment, blur and re-sync improvements.
-- **Interface** — player, profile, playlist and floating notification updates.
-- **Account isolation** and cloud cleanup coordination.
-
-[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.1.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.1-rebuilt)
-
-### 📦 Current universal APK (~25 MB)
-The 1.1.1 APK supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
+The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
 
 ## What's New in 1.1.0
 
@@ -294,7 +235,7 @@ The app itself is native **Jetpack Compose** and **AndroidX Media3**, shrunk wit
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-Download `Auralis-v1.1.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
+Download `Auralis-v1.1.2-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
 </details>
 
 <details>
