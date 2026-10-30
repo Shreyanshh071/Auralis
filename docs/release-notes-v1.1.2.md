@@ -4,6 +4,10 @@ The biggest Android update since 1.1.0: a new look across the app, three player 
 
 ## Added
 
+### Liquid Glass
+
+- **New in 1.1.2: Liquid Glass** — a see-through glass look for the dock, mini player, page buttons, sheets and menus. It works on dark themes only, so the toggle is greyed out in light mode. Turn it on in the tour or in Appearance.
+
 ### Player
 
 - **Three player designs** — choose between New, Old and Immersive. Immersive has full-bleed artwork, auto-hiding controls and its own lyric fillers.
@@ -115,7 +119,6 @@ The biggest Android update since 1.1.0: a new look across the app, three player 
 
 ## Improved
 
-- **Liquid Glass** runs better, especially on lower-end phones. It is now dark mode only, so the toggle is greyed out in light mode.
 - **Theme changes** crossfade smoothly.
 - **Seeking across connected devices** — the latest position wins during repeated scrubbing.
 - **Startup** — the logo stays until the first frame is ready.
