@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -97,7 +97,48 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 
 ---
 
-## ✨ Features
+## ✨ Key Features
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+#### Playback
+
+- **Play anything available on YouTube Music** — search, browse and listen.
+- **Offline downloads** — save songs and whole playlists.
+- **Audio quality options** — choose Auto, High, Standard or Data Saver.
+- **Sleep timer** to stop playback when you're done.
+- **Background playback** with lock-screen and notification controls.
+
+#### Together & Accounts
+
+- **Listen Together** — join a room with a code and hear the same song with friends.
+- **Spotify integration** — sign in to bring over your playlists and Liked Songs.
+- **Playlist import** for Spotify and YouTube Music.
+- **Discord Rich Presence** — show your song, artist, cover and progress.
+- **Listening stats** — real listening time, top songs, top artists and Wrapped.
+
+</td>
+<td valign="top" width="50%">
+
+#### Lyrics
+
+- **Syllable-synced lyrics** — every word and syllable lights up as it's sung, with fluid animations that go well beyond standard animated lyrics. Sync and motion at this level are rarely found in a music player.
+- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com) and [Genius](https://genius.com).
+
+#### Experience
+
+- **Liquid Glass mode** — a see-through glass look for the dock, buttons, sheets and menus on dark themes.
+- **Animated album canvas** — motion artwork on the now-playing screen.
+- **Three player designs** — New, Old and Immersive.
+- **Artwork-driven colours** — the player takes its colours from the current song.
+
+</td>
+</tr>
+</table>
+
+### Everything in Detail
 
 ### 🌐 Listen Together (Real-Time Group Listening)
 - **Synchronized Playback Rooms**: Join with a 6-character code and listen together in real time. The host briefly holds each new song for guests to load, subject to a timeout, then coordinates playback.
@@ -108,13 +149,13 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 
 ### 🎨 Visual Excellence & Modern Aesthetics
 - **Artwork-Coloured Player**: The player background takes its colours from the current song's artwork.
-- **Frosted-Glass Sheets & Controls**: A blurred glass effect (Haze) on player sheets, dialogs and popups.
+- **Liquid Glass Mode**: An optional see-through glass look on dark themes, for the dock, page buttons, sheets and menus.
 - **Spring Animations & High Refresh Rate**: Spring-based motion throughout, with support for 90/120 Hz displays and cached artwork for smooth scrolling.
 - **High-Resolution Artwork & Artist Photos**: Album covers up to 1200×1200, with Wikipedia photos filled in for artists who have no picture (e.g. Kanye West).
 
 ### 📜 Multi-Engine Synced Lyrics Ecosystem
-- **Word-by-Word Karaoke Lyrics**: Timed lyrics can light up word by word; Hindi/Urdu lyrics can be shown in Latin script when transliteration is available.
-- **Multi-Source Lyrics**: Line-by-line and word-by-word synced lyrics, when available, from **Musixmatch**, **LRCLIB**, **KuGou**, **AMLL**, and **YouTube Music**.
+- **Syllable-Synced Karaoke Lyrics**: Timed lyrics light up word by word and syllable by syllable, in the script the source provides.
+- **Multi-Source Lyrics**: Auralis checks several sources and prefers the best timing available. See [Credits](#-credits) for the full list.
 - **AI Translation & Romanization**: One-tap AI translation to English and Latin-script romanization, including Pinyin and Romaji, for supported tracks.
 - **Spotify-Style Lyric Card Sharing**: Generate and export customizable aesthetic lyric cards directly to social media.
 - **Offline Caching**: Lyrics are saved once fetched, so they're available offline.
@@ -236,6 +277,20 @@ Fresh installs start with a starter set of songs from curated artists (*Tame Imp
 <br />
 
 > 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs.
+
+---
+
+## 🙏 Credits
+
+Auralis is built on the work of these projects and services:
+
+- **[Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics)** by Spikerko — syllable-synced lyrics, and the inspiration for the Spicy lyric style in Auralis.
+- **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**, **[Unison](https://unison.boidu.dev)** and **[LyricsPlus](https://github.com/ibratabian17/LyricsPlus)** — word-synced lyrics.
+- **[AMLL TTML Database](https://github.com/amll-dev/amll-ttml-db)** — community-made word-synced lyrics.
+- **[LRCLIB](https://lrclib.net)** — open, community-synced lyrics.
+- **[Paxsenix](https://lyrics.paxsenix.org)**, **[Musixmatch](https://www.musixmatch.com)**, **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)** and **[Genius](https://genius.com)** — lyrics.
+
+All lyrics and trademarks belong to their respective owners.
 
 ---
 
