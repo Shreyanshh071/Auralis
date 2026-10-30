@@ -60,7 +60,7 @@
     <string name="albums">Albumit</string>
     <string name="content">Sisältö</string>
     <string name="account">Tili</string>
-    <string name="enable_rich_presence">Tämä on Discord-integraatio-ominaisuus, se tarkoittaa vivimusic-toiminnan näyttämistä Discord-tililläsi</string>
+    <string name="enable_rich_presence">Tämä on Discord-integraatio-ominaisuus, se tarkoittaa Auralis-toiminnan näyttämistä Discord-tililläsi</string>
     <string name="preview">Esikatselu</string>
     <string name="privacy">Tietosuoja</string>
     <string name="listen_history">Kuunteluhistoria</string>

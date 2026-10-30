@@ -84,7 +84,7 @@
     <string name="my_top_list_length">Minu parimate lugude loendi pikkus</string>
     <string name="configure_proxy">Seadista proksiserverit</string>
     <string name="account">Kasutajakonto</string>
-    <string name="enable_rich_presence">Näita oma tegevust vivimusic rakenduses Discordi olekuteatena</string>
+    <string name="enable_rich_presence">Näita oma tegevust Auralis rakenduses Discordi olekuteatena</string>
     <string name="preview">Eelvaade</string>
     <string name="select_all">Vali kõik</string>
     <string name="privacy">Privaatsus</string>

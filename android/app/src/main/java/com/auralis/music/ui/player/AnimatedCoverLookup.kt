@@ -9,7 +9,7 @@ import java.net.URLEncoder
 
 /** Matching adapted from Auralis desktop; providers follow Vivi Music's motion artwork sources. */
 internal enum class CanvasSource(val label: String) {
-    AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), VIVI("Vivi Music library");
+    AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), VIVI("Curated library");
     companion object { fun from(value: String) = entries.firstOrNull { it.name == value } ?: AUTO }
 }
 
