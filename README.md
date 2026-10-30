@@ -109,6 +109,8 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Offline downloads** — save songs and whole playlists.
 - **Offline song cache** — songs you've played can replay without internet, up to a size you choose.
 - **Gapless playback** and **Spatial Audio**.
+- **Persistent queue** — your queue is still there when you reopen the app.
+- **Endless listening** — more songs load automatically when your queue is about to finish.
 - **Audio quality options** — choose Auto, High, Standard or Data Saver.
 - **Sleep timer** to stop playback when you're done.
 - **Background playback** with lock-screen and notification controls.
