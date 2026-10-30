@@ -107,9 +107,18 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 
 - **Play anything available on YouTube Music** — search, browse and listen.
 - **Offline downloads** — save songs and whole playlists.
+- **Offline song cache** — songs you've played can replay without internet, up to a size you choose.
+- **Gapless playback** and **Spatial Audio**.
 - **Audio quality options** — choose Auto, High, Standard or Data Saver.
 - **Sleep timer** to stop playback when you're done.
 - **Background playback** with lock-screen and notification controls.
+
+#### Discovery
+
+- **Smart search** — suggestions as you type, ranked by relevance and play counts.
+- **Music recognition** — identify songs playing around you.
+- **Personal Home and Speed Dial** — built from your real listening.
+- **Artist and album pages** — top songs, albums, singles and related artists.
 
 #### Together & Accounts
 
@@ -118,6 +127,7 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Playlist import** for Spotify and YouTube Music.
 - **Discord Rich Presence** — show your song, artist, cover and progress.
 - **Listening stats** — real listening time, top songs, top artists and Wrapped.
+- **Cloud sync** — back up your likes, playlists, artists, stats and settings with your account.
 
 </td>
 <td valign="top" width="50%">
@@ -127,69 +137,22 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Syllable-synced lyrics** — every word and syllable lights up as it's sung, with fluid animations that go well beyond standard animated lyrics. Sync and motion at this level are rarely found in a music player.
 - **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com), [Genius](https://genius.com) and [YouTube Music](https://music.youtube.com).
 
+- **AI translation and romanization**, including Pinyin and Romaji, for supported songs.
+- **Lyric cards** — share your favourite lines as images.
+- **Offline lyrics** — lyrics are saved once fetched.
+
 #### Experience
 
 - **Liquid Glass mode** — a see-through glass look for the dock, buttons, sheets and menus on dark themes.
 - **Animated album canvas** — motion artwork on the now-playing screen.
 - **Three player designs** — New, Old and Immersive.
 - **Artwork-driven colours** — the player takes its colours from the current song.
+- **High-resolution artwork** and smooth motion on 90/120 Hz displays.
+- **In-app updates** — download new versions right inside Auralis.
 
 </td>
 </tr>
 </table>
-
-### Everything in Detail
-
-### 🌐 Listen Together (Real-Time Group Listening)
-- **Synchronized Playback Rooms**: Join with a 6-character code and listen together in real time. The host briefly holds each new song for guests to load, subject to a timeout, then coordinates playback.
-- **Host Permissions**: Choose whether guests may control playback (play, pause, seek) and whether they may play or skip songs, with optional Allow / Decline approval for their picks.
-- **Dedicated Host Controls & Listener Protection**: Prevents accidental desync by blocking listener playback alterations from Bluetooth earphones, TWS touch gestures, or lockscreen controls while keeping volume independent.
-- **Smart Song Recommendations & Voting**: Room members can search, recommend, and upvote songs in a shared room queue.
-- **Member Presence Alerts**: A small notification when friends join, leave or disconnect.
-
-### 🎨 Visual Excellence & Modern Aesthetics
-- **Artwork-Coloured Player**: The player background takes its colours from the current song's artwork.
-- **Liquid Glass Mode**: An optional see-through glass look on dark themes, for the dock, page buttons, sheets and menus.
-- **Spring Animations & High Refresh Rate**: Spring-based motion throughout, with support for 90/120 Hz displays and cached artwork for smooth scrolling.
-- **High-Resolution Artwork & Artist Photos**: Album covers up to 1200×1200, with Wikipedia photos filled in for artists who have no picture (e.g. Kanye West).
-
-### 📜 Multi-Engine Synced Lyrics Ecosystem
-- **Syllable-Synced Karaoke Lyrics**: Timed lyrics light up word by word and syllable by syllable, in the script the source provides.
-- **Multi-Source Lyrics**: Auralis checks several sources and prefers the best timing available. See [Credits](#-credits) for the full list.
-- **AI Translation & Romanization**: One-tap AI translation to English and Latin-script romanization, including Pinyin and Romaji, for supported tracks.
-- **Spotify-Style Lyric Card Sharing**: Generate and export customizable aesthetic lyric cards directly to social media.
-- **Offline Caching**: Lyrics are saved once fetched, so they're available offline.
-
-### 🎧 Playback
-- **Background Playback**: Keeps playing with the screen off, using a foreground `MediaSessionService` with wake and Wi-Fi locks.
-- **Android 13/14 Quick Settings & Lock-Screen Deck**: Native system media card featuring monochrome app badge, interactive scrub seekbar, previous/next controls, like/heart toggle, and repeat modes.
-- **Offline Song Cache**: Cached audio is kept on your phone up to a size you choose; fully cached tracks can replay offline.
-- **Offline Downloads & Local Library**: Download songs and whole playlists for offline playback, with Auto / High / Low audio quality (High is Opus up to ~160 kbps).
-- **Gapless Playback & Spatial Audio**: The next song is preloaded for gapless transitions, and a Spatial Audio switch widens the soundstage.
-
-### 🔍 Discovery, Search & Music Recognition
-- **Search & Autocomplete**: Suggestions as you type, across songs, albums, artists and playlists.
-- **Ranked Search**: Results use query relevance and available play counts. An album and a song with the same name can be weighed against each other, with the runner-up under **Also matching**.
-- **Album Metadata Resolution**: "View album" tries to find a song's original release instead of a compilation and identifies standalone singles where metadata allows.
-- **Music & Voice Recognition**: Identify songs playing around you using built-in Shazam-compatible acoustic fingerprinting.
-- **Taste Profiler & Speed Dial**: Personalized home feed tailored to your real listening habits, heavy rotation, and top-played artists.
-- **Artist Pages**: Artist bios, subscriber counts, top tracks, albums, singles, and related artists where the source provides them.
-
-### ☁️ Cloud Sync & Playlist Importer
-- **Playlist Import**: Paste a public Spotify or YouTube playlist link to add it to your library.
-- **Google Account & Firebase Sync**: Back up your liked songs, playlists, saved artists and listening stats; restore them after signing in on a new phone when a backup is available.
-
-### 📊 Listening Stats
-- **Real Listening Time**: Only what you actually heard counts; skips don't add a whole song.
-- **Top Songs & Artists**: Weekly, monthly and yearly views, with duplicate-upload matching to reduce split counts for the same song.
-
-### 🎮 Discord Rich Presence
-- **Show What You're Playing**: Song, artist, album art and progress on your Discord profile via Discord's official Social SDK.
-- **Fully Customizable**: Activity name, details, images, status and update interval; seeking updates Discord right away.
-
-### 🔄 In-App Direct OTA Updater
-- **Update Notifications**: Checks GitHub Releases and tells you when a new version is out.
-- **In-App Background Download & Install**: Download APK updates with a progress bar, then open Android's installer. Android may ask you to allow installs from this app and confirm the update.
 
 ---
 
