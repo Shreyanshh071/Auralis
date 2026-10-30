@@ -1058,7 +1058,24 @@ class SearchRepositoryImpl(
         return finalTracks
     }
 
-    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> =
+        fetchAlbumTracks(album).withAlbumCover(album)
+
+    /**
+     * Album pages list their songs without art, and the video frame YouTube has instead is a
+     * wide crop of the cover: it shows up zoomed in the player. Every song gets the album's own.
+     */
+    private fun List<Track>.withAlbumCover(album: PlaylistResult): List<Track> {
+        val isPlaylist = album.id.startsWith("artist_top_songs:") || album.id.startsWith("VL") || album.id.startsWith("PL")
+        val cover = album.thumbnail?.takeIf { it.isNotBlank() && !isVideoFrame(it) }
+        if (isPlaylist || cover == null) return this
+        return map { if (it.thumbnail.isBlank() || isVideoFrame(it.thumbnail)) it.copy(thumbnail = cover) else it }
+    }
+
+    private fun isVideoFrame(url: String): Boolean =
+        url.contains("i.ytimg.com") || url.contains("img.youtube.com")
+
+    private suspend fun fetchAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
         try {
             // 0. If this is an artist Top Songs collection
             if (album.id.startsWith("artist_top_songs:")) {

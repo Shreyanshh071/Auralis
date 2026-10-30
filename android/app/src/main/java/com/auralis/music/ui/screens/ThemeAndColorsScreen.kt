@@ -236,16 +236,22 @@ fun ThemeAndColorsScreen(
     val surfaceColor = MaterialTheme.dynamicSurface
     val onBackground = MaterialTheme.dynamicOnBackground
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(backgroundColor)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+    val rootView = androidx.compose.ui.platform.LocalView.current
+    val setLiquidGlass = { enabled: Boolean ->
+        com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) { onUpdateSettings(settings.copy(liquidGlass = enabled)) }
+    }
+
+    com.auralis.music.ui.glass.OptionalGlassPage(
+        background = backgroundColor,
+        accent = MaterialTheme.dynamicPrimary,
+        modifier = modifier.fillMaxSize().background(backgroundColor),
+        glowWithoutGlass = true
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -261,8 +267,7 @@ fun ThemeAndColorsScreen(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(surfaceColor)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), CircleShape)
+                        .background(onBackground.copy(alpha = .08f))
                         .tactileBounce()
                         .clickable { onBack() },
                     contentAlignment = Alignment.Center
@@ -543,10 +548,10 @@ fun ThemeAndColorsScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── 2. THEME MODE SELECTOR ──
-            Surface(
+            com.auralis.music.ui.glass.OptionalGlassCard(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                border = null,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -655,10 +660,10 @@ fun ThemeAndColorsScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ── 3. HORIZONTALLY SCROLLABLE COLOR PALETTE SELECTOR ──
-            Surface(
+            com.auralis.music.ui.glass.OptionalGlassCard(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                border = null,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -749,16 +754,16 @@ fun ThemeAndColorsScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ── 4. LIQUID GLASS ──
-            Surface(
+            com.auralis.music.ui.glass.OptionalGlassCard(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                onClick = { onUpdateSettings(settings.copy(liquidGlass = !settings.liquidGlass)) },
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                border = null,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable { setLiquidGlass(!settings.liquidGlass) }
                         .padding(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -783,7 +788,7 @@ fun ThemeAndColorsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     androidx.compose.material3.Switch(
                         checked = settings.liquidGlass,
-                        onCheckedChange = { onUpdateSettings(settings.copy(liquidGlass = it)) }
+                        onCheckedChange = { setLiquidGlass(it) }
                     )
                 }
             }

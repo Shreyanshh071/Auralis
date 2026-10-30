@@ -176,6 +176,13 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         return state.currentIndex >= (state.queue.size - threshold)
     }
 
+    /**
+     * The track to preload for a gapless handover. Repeat-one has none: a preloaded neighbour
+     * plays on when the song ends, while the queue stays on the repeating track.
+     */
+    fun gaplessNextTrack(): Track? =
+        if (state.repeatMode == RepeatMode.ONE) null else state.queue.getOrNull(state.currentIndex + 1)
+
     fun nextIndex(isUserSkip: Boolean = false): Int? {
         val q = state.queue
         if (q.isEmpty()) return null

@@ -1342,4 +1342,18 @@
     <string name="connect_presence_channel">Auralis Connect</string>
     <string name="connect_presence_title">Available on your devices</string>
     <string name="connect_presence_description">Ready to receive music. Close Auralis from Recents to disconnect.</string>
+    <string name="latest_album">Latest album</string>
+    <string name="latest_single">Latest single</string>
+    <string name="pin_to_library">Pin to Library</string>
+    <string name="unpin_from_library">Unpin from Library</string>
+    <string name="settings_hint_appearance">Theme, player and lyrics style</string>
+    <string name="settings_hint_player">Quality, gapless and queue</string>
+    <string name="settings_hint_content">Catalog, language and proxy</string>
+    <string name="settings_hint_imported_lyrics">Lyrics you added yourself</string>
+    <string name="settings_hint_ai_lyrics">Provider, model and language</string>
+    <string name="settings_hint_privacy">History and screenshots</string>
+    <string name="settings_hint_storage">Downloads and cache</string>
+    <string name="settings_hint_updater">Version and update checks</string>
+    <string name="settings_hint_system">Permissions and app info</string>
+    <string name="settings_hint_about">Version and credits</string>
 </resources>

@@ -10,21 +10,14 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
-import com.auralis.music.ui.theme.dynamicSurface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +41,6 @@ import com.auralis.music.util.StorageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.auralis.music.ui.components.bottomChromePadding
 
 @Composable
 fun StorageSettingsScreen(
@@ -84,10 +76,7 @@ fun StorageSettingsScreen(
         refreshStorageMetrics()
     }
 
-    val onBackground = MaterialTheme.colorScheme.onBackground
     val primaryColor = MaterialTheme.dynamicPrimary
-    val backgroundColor = MaterialTheme.dynamicBackground
-    val surfaceColor = MaterialTheme.dynamicSurface
 
     // Song cache steps: 512 MB, 1.1 GB, 2.2 GB, 5.5 GB, 11 GB, Unlimited (22 GB)
     val songCacheOptions = remember {
@@ -122,362 +111,139 @@ fun StorageSettingsScreen(
         if (idx >= 0) idx else 2 // Default 537 MB
     }
 
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = backgroundColor
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
-                        tint = onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = str(R.string.storage),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 21.sp
+    SettingsPage(title = str(R.string.storage), onBack = onDismiss, modifier = modifier) {
+        // 1. STORAGE (DOWNLOADS)
+        item {
+            SettingsGroup(str(R.string.storage)) {
+                // Downloaded Songs
+                SettingsRow(
+                    icon = Icons.Default.Storage,
+                    title = str(R.string.downloaded_songs),
+                    subtitle = StorageUtils.formatBytes(downloadedBytes),
+                    onClick = {
+                        refreshStorageMetrics()
+                    }
+                )
+
+                // Clear all downloads
+                SettingsRow(
+                    icon = Icons.Default.DeleteOutline,
+                    title = str(R.string.clear_all_downloads),
+                    subtitle = null,
+                    onClick = {
+                        showClearDownloadsConfirm = true
+                    }
                 )
             }
+        }
 
-            // ── STORAGE SETTINGS LIST ──
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = bottomChromePadding(includeNavigationBar = false),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                // 1. STORAGE (DOWNLOADS)
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.storage),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-                        )
-
-                        // Downloaded Songs
-                        StorageActionCard(
-                            icon = Icons.Default.Storage,
-                            title = str(R.string.downloaded_songs),
-                            subtitle = StorageUtils.formatBytes(downloadedBytes),
-                            onClick = {
-                                refreshStorageMetrics()
-                            }
-                        )
-
-                        // Clear all downloads
-                        StorageActionCard(
-                            icon = Icons.Default.DeleteOutline,
-                            title = str(R.string.clear_all_downloads),
-                            subtitle = null,
-                            onClick = {
-                                showClearDownloadsConfirm = true
-                            }
-                        )
-                    }
-                }
-
-                // 2. SONG CACHE
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.song_cache),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-                        )
-
-                        // Enable song cache switch
-                        StorageToggleCard(
-                            icon = Icons.Default.Autorenew,
-                            title = str(R.string.enable_song_cache),
-                            subtitle = str(R.string.automatically_cache_songs_for_faster_fut),
-                            checked = settings.songCacheEnabled,
-                            onCheckedChange = { isChecked ->
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                scope.launch {
-                                    dataStore.setSongCacheEnabled(isChecked)
-                                }
-                            }
-                        )
-
-                        // Max song cache size slider
-                        AnimatedVisibility(visible = settings.songCacheEnabled) {
-                            StorageStepSliderCard(
-                                icon = Icons.Default.Autorenew,
-                                title = str(R.string.max_song_cache_size),
-                                options = songCacheOptions,
-                                currentStep = currentSongCacheIndex,
-                                onStepChange = { newStep ->
-                                    val sizeMb = songCacheOptions[newStep].first
-                                    scope.launch(Dispatchers.IO) {
-                                        dataStore.setMaxSongCacheSizeMb(sizeMb)
-                                    }
-                                },
-                                usedBytes = songCacheBytes,
-                                maxBytes = songCacheOptions[currentSongCacheIndex].first * 1024L * 1024L
-                            )
+        // 2. SONG CACHE
+        item {
+            SettingsGroup(str(R.string.song_cache)) {
+                // Enable song cache switch
+                SettingsSwitchRow(
+                    icon = Icons.Default.Autorenew,
+                    title = str(R.string.enable_song_cache),
+                    subtitle = str(R.string.automatically_cache_songs_for_faster_fut),
+                    checked = settings.songCacheEnabled,
+                    onCheckedChange = { isChecked ->
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        scope.launch {
+                            dataStore.setSongCacheEnabled(isChecked)
                         }
-
-                        // Clear song cache
-                        StorageActionCard(
-                            icon = Icons.Default.DeleteSweep,
-                            title = str(R.string.clear_song_cache),
-                            subtitle = null,
-                            onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                                scope.launch(Dispatchers.IO) {
-                                    val freed = StorageUtils.clearSongCache(context)
-                                    val freedStr = StorageUtils.formatBytes(freed)
-                                    withContext(Dispatchers.Main) {
-                                        refreshStorageMetrics()
-                                        Toast.makeText(context, str(R.string.song_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        )
                     }
+                )
+
+                // Max song cache size slider
+                AnimatedVisibility(visible = settings.songCacheEnabled) {
+                    StorageStepSliderCard(
+                        icon = Icons.Default.Autorenew,
+                        title = str(R.string.max_song_cache_size),
+                        options = songCacheOptions,
+                        currentStep = currentSongCacheIndex,
+                        onStepChange = { newStep ->
+                            val sizeMb = songCacheOptions[newStep].first
+                            scope.launch(Dispatchers.IO) {
+                                dataStore.setMaxSongCacheSizeMb(sizeMb)
+                            }
+                        },
+                        usedBytes = songCacheBytes,
+                        maxBytes = songCacheOptions[currentSongCacheIndex].first * 1024L * 1024L
+                    )
                 }
 
-                // 3. IMAGE CACHE
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.image_cache),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-                        )
-
-                        // Max image cache size slider
-                        StorageStepSliderCard(
-                            icon = Icons.Default.ImageSearch,
-                            title = str(R.string.max_image_cache_size),
-                            options = imageCacheOptions,
-                            currentStep = currentImageCacheIndex,
-                            onStepChange = { newStep ->
-                                val sizeMb = imageCacheOptions[newStep].first
-                                scope.launch(Dispatchers.IO) {
-                                    dataStore.setMaxImageCacheSizeMb(sizeMb)
-                                }
-                            },
-                            usedBytes = imageCacheBytes,
-                            maxBytes = imageCacheOptions[currentImageCacheIndex].first * 1024L * 1024L
-                        )
-
-                        // Clear image cache
-                        StorageActionCard(
-                            icon = Icons.Default.DeleteSweep,
-                            title = str(R.string.clear_image_cache),
-                            subtitle = null,
-                            onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                                scope.launch(Dispatchers.IO) {
-                                    val freed = StorageUtils.clearImageCache(context)
-                                    val freedStr = StorageUtils.formatBytes(freed)
-                                    withContext(Dispatchers.Main) {
-                                        refreshStorageMetrics()
-                                        Toast.makeText(context, str(R.string.image_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+                // Clear song cache
+                SettingsRow(
+                    icon = Icons.Default.DeleteSweep,
+                    title = str(R.string.clear_song_cache),
+                    subtitle = null,
+                    onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        scope.launch(Dispatchers.IO) {
+                            val freed = StorageUtils.clearSongCache(context)
+                            val freedStr = StorageUtils.formatBytes(freed)
+                            withContext(Dispatchers.Main) {
+                                refreshStorageMetrics()
+                                Toast.makeText(context, str(R.string.song_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
                             }
-                        )
+                        }
                     }
-                }
+                )
+            }
+        }
+
+        // 3. IMAGE CACHE
+        item {
+            SettingsGroup(str(R.string.image_cache)) {
+                // Max image cache size slider
+                StorageStepSliderCard(
+                    icon = Icons.Default.ImageSearch,
+                    title = str(R.string.max_image_cache_size),
+                    options = imageCacheOptions,
+                    currentStep = currentImageCacheIndex,
+                    onStepChange = { newStep ->
+                        val sizeMb = imageCacheOptions[newStep].first
+                        scope.launch(Dispatchers.IO) {
+                            dataStore.setMaxImageCacheSizeMb(sizeMb)
+                        }
+                    },
+                    usedBytes = imageCacheBytes,
+                    maxBytes = imageCacheOptions[currentImageCacheIndex].first * 1024L * 1024L
+                )
+
+                // Clear image cache
+                SettingsRow(
+                    icon = Icons.Default.DeleteSweep,
+                    title = str(R.string.clear_image_cache),
+                    subtitle = null,
+                    onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        scope.launch(Dispatchers.IO) {
+                            val freed = StorageUtils.clearImageCache(context)
+                            val freedStr = StorageUtils.formatBytes(freed)
+                            withContext(Dispatchers.Main) {
+                                refreshStorageMetrics()
+                                Toast.makeText(context, str(R.string.image_cache_cleared_x_freed, freedStr), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                )
             }
         }
     }
 
     // ── CONFIRMATION DIALOG: CLEAR ALL DOWNLOADS ──
     if (showClearDownloadsConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearDownloadsConfirm = false },
-            title = { Text(str(R.string.clear_all_downloads_3), fontWeight = FontWeight.Bold) },
-            text = { Text(str(R.string.this_will_permanently_delete_all_downloa), fontSize = 14.sp) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.clear_all_downloads_3),
+            message = str(R.string.this_will_permanently_delete_all_downloa),
+            confirmLabel = str(R.string.clear_all),
+            onDismiss = { showClearDownloadsConfirm = false },
+            onConfirm = {
                         showClearDownloadsConfirm = false
                         AuralisDownloadManager.clearAllDownloads()
                         refreshStorageMetrics()
-                    }
-                ) {
-                    Text(str(R.string.clear_all), color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDownloadsConfirm = false }) {
-                    Text(str(R.string.cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    }
-}
-
-@Composable
-private fun StorageActionCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String?,
-    onClick: () -> Unit
-) {
-    val cardShape = RoundedCornerShape(18.dp)
-    val cardBg = MaterialTheme.colorScheme.surface
-    val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(cardShape)
-            .background(cardBg)
-            .border(1.dp, cardBorder, cardShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(iconBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 15.sp
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StorageToggleCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    val cardShape = RoundedCornerShape(18.dp)
-    val cardBg = MaterialTheme.colorScheme.surface
-    val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(cardShape)
-            .background(cardBg)
-            .border(1.dp, cardBorder, cardShape)
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(iconBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 15.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            thumbContent = if (checked) {
-                {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(SwitchDefaults.IconSize),
-                        tint = Color.Black
-                    )
-                }
-            } else null,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
+                    },
         )
     }
 }
@@ -494,10 +260,7 @@ private fun StorageStepSliderCard(
 ) {
     val density = LocalDensity.current
     val view = LocalView.current
-    val cardShape = RoundedCornerShape(18.dp)
-    val cardBg = MaterialTheme.colorScheme.surface
     val iconBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val primaryColor = MaterialTheme.colorScheme.primary
     val trackBgColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
 
@@ -515,10 +278,7 @@ private fun StorageStepSliderCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(cardShape)
-            .background(cardBg)
-            .border(1.dp, cardBorder, cardShape)
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         // Header Row: Icon + Title + Value Label
         Row(

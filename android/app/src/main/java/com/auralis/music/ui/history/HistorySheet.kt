@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,6 +74,8 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.domain.recommendations.TrackDeduplicator
 import com.auralis.music.ui.components.bottomChromePadding
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 val HISTORY_LIME: Color
     @Composable get() = MaterialTheme.dynamicPrimary
@@ -82,7 +84,7 @@ val HISTORY_CARD_BG: Color
 
 /**
  * Fullscreen Listening History Sheet opened from the top header history button.
- * Lists all played songs without timestamps, clear history, and instant play.
+ * Lists played songs by day under a pinned bar, with clear history and instant play.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,102 +102,58 @@ fun HistorySheet(
     modifier: Modifier = Modifier
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val privacyDataStore = remember { PrivacyDataStore(context) }
+    val privacySettings by privacyDataStore.settingsFlow.collectAsState(initial = PrivacySettings())
+    val pageBackground = MaterialTheme.dynamicBackground
+    // Records the list alone, for the frost under the pinned bar.
+    val listBackdrop = rememberLayerBackdrop()
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.dynamicBackground)
-            .statusBarsPadding()
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── TOP BAR (WITH SAFE INSETS & PROPER SPACING) ──
+    val pausedBanner: @Composable (Modifier) -> Unit = { bannerModifier ->
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+            modifier = bannerModifier
+                .fillMaxWidth()
+                .clickable {
+                    coroutineScope.launch {
+                        privacyDataStore.setPauseListenHistory(false)
+                    }
+                }
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = str(R.string.close),
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Text(
-                        text = str(R.string.listening_history),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 22.sp
-                    )
-                }
-
-                if (history.isNotEmpty()) {
-                    IconButton(
-                        onClick = { showClearDialog = true },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = str(R.string.clear_history),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.PauseCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = str(R.string.history_is_paused_in_privacy_settings_ta),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
+        }
+    }
 
-            val context = LocalContext.current
-            val coroutineScope = rememberCoroutineScope()
-            val privacyDataStore = remember { PrivacyDataStore(context) }
-            val privacySettings by privacyDataStore.settingsFlow.collectAsState(initial = PrivacySettings())
-
-            if (privacySettings.pauseListenHistory) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clickable {
-                            coroutineScope.launch {
-                                privacyDataStore.setPauseListenHistory(false)
-                            }
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PauseCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = str(R.string.history_is_paused_in_privacy_settings_ta),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
-
-            if (history.isEmpty()) {
+    com.auralis.music.ui.glass.OptionalGlassPage(
+        background = pageBackground,
+        accent = HISTORY_LIME,
+        modifier = modifier.fillMaxSize().background(pageBackground),
+        glowWithoutGlass = true
+    ) {
+    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+        if (history.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(top = HistoryBarHeight)) {
+                if (privacySettings.pauseListenHistory) pausedBanner(Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -207,7 +165,7 @@ fun HistorySheet(
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                .background(HISTORY_LIME.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -232,150 +190,203 @@ fun HistorySheet(
                         )
                     }
                 }
-            } else {
-                val trackList = history.map { it.track }
-                val currentTrackFp = remember(currentTrack) { currentTrack?.let { TrackDeduplicator.getSongFingerprint(it) } }
+            }
+        } else {
+            val currentTrackFp = remember(currentTrack) { currentTrack?.let { TrackDeduplicator.getSongFingerprint(it) } }
+            val days = remember(history) { history.groupBy { startOfDay(it.playedAt) }.toList() }
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().layerBackdrop(listBackdrop),
+                contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = HistoryBarHeight + 2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                item(key = "history_summary", contentType = "summary") {
+                    Column(Modifier.padding(start = 4.dp, bottom = 6.dp)) {
+                        Text(
+                            text = str(R.string.listening_history),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 30.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        if (privacySettings.pauseListenHistory) pausedBanner(Modifier.padding(bottom = 10.dp))
                         Text(
                             text = str(R.string.x_recently_played_songs, history.size),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
 
-                    items(history, key = { "${it.track.id}_${it.playedAt}" }) { entry ->
+                days.forEach { (day, entries) ->
+                    item(key = "history_day_$day", contentType = "day") {
+                        Text(
+                            text = remember(day) { dayLabel(day) },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = HISTORY_LIME,
+                            fontSize = 17.sp,
+                            modifier = Modifier.animateItem().padding(start = 4.dp, top = 14.dp, bottom = 8.dp)
+                        )
+                    }
+                    itemsIndexed(
+                        items = entries,
+                        key = { _, entry -> "${entry.track.id}_${entry.playedAt}" },
+                        contentType = { _, _ -> "song" }
+                    ) { index, entry ->
                         val track = entry.track
-                        val isCurrent = track.id == currentTrackId ||
-                                (currentTrackFp != null && TrackDeduplicator.isDuplicateSong(TrackDeduplicator.getSongFingerprint(track), currentTrackFp, matchAlternateVersions = true))
-
-                        SwipeableTrackContainer(
+                        HistoryRow(
+                            // Playing a song moves it to the top: it fades out here, in there, and
+                            // the rows between slide over instead of snapping.
+                            modifier = Modifier.animateItem(),
+                            entry = entry,
+                            isFirst = index == 0,
+                            isLast = index == entries.lastIndex,
+                            isCurrent = track.id == currentTrackId ||
+                                (currentTrackFp != null && TrackDeduplicator.isDuplicateSong(TrackDeduplicator.getSongFingerprint(track), currentTrackFp, matchAlternateVersions = true)),
+                            isPlaying = isPlaying,
+                            onClick = { onTrackClick(track, listOf(track)) },
+                            onRemove = { onRemoveFromHistory(track.id) },
                             onPlayNext = onPlayNext?.let { { it(track) } },
                             onAddToQueue = onAddToQueue?.let { { it(track) } }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(if (isCurrent) HISTORY_LIME.copy(alpha = 0.12f) else HISTORY_CARD_BG)
-                                    .border(
-                                        1.dp,
-                                        if (isCurrent) HISTORY_LIME.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
-                                        RoundedCornerShape(14.dp)
-                                    )
-                                    .clickable { onTrackClick(track, listOf(track)) }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    sizeToConstraints = true,
-                                    url = track.thumbnail,
-                                    modifier = Modifier.size(52.dp),
-                                    cornerRadius = 10.dp,
-                                    contentDescription = track.title
-                                )
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = track.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                        color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = track.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                if (isCurrent) {
-                                    EqualizerBars(
-                                        isPlaying = isPlaying,
-                                        modifier = Modifier.size(18.dp),
-                                        color = HISTORY_LIME
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                }
-
-                                IconButton(
-                                    onClick = { onRemoveFromHistory(track.id) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = str(R.string.remove),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
+                        )
                     }
                 }
             }
         }
+        // Pinned over the list with no bar around them. A heavy frost keeps covers passing behind
+        // from flashing through.
+        com.auralis.music.ui.glass.FloatingPageButton(
+            Icons.Default.Close, str(R.string.close), listBackdrop,
+            Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp), onDismiss
+        )
+        if (history.isNotEmpty()) {
+            com.auralis.music.ui.glass.FloatingPageButton(
+                Icons.Default.DeleteOutline, str(R.string.clear_history), listBackdrop,
+                Modifier.align(Alignment.TopEnd).padding(end = 14.dp, top = 12.dp)
+            ) { showClearDialog = true }
+        }
+    }
     }
 
     // ── CLEAR HISTORY CONFIRMATION DIALOG ──
     if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(24.dp),
-            title = {
-                Text(
-                    text = str(R.string.clear_listening_history),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 20.sp
-                )
-            },
-            text = {
-                Text(
-                    text = str(R.string.this_will_remove_all_played_tracks_from),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.clear_listening_history),
+            message = str(R.string.this_will_remove_all_played_tracks_from),
+            confirmLabel = str(R.string.clear_history),
+            onDismiss = { showClearDialog = false },
+            onConfirm = {
                         onClearHistory()
                         showClearDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFEF4444),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(str(R.string.clear_history), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showClearDialog = false },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(str(R.string.cancel), color = HISTORY_LIME, fontWeight = FontWeight.SemiBold)
-                }
-            }
         )
+    }
+}
+
+private val HistoryBarHeight = 72.dp
+
+private fun startOfDay(timeMs: Long): Long = java.util.Calendar.getInstance().apply {
+    timeInMillis = timeMs
+    set(java.util.Calendar.HOUR_OF_DAY, 0)
+    set(java.util.Calendar.MINUTE, 0)
+    set(java.util.Calendar.SECOND, 0)
+    set(java.util.Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+/** "Today", "Yesterday", then the date, in the phone's language. */
+private fun dayLabel(dayStartMs: Long): String = android.text.format.DateUtils.getRelativeTimeSpanString(
+    dayStartMs,
+    System.currentTimeMillis(),
+    android.text.format.DateUtils.DAY_IN_MILLIS,
+    android.text.format.DateUtils.FORMAT_ABBREV_MONTH
+).toString()
+
+/** Rows join into one rounded card per day. A soft tint, because a list of glass cards stutters. */
+@Composable
+private fun HistoryRow(
+    modifier: Modifier = Modifier,
+    entry: HistoryEntry,
+    isFirst: Boolean,
+    isLast: Boolean,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    onPlayNext: (() -> Unit)?,
+    onAddToQueue: (() -> Unit)?
+) {
+    val track = entry.track
+    val context = LocalContext.current
+    val playedTime = remember(entry.playedAt) {
+        android.text.format.DateUtils.formatDateTime(context, entry.playedAt, android.text.format.DateUtils.FORMAT_SHOW_TIME)
+    }
+    val shape = remember(isFirst, isLast) {
+        RoundedCornerShape(
+            topStart = if (isFirst) 22.dp else 6.dp,
+            topEnd = if (isFirst) 22.dp else 6.dp,
+            bottomStart = if (isLast) 22.dp else 6.dp,
+            bottomEnd = if (isLast) 22.dp else 6.dp
+        )
+    }
+    val fill = if (isCurrent) HISTORY_LIME.copy(alpha = 0.14f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f)
+    Box(modifier) {
+    SwipeableTrackContainer(onPlayNext = onPlayNext, onAddToQueue = onAddToQueue) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(fill)
+                .clickable(onClick = onClick)
+                .padding(start = 10.dp, top = 9.dp, bottom = 9.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                sizeToConstraints = true,
+                url = track.thumbnail,
+                modifier = Modifier.size(54.dp),
+                cornerRadius = 12.dp,
+                contentDescription = track.title
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCurrent) HISTORY_LIME else MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${track.artist} · $playedTime",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (isCurrent) {
+                EqualizerBars(
+                    isPlaying = isPlaying,
+                    modifier = Modifier.size(18.dp),
+                    color = HISTORY_LIME
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = str(R.string.remove),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
     }
 }

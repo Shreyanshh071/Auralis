@@ -7,11 +7,9 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -32,10 +30,8 @@ import com.auralis.music.ui.components.ArtworkCard
 
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
-import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
-import com.auralis.music.ui.components.bottomChromePadding
 
 private const val GITHUB_REPO_URL = "https://github.com/Shreyanshh071/Auralis"
 private const val AURALIS_WEBSITE_URL = "https://auralis-self-nu.vercel.app/"
@@ -71,394 +67,356 @@ fun AboutScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = str(R.string.about),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        ),
-                        color = onBackground
+    SettingsPage(title = str(R.string.about), onBack = onDismiss) {
+        // ── 1. APP HERO HEADER ──
+        item(key = "about_hero") {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Circular App Logo with Dark Container
+                Box(
+                    modifier = Modifier
+                        .size(118.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF141414))
+                        .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_auralis_logo),
+                        contentDescription = str(R.string.auralis_logo),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = onBackground
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // App Title
+                Text(
+                    text = str(R.string.auralis),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = onBackground,
+                    fontSize = 28.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Version Tags / Pills
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val currentVersion = remember { com.auralis.music.data.network.UpdateChecker.getCurrentVersion(context) }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = currentVersion,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                            fontSize = 11.sp
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = backgroundColor
-                )
-            )
-        },
-        containerColor = backgroundColor
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-            contentPadding = bottomChromePadding(top = 16.dp, includeNavigationBar = false)
-        ) {
-            // ── 1. APP HERO HEADER ──
-            item(key = "about_hero") {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "UNIVERSAL",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Social Icons Row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SocialDrawableIconButton(
+                        drawableRes = R.drawable.ic_github,
+                        contentDescription = str(R.string.github),
+                        onClick = { openUrl(GITHUB_REPO_URL) }
+                    )
+
+                    SocialIconButton(
+                        icon = Icons.Default.Language,
+                        contentDescription = str(R.string.website),
+                        onClick = { openUrl(AURALIS_WEBSITE_URL) }
+                    )
+
+                    SocialIconButton(
+                        icon = Icons.Default.LocalCafe,
+                        contentDescription = str(R.string.buy_me_a_chai),
+                        onClick = { openUrl(BUY_ME_A_CHAI_URL) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                // Action Buttons Row (Buy Me a Chai & Check for Updates)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { openUrl(BUY_ME_A_CHAI_URL) },
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = onBackground
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalCafe,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = str(R.string.buy_me_a_chai),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onNavigateToUpdater,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = onBackground
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                    ) {
+                        Text(
+                            text = str(R.string.check_for_updates),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 2. LEAD DEVELOPER SECTION ──
+        item(key = "about_lead_developer") {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header with accent divider line
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Circular App Logo with Dark Container
-                    Box(
-                        modifier = Modifier
-                            .size(118.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF141414))
-                            .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_auralis_logo),
-                            contentDescription = str(R.string.auralis_logo),
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // App Title
                     Text(
-                        text = str(R.string.auralis),
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = str(R.string.lead_developer),
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = onBackground,
-                        fontSize = 28.sp
+                        color = primaryColor,
+                        fontSize = 15.sp
                     )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+                }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Version Tags / Pills
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                // Lead Developer Card
+                com.auralis.music.ui.glass.OptionalGlassCard(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                    border = null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        val currentVersion = remember { com.auralis.music.data.network.UpdateChecker.getCurrentVersion(context) }
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-                        ) {
-                            Text(
-                                text = currentVersion,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                fontSize = 11.sp
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-                        ) {
-                            Text(
-                                text = "UNIVERSAL",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Social Icons Row
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SocialDrawableIconButton(
-                            drawableRes = R.drawable.ic_github,
-                            contentDescription = str(R.string.github),
-                            onClick = { openUrl(GITHUB_REPO_URL) }
-                        )
-
-                        SocialIconButton(
-                            icon = Icons.Default.Language,
-                            contentDescription = str(R.string.website),
-                            onClick = { openUrl(AURALIS_WEBSITE_URL) }
-                        )
-
-                        SocialIconButton(
-                            icon = Icons.Default.LocalCafe,
-                            contentDescription = str(R.string.buy_me_a_chai),
-                            onClick = { openUrl(BUY_ME_A_CHAI_URL) }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(22.dp))
-
-                    // Action Buttons Row (Buy Me a Chai & Check for Updates)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { openUrl(BUY_ME_A_CHAI_URL) },
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = onBackground
-                            ),
+                        // Developer Avatar
+                        Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(2.dp, primaryColor.copy(alpha = 0.8f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalCafe,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = str(R.string.buy_me_a_chai),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold
+                            ArtworkCard(
+                                url = DEVELOPER_AVATAR_URL,
+                                modifier = Modifier.fillMaxSize(),
+                                cornerRadius = 36.dp
                             )
                         }
 
-                        OutlinedButton(
-                            onClick = onNavigateToUpdater,
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = onBackground
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Developer Name
+                        Text(
+                            text = str(R.string.shreyansh),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = onBackground,
+                            fontSize = 19.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Subtitle / Bio
+                        Text(
+                            text = str(R.string.creator_lead_developer),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Developer Social Icons Row
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = str(R.string.check_for_updates),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold
+                            CircularActionDrawableButton(
+                                drawableRes = R.drawable.ic_github,
+                                onClick = { openUrl(DEVELOPER_GITHUB_URL) }
+                            )
+
+                            CircularActionIconButton(
+                                icon = Icons.Default.Language,
+                                onClick = { openUrl(AURALIS_WEBSITE_URL) }
+                            )
+
+                            CircularActionDrawableButton(
+                                drawableRes = R.drawable.ic_discord,
+                                onClick = {
+                                    try {
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("Discord Username", "shreyanshh12_3")
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, str(R.string.discord_user_shreyanshh12_3_copied_to_cl), Toast.LENGTH_SHORT).show()
+                                    } catch (_: Exception) {}
+                                    openUrl(DEVELOPER_DISCORD_URL)
+                                }
                             )
                         }
                     }
                 }
             }
+        }
 
-            // ── 2. LEAD DEVELOPER SECTION ──
-            item(key = "about_lead_developer") {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        // ── 3. CONTRIBUTORS SECTION ──
+        item(key = "about_contributors") {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header with accent divider line
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Header with accent divider line
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = str(R.string.lead_developer),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            fontSize = 15.sp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        HorizontalDivider(
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                        )
-                    }
-
-                    // Lead Developer Card
-                    Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = surfaceColor,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            // Developer Avatar
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .border(2.dp, primaryColor.copy(alpha = 0.8f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                ArtworkCard(
-                                    url = DEVELOPER_AVATAR_URL,
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 36.dp
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Developer Name
-                            Text(
-                                text = str(R.string.shreyansh),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground,
-                                fontSize = 19.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            // Subtitle / Bio
-                            Text(
-                                text = str(R.string.creator_lead_developer),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = onSurfaceVariant,
-                                fontSize = 13.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Developer Social Icons Row
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_github,
-                                    onClick = { openUrl(DEVELOPER_GITHUB_URL) }
-                                )
-
-                                CircularActionIconButton(
-                                    icon = Icons.Default.Language,
-                                    onClick = { openUrl(AURALIS_WEBSITE_URL) }
-                                )
-
-                                CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_discord,
-                                    onClick = {
-                                        try {
-                                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                            val clip = android.content.ClipData.newPlainText("Discord Username", "shreyanshh12_3")
-                                            clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, str(R.string.discord_user_shreyanshh12_3_copied_to_cl), Toast.LENGTH_SHORT).show()
-                                        } catch (_: Exception) {}
-                                        openUrl(DEVELOPER_DISCORD_URL)
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = str(R.string.contributors),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryColor,
+                        fontSize = 15.sp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    HorizontalDivider(
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
                 }
-            }
 
-            // ── 3. CONTRIBUTORS SECTION ──
-            item(key = "about_contributors") {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                // Contributor Card
+                com.auralis.music.ui.glass.OptionalGlassCard(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
+                    border = null,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Header with accent divider line
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = str(R.string.contributors),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryColor,
-                            fontSize = 15.sp
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        HorizontalDivider(
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                        )
-                    }
-
-                    // Contributor Card
-                    Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = surfaceColor,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
+                        // Contributor Avatar
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(2.dp, primaryColor.copy(alpha = 0.8f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // Contributor Avatar
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .border(2.dp, primaryColor.copy(alpha = 0.8f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                ArtworkCard(
-                                    url = CONTRIBUTOR_AVATAR_URL,
-                                    modifier = Modifier.fillMaxSize(),
-                                    cornerRadius = 36.dp
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Contributor Name
-                            Text(
-                                text = str(R.string.ishaan_thakur),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground,
-                                fontSize = 19.sp
+                            ArtworkCard(
+                                url = CONTRIBUTOR_AVATAR_URL,
+                                modifier = Modifier.fillMaxSize(),
+                                cornerRadius = 36.dp
                             )
+                        }
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                            // Subtitle
-                            Text(
-                                text = str(R.string.contributor),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = onSurfaceVariant,
-                                fontSize = 13.sp
+                        // Contributor Name
+                        Text(
+                            text = str(R.string.ishaan_thakur),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = onBackground,
+                            fontSize = 19.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Subtitle
+                        Text(
+                            text = str(R.string.contributor),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Contributor Social Icons Row
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularActionDrawableButton(
+                                drawableRes = R.drawable.ic_github,
+                                onClick = { openUrl(CONTRIBUTOR_GITHUB_URL) }
                             )
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Contributor Social Icons Row
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularActionDrawableButton(
-                                    drawableRes = R.drawable.ic_github,
-                                    onClick = { openUrl(CONTRIBUTOR_GITHUB_URL) }
-                                )
-                            }
                         }
                     }
                 }

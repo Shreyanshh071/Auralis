@@ -15,9 +15,17 @@ data class ArtistPage(
     val similarArtists: List<Artist> = emptyList(),
     /** Every other shelf the artist has (Videos, Featured on, Playlists...), titled as the source titles it. */
     val shelves: List<ArtistShelf> = emptyList(),
+    /** The newest album or single that carries a year. */
+    val latestRelease: ArtistLatestRelease? = null,
     val radioPlaylistId: String? = null,
     val radioBrowseId: String? = null,
     val radioParams: String? = null
+)
+
+data class ArtistLatestRelease(
+    val release: PlaylistResult,
+    val year: Int,
+    val isAlbum: Boolean
 )
 
 data class ArtistShelf(

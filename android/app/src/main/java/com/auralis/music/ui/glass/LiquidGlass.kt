@@ -145,10 +145,10 @@ fun Modifier.liquidGlass(
             blur(blurPx)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lens(
-                    // Keep refraction visible on tall dialogs as well as pills.
-                    // The fixed 24dp band left almost the whole modal unwarped.
+                    // Keep refraction visible on tall dialogs as well as pills. It stops well short
+                    // of the middle: bands from both sides meeting there drew a seam down the glass.
                     refractionHeight = if (size.isSpecified && !size.isEmpty())
-                        maxOf(lensHeightPx, size.minDimension * .45f) else lensHeightPx,
+                        maxOf(lensHeightPx, size.minDimension * .3f) else lensHeightPx,
                     refractionAmount = lensAmountPx,
                     depthEffect = true,
                     // The dispersion shader samples seven times per pixel. Keep

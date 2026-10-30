@@ -114,6 +114,8 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import java.util.Locale
+import androidx.compose.runtime.State
+import kotlin.math.roundToInt
 import com.auralis.music.ui.components.bottomChromePadding
 
 @Composable
@@ -209,7 +211,7 @@ fun StatsScreen(
     val selectedChipIndex by viewModel.selectedChipIndex.collectAsState()
     val firstEventTs by viewModel.firstEventTimestamp.collectAsState()
     val statsContent by viewModel.statsContent.collectAsState()
-    val content = statsContent?.takeIf { it.option == selectedOption && it.chipIndex == selectedChipIndex }
+    val content = statsContent
     val overview = content?.overview
     val topSongs = content?.songs.orEmpty()
     val artistPhotos by viewModel.topArtists.collectAsState()
@@ -304,7 +306,7 @@ fun StatsScreen(
                                 tint = textPrimary
                             )
                         }
-                        DropdownMenu(
+                        com.auralis.music.ui.components.AuralisDropdownMenu(
                             expanded = showStatsMenu,
                             onDismissRequest = { showStatsMenu = false }
                         ) {
@@ -364,7 +366,7 @@ fun StatsScreen(
                         )
                     }
 
-                    DropdownMenu(
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
                         expanded = showOptionDropdown,
                         onDismissRequest = { showOptionDropdown = false }
                     ) {
@@ -675,7 +677,8 @@ fun StatsScreen(
                                             Text(str(R.string.total_time_listened),color=textSecondary,modifier=Modifier.weight(1f))
                                             Icon(Icons.Rounded.Headphones,null,tint=themePrimary,modifier=Modifier.size(28.dp))
                                         }
-                                        Text(makeDurationString(overview.totalPlayTimeMs),color=textPrimary,
+                                        val shownTime by animatedStat(overview.totalPlayTimeMs.toFloat())
+                                        Text(makeDurationString(shownTime.toLong()),color=textPrimary,
                                             fontSize=48.sp,fontWeight=FontWeight.Bold,letterSpacing=(-2).sp)
                                     }
                                 } else {
@@ -739,8 +742,9 @@ fun StatsScreen(
                                             fontSize = 13.5.sp
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
+                                        val shownTime by animatedStat(overview.totalPlayTimeMs.toFloat())
                                         Text(
-                                            text = makeDurationString(overview.totalPlayTimeMs),
+                                            text = makeDurationString(shownTime.toLong()),
                                             style = MaterialTheme.typography.headlineLarge.copy(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 36.sp,
@@ -855,7 +859,7 @@ fun StatsScreen(
                             }
                         } }
 
-                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
+                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> Box(Modifier.animateItem()) { UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -923,7 +927,7 @@ fun StatsScreen(
                                     )
                                 }
                             }
-                        } }
+                        } } }
                     }
 
                     // Section: Top Artists
@@ -940,7 +944,7 @@ fun StatsScreen(
                             )
                         } }
 
-                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs, statsUnfoldOpen) {
+                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> Box(Modifier.animateItem()) { UnfoldIn(15, openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1001,7 +1005,7 @@ fun StatsScreen(
                                     )
                                 }
                             }
-                        } }
+                        } } }
                     }
 
                     // Empty state if no stats at all
@@ -1073,16 +1077,13 @@ fun StatsScreen(
         }
 
         if (showClearConfirmation) {
-            AlertDialog(
-                onDismissRequest = { if (!isClearingStats) showClearConfirmation = false },
-                title = { Text(str(R.string.clear_listening_stats_2)) },
-                text = {
-                    Text(str(R.string.this_clears_your_listening_history_play))
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = !isClearingStats,
-                        onClick = {
+            com.auralis.music.ui.components.AuralisConfirmDialog(
+                title = str(R.string.clear_listening_stats_2),
+                message = str(R.string.this_clears_your_listening_history_play),
+                confirmLabel = str(R.string.clear),
+                onDismiss = { if (!isClearingStats) showClearConfirmation = false },
+                enabled = !isClearingStats,
+                onConfirm = {
                             isClearingStats = true
                             viewModel.clearListeningStats { succeeded ->
                                 isClearingStats = false
@@ -1093,21 +1094,23 @@ fun StatsScreen(
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
-                        }
-                    ) {
-                        Text(str(R.string.clear), color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        enabled = !isClearingStats,
-                        onClick = { showClearConfirmation = false }
-                    ) { Text(str(R.string.cancel)) }
-                }
+                        },
             )
         }
     }
 }
+
+/** A figure that counts its way to a new period's value. */
+@Composable
+private fun animatedStat(target: Float): State<Float> = androidx.compose.animation.core.animateFloatAsState(
+    targetValue = target,
+    animationSpec = if (LocalReducedMotion.current) androidx.compose.animation.core.snap()
+        else androidx.compose.animation.core.tween(
+            durationMillis = 650,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+    label = "statsValue"
+)
 
 @Composable
 private fun MetricMiniCard(
@@ -1123,12 +1126,13 @@ private fun MetricMiniCard(
     iconBg: Color = cardBg,
     modifier: Modifier = Modifier
 ) {
+    val shownCount by animatedStat(count.toFloat())
     if (com.auralis.music.ui.glass.pageGlassEnabled()) {
         OptionalGlassCard(RoundedCornerShape(26.dp),cardBg,null,modifier.height(128.dp)) {
             Column(Modifier.fillMaxSize().padding(14.dp),verticalArrangement=Arrangement.SpaceBetween) {
                 Icon(icon,null,tint=iconTint,modifier=Modifier.size(23.dp))
                 Column {
-                    Text(count.toString(),fontSize=28.sp,fontWeight=FontWeight.Bold,color=textPrimary,letterSpacing=(-1).sp)
+                    Text(shownCount.roundToInt().toString(),fontSize=28.sp,fontWeight=FontWeight.Bold,color=textPrimary,letterSpacing=(-1).sp)
                     Text(label,color=textSecondary,fontSize=12.sp)
                 }
             }
@@ -1167,7 +1171,7 @@ private fun MetricMiniCard(
 
             Column {
                 Text(
-                    text = count.toString(),
+                    text = shownCount.roundToInt().toString(),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp

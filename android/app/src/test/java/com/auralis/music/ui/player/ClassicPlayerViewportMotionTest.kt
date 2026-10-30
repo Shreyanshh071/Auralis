@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClassicPlayerViewportMotionTest {
+    @org.junit.Test
+    fun `lyrics stay hidden until the controls are almost gone`() {
+        org.junit.Assert.assertEquals(0f, ClassicPlayerViewportMotion.lyricsRevealAlpha(0f), 0f)
+        org.junit.Assert.assertEquals(0f, ClassicPlayerViewportMotion.lyricsRevealAlpha(0.5f), 0f)
+        org.junit.Assert.assertEquals(0f, ClassicPlayerViewportMotion.lyricsRevealAlpha(0.9f), 0f)
+        org.junit.Assert.assertTrue(ClassicPlayerViewportMotion.lyricsRevealAlpha(0.95f) in 0.01f..0.99f)
+        org.junit.Assert.assertEquals(1f, ClassicPlayerViewportMotion.lyricsRevealAlpha(1f), 0f)
+    }
+
     private val epsilon = 0.0001f
 
     @Test

@@ -112,6 +112,9 @@ fun TrackOptionsMenu(
     val creditedArtists = remember(track.artist) {
         com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(track.artist)
     }
+    LaunchedEffect(track.artist) {
+        if (onGoToArtist != null) com.auralis.music.ui.ArtistPreload.request?.invoke(creditedArtists.firstOrNull() ?: track.artist)
+    }
     fun viewArtist() {
         if (onGoToArtist == null) return
         if (creditedArtists.size > 1) {

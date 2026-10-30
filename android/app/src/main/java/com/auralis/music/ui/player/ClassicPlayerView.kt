@@ -47,6 +47,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -160,6 +162,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
@@ -466,7 +469,7 @@ fun ClassicPlayerView(
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 if (pageTrack.id == uiState.currentTrack?.id) {
-                                    AnimatedCover(pageTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize())
+                                    AnimatedCover(pageTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize(), visible = coverAtRest)
                                 }
                             }
                         }
@@ -492,7 +495,7 @@ fun ClassicPlayerView(
                             contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
-                        AnimatedCover(displayedTrack, uiState.isPlaying, Modifier.fillMaxSize())
+                        AnimatedCover(displayedTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize(), visible = coverAtRest)
                     }
                 }
             } else {
@@ -1393,8 +1396,32 @@ internal class ClassicPlayerMotionHolder(
     val queueTransportProgress: State<Float>,
     val transitionProgress: Animatable<Float, *>,
     val showLyricsLayer: State<Boolean>,
-    val showQueueLayer: State<Boolean>
+    val showQueueLayer: State<Boolean>,
+    val lyricsLayerOnScreen: State<Boolean>,
+    val queueLayerOnScreen: State<Boolean>
 )
+
+private const val HiddenLayerOffsetPx = 1_000_000
+
+/** A hidden tab stops its per-frame lyric motion, and only its own readers recompose on a switch. */
+@Composable
+private fun HiddenLayerMotion(
+    onScreen: State<Boolean>,
+    blurSuspended: State<Boolean>,
+    content: @Composable () -> Unit
+) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.auralis.music.ui.theme.LocalPreviewMotionActive provides onScreen.value,
+        com.auralis.music.ui.lyrics.LocalLyricsBlurSuspended provides blurSuspended,
+        content = content
+    )
+}
+
+/** A z-index read at placement, so a change reorders layers without recomposing anything. */
+private fun Modifier.placementZIndex(zIndex: () -> Float): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    layout(placeable.width, placeable.height) { placeable.place(0, 0, zIndex()) }
+}
 
 @Composable
 internal fun rememberClassicPlayerMotion(
@@ -1475,11 +1502,20 @@ internal fun rememberClassicPlayerMotion(
 
     // The artwork and metadata share one interruption-safe spring path. The
     // content follows with a softer upward spring and a short opacity ramp.
-    val compactHeaderProgress = animateFloatAsState(
-        targetValue = ClassicPlayerViewportMotion.heroProgressTarget(currentTab),
-        animationSpec = heroMotionSpec,
-        label = "classicHeroProgress"
-    )
+    val heroProgress = remember { Animatable(ClassicPlayerViewportMotion.heroProgressTarget(currentTab)) }
+    val compactHeaderProgress = remember(heroProgress) { heroProgress.asState() }
+    LaunchedEffect(currentTab, reducedMotion) {
+        val target = ClassicPlayerViewportMotion.heroProgressTarget(currentTab)
+        if (reducedMotion) {
+            heroProgress.snapTo(target)
+        } else if (heroProgress.value != target) {
+            // The tab's list spends its first frames being built. Leaving rest after that keeps
+            // the cover out of those long frames; a change mid-flight carries straight on.
+            val atRest = heroProgress.value <= 0.001f || heroProgress.value >= 0.999f
+            if (atRest) repeat(ClassicPlayerViewportMotion.HeroSettleFrames) { withFrameNanos { } }
+            heroProgress.animateTo(target, heroMotionSpec)
+        }
+    }
     val topBarAlpha = remember(motionValues) { derivedStateOf { motionValues.value.topBar.alpha } }
     val topBarTranslationYDp = remember(motionValues) { derivedStateOf { motionValues.value.topBar.translationYDp } }
     val lyricsAlpha = remember(motionValues) { derivedStateOf { motionValues.value.lyrics.alpha } }
@@ -1502,16 +1538,29 @@ internal fun rememberClassicPlayerMotion(
     // outgoing tab of a running transition. Without the transitionToTab term the outgoing tab
     // was torn down for that one frame and rebuilt the next (blank frames + a full rebuild of
     // the queue list on every switch).
+    // An outgoing layer also waits for the cover to land: disposing it at the end of the shorter
+    // crossfade dropped frames while the cover was still in flight.
     fun layerVisible(tab: NowPlayingTab, snapshotAlpha: Float?): Boolean =
         currentTab == tab || transitionToTab == tab ||
-            ((transitionProgress.value < 1f || transitionProgress.isRunning) &&
+            ((transitionProgress.value < 1f || transitionProgress.isRunning ||
+                abs(compactHeaderProgress.value - ClassicPlayerViewportMotion.heroProgressTarget(currentTab)) > 0.001f) &&
                 (transitionFromTab == tab || (snapshotAlpha ?: 0f) > 0.001f))
-    val showLyricsLayer = remember(currentTab, transitionFromTab, transitionToTab, transitionStartSnapshot) {
+    val lyricsLayerOnScreen = remember(currentTab, transitionFromTab, transitionToTab, transitionStartSnapshot) {
         derivedStateOf { layerVisible(NowPlayingTab.LYRICS, transitionStartSnapshot?.lyrics?.alpha) }
     }
-    val showQueueLayer = remember(currentTab, transitionFromTab, transitionToTab, transitionStartSnapshot) {
+    val queueLayerOnScreen = remember(currentTab, transitionFromTab, transitionToTab, transitionStartSnapshot) {
         derivedStateOf { layerVisible(NowPlayingTab.QUEUE, transitionStartSnapshot?.queue?.alpha) }
     }
+    // Building the lyric list took ~380ms of 12fps frames, and it happened on every switch, right
+    // as the cover took off. Build both tabs once while the open player is at rest, then keep them
+    // ready off-screen, so a switch only moves things that already exist.
+    var layersPrepared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(ClassicPlayerViewportMotion.LayerPrepareDelayMillis)
+        layersPrepared = true
+    }
+    val showLyricsLayer = remember(lyricsLayerOnScreen) { derivedStateOf { layersPrepared || lyricsLayerOnScreen.value } }
+    val showQueueLayer = remember(queueLayerOnScreen) { derivedStateOf { layersPrepared || queueLayerOnScreen.value } }
 
     return remember(
         motionValues,
@@ -1527,7 +1576,9 @@ internal fun rememberClassicPlayerMotion(
         queueTransportProgress,
         transitionProgress,
         showLyricsLayer,
-        showQueueLayer
+        showQueueLayer,
+        lyricsLayerOnScreen,
+        queueLayerOnScreen
     ) {
         ClassicPlayerMotionHolder(
             compactHeaderProgress = compactHeaderProgress,
@@ -1542,7 +1593,9 @@ internal fun rememberClassicPlayerMotion(
             queueTransportProgress = queueTransportProgress,
             transitionProgress = transitionProgress,
             showLyricsLayer = showLyricsLayer,
-            showQueueLayer = showQueueLayer
+            showQueueLayer = showQueueLayer,
+            lyricsLayerOnScreen = lyricsLayerOnScreen,
+            queueLayerOnScreen = queueLayerOnScreen
         )
     }
 }
@@ -1552,7 +1605,7 @@ private fun ClassicPlayerCompactHeader(
     track: Track,
     uiState: PlayerUiState,
     compactHeaderProgress: State<Float>,
-    compactActionsEnabled: Boolean,
+    compactActionsEnabledState: State<Boolean>,
     onTabChange: (NowPlayingTab) -> Unit,
     onToggleFavorite: () -> Unit,
     onShowTrackOptions: () -> Unit,
@@ -1561,6 +1614,10 @@ private fun ClassicPlayerCompactHeader(
     onHeaderHeightMeasured: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val compactActionsEnabled by compactActionsEnabledState
+    val headerInteraction = remember { MutableInteractionSource() }
+    val headerPressed by headerInteraction.collectIsPressedAsState()
+    val coverPressAlpha by animateFloatAsState(if (headerPressed) 0.16f else 0f, tween(140), label = "compactCoverPress")
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1592,7 +1649,10 @@ private fun ClassicPlayerCompactHeader(
                                 }
                             )
                         }
-                        .clickable { onTabChange(NowPlayingTab.PLAYER) }
+                        // The whole row returns to the player, but only the cover reacts to the press.
+                        .clickable(interactionSource = headerInteraction, indication = null) {
+                            onTabChange(NowPlayingTab.PLAYER)
+                        }
                 } else {
                     Modifier
                 }
@@ -1603,6 +1663,13 @@ private fun ClassicPlayerCompactHeader(
             modifier = Modifier
                 .size(ClassicPlayerViewportMotion.CompactArtworkSizeDp.dp)
                 .onGloballyPositioned { onArtworkPositioned(it.positionInRoot()) }
+                .drawWithContent {
+                    drawContent()
+                    if (coverPressAlpha > 0f) drawRoundRect(
+                        color = Color.White.copy(alpha = coverPressAlpha),
+                        cornerRadius = CornerRadius(12.dp.toPx())
+                    )
+                }
         ) {
             // Geometry-only destination: the expanded artwork remains the single
             // visible element throughout the transition and at the compact endpoint.
@@ -1853,8 +1920,17 @@ fun ClassicPlayerContainer(
     }
     val lyricsListState = rememberLazyListState()
     val queueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialQueueScrollIndex)
-    val compactActionsEnabled by remember(motion.compactHeaderProgress) {
+    // Both flip while the cover is moving, so they are read at placement and in the header only.
+    // Reading them here recomposed the whole player halfway through the flight, at peak speed.
+    val compactActionsEnabledState = remember(motion.compactHeaderProgress) {
         derivedStateOf { motion.compactHeaderProgress.value > 0.5f }
+    }
+    // The blur is the heaviest thing on screen. Lyrics are invisible for most of the flight, so
+    // it only has to stay off until they start to show, which also keeps them from sharpening.
+    val lyricsBlurSuspended = remember(motion.compactHeaderProgress) {
+        derivedStateOf {
+            motion.compactHeaderProgress.value in 0.001f..ClassicPlayerViewportMotion.LyricsRevealStart
+        }
     }
     val heroIsInFlight by remember(motion.compactHeaderProgress, currentTab) {
         derivedStateOf {
@@ -1887,7 +1963,7 @@ fun ClassicPlayerContainer(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .zIndex(if (currentTab != NowPlayingTab.PLAYER || compactActionsEnabled) 3f else 1f)
+                    .placementZIndex { if (currentTab != NowPlayingTab.PLAYER || compactActionsEnabledState.value) 3f else 1f }
             ) {
                 val chromeTopOffset = if (handleBottomInRootPx > viewportTopInRootPx) {
                     with(density) { (handleBottomInRootPx - viewportTopInRootPx).toDp() }
@@ -1900,7 +1976,7 @@ fun ClassicPlayerContainer(
                     track = track,
                     uiState = uiState,
                     compactHeaderProgress = motion.compactHeaderProgress,
-                    compactActionsEnabled = compactActionsEnabled,
+                    compactActionsEnabledState = compactActionsEnabledState,
                     onTabChange = onTabChange,
                     onToggleFavorite = onToggleFavorite,
                     onShowTrackOptions = onShowTrackOptions,
@@ -1923,15 +1999,28 @@ fun ClassicPlayerContainer(
                         // Only the tab's content fades/glides; its playback controls stay opaque and
                         // still so they read as one fixed set across Player/Lyrics/Queue.
                         val layerContent: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {
-                            alpha = if (isLyrics) motion.lyricsAlpha.value else motion.queueAlpha.value
+                            alpha = if (isLyrics) {
+                                motion.lyricsAlpha.value * ClassicPlayerViewportMotion.lyricsRevealAlpha(motion.compactHeaderProgress.value)
+                            } else {
+                                motion.queueAlpha.value
+                            }
+                            // An offscreen buffer per frame for a full-height list was the cost of this fade.
+                            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
                             translationY = (if (isLyrics) motion.lyricsTranslationYDp.value else motion.queueTranslationYDp.value).dp.toPx()
                         }
+                        val onScreen = if (isLyrics) motion.lyricsLayerOnScreen else motion.queueLayerOnScreen
                         val layerModifier = Modifier
                             .fillMaxSize()
                             .zIndex(if (tab == currentTab) 1f else 0f)
+                            // Parked below the viewport while hidden: it can't take touches or draw,
+                            // and moving it needs no new layout when it comes back.
+                            .offset { IntOffset(0, if (onScreen.value) 0 else HiddenLayerOffsetPx) }
+                            // Off-screen still redraws (a lyric blur at 53ms a frame) unless skipped.
+                            .drawWithContent { if (onScreen.value) drawContent() }
 
                         androidx.compose.runtime.key(tab) {
                             saveableStateHolder.SaveableStateProvider(tab.name) {
+                                HiddenLayerMotion(onScreen, lyricsBlurSuspended) {
                                 ClassicPlayerTabOverlay(
                                     tab = tab,
                                     track = track,
@@ -1967,6 +2056,7 @@ fun ClassicPlayerContainer(
                                     contentLayer = layerContent,
                                     controlsBottomSpacerDp = controlsBottomSpacerDp
                                 )
+                                }
                             }
                         }
                     }
@@ -2025,13 +2115,13 @@ fun ClassicPlayerContainer(
                     // full-layer fade forced a late artwork/title handoff and visible pop.
                     // While moving, lift it above both destination screens just like
                     // a shared-element overlay (zIndexInOverlay = 1f).
-                    .zIndex(
+                    .placementZIndex {
                         when {
                             heroIsInFlight -> 4f
                             currentTab == NowPlayingTab.PLAYER -> 2f
                             else -> 0f
                         }
-                    ),
+                    },
                 onArtistClick = onArtistClick
             )
         }

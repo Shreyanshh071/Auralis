@@ -233,24 +233,16 @@ fun ProfileSheet(
                 modifier = Modifier.align(Alignment.CenterHorizontally))
         }
         if (showDisconnectDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showDisconnectDialog = false },
-                icon = { Icon(Icons.Default.WarningAmber, contentDescription = null) },
-                title = { Text(str(R.string.account_ui_disconnect_confirmation_title)) },
-                text = { Text(str(R.string.account_ui_disconnect_confirmation_message)) },
-                confirmButton = {
-                    TextButton(onClick = {
+            com.auralis.music.ui.components.AuralisConfirmDialog(
+                title = str(R.string.account_ui_disconnect_confirmation_title),
+                message = str(R.string.account_ui_disconnect_confirmation_message),
+                confirmLabel = str(R.string.disconnect_account),
+                onDismiss = { showDisconnectDialog = false },
+                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                onConfirm = {
                         showDisconnectDialog = false
                         onDisconnect()
-                    }) {
-                        Text(str(R.string.disconnect_account), color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDisconnectDialog = false }) {
-                        Text(str(R.string.cancel))
-                    }
-                }
+                    },
             )
         }
         if (showDeleteDialog) DeleteAccountDialog(

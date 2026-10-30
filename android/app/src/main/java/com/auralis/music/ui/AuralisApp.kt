@@ -212,6 +212,7 @@ fun AuralisApp(
         searchViewModelState = vm
         return vm
     }
+    com.auralis.music.ui.ArtistPreload.request = { name -> obtainSearchViewModel().preloadArtist(name) }
     val searchUiState = searchViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.SearchUiState()
     val recognitionState = searchViewModelState?.recognitionState?.collectAsState()?.value ?: com.auralis.music.domain.recognition.RecognitionState()
     val recognitionHistory = searchViewModelState?.recognitionHistory?.collectAsState()?.value ?: emptyList()
@@ -1288,7 +1289,11 @@ fun AuralisApp(
                                                     val msg = if (isNowPinned) str(R.string.pinned_x_to_speed_dial, album.title) else str(R.string.unpinned_x_from_speed_dial, album.title)
                                                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                 },
-                                                onToggleSaveAlbum = { obtainLibraryViewModel().toggleSaveAlbum(it) },
+                                                onToggleSaveAlbum = { album ->
+                                                    obtainLibraryViewModel().toggleSaveAlbum(album) {
+                                                        obtainSearchViewModel().getAlbumTracks(com.auralis.music.domain.model.PlaylistResult(id = album.id, title = album.title, author = album.artist, thumbnail = album.thumbnail))
+                                                    }
+                                                },
                                                 onShuffleAlbum = { album ->
                                                     coroutineScope.launch {
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
@@ -1391,7 +1396,11 @@ fun AuralisApp(
                                                 savedAlbums = libraryUiState.savedAlbums,
                                                 pinnedSpeedDialIds = homeUiState.pinnedSpeedDialIds,
                                                 onToggleSubscribe = { libVM.toggleSaveArtist(it) },
-                                                onToggleSaveAlbum = { libVM.toggleSaveAlbum(it) },
+                                                onToggleSaveAlbum = { album ->
+                                                    libVM.toggleSaveAlbum(album) {
+                                                        searchVM.getAlbumTracks(com.auralis.music.domain.model.PlaylistResult(id = album.id, title = album.title, author = album.artist, thumbnail = album.thumbnail))
+                                                    }
+                                                },
                                                 onPlayNextAlbum = { album ->
                                                     coroutineScope.launch {
                                                         val tracks = searchVM.getAlbumTracks(album)

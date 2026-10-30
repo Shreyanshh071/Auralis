@@ -21,20 +21,20 @@ class LyricsGlideMotionTest {
 
     @Test fun `a three line jump starts gently instead of lurching`() {
         val path = glide(400f, 90)
-        assertTrue("Moved ${path[5]}px in 100ms", path[5] < 400f * .03f)
-        assertTrue("Moved ${path[11]}px in 200ms", path[11] < 400f * .15f)
+        assertTrue("Moved ${path[5]}px in 100ms", path[5] < 400f * .08f)
+        assertTrue("Moved ${path[11]}px in 200ms", path[11] < 400f * .30f)
     }
 
     @Test fun `the fastest moment is mid glide, not at the start`() {
         val path = glide(400f, 90)
         val steps = path.zipWithNext { a, b -> b - a }
         val peak = steps.indices.maxByOrNull { steps[it] }!!
-        assertTrue("Peak speed at frame $peak", peak in 12..36)
+        assertTrue("Peak speed at frame $peak", peak in 8..24)
     }
 
-    @Test fun `it reaches the line in about a second without overshooting`() {
+    @Test fun `it reaches the line quickly without overshooting`() {
         val path = glide(400f, 150)
-        assertTrue("At ${path[59]}px after 1s", path[59] > 400f * .9f)
+        assertTrue("At ${path[44]}px after 0.75s", path[44] > 400f * .9f)
         assertTrue(path.all { it <= 400.5f })
         assertEquals(400f, path.last(), 2f)
     }

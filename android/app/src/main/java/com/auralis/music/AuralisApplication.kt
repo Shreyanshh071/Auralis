@@ -67,6 +67,19 @@ class AuralisApplication : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
+            .okHttpClient {
+                okhttp3.OkHttpClient.Builder()
+                    // Wikimedia answers 403 to the default client name, which left artist photos blank.
+                    .addInterceptor { chain ->
+                        val request = chain.request()
+                        chain.proceed(
+                            if (request.url.host.endsWith("wikimedia.org")) {
+                                request.newBuilder().header("User-Agent", "AuralisMusicApp/1.0 (contact@auralis.app)").build()
+                            } else request
+                        )
+                    }
+                    .build()
+            }
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.30)

@@ -182,11 +182,15 @@ fun ArtworkCard(
         } else null
     }
 
-    val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail, highRes) {
+    var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
+
+    val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail, highRes, isPrimaryError) {
         val fallbackRaw = fallbackTrack?.thumbnail
-        val localArt = fallbackTrack?.id?.let {
+        // Composition runs on the main thread: only touch the disk once the primary has failed,
+        // or every tile scrolling into a list stats a file.
+        val localArt = if (resolvedUrl.isNullOrBlank() || isPrimaryError) fallbackTrack?.id?.let {
             com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(it)
-        }
+        } else null
         val matchedYtId = fallbackTrack?.id?.let {
             com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(it)
         }
@@ -213,7 +217,6 @@ fun ArtworkCard(
         }
     }
 
-    var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
     var asyncResolvedUrl by remember(fallbackTrack?.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(fallbackTrack?.id, resolvedUrl, fallbackUrl) {

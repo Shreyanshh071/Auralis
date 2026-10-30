@@ -357,6 +357,7 @@ class MainActivity : ComponentActivity() {
                                     .background(MaterialTheme.dynamicBackground)
                             )
                         }
+                        com.auralis.music.ui.theme.ThemeCrossfade.Overlay()
                     }
                 }
             }

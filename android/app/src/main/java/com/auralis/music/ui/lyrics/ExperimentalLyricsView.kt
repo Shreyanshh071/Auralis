@@ -1,5 +1,6 @@
 package com.auralis.music.ui.lyrics
 
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -793,7 +794,18 @@ fun ExperimentalLyricsView(
         }
     }
 
+    // Glass needs something to bend: the list, recorded only while the button shows.
+    val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
     val lyricsGlide = remember { LyricsScrollGlide() }
+    val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+    // The tab stays composed while hidden, so leaving it has to end a selection itself.
+    LaunchedEffect(lyricsOnScreen) {
+        if (!lyricsOnScreen) {
+            isSelectionModeActive = false
+            selectedIndices.clear()
+        }
+    }
     val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
         if (targetIndex in mergedLyricsList.indices) {
             isProgrammaticScroll = true
@@ -857,7 +869,7 @@ fun ExperimentalLyricsView(
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
                                 // Even short corrections should ease into place instead of snapping.
-                                if (animate) {
+                                if (animate && lyricsOnScreen) {
                                     lyricsGlide.glide(listState, scrollDelta)
                                 } else {
                                     listState.scrollBy(scrollDelta)
@@ -997,6 +1009,7 @@ fun ExperimentalLyricsView(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
+                    .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                     .fillMaxSize()
                     .stationaryLyricsBlur(
                         enabled = standardLyricsBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && !isSelectionModeActive,
@@ -1139,7 +1152,7 @@ fun ExperimentalLyricsView(
                                         }
                                     },
                                     onLongClick = {
-                                        if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS && !isSelectionModeActive) {
+                                        if (!isSelectionModeActive) {
                                             isSelectionModeActive = true
                                             selectedIndices.add(index)
                                         }
@@ -1212,29 +1225,7 @@ fun ExperimentalLyricsView(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF1E1B18).copy(alpha = 0.92f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(32.dp))
-                    .clickable(onClick = resyncLyrics)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = str(R.string.re_sync),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.re_sync),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            LyricsResyncButton(resyncGlass, resyncLyrics)
         }
 
         // Floating Action Bar for Selected Lyrics
@@ -1374,7 +1365,8 @@ internal fun ExperimentalLyricsLine(
             onLongClick = onLongClick
         )
         .background(
-            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent
+            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent,
+            RoundedCornerShape(16.dp)
         )
         .then(
             if (speakerSide != null) {
@@ -1652,8 +1644,16 @@ internal fun ExperimentalLyricsLine(
         if (line.isBackground) {
             AnimatedVisibility(
                 visible = bgVisible,
-                enter = fadeIn(tween(durationMillis = 250, delayMillis = 100)),
-                exit = fadeOut(tween(250))
+                // The room animates with the text: a fade alone let the height pop when it ended,
+                // and every line below jumped with it.
+                enter = androidx.compose.animation.expandVertically(
+                    animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+                    expandFrom = Alignment.Top
+                ) + fadeIn(tween(durationMillis = 280, delayMillis = 100)),
+                exit = androidx.compose.animation.shrinkVertically(
+                    animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                    shrinkTowards = Alignment.Top
+                ) + fadeOut(tween(durationMillis = 260))
             ) {
                 LineContent()
             }

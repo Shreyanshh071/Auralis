@@ -1150,6 +1150,14 @@ open class InnerTubeClient(
             val singles = mutableListOf<PlaylistResult>()
             val similarArtists = mutableListOf<Artist>()
             val otherShelves = mutableListOf<com.auralis.music.domain.model.ArtistShelf>()
+            val releaseYears = mutableMapOf<String, Int>()
+            fun rememberYear(id: String, twoRow: JSONObject) {
+                val runs = twoRow.optJSONObject("subtitle")?.optJSONArray("runs") ?: return
+                val year = (0 until runs.length()).firstNotNullOfOrNull { index ->
+                    Regex("""\b(?:19|20)\d{2}\b""").find(runs.optJSONObject(index)?.optString("text").orEmpty())?.value?.toIntOrNull()
+                }
+                if (year != null) releaseYears[id] = year
+            }
 
             val sectionList = artistSections(json)
 
@@ -1208,11 +1216,13 @@ open class InnerTubeClient(
                             val aNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val aThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             albums.add(PlaylistResult(id = aNav ?: "pl:$aTitle", title = aTitle, thumbnail = aThumb.ifBlank { null }, author = artistName))
+                            rememberYear(aNav ?: "pl:$aTitle", twoRow)
                         } else if (shelfTitle.contains("single") || shelfTitle.contains("ep")) {
                             val sTitle = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Single"
                             val sNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val sThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             singles.add(PlaylistResult(id = sNav ?: "pl:$sTitle", title = sTitle, thumbnail = sThumb.ifBlank { null }, author = artistName))
+                            rememberYear(sNav ?: "pl:$sTitle", twoRow)
                         } else if (shelfTitle.contains("fan") || shelfTitle.contains("like") || shelfTitle.contains("similar")) {
                             val artName = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Artist"
                             val artNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
@@ -1290,6 +1300,12 @@ open class InnerTubeClient(
                 singles = singles.distinctBy { it.id },
                 similarArtists = similarArtists.distinctBy { it.id },
                 shelves = otherShelves,
+                // Albums first, so an album and a single from the same year show the album.
+                latestRelease = (albums.map { it to true } + singles.map { it to false })
+                    .mapNotNull { (release, isAlbum) ->
+                        releaseYears[release.id]?.let { com.auralis.music.domain.model.ArtistLatestRelease(release, it, isAlbum) }
+                    }
+                    .maxByOrNull { it.year },
                 radioPlaylistId = radioPlaylistId
             )
         } catch (e: Exception) {

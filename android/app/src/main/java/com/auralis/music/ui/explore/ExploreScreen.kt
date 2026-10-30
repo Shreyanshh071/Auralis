@@ -279,6 +279,8 @@ fun ExploreScreen(
             com.auralis.music.ui.components.AuralisRefreshBox(refresh = onRefresh) {
                 when (renderedDetail) {
                     is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+// The photo on the card that was tapped: the banner only arrives with the page.
+com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.artistPage.artist.thumbnail?.takeIf(String::isNotBlank) ?: renderedDetail.artistPage.bannerUrl) {
                         ArtistScreen(
                             artistPage = renderedDetail.artistPage,
                             isLoading = renderedDetail.isLoading,
@@ -317,8 +319,10 @@ fun ExploreScreen(
                             onRecommendToRoom = onRecommendToRoom,
                             modifier = modifier
                         )
+}
                     }
                     is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                         com.auralis.music.ui.screens.AlbumScreen(
                             album = renderedDetail.album,
                             tracks = renderedDetail.tracks,
@@ -353,6 +357,7 @@ fun ExploreScreen(
                             onRecommendToRoom = onRecommendToRoom,
                             modifier = modifier
                         )
+}
                     }
                     else -> {
                 val hasResults = uiState.query.isNotBlank() && (

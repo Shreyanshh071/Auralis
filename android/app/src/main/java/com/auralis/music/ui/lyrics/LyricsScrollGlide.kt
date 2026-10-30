@@ -41,7 +41,7 @@ internal class LyricsGlideMotion(private val omega: Float = DEFAULT_OMEGA) {
     }
 
     private companion object {
-        const val DEFAULT_OMEGA = 5.5f // About 1.1s to cover 95% of any distance.
+        const val DEFAULT_OMEGA = 9f // About 0.7s to cover 95% of any distance.
         const val MAX_STEP_SECONDS = .004f
         const val SETTLED_PX = .5f
         const val SETTLED_SPEED = 12f

@@ -209,13 +209,11 @@ fun ImportedLyricsDialog(track: Track? = null, onDismiss: () -> Unit) {
         }
     }
     removal?.let { entry ->
-        AlertDialog(onDismissRequest = { removal = null },
-            modifier = if (glass != null) Modifier.liquidGlassDialog(glass, RoundedCornerShape(28.dp), pageView) else Modifier,
-            containerColor = if (glass != null) Color.Transparent else MaterialTheme.dynamicSurface,
-            titleContentColor = foreground, textContentColor = foreground,
-            title = { Text("Remove custom lyrics?") },
-            text = { Text("${entry.title} will use online lyrics again.") },
-            confirmButton = { TextButton(onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = "Remove custom lyrics?",
+            message = "${entry.title} will use online lyrics again.",
+            confirmLabel = "Remove",
+            onConfirm = {
                 removal = null
                 scope.launch {
                     busy = true
@@ -223,7 +221,8 @@ fun ImportedLyricsDialog(track: Track? = null, onDismiss: () -> Unit) {
                     catch (e: Exception) { e.message ?: "Could not remove lyrics" }
                     busy = false
                 }
-            }) { Text("Remove") } },
-            dismissButton = { TextButton(onClick = { removal = null }) { Text("Cancel") } })
+            },
+            onDismiss = { removal = null }
+        )
     }
 }

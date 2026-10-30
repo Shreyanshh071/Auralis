@@ -4,73 +4,35 @@ import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
 import android.view.HapticFeedbackConstants
-import android.widget.Toast
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalView
-import kotlin.math.PI
-import kotlin.math.sin
-import androidx.compose.material.icons.filled.AlignHorizontalLeft
 import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatAlignCenter
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Home
@@ -81,19 +43,13 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Swipe
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VerticalAlignBottom
-import androidx.compose.material.icons.filled.ViewCompact
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -125,7 +81,6 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-import com.auralis.music.ui.components.bottomChromePadding
 
 private val APPEARANCE_BG = Color(0xFF13110E)
 private val CARD_BG = Color(0xFF201B17)
@@ -195,519 +150,242 @@ fun AppearanceScreen(
     // Theme & colours pushes over this page instead of replacing it on one frame.
     val themePush = rememberPushProgress(showThemeAndColors)
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(backgroundColor)
-            .auralisPushParent(themePush)
-            .statusBarsPadding()
-            .navigationBarsPadding()
+    SettingsPage(
+        title = str(R.string.appearance),
+        onBack = onDismiss,
+        modifier = modifier.auralisPushParent(themePush)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
-                        tint = onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.appearance),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 22.sp
+        item(key = "hdr_theme") {
+            SettingsGroup(str(R.string.theme)) {
+                AppearanceClickableItem(
+                    icon = Icons.Default.Palette,
+                    title = str(R.string.theme_colors),
+                    subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(settings.appTheme)} • ${com.auralis.music.ui.i18n.UiLabels.of(settings.colorPalette)}",
+                    onClick = { showThemeAndColors = true }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Speed,
+                    title = str(R.string.enable_high_refresh_rate),
+                    subtitle = str(R.string.forces_the_display_to_run_at_its_highest),
+                    isChecked = settings.highRefreshRate,
+                    onCheckedChange = { update { copy(highRefreshRate = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.AspectRatio,
+                    title = str(R.string.landscape_scaling),
+                    subtitle = str(R.string.scale_ui_in_landscape_mode_for_larger_sc),
+                    isChecked = settings.landscapeScaling,
+                    onCheckedChange = { update { copy(landscapeScaling = it) } }
                 )
             }
+        }
 
-            // ── SETTINGS SCROLLABLE LIST ──
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = bottomChromePadding(includeNavigationBar = false),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // ════ 1. THEME ════
-                item(key = "hdr_theme") { AppearanceSectionHeader(title = str(R.string.theme), color = primaryColor) }
-                item(key = "item_theme_colors") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.Palette,
-                        title = str(R.string.theme_colors),
-                        subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(settings.appTheme)} • ${com.auralis.music.ui.i18n.UiLabels.of(settings.colorPalette)}",
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { showThemeAndColors = true }
-                    )
-                }
-                item(key = "item_high_refresh") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Speed,
-                        title = str(R.string.enable_high_refresh_rate),
-                        subtitle = str(R.string.forces_the_display_to_run_at_its_highest),
-                        isChecked = settings.highRefreshRate,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(highRefreshRate = it) } }
-                    )
-                }
-                item(key = "item_landscape_scaling") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.AspectRatio,
-                        title = str(R.string.landscape_scaling),
-                        subtitle = str(R.string.scale_ui_in_landscape_mode_for_larger_sc),
-                        isChecked = settings.landscapeScaling,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(landscapeScaling = it) } }
-                    )
-                }
-                item(key = "item_dynamic_icons") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.ColorLens,
-                        title = str(R.string.dynamic_icon_colors),
-                        subtitle = str(R.string.use_dynamic_theme_colors_for_the_app_ico),
-                        isChecked = settings.dynamicIconColors,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(dynamicIconColors = it) } }
-                    )
-                }
-
-                // ════ 2. MINI-PLAYER ════
-                item(key = "hdr_mini_player") { AppearanceSectionHeader(title = str(R.string.mini_player), color = primaryColor) }
-                item(key = "item_mini_design") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.PictureInPictureAlt,
-                        title = str(R.string.mini_player_design),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.miniPlayerDesign),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.MINI_PLAYER_DESIGN }
-                    )
-                }
-                item(key = "item_pure_black_mini") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.DarkMode,
-                        title = str(R.string.pure_black_mini_player),
-                        subtitle = str(R.string.force_deep_amoled_black_background_on_mi),
-                        isChecked = settings.pureBlackMiniPlayer,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(pureBlackMiniPlayer = it) } }
-                    )
-                }
-                item(key = "item_mini_player_bg") {
-                    val isPureBlackActive = settings.pureBlackMiniPlayer && settings.miniPlayerDesign != "Expanded mini player"
-                    AppearanceClickableItem(
-                        icon = Icons.Default.GridView,
-                        title = str(R.string.mini_player_background_style),
-                        subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = {
-                            if (!isPureBlackActive) {
-                                activeDialog = AppearanceDialogType.MINI_PLAYER_BG
-                            }
+        item(key = "hdr_mini_player") {
+            SettingsGroup(str(R.string.mini_player)) {
+                AppearanceClickableItem(
+                    icon = Icons.Default.PictureInPictureAlt,
+                    title = str(R.string.mini_player_design),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.miniPlayerDesign),
+                    onClick = { activeDialog = AppearanceDialogType.MINI_PLAYER_DESIGN }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.DarkMode,
+                    title = str(R.string.pure_black_mini_player),
+                    subtitle = str(R.string.force_deep_amoled_black_background_on_mi),
+                    isChecked = settings.pureBlackMiniPlayer,
+                    onCheckedChange = { update { copy(pureBlackMiniPlayer = it) } }
+                )
+                val isPureBlackActive = settings.pureBlackMiniPlayer && settings.miniPlayerDesign != "Expanded mini player"
+                AppearanceClickableItem(
+                    icon = Icons.Default.GridView,
+                    title = str(R.string.mini_player_background_style),
+                    subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
+                    onClick = {
+                        if (!isPureBlackActive) {
+                            activeDialog = AppearanceDialogType.MINI_PLAYER_BG
                         }
-                    )
-                }
-
-                // ════ 3. PLAYER ════
-                item(key = "hdr_player") { AppearanceSectionHeader(title = str(R.string.player), color = primaryColor) }
-                item(key = "item_player_design") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.ColorLens,
-                        title = str(R.string.player_design),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerDesign),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.PLAYER_DESIGN }
-                    )
-                }
-                item(key = "item_player_bg") {
-                    val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
-                        if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
                     }
-                    // The immersive player draws its own backdrop from the cover, so the style has no effect there.
-                    val isImmersivePlayer = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(settings.playerDesign) ==
-                        com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
-                    AppearanceClickableItem(
-                        icon = Icons.Default.GridView,
-                        title = str(R.string.player_background_style),
-                        subtitle = if (isImmersivePlayer) str(R.string.unavailable_with_immersive_player)
-                            else com.auralis.music.ui.i18n.UiLabels.of(resolvedPlayerBg.displayName),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = {
-                            if (!isImmersivePlayer) {
-                                activeDialog = AppearanceDialogType.PLAYER_BG
-                            }
-                        }
-                    )
-                }
-                item(key = "item_player_slider_style") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.LinearScale,
-                        title = str(R.string.player_slider_style),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerSliderStyle),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.PLAYER_SLIDER_STYLE }
-                    )
-                }
-                item(key = "item_swipe_change_song") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Swipe,
-                        title = str(R.string.enable_swipe_to_change_song),
-                        subtitle = str(R.string.swipe_horizontally_across_player_to_skip),
-                        isChecked = settings.enableSwipeToChangeSong,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(enableSwipeToChangeSong = it) } }
-                    )
-                }
+                )
+            }
+        }
 
-                item(key = "animated_covers") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Image,
-                        title = "Animated covers",
-                        subtitle = "Loop motion artwork when available",
-                        isChecked = settings.animatedCovers,
-                        primaryColor = primaryColor, surfaceColor = surfaceColor,
-                        onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant, onPrimary = onPrimary,
-                        outline = outline, surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(animatedCovers = it) } }
-                    )
+        item(key = "hdr_player") {
+            SettingsGroup(str(R.string.player)) {
+                AppearanceClickableItem(
+                    icon = Icons.Default.ColorLens,
+                    title = str(R.string.player_design),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerDesign),
+                    onClick = { activeDialog = AppearanceDialogType.PLAYER_DESIGN }
+                )
+                val resolvedPlayerBg = PlayerBackgroundStyle.fromKey(settings.playerBackgroundStyle).let {
+                    if (it == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else it
                 }
+                // The immersive player draws its own backdrop from the cover, so the style has no effect there.
+                val isImmersivePlayer = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(settings.playerDesign) ==
+                    com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
+                AppearanceClickableItem(
+                    icon = Icons.Default.GridView,
+                    title = str(R.string.player_background_style),
+                    subtitle = if (isImmersivePlayer) str(R.string.unavailable_with_immersive_player)
+                        else com.auralis.music.ui.i18n.UiLabels.of(resolvedPlayerBg.displayName),
+                    onClick = {
+                        if (!isImmersivePlayer) {
+                            activeDialog = AppearanceDialogType.PLAYER_BG
+                        }
+                    }
+                )
+                AppearanceClickableItem(
+                    icon = Icons.Default.LinearScale,
+                    title = str(R.string.player_slider_style),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.playerSliderStyle),
+                    onClick = { activeDialog = AppearanceDialogType.PLAYER_SLIDER_STYLE }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Swipe,
+                    title = str(R.string.enable_swipe_to_change_song),
+                    subtitle = str(R.string.swipe_horizontally_across_player_to_skip),
+                    isChecked = settings.enableSwipeToChangeSong,
+                    onCheckedChange = { update { copy(enableSwipeToChangeSong = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Image,
+                    title = "Animated covers",
+                    subtitle = "Loop motion artwork when available",
+                    isChecked = settings.animatedCovers,
+                    onCheckedChange = { update { copy(animatedCovers = it) } }
+                )
                 if (settings.animatedCovers) {
-                    item(key = "animated_cover_source") {
-                        AppearanceClickableItem(
-                            icon = Icons.Default.Image,
-                            title = "Animated cover source",
-                            subtitle = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
-                            primaryColor = primaryColor, surfaceColor = surfaceColor,
-                            onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
-                            outlineVariant = outlineVariant,
-                            onClick = { activeDialog = AppearanceDialogType.ANIMATED_COVER_SOURCE }
-                        )
-                    }
-                    item(key = "animated_covers_wifi") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Image,
-                        title = "Load animated covers on Wi-Fi only",
-                        subtitle = "Keep still artwork when using mobile data",
-                        isChecked = settings.animatedCoversWifiOnly,
-                        primaryColor = primaryColor, surfaceColor = surfaceColor,
-                        onSurface = onSurface, onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant, onPrimary = onPrimary,
-                        outline = outline, surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
+                    AppearanceClickableItem(
+                    icon = Icons.Default.Image,
+                    title = "Animated cover source",
+                    subtitle = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
+                    onClick = { activeDialog = AppearanceDialogType.ANIMATED_COVER_SOURCE }
                     )
-                    }
+                    
+                    AppearanceSwitchItem(
+                    icon = Icons.Default.Image,
+                    title = "Load animated covers on Wi-Fi only",
+                    subtitle = "Keep still artwork when using mobile data",
+                    isChecked = settings.animatedCoversWifiOnly,
+                    onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
+                    )
+                    
                 }
+            }
+        }
 
-                // ════ 4. LYRICS ════
-                item(key = "hdr_lyrics") { AppearanceSectionHeader(title = str(R.string.lyrics), color = primaryColor) }
-                item(key = "item_lyrics_text_position") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.FormatAlignCenter,
-                        title = str(R.string.lyrics_text_position),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.lyricsTextPosition),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION }
-                    )
-                }
-                item(key = "item_lyrics_animation") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.GraphicEq,
-                        title = str(R.string.lyrics_animation),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION }
-                    )
-                }
-                item(key = "item_lyrics_blur") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.HideImage,
-                        title = str(R.string.standard_lyrics_blur),
-                        subtitle = str(R.string.apply_soft_blur_focus_to_inactive_lyrics),
-                        isChecked = settings.standardLyricsBlur,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(standardLyricsBlur = it) } }
-                    )
-                }
-                item(key = "item_lyrics_size") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.AspectRatio,
-                        title = str(R.string.lyrics_text_size),
-                        subtitle = str(R.string.x_sp, settings.lyricsTextSize.roundToInt()),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_SIZE }
-                    )
-                }
-                item(key = "item_lyrics_spacing") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.LinearScale,
-                        title = str(R.string.lyrics_line_spacing),
-                        subtitle = "${String.format(java.util.Locale.US, "%.1f", settings.lyricsLineSpacing)}x",
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.LYRICS_LINE_SPACING }
-                    )
-                }
-                item(key = "item_lyrics_tap") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.TouchApp,
-                        title = str(R.string.change_lyrics_on_click),
-                        subtitle = str(R.string.seek_track_playback_to_the_clicked_lyric),
-                        isChecked = settings.changeLyricsOnTap,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(changeLyricsOnTap = it) } }
-                    )
-                }
-                item(key = "item_lyrics_autoscroll") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.VerticalAlignBottom,
-                        title = str(R.string.auto_scroll_lyrics),
-                        subtitle = str(R.string.automatically_keep_the_active_lyric_cent),
-                        isChecked = settings.autoScrollLyrics,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(autoScrollLyrics = it) } }
-                    )
-                }
+        item(key = "hdr_lyrics") {
+            SettingsGroup(str(R.string.lyrics)) {
+                AppearanceClickableItem(
+                    icon = Icons.Default.FormatAlignCenter,
+                    title = str(R.string.lyrics_text_position),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.lyricsTextPosition),
+                    onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION }
+                )
+                AppearanceClickableItem(
+                    icon = Icons.Default.GraphicEq,
+                    title = str(R.string.lyrics_animation),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName),
+                    onClick = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.HideImage,
+                    title = str(R.string.standard_lyrics_blur),
+                    subtitle = str(R.string.apply_soft_blur_focus_to_inactive_lyrics),
+                    isChecked = settings.standardLyricsBlur,
+                    onCheckedChange = { update { copy(standardLyricsBlur = it) } }
+                )
+                AppearanceClickableItem(
+                    icon = Icons.Default.AspectRatio,
+                    title = str(R.string.lyrics_text_size),
+                    subtitle = str(R.string.x_sp, settings.lyricsTextSize.roundToInt()),
+                    onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_SIZE }
+                )
+                AppearanceClickableItem(
+                    icon = Icons.Default.LinearScale,
+                    title = str(R.string.lyrics_line_spacing),
+                    subtitle = "${String.format(java.util.Locale.US, "%.1f", settings.lyricsLineSpacing)}x",
+                    onClick = { activeDialog = AppearanceDialogType.LYRICS_LINE_SPACING }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.TouchApp,
+                    title = str(R.string.change_lyrics_on_click),
+                    subtitle = str(R.string.seek_track_playback_to_the_clicked_lyric),
+                    isChecked = settings.changeLyricsOnTap,
+                    onCheckedChange = { update { copy(changeLyricsOnTap = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.VerticalAlignBottom,
+                    title = str(R.string.auto_scroll_lyrics),
+                    subtitle = str(R.string.automatically_keep_the_active_lyric_cent),
+                    isChecked = settings.autoScrollLyrics,
+                    onCheckedChange = { update { copy(autoScrollLyrics = it) } }
+                )
+            }
+        }
 
-                // ════ 5. MISC ════
-                item(key = "hdr_misc") { AppearanceSectionHeader(title = str(R.string.misc), color = primaryColor) }
-                item(key = "item_swipe_queue") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Swipe,
-                        title = str(R.string.swipe_left_to_add_the_song_to_the_queue),
-                        subtitle = null,
-                        isChecked = settings.swipeLeftQueueRightPlayNext,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(swipeLeftQueueRightPlayNext = it) } }
-                    )
-                }
-                item(key = "item_swipe_remove") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Swipe,
-                        title = str(R.string.swipe_to_remove_the_song_from_the_playli),
-                        subtitle = null,
-                        isChecked = settings.swipeToRemoveSongFromPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
-                    )
-                }
-                item(key = "item_display_density") {
-                    AppearanceClickableItem(
-                        icon = Icons.Default.ViewModule,
-                        title = str(R.string.display_density),
-                        subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.displayDensity),
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onClick = { activeDialog = AppearanceDialogType.DISPLAY_DENSITY }
-                    )
-                }
+        item(key = "hdr_misc") {
+            SettingsGroup(str(R.string.misc)) {
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Swipe,
+                    title = str(R.string.swipe_left_to_add_the_song_to_the_queue),
+                    subtitle = null,
+                    isChecked = settings.swipeLeftQueueRightPlayNext,
+                    onCheckedChange = { update { copy(swipeLeftQueueRightPlayNext = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Swipe,
+                    title = str(R.string.swipe_to_remove_the_song_from_the_playli),
+                    subtitle = null,
+                    isChecked = settings.swipeToRemoveSongFromPlaylist,
+                    onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
+                )
+                AppearanceClickableItem(
+                    icon = Icons.Default.ViewModule,
+                    title = str(R.string.display_density),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.displayDensity),
+                    onClick = { activeDialog = AppearanceDialogType.DISPLAY_DENSITY }
+                )
+            }
+        }
 
-                // ════ 6. AUTO PLAYLISTS ════
-                item(key = "hdr_auto_playlists") { AppearanceSectionHeader(title = str(R.string.auto_playlists), color = primaryColor) }
-                item(key = "item_show_liked") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.Favorite,
-                        title = str(R.string.show_liked_playlist),
-                        subtitle = null,
-                        isChecked = settings.showLikedPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(showLikedPlaylist = it) } }
-                    )
-                }
-                item(key = "item_show_downloaded") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.CheckCircle,
-                        title = str(R.string.show_downloaded_playlist),
-                        subtitle = null,
-                        isChecked = settings.showDownloadedPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(showDownloadedPlaylist = it) } }
-                    )
-                }
-                item(key = "item_show_top_most_played") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.TrendingUp,
-                        title = str(R.string.show_top_most_played_playlist),
-                        subtitle = null,
-                        isChecked = settings.showTopPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(showTopPlaylist = it) } }
-                    )
-                }
-                item(key = "item_show_weekly_most_played") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.TrendingUp,
-                        title = str(R.string.show_weekly_most_played_playlist),
-                        subtitle = null,
-                        isChecked = settings.showWeeklyMostPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(showWeeklyMostPlaylist = it) } }
-                    )
-                }
-                item(key = "item_show_monthly_most_played") {
-                    AppearanceSwitchItem(
-                        icon = Icons.Default.TrendingUp,
-                        title = str(R.string.show_monthly_most_played_playlist),
-                        subtitle = null,
-                        isChecked = settings.showMonthlyMostPlaylist,
-                        primaryColor = primaryColor,
-                        surfaceColor = surfaceColor,
-                        onSurface = onSurface,
-                        onSurfaceVariant = onSurfaceVariant,
-                        outlineVariant = outlineVariant,
-                        onPrimary = onPrimary,
-                        outline = outline,
-                        surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(showMonthlyMostPlaylist = it) } }
-                    )
-                }
-
+        item(key = "hdr_auto_playlists") {
+            SettingsGroup(str(R.string.auto_playlists)) {
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Favorite,
+                    title = str(R.string.show_liked_playlist),
+                    subtitle = null,
+                    isChecked = settings.showLikedPlaylist,
+                    onCheckedChange = { update { copy(showLikedPlaylist = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.CheckCircle,
+                    title = str(R.string.show_downloaded_playlist),
+                    subtitle = null,
+                    isChecked = settings.showDownloadedPlaylist,
+                    onCheckedChange = { update { copy(showDownloadedPlaylist = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.TrendingUp,
+                    title = str(R.string.show_top_most_played_playlist),
+                    subtitle = null,
+                    isChecked = settings.showTopPlaylist,
+                    onCheckedChange = { update { copy(showTopPlaylist = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.TrendingUp,
+                    title = str(R.string.show_weekly_most_played_playlist),
+                    subtitle = null,
+                    isChecked = settings.showWeeklyMostPlaylist,
+                    onCheckedChange = { update { copy(showWeeklyMostPlaylist = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.TrendingUp,
+                    title = str(R.string.show_monthly_most_played_playlist),
+                    subtitle = null,
+                    isChecked = settings.showMonthlyMostPlaylist,
+                    onCheckedChange = { update { copy(showMonthlyMostPlaylist = it) } }
+                )
             }
         }
     }
@@ -1049,172 +727,21 @@ private enum class AppearanceDialogType {
 }
 
 @Composable
-private fun AppearanceSectionHeader(
-    title: String,
-    color: Color = MaterialTheme.dynamicPrimary
-) {
-    Text(
-        text = title,
-        color = color,
-        fontWeight = FontWeight.Bold,
-        fontSize = 14.sp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 10.dp)
-    )
-}
-
-@Composable
 private fun AppearanceSwitchItem(
     icon: ImageVector,
     title: String,
     subtitle: String?,
     isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    primaryColor: Color = MaterialTheme.dynamicPrimary,
-    surfaceColor: Color = MaterialTheme.dynamicSurface,
-    onSurface: Color = MaterialTheme.colorScheme.onSurface,
-    onSurfaceVariant: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    outlineVariant: Color = MaterialTheme.colorScheme.outlineVariant,
-    onPrimary: Color = MaterialTheme.colorScheme.onPrimary,
-    outline: Color = MaterialTheme.colorScheme.outline,
-    surfaceVariant: Color = MaterialTheme.colorScheme.surfaceVariant
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = surfaceColor,
-        border = BorderStroke(1.dp, outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onCheckedChange(!isChecked) }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(primaryColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = primaryColor,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.5.sp
-                )
-                if (!subtitle.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = subtitle,
-                        color = onSurfaceVariant,
-                        fontSize = 12.5.sp,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Switch(
-                checked = isChecked,
-                onCheckedChange = onCheckedChange,
-                thumbContent = if (isChecked) {
-                    {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = onPrimary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
-                } else null,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = primaryColor,
-                    checkedTrackColor = primaryColor.copy(alpha = 0.45f),
-                    checkedBorderColor = primaryColor,
-                    uncheckedThumbColor = outline,
-                    uncheckedTrackColor = surfaceVariant,
-                    uncheckedBorderColor = outlineVariant
-                )
-            )
-        }
-    }
-}
+    onCheckedChange: (Boolean) -> Unit
+) = SettingsSwitchRow(icon, title, subtitle, isChecked, onCheckedChange)
 
 @Composable
 private fun AppearanceClickableItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit,
-    primaryColor: Color = MaterialTheme.dynamicPrimary,
-    surfaceColor: Color = MaterialTheme.dynamicSurface,
-    onSurface: Color = MaterialTheme.colorScheme.onSurface,
-    onSurfaceVariant: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    outlineVariant: Color = MaterialTheme.colorScheme.outlineVariant
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = surfaceColor,
-        border = BorderStroke(1.dp, outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClick() }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(primaryColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = primaryColor,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = onSurface,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.5.sp
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    color = onSurfaceVariant,
-                    fontSize = 12.5.sp
-                )
-            }
-        }
-    }
-}
+    onClick: () -> Unit
+) = SettingsNavRow(icon, title, subtitle, onClick)
 
 @Composable
 private fun AppearanceOptionsDialog(

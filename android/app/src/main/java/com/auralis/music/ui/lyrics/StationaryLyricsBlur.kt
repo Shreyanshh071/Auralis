@@ -16,8 +16,13 @@ import kotlin.math.abs
 import kotlin.math.pow
 
 /** A screen-space focus field. Neither lyric identity nor scroll offset enters this profile. */
+/** True while something else needs the frame budget; read at draw, so a change never recomposes. */
+internal val LocalLyricsBlurSuspended =
+    androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<Boolean>?> { null }
+
 internal object LyricsViewportBlurProfile {
-    const val LEVELS = 4
+    // Each level past the first is a full-screen blur on every lyric frame.
+    const val LEVELS = 3
     const val MAX_RADIUS_DP = 24f
 
     fun amount(y: Float, height: Float, focusFraction: Float, clearHalfHeight: Float): Float {
@@ -43,9 +48,10 @@ internal object LyricsViewportBlurProfile {
 internal fun Modifier.stationaryLyricsBlur(enabled: Boolean, focusFraction: Float, clearHalfHeightPx: () -> Float = { 0f }): Modifier {
     if (!enabled || Build.VERSION.SDK_INT < 31) return this
     val density = LocalDensity.current.density
+    val suspended = LocalLyricsBlurSuspended.current
     val cache = remember(density, focusFraction) { ViewportBlurEffectCache(density, focusFraction) }
     return graphicsLayer {
-        renderEffect = cache.forHeight(size.height, clearHalfHeightPx())
+        renderEffect = if (suspended?.value == true) null else cache.forHeight(size.height, clearHalfHeightPx())
         clip = true
     }
 }

@@ -3,50 +3,36 @@ package com.auralis.music.ui.screens
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FlashOn
@@ -54,9 +40,6 @@ import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -64,9 +47,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -78,7 +59,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -96,8 +76,6 @@ import com.auralis.music.domain.model.LyricsProviderId
 import com.auralis.music.domain.model.ProxyType
 import com.auralis.music.domain.model.QuickPicksMode
 import com.auralis.music.domain.model.RomanizationScript
-import com.auralis.music.ui.components.bottomChromePadding
-import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
@@ -124,16 +102,17 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
     var showCatalogPicker by remember { mutableStateOf(false) }
     var showSpotifyLogin by remember { mutableStateOf(false) }
     var showSpotifyDisconnect by remember { mutableStateOf(false) }
-    if (showSpotifyDisconnect) AlertDialog(
-        onDismissRequest = { showSpotifyDisconnect = false },
-        title = { Text("Disconnect Spotify?") },
-        text = { Text("Imported playlists stay in your library. Search will use YouTube Music.") },
-        confirmButton = { TextButton(onClick = {
+    if (showSpotifyDisconnect) com.auralis.music.ui.components.AuralisConfirmDialog(
+        title = "Disconnect Spotify?",
+        message = "Imported playlists stay in your library. Search will use YouTube Music.",
+        confirmLabel = "Disconnect",
+        icon = Icons.Default.LinkOff,
+        onConfirm = {
             com.auralis.music.data.network.SpotifySession.signOut()
             com.auralis.music.data.datastore.CatalogSettingsStore.select(com.auralis.music.data.datastore.CatalogSource.YOUTUBE_MUSIC)
             showSpotifyDisconnect = false
-        }) { Text("Disconnect") } },
-        dismissButton = { TextButton(onClick = { showSpotifyDisconnect = false }) { Text("Cancel") } }
+        },
+        onDismiss = { showSpotifyDisconnect = false }
     )
     if (showSpotifyLogin) {
         SpotifySignInScreen(onSignedIn = {
@@ -160,155 +139,117 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = { showCatalogPicker = false }) { Text("Close") } }
     )
 
-
     val primary = MaterialTheme.dynamicPrimary
     val surface = MaterialTheme.dynamicSurface
     val onSurface = MaterialTheme.dynamicOnSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val onBackground = MaterialTheme.dynamicOnBackground
-    val colors = RowColors(primary, onSurface, onSurfaceVariant)
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.dynamicBackground) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = str(R.string.back), tint = onBackground)
+    SettingsPage(title = str(R.string.content), onBack = onDismiss) {
+        item(key = "catalog") {
+            SettingsGroup("Music catalog") {
+                ValueRow(Icons.Default.Public, "Search catalog", catalogSource.label) { showCatalogPicker = true }
+                ValueRow(Icons.Default.People, "Spotify account", if (spotifySignedIn) "Connected · Tap to disconnect" else "Connect for catalog and playlist access") {
+                    if (!spotifySignedIn) showSpotifyLogin = true
+                    else showSpotifyDisconnect = true
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = str(R.string.content),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 21.sp
-                )
+                Text("No paid API key required. Playback continues through YouTube.", color = onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
             }
+        }
+        item(key = "general") {
+            SettingsGroup(str(R.string.general)) {
+                ValueRow(Icons.Default.Language, str(R.string.content_language),
+                    languageName(settings.contentLanguage)) { dialog = ContentDialog.CONTENT_LANGUAGE }
+                ValueRow(Icons.Default.Public, str(R.string.content_country),
+                    countryName(settings.contentCountry)) { dialog = ContentDialog.CONTENT_COUNTRY }
+            }
+        }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                contentPadding = bottomChromePadding(includeNavigationBar = false),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                item(key = "catalog") {
-                    Section("Music catalog", primary, surface) {
-                        ValueRow(Icons.Default.Public, "Search catalog", catalogSource.label, colors) { showCatalogPicker = true }
-                        Divider()
-                        ValueRow(Icons.Default.People, "Spotify account", if (spotifySignedIn) "Connected · Tap to disconnect" else "Connect for catalog and playlist access", colors) {
-                            if (!spotifySignedIn) showSpotifyLogin = true
-                            else showSpotifyDisconnect = true
-                        }
-                        Text("No paid API key required. Playback continues through YouTube.", color = onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
-                    }
-                }
-                item(key = "general") {
-                    Section(str(R.string.general), primary, surface) {
-                        ValueRow(Icons.Default.Language, str(R.string.content_language),
-                            languageName(settings.contentLanguage), colors) { dialog = ContentDialog.CONTENT_LANGUAGE }
-                        Divider()
-                        ValueRow(Icons.Default.Public, str(R.string.content_country),
-                            countryName(settings.contentCountry), colors) { dialog = ContentDialog.CONTENT_COUNTRY }
-                    }
-                }
+        item(key = "playlists") {
+            SettingsGroup(str(R.string.playlists)) {
+                ValueRow(Icons.AutoMirrored.Filled.PlaylistAdd, str(R.string.add_to_playlist_position),
+                    com.auralis.music.ui.i18n.UiLabels.of(settings.addToPlaylistPosition.displayName)) { dialog = ContentDialog.PLAYLIST_POSITION }
+            }
+        }
 
-                item(key = "playlists") {
-                    Section(str(R.string.playlists), primary, surface) {
-                        ValueRow(Icons.AutoMirrored.Filled.PlaylistAdd, str(R.string.add_to_playlist_position),
-                            com.auralis.music.ui.i18n.UiLabels.of(settings.addToPlaylistPosition.displayName), colors) { dialog = ContentDialog.PLAYLIST_POSITION }
-                    }
+        item(key = "artist") {
+            SettingsGroup(str(R.string.artist_page)) {
+                SwitchRow(Icons.Default.Description, str(R.string.show_artist_description), null, settings.showArtistDescription) { v ->
+                    update { it.copy(showArtistDescription = v) }
                 }
+                SwitchRow(Icons.Default.People, str(R.string.show_subscriber_count), null, settings.showArtistSubscriberCount) { v ->
+                    update { it.copy(showArtistSubscriberCount = v) }
+                }
+                SwitchRow(Icons.Default.Groups, str(R.string.show_monthly_listeners), null, settings.showMonthlyListeners) { v ->
+                    update { it.copy(showMonthlyListeners = v) }
+                }
+            }
+        }
 
-                item(key = "artist") {
-                    Section(str(R.string.artist_page), primary, surface) {
-                        SwitchRow(Icons.Default.Description, str(R.string.show_artist_description), null, settings.showArtistDescription, colors) { v ->
-                            update { it.copy(showArtistDescription = v) }
-                        }
-                        Divider()
-                        SwitchRow(Icons.Default.People, str(R.string.show_subscriber_count), null, settings.showArtistSubscriberCount, colors) { v ->
-                            update { it.copy(showArtistSubscriberCount = v) }
-                        }
-                        Divider()
-                        SwitchRow(Icons.Default.Groups, str(R.string.show_monthly_listeners), null, settings.showMonthlyListeners, colors) { v ->
-                            update { it.copy(showMonthlyListeners = v) }
-                        }
-                    }
+        item(key = "app_language") {
+            SettingsGroup(str(R.string.app_language)) {
+                ValueRow(Icons.Default.Translate, str(R.string.app_language), currentAppLanguageLabel(context)) {
+                    dialog = ContentDialog.APP_LANGUAGE
                 }
+            }
+        }
 
-                item(key = "app_language") {
-                    Section(str(R.string.app_language), primary, surface) {
-                        ValueRow(Icons.Default.Translate, str(R.string.app_language), currentAppLanguageLabel(context), colors) {
-                            dialog = ContentDialog.APP_LANGUAGE
-                        }
+        item(key = "proxy") {
+            SettingsGroup(str(R.string.proxy)) {
+                SwitchRow(Icons.Default.VpnLock, str(R.string.enable_proxy),
+                    if (settings.proxyEnabled && ContentProxy.configuredProxy(settings) == null) str(R.string.set_a_host_port_to_use_it) else null,
+                    settings.proxyEnabled) { v ->
+                    update { it.copy(proxyEnabled = v) }
+                    if (v && settings.proxyUrl.isBlank()) dialog = ContentDialog.PROXY
+                }
+                if (settings.proxyEnabled) {
+                    ValueRow(Icons.Default.Tune, str(R.string.configure_proxy),
+                        settings.proxyUrl.ifBlank { str(R.string.not_set) }.let { "${settings.proxyType} · $it" }) {
+                        dialog = ContentDialog.PROXY
                     }
                 }
+            }
+        }
 
-                item(key = "proxy") {
-                    Section(str(R.string.proxy), primary, surface) {
-                        SwitchRow(Icons.Default.VpnLock, str(R.string.enable_proxy),
-                            if (settings.proxyEnabled && ContentProxy.configuredProxy(settings) == null) str(R.string.set_a_host_port_to_use_it) else null,
-                            settings.proxyEnabled, colors) { v ->
-                            update { it.copy(proxyEnabled = v) }
-                            if (v && settings.proxyUrl.isBlank()) dialog = ContentDialog.PROXY
-                        }
-                        if (settings.proxyEnabled) {
-                            Divider()
-                            ValueRow(Icons.Default.Tune, str(R.string.configure_proxy),
-                                settings.proxyUrl.ifBlank { str(R.string.not_set) }.let { "${settings.proxyType} · $it" }, colors) {
-                                dialog = ContentDialog.PROXY
-                            }
-                        }
-                    }
+        item(key = "lyrics") {
+            SettingsGroup(str(R.string.lyrics)) {
+                val enabledCount = LyricsProviderId.entries.size - settings.disabledLyricsProviders.size
+                ValueRow(Icons.Default.Lyrics, str(R.string.lyrics_providers),
+                    str(R.string.x_of_x_enabled, enabledCount, LyricsProviderId.entries.size)) { dialog = ContentDialog.LYRICS_PROVIDERS }
+                SwitchRow(Icons.Default.SortByAlpha, str(R.string.romanize_lyrics),
+                    str(R.string.latin_spelling_as_a_small_line_under_the), settings.romanizationEnabled) { v ->
+                    update { it.copy(romanizationEnabled = v) }
                 }
+                if (settings.romanizationEnabled) {
+                    ValueRow(Icons.Default.Translate, str(R.string.romanized_scripts),
+                        settings.romanizedScripts.size.let { if (it == RomanizationScript.entries.size) "All" else "$it selected" }) { dialog = ContentDialog.ROMANIZATION }
+                }
+            }
+        }
 
-                item(key = "lyrics") {
-                    Section(str(R.string.lyrics), primary, surface) {
-                        val enabledCount = LyricsProviderId.entries.size - settings.disabledLyricsProviders.size
-                        ValueRow(Icons.Default.Lyrics, str(R.string.lyrics_providers),
-                            str(R.string.x_of_x_enabled, enabledCount, LyricsProviderId.entries.size), colors) { dialog = ContentDialog.LYRICS_PROVIDERS }
-                        Divider()
-                        SwitchRow(Icons.Default.SortByAlpha, str(R.string.romanize_lyrics),
-                            str(R.string.latin_spelling_as_a_small_line_under_the), settings.romanizationEnabled, colors) { v ->
-                            update { it.copy(romanizationEnabled = v) }
-                        }
-                        if (settings.romanizationEnabled) {
-                            Divider()
-                            ValueRow(Icons.Default.Translate, str(R.string.romanized_scripts),
-                                settings.romanizedScripts.size.let { if (it == RomanizationScript.entries.size) "All" else "$it selected" },
-                                colors) { dialog = ContentDialog.ROMANIZATION }
-                        }
-                    }
+        item(key = "wrapped") {
+            SettingsGroup(str(R.string.wrapped)) {
+                SwitchRow(Icons.Default.Leaderboard, str(R.string.weekly_and_monthly_most_playlists),
+                    str(R.string.your_most_played_songs_of_the_last_7_and), settings.showMostStatsPlaylists) { v ->
+                    update { it.copy(showMostStatsPlaylists = v) }
                 }
+                SwitchRow(Icons.Default.AutoAwesome, str(R.string.show_wrapped_card), str(R.string.on_the_home_screen), settings.showWrappedCard) { v ->
+                    update { it.copy(showWrappedCard = v) }
+                }
+            }
+        }
 
-                item(key = "wrapped") {
-                    Section(str(R.string.wrapped), primary, surface) {
-                        SwitchRow(Icons.Default.Leaderboard, str(R.string.weekly_and_monthly_most_playlists),
-                            str(R.string.your_most_played_songs_of_the_last_7_and), settings.showMostStatsPlaylists, colors) { v ->
-                            update { it.copy(showMostStatsPlaylists = v) }
-                        }
-                        Divider()
-                        SwitchRow(Icons.Default.AutoAwesome, str(R.string.show_wrapped_card), str(R.string.on_the_home_screen), settings.showWrappedCard, colors) { v ->
-                            update { it.copy(showWrappedCard = v) }
-                        }
-                    }
+        item(key = "misc") {
+            SettingsGroup(str(R.string.misc)) {
+                SwitchRow(Icons.Default.Shuffle, str(R.string.randomize_home_order),
+                    str(R.string.shuffle_the_home_shelves_keeping_higher), settings.randomizeHomeOrder) { v ->
+                    update { it.copy(randomizeHomeOrder = v) }
                 }
-
-                item(key = "misc") {
-                    Section(str(R.string.misc), primary, surface) {
-                        SwitchRow(Icons.Default.Shuffle, str(R.string.randomize_home_order),
-                            str(R.string.shuffle_the_home_shelves_keeping_higher), settings.randomizeHomeOrder, colors) { v ->
-                            update { it.copy(randomizeHomeOrder = v) }
-                        }
-                        Divider()
-                        ValueRow(Icons.Default.FormatListNumbered, str(R.string.my_top_list_length),
-                            str(R.string.x_songs, settings.topLength), colors) { dialog = ContentDialog.TOP_LENGTH }
-                        Divider()
-                        ValueRow(Icons.Default.FlashOn, str(R.string.quick_picks),
-                            com.auralis.music.ui.i18n.UiLabels.of(settings.quickPicksMode.displayName), colors) { dialog = ContentDialog.QUICK_PICKS }
-                    }
-                }
+                ValueRow(Icons.Default.FormatListNumbered, str(R.string.my_top_list_length),
+                    str(R.string.x_songs, settings.topLength)) { dialog = ContentDialog.TOP_LENGTH }
+                ValueRow(Icons.Default.FlashOn, str(R.string.quick_picks),
+                    com.auralis.music.ui.i18n.UiLabels.of(settings.quickPicksMode.displayName)) { dialog = ContentDialog.QUICK_PICKS }
             }
         }
     }
@@ -413,8 +354,6 @@ private enum class ContentDialog {
     LYRICS_PROVIDERS, ROMANIZATION, APP_LANGUAGE
 }
 
-private data class RowColors(val primary: Color, val onSurface: Color, val onSurfaceVariant: Color)
-
 private fun languageName(code: String): String =
     if (code == ContentSettings.SYSTEM) str(R.string.system_default) else YouTubeLocales.languages[code] ?: code
 
@@ -433,83 +372,17 @@ private fun currentAppLanguageLabel(context: android.content.Context): String {
 }
 
 @Composable
-private fun Section(title: String, primary: Color, surface: Color, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = primary,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-        )
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column { content() }
-        }
-    }
-}
-
-@Composable
-private fun Divider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-    )
-}
-
-@Composable
 private fun SwitchRow(
     icon: ImageVector,
     title: String,
     subtitle: String?,
     checked: Boolean,
-    colors: RowColors,
     onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(22.dp))
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = colors.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            if (subtitle != null) Text(subtitle, color = colors.onSurfaceVariant, fontSize = 12.5.sp)
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = colors.primary)
-        )
-    }
-}
+) = SettingsSwitchRow(icon, title, subtitle, checked, onCheckedChange)
 
 @Composable
-private fun ValueRow(icon: ImageVector, title: String, value: String, colors: RowColors, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(22.dp))
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = colors.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(value, color = colors.onSurfaceVariant, fontSize = 12.5.sp)
-        }
-    }
-}
+private fun ValueRow(icon: ImageVector, title: String, value: String, onClick: () -> Unit) =
+    SettingsNavRow(icon, title, value, onClick)
 
 @Composable
 private fun ChoiceDialog(

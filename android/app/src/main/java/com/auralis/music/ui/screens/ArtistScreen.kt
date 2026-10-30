@@ -27,13 +27,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -128,18 +129,6 @@ fun ArtistScreen(
     val listState = rememberLazyListState()
     // Records the list alone, so the pinned bar's glass bends the page without sampling itself.
     val contentBackdrop = rememberLayerBackdrop()
-    val barGlass = rememberPageHeaderGlass(contentBackdrop)
-
-    val density = LocalDensity.current
-    val barFadeStart = with(density) { 210.dp.toPx() }
-    val barFadeEnd = with(density) { 290.dp.toPx() }
-    val barProgress by remember(listState, barFadeStart, barFadeEnd) {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else ((listState.firstVisibleItemScrollOffset - barFadeStart) / (barFadeEnd - barFadeStart)).coerceIn(0f, 1f)
-        }
-    }
-    val barCollapsed by remember { derivedStateOf { barProgress > .5f } }
 
     val openTopSongs = {
         onAlbumClick(
@@ -162,7 +151,7 @@ fun ArtistScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (barGlass != null) Modifier.layerBackdrop(contentBackdrop) else Modifier),
+                .layerBackdrop(contentBackdrop),
             contentPadding = bottomChromePadding(),
             verticalArrangement = Arrangement.spacedBy(26.dp)
         ) {
@@ -201,8 +190,15 @@ fun ArtistScreen(
                                 subscribers = artistPage.subscribers ?: artistPage.artist.subscribers
                             )
                         )
-                    }
+                    },
+                    modifier = Modifier.softenWhenLeaving()
                 )
+            }
+
+            artistPage.latestRelease?.let { latest ->
+                item(key = "latest_release", contentType = "latest_release") {
+                    ArtistLatestReleaseCard(latest, accent, onClick = { onAlbumClick(latest.release) })
+                }
             }
 
             item(key = "top_songs", contentType = "top_songs") {
@@ -331,12 +327,8 @@ fun ArtistScreen(
             }
         }
 
-        ArtistPinnedBar(
-            title = artistPage.artist.name,
-            progress = { barProgress },
-            collapsed = barCollapsed,
-            background = pageBackground,
-            glass = barGlass,
+        ArtistFloatingButtons(
+            backdrop = contentBackdrop,
             onBack = onBack,
             onShare = {
                 val sendIntent = Intent().apply {
@@ -499,7 +491,7 @@ private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset:
         }
 
         Column(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 20.dp),
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().softenWhenLeaving().padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
@@ -525,21 +517,48 @@ private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset:
     }
 }
 
+/**
+ * Blurs and dims what's scrolling up towards the top of the page, so it melts away under the
+ * floating buttons. Blur only on Android 12 and up. The state is read in the layer, so scrolling
+ * doesn't recompose anything.
+ */
 @Composable
-private fun ArtistActions(
+private fun Modifier.softenWhenLeaving(): Modifier {
+    val density = LocalDensity.current
+    val statusBar = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density).toFloat()
+    val start = statusBar + with(density) { 170.dp.toPx() }
+    val end = statusBar + with(density) { 30.dp.toPx() }
+    val maxBlur = with(density) { 14.dp.toPx() }
+    val top = remember { androidx.compose.runtime.mutableFloatStateOf(Float.MAX_VALUE) }
+    return this
+        .onGloballyPositioned { top.floatValue = it.positionInRoot().y }
+        .graphicsLayer {
+            val progress = ((start - top.floatValue) / (start - end)).coerceIn(0f, 1f)
+            alpha = 1f - progress * .55f
+            val radius = kotlin.math.round(progress * maxBlur)
+            renderEffect = if (radius >= 1f && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Decal)
+            } else null
+        }
+}
+
+@Composable
+internal fun ArtistActions(
     isSubscribed: Boolean,
     enabled: Boolean,
     accent: Color,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onRadio: () -> Unit,
-    onToggleSubscribe: () -> Unit
+    onToggleSubscribe: () -> Unit,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    modifier: Modifier = Modifier
 ) {
     val neutral = MaterialTheme.colorScheme.surfaceContainerHigh
     val neutralContent = pageGlassActionColor(MaterialTheme.colorScheme.onSurface)
     val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier.fillMaxWidth().padding(horizontal = horizontalPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -586,6 +605,63 @@ private fun ArtistRoundAction(
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, description, tint = content, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun ArtistLatestReleaseCard(
+    latest: com.auralis.music.domain.model.ArtistLatestRelease,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    OptionalGlassCard(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = null,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArtworkCard(
+                url = latest.release.thumbnail ?: "",
+                modifier = Modifier.size(92.dp),
+                cornerRadius = 16.dp,
+                contentDescription = latest.release.title
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = latest.year.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = latest.release.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 19.sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = str(if (latest.isAlbum) R.string.latest_album else R.string.latest_single),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
@@ -853,62 +929,26 @@ private fun ArtistAbout(description: String, accent: Color) {
     }
 }
 
+/** Back on the left and the page's actions on the right, floating over the list with no bar. */
 @Composable
-private fun BoxScope.ArtistPinnedBar(
-    title: String,
-    progress: () -> Float,
-    collapsed: Boolean,
-    background: Color,
-    glass: com.auralis.music.ui.glass.LiquidGlassContext?,
+internal fun BoxScope.ArtistFloatingButtons(
+    backdrop: com.kyant.backdrop.Backdrop,
     onBack: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onMore: (() -> Unit)? = null
 ) {
-    val iconColor by animateColorAsState(
-        targetValue = if (collapsed) MaterialTheme.colorScheme.onBackground else Color.White,
-        label = "artistBarIcon"
-    )
     Row(
         Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
-            .drawBehind { drawRect(background.copy(alpha = progress() * .94f)) }
             .statusBarsPadding()
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ArtistBarButton(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), iconColor, glass, onBack)
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).graphicsLayer { alpha = progress() }
-        )
-        ArtistBarButton(Icons.Default.Share, str(R.string.share), iconColor, glass, onShare)
-    }
-}
-
-@Composable
-private fun ArtistBarButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    tint: Color,
-    glass: com.auralis.music.ui.glass.LiquidGlassContext?,
-    onClick: () -> Unit
-) {
-    Box(
-        Modifier
-            .size(42.dp)
-            .then(
-                if (glass != null) Modifier.liquidGlass(glass, CircleShape, tint = glassBarTint(glass.isDark))
-                else Modifier.clip(CircleShape).background(Color.Black.copy(alpha = .35f))
-            )
-            .tactileBounce(scaleDown = 0.88f) { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, description, tint = tint, modifier = Modifier.size(20.dp))
+        com.auralis.music.ui.glass.FloatingPageButton(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), backdrop, onClick = onBack)
+        Spacer(Modifier.weight(1f))
+        com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.Share, str(R.string.share), backdrop, onClick = onShare)
+        if (onMore != null) com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.MoreVert, str(R.string.options), backdrop, onClick = onMore)
     }
 }

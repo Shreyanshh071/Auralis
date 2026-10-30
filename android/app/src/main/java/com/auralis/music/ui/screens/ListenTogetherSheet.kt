@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -136,7 +137,7 @@ fun ListenTogetherSheet(
     modifier: Modifier = Modifier,
     isPopup: Boolean = false
 ) {
-    if (com.auralis.music.ui.glass.LocalLiquidGlass.current != null && uiState.activeRoom == null) {
+    if (uiState.activeRoom == null) {
         GlassListenTogetherLobby(uiState, currentTrack, isPlaying, queue, playbackPositionMs,
             onNameChange, onCreateRoom, onJoinRoom, onHostSettingsChange, onDismiss, modifier, isPopup)
         return
@@ -889,7 +890,7 @@ private fun GuestPermissionsCard(
 }
 
 
-/** Dedicated glass layout; the original Material lobby remains the non-glass branch. */
+/** The lobby on both themes: real glass when it's on, soft tinted cards and the same glow when not. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GlassListenTogetherLobby(
@@ -903,23 +904,23 @@ private fun GlassListenTogetherLobby(
     val accent = MaterialTheme.dynamicPrimary
     val foreground = MaterialTheme.dynamicOnBackground
     val muted = foreground.copy(alpha=.62f)
+    val card = foreground.copy(alpha=.07f)
+    val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
     OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
-        .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding())) {
+        .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding()),
+        glowWithoutGlass = true) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=24.dp,vertical=20.dp),
             verticalArrangement=Arrangement.spacedBy(22.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Icon(Icons.Default.Groups,null,tint=accent,modifier=Modifier.size(30.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text(str(R.string.listen_together),fontSize=32.sp,fontWeight=FontWeight.Bold,
-                        letterSpacing=(-1).sp,color=foreground)
-                }
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                 IconButton(onClick=onClose,modifier=Modifier.size(44.dp)
-                    .pageCardSurface(CircleShape,Color.Transparent,Color.Transparent)) {
-                    Icon(Icons.Default.Close,str(R.string.close),tint=foreground)
+                    .pageCardSurface(CircleShape,card,Color.Transparent)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack,str(R.string.back),tint=foreground)
                 }
+                Text(str(R.string.listen_together),fontSize=28.sp,fontWeight=FontWeight.Bold,
+                    letterSpacing=(-.5).sp,color=foreground)
             }
-            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(26.dp),Color.Transparent,Color.Transparent)
+            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(26.dp),card,Color.Transparent)
                 .padding(horizontal=18.dp,vertical=8.dp)) {
                 TextField(value=state.myDisplayName,onValueChange=onName,singleLine=true,
                     label={ Text(str(R.string.display_name)) },
@@ -928,21 +929,21 @@ private fun GlassListenTogetherLobby(
                         focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,
                         focusedTextColor=foreground,unfocusedTextColor=foreground),modifier=Modifier.fillMaxWidth())
             }
-            Row(Modifier.fillMaxWidth().pageCardSurface(CircleShape,Color.Transparent,Color.Transparent).padding(5.dp),
+            Row(Modifier.fillMaxWidth().pageCardSurface(CircleShape,card,Color.Transparent).padding(5.dp),
                 horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 listOf(str(R.string.join_room),str(R.string.host_room)).forEachIndexed { index,label ->
                     val selected=host == (index==1)
-                    Row(Modifier.weight(1f).pageGlassSelection(CircleShape,selected,Color.Transparent,accent)
+                    Row(Modifier.weight(1f).pageGlassSelection(CircleShape,selected,if(selected) accent else Color.Transparent,accent)
                         .clickable { host=index==1 }.padding(vertical=14.dp),horizontalArrangement=Arrangement.Center,
                         verticalAlignment=Alignment.CenterVertically) {
                         Icon(if(index==0) Icons.AutoMirrored.Filled.Login else Icons.Default.Radio,null,
-                            tint=if(selected) foreground else muted,modifier=Modifier.size(17.dp))
+                            tint=if(selected) onAccent else muted,modifier=Modifier.size(17.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(label,fontWeight=FontWeight.SemiBold,color=if(selected) foreground else muted)
+                        Text(label,fontWeight=FontWeight.SemiBold,color=if(selected) onAccent else muted)
                     }
                 }
             }
-            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(30.dp),Color.Transparent,Color.Transparent)
+            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(30.dp),card,Color.Transparent)
                 .padding(22.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
                 Text(str(if(host) R.string.start_live_broadcast else R.string.enter_room_code),
                     fontSize=23.sp,fontWeight=FontWeight.Bold,color=foreground)
@@ -957,15 +958,15 @@ private fun GlassListenTogetherLobby(
                         unfocusedBorderColor=foreground.copy(alpha=.14f),focusedTextColor=foreground,unfocusedTextColor=foreground))
                 val enabled=!state.isConnecting && (host || code.length>=4)
                 Button(onClick={if(host)onCreate(track,queue,playing,position)else onJoin(code)},enabled=enabled,
-                    modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,Color.Transparent,accent,enabled),
+                    modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,if(enabled) accent else card,accent,enabled),
                     shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,
                         disabledContainerColor=Color.Transparent,disabledContentColor=foreground.copy(alpha=.35f))) {
-                    if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=foreground,strokeWidth=2.dp)
+                    if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=onAccent,strokeWidth=2.dp)
                     else {
-                        Icon(if(host)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=foreground.copy(alpha=if(enabled)1f else .35f))
+                        Icon(if(host)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=if(enabled) onAccent else foreground.copy(alpha=.35f))
                         Spacer(Modifier.width(10.dp))
                         Text(str(if(host)R.string.create_broadcast_room else R.string.connect_sync_now),
-                            color=foreground.copy(alpha=if(enabled)1f else .35f),fontWeight=FontWeight.Bold)
+                            color=if(enabled) onAccent else foreground.copy(alpha=.35f),fontWeight=FontWeight.Bold)
                     }
                 }
             }

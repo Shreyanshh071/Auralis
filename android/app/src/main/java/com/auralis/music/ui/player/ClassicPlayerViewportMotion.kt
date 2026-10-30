@@ -49,6 +49,8 @@ internal object ClassicPlayerViewportMotion {
     // FastOutSlowIn tween, and the body crossfades with the exit (250ms) finishing before the
     // enter (350ms) so the two never visibly overlap. No spring overshoot anywhere.
     const val HeroDurationMillis = 500
+    const val HeroSettleFrames = 2
+    const val LayerPrepareDelayMillis = 900L
     // Cover curve: soft start, fast middle, long glide into the header ("liquid").
     // An instant-start curve made the collapse look abrupt.
     val HeroEasing = androidx.compose.animation.core.FastOutSlowInEasing
@@ -95,6 +97,13 @@ internal object ClassicPlayerViewportMotion {
         smoothstep((sanitize(heroProgress) - CompactFadeStart) / (CompactFadeEnd - CompactFadeStart))
 
     fun compactActionsAlpha(heroProgress: Float): Float = compactMetadataAlpha(heroProgress)
+
+    // Lyrics stay out until the player's controls have gone, or their lines run through the
+    // transport and seek bar. Also the point the lyric blur may start, so it never pops in.
+    const val LyricsRevealStart = 0.9f
+
+    fun lyricsRevealAlpha(heroProgress: Float): Float =
+        smoothstep((sanitize(heroProgress) - LyricsRevealStart) / (1f - LyricsRevealStart))
 
     fun expandedActionsAlpha(heroProgress: Float): Float = expandedMetadataAlpha(heroProgress)
 

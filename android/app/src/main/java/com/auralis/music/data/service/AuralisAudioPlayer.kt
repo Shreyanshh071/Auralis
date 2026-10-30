@@ -1048,7 +1048,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             enqueuedNextTrack = null
             return
         }
-        val nextUpcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
+        val nextUpcoming = queueManager.gaplessNextTrack()
         if (nextUpcoming?.id != enqueuedNextTrack?.id) {
             prefetchJob?.cancel()
             if (isUsingExoPlayer && exoPlayer.mediaItemCount > 1) {
@@ -1076,6 +1076,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     // Queue extension belongs to the existing player so it survives Activity/task removal.
     fun requestAutoQueueExtension(advanceWhenLoaded: Boolean = false) {
         if (!runtimeSettings.autoLoadMore || queueManager.state.isUserQueue || isGuestListenTogether.value) return
+        // Repeat-all loops the queue as it stands: extending it meant the end, and so the loop, never came.
+        if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.ALL) return
         val seed = queueManager.state.currentTrack ?: return
         advanceAfterAutoLoad = advanceAfterAutoLoad || advanceWhenLoaded
         if (autoQueueJob?.isActive == true) return

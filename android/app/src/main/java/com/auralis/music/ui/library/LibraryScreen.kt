@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.Dp
 import com.auralis.music.ui.components.LiquidGlassPageHeader
 import com.auralis.music.ui.components.LiquidGlassPageTitle
 import com.auralis.music.ui.components.rememberPageHeaderGlass
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PushPin
 import com.auralis.music.ui.glass.LiquidGlassContext
 import com.auralis.music.ui.glass.liquidGlass
 import com.auralis.music.ui.glass.liquidGlassDialog
@@ -459,6 +461,7 @@ fun LibraryScreen(
             val selectedPl = uiState.selectedPlaylist?.takeIf { it.id == targetPlaylistId }
                 ?: uiState.playlists.firstOrNull { it.id == targetPlaylistId }
             if (selectedPl != null) {
+com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.tracks.firstOrNull()?.thumbnail) {
                 PlaylistDetailView(
                     playlist = selectedPl,
                     savedAlbums = uiState.savedAlbums,
@@ -483,6 +486,7 @@ fun LibraryScreen(
                     },
                     onMenuClick = { track -> selectedTrackForMenu = track }
                 )
+}
 
                 // Render Track Options Menu for playlist tracks
                 selectedTrackForMenu?.let { track ->
@@ -579,7 +583,6 @@ fun LibraryScreen(
                 val scrollOffset = if (isGridView) gridScrollState.firstVisibleItemScrollOffset else listScrollState.firstVisibleItemScrollOffset
                 @Suppress("UNUSED_VARIABLE")
                 val scrollIndex = if (isGridView) gridScrollState.firstVisibleItemIndex else listScrollState.firstVisibleItemIndex
-                drawRect(libraryBackground)
                 drawContent()
             }
         }
@@ -594,12 +597,14 @@ fun LibraryScreen(
     val filterVisible by remember { androidx.compose.runtime.derivedStateOf { filterOrigin.value != null } }
     var filterHeight by remember { mutableStateOf(48.dp) }
     val filterDensity = androidx.compose.ui.platform.LocalDensity.current
-    Box(
+    com.auralis.music.ui.glass.OptionalGlassPage(
+        background = libraryBackground,
+        accent = LIME_TEXT,
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
             .onGloballyPositioned { pageOrigin = it.positionInRoot() }
-            .background(MaterialTheme.dynamicBackground)
+            .background(libraryBackground)
     ) {
         androidx.compose.runtime.DisposableEffect(floatingHeaderState, headerGlass) {
             floatingHeaderState?.glass = headerGlass
@@ -720,10 +725,9 @@ fun LibraryScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = if (headerGlass != null) 0.dp else 16.dp, vertical = 6.dp)
                                 .height(48.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(CARD_DARK_BG)
-                                .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 14.dp),
+                                .clip(CircleShape)
+                                .background(libraryRowFill())
+                                .padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             Row(
@@ -787,45 +791,66 @@ fun LibraryScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                // Tucked up under the filter pills.
-                                .padding(start = if (headerGlass != null) 2.dp else 18.dp, end = if (headerGlass != null) 2.dp else 18.dp, top = 0.dp, bottom = if (headerGlass != null) 0.dp else 4.dp),
+                                .padding(
+                                    start = if (headerGlass != null) 0.dp else 16.dp,
+                                    end = if (headerGlass != null) 0.dp else 16.dp,
+                                    top = 12.dp,
+                                    bottom = if (headerGlass != null) 2.dp else 8.dp
+                                ),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Sorting Selector
                             Row(
                                 modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(libraryRowFill())
                                     .clickable { showSortMenu = true }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Sort,
+                                    contentDescription = null,
+                                    tint = LIME_TEXT,
+                                    modifier = Modifier.size(18.dp)
+                                )
                                 Text(
-                                    text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} ↓",
+                                    text = com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = LIME_TEXT,
-                                    fontSize = 15.sp
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontSize = 14.sp
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IconButton(onClick = { isSearchActive = true }) {
+                            Row(Modifier.clip(CircleShape).background(libraryRowFill())) {
+                                IconButton(onClick = { isSearchActive = true }, modifier = Modifier.size(44.dp)) {
                                     Icon(
                                         imageVector = Icons.Default.Search,
                                         contentDescription = str(R.string.search_library_2),
                                         tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(21.dp)
                                     )
                                 }
-                                IconButton(onClick = {
-                                    isGridView = !isGridView
-                                    onToggleGridView()
-                                }) {
+                                IconButton(
+                                    onClick = {
+                                        isGridView = !isGridView
+                                        onToggleGridView()
+                                    },
+                                    modifier = Modifier.size(44.dp)
+                                ) {
                                     Icon(
                                         imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
                                         contentDescription = if (isGridView) str(R.string.switch_to_list_view) else str(R.string.switch_to_grid_view),
-                                        tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
-                                        modifier = Modifier.size(22.dp)
+                                        tint = LIME_TEXT,
+                                        modifier = Modifier.size(21.dp)
                                     )
                                 }
                             }
@@ -864,6 +889,24 @@ fun LibraryScreen(
                 order = uiState.sortOrder,
                 recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
             )
+            val pinContext = androidx.compose.ui.platform.LocalContext.current
+            remember { LibraryPinStore.load(pinContext) }
+            val pinnedIds by LibraryPinStore.pinned
+            val smartCollections = displayedPlaylists.filter { smartCollectionTypeFor(it.id) != null }
+            val pinnedPlaylists = pinnedIds.mapNotNull { id -> displayedPlaylists.firstOrNull { it.id == id } }
+            val libraryPlaylists = displayedPlaylists.filter { smartCollectionTypeFor(it.id) == null && it.id !in pinnedIds }
+            val showCollectionShelf = smartCollections.isNotEmpty() || pinnedPlaylists.isNotEmpty()
+            val collectionShelf: @Composable () -> Unit = {
+                LibraryCollectionShelf(
+                    collections = smartCollections,
+                    pinned = pinnedPlaylists,
+                    savedAlbums = uiState.savedAlbums,
+                    isJobDownloading = isJobDownloading,
+                    onOpen = { playlist -> smartCollectionTypeFor(playlist.id)?.let(onSmartCollectionClick) },
+                    onOpenPinned = onPlaylistSelect,
+                    onOptions = { selectedPlaylistForMenu = it }
+                )
+            }
             val gridAnimate = !LocalReducedMotion.current
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
@@ -879,8 +922,7 @@ fun LibraryScreen(
                 refresh = onRefresh,
                 indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
                 modifier = Modifier.fillMaxSize()
-                    .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
-                    .background(MaterialTheme.dynamicBackground)
+                    .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier.background(libraryBackground))
             ) {
                 AnimatedContent(
                     targetState = isGridView,
@@ -910,26 +952,17 @@ fun LibraryScreen(
                                     }) { browseHeader() }
                                 }
                             }
-                            items(displayedPlaylists, key = { it.id }) { playlist ->
+                            if (showCollectionShelf) {
+                                item(key = "library_collections", span = { GridItemSpan(maxLineSpan) }) { collectionShelf() }
+                            }
+                            items(libraryPlaylists, key = { it.id }, contentType = { "playlist" }) { playlist ->
                                 Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                    val smartType = smartCollectionTypeFor(playlist.id)
-                                    if (smartType != null) {
-                                        SmartLibraryCard(
-                                            title = playlist.title,
-                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                            tracks = playlist.tracks,
-                                            onClick = { onSmartCollectionClick(smartType) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
-                                    } else {
-                                        UserPlaylistGridCard(
-                                            playlist = playlist,
-                                            savedAlbums = uiState.savedAlbums,
-                                            onClick = { onPlaylistSelect(playlist) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
-                                    }
+                                    UserPlaylistGridCard(
+                                        playlist = playlist,
+                                        savedAlbums = uiState.savedAlbums,
+                                        onClick = { onPlaylistSelect(playlist) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
                                 }
                             }
                         }
@@ -941,35 +974,26 @@ fun LibraryScreen(
                             state = listScrollState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             if (headerGlass != null) {
                                 item(key = "library_glass_header") { browseHeader() }
                             }
+                            if (showCollectionShelf) {
+                                item(key = "library_collections", contentType = "collections") { collectionShelf() }
+                            }
                             items(
-                                items = displayedPlaylists,
+                                items = libraryPlaylists,
                                 key = { it.id },
-                                contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
+                                contentType = { "playlist" }
                             ) { playlist ->
                                 Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                    val smartType = smartCollectionTypeFor(playlist.id)
-                                    if (smartType != null) {
-                                        SmartLibraryListRow(
-                                            title = playlist.title,
-                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                            tracks = playlist.tracks,
-                                            onClick = { onSmartCollectionClick(smartType) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
-                                    } else {
-                                        UserPlaylistListRow(
-                                            playlist = playlist,
-                                            savedAlbums = uiState.savedAlbums,
-                                            onClick = { onPlaylistSelect(playlist) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
-                                    }
+                                    UserPlaylistListRow(
+                                        playlist = playlist,
+                                        savedAlbums = uiState.savedAlbums,
+                                        onClick = { onPlaylistSelect(playlist) },
+                                        onLongClick = { selectedPlaylistForMenu = playlist }
+                                    )
                                 }
                             }
                         }
@@ -984,7 +1008,7 @@ fun LibraryScreen(
                 // Give the lazy row its final viewport on its first measure.
                 // A transient zero-width viewport can scroll its first pill
                 // out of view before the anchor's measured width arrives.
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).offset {
+                Box(Modifier.fillMaxWidth().offset {
                     IntOffset(0, ((filterOrigin.value?.y ?: pageOrigin.y) - pageOrigin.y).toInt())
                 }.clipToBounds().onSizeChanged {
                     filterHeight = with(filterDensity) { it.height.toDp() }
@@ -992,11 +1016,18 @@ fun LibraryScreen(
                     LibrarySourcePills(
                         selected = sourceFilter,
                         glass = glass,
-                        horizontalPadding = 0.dp,
                         onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
                     )
                 }
             }
+        }
+        // Cards leave under the floating header through a fade instead of colliding with its buttons.
+        if (headerGlass != null) {
+            com.auralis.music.ui.glass.PageGlowTopFade(
+                height = com.auralis.music.ui.components.LiquidGlassHeaderHeight + 16.dp,
+                background = libraryBackground,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
         if (floatingHeaderState == null) headerGlass?.let { glass ->
             LiquidGlassPageHeader(
@@ -1435,156 +1466,163 @@ internal fun resolveAlbumArtworkUrl(
     return null
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * The fill behind library rows and controls. These live inside the recorded page, so they can't
+ * be real glass (that would sample itself), and a list of glass cards would stutter on scroll.
+ * A tint rather than the surface colour, which sits too close to the page to show as a card.
+ */
 @Composable
-private fun SmartLibraryCard(
-    title: String,
-    icon: ImageVector,
-    subtitle: String? = null,
-    tracks: List<Track> = emptyList(),
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
-) {
-    val validTracks = remember(tracks) {
-        tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
-    }
-    val distinctTracks = remember(tracks) {
-        getDistinctArtworkTracks(tracks)
-    }
+private fun libraryRowFill(): Color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .contextMenuAnchor(onClick)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+@Composable
+private fun LibraryCollectionShelf(
+    collections: List<Playlist>,
+    pinned: List<Playlist>,
+    savedAlbums: List<SavedAlbum>,
+    isJobDownloading: Boolean,
+    onOpen: (Playlist) -> Unit,
+    onOpenPinned: (Playlist) -> Unit,
+    onOptions: (Playlist) -> Unit
+) {
+    androidx.compose.foundation.lazy.LazyRow(
+        // The page pads its list by 16dp; the shelf scrolls out to the screen edges.
+        modifier = Modifier.layout { measurable, constraints ->
+            val bleed = 32.dp.roundToPx()
+            val width = constraints.maxWidth + bleed
+            val shelf = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+            layout(constraints.maxWidth, shelf.height) { shelf.placeRelative(-bleed / 2, 0) }
+        },
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(CARD_DARK_BG)
-        ) {
-            if (distinctTracks.size >= 4) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = distinctTracks[0].thumbnail,
-                            fallbackTrack = distinctTracks[0],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = distinctTracks[1].thumbnail,
-                            fallbackTrack = distinctTracks[1],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = distinctTracks[2].thumbnail,
-                            fallbackTrack = distinctTracks[2],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = distinctTracks[3].thumbnail,
-                            fallbackTrack = distinctTracks[3],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.75f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = LIME_TEXT,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else if (validTracks.isNotEmpty()) {
-                ArtworkCard(
-                    url = validTracks.first().thumbnail,
-                    fallbackTrack = validTracks.first(),
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 18.dp,
-                    contentDescription = title
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.75f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = LIME_TEXT,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = CREAM_ICON_COLOR,
-                        modifier = Modifier.size(54.dp)
+        items(collections, key = { it.id }, contentType = { "shelf_card" }) { collection ->
+            val cover = remember(collection.tracks) {
+                collection.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+            }
+            LibraryShelfCard(
+                title = collection.title,
+                subtitle = smartCollectionSubtitleFor(collection, isJobDownloading),
+                icon = smartCollectionIconFor(collection.id, isJobDownloading),
+                onClick = { onOpen(collection) },
+                onLongClick = { onOptions(collection) }
+            ) {
+                if (cover != null) {
+                    ArtworkCard(
+                        url = cover.thumbnail,
+                        fallbackTrack = cover,
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 0.dp,
+                        contentDescription = null
                     )
                 }
             }
         }
+        items(pinned, key = { "pinned_${it.id}" }, contentType = { "shelf_card" }) { playlist ->
+            LibraryShelfCard(
+                title = playlist.title,
+                subtitle = libraryPlaylistSubtitle(playlist, savedAlbums),
+                icon = Icons.Default.PushPin,
+                onClick = { onOpenPinned(playlist) },
+                onLongClick = { onOptions(playlist) }
+            ) {
+                PlaylistCoverArt(playlist, savedAlbums, 0.dp)
+            }
+        }
+    }
+}
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 15.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LibraryShelfCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    cover: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(width = 164.dp, height = 204.dp)
+            .contextMenuAnchor(onClick)
+            .clip(RoundedCornerShape(26.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    ) {
+        cover()
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(0.42f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.82f))
+            )
         )
-
-        if (subtitle != null) {
-            Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .padding(12.dp)
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 12.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
-// ============================================================================
-// 🎨 USER PLAYLIST GRID CARD (With 4-Cover Collage or Single Artwork)
-// ============================================================================
+/** The playlist's cover, marked when it came from Spotify or YouTube Music. */
+@Composable
+private fun LibraryPlaylistCover(
+    playlist: Playlist,
+    savedAlbums: List<SavedAlbum>,
+    cornerRadius: Dp,
+    modifier: Modifier = Modifier
+) {
+    // One rounded clip for the whole cover: a second on each image cost a slow draw per card.
+    Box(modifier.clip(RoundedCornerShape(cornerRadius))) {
+        PlaylistCoverArt(playlist, savedAlbums, 0.dp)
+        val spotify = remember(playlist.id) { isSpotifyImport(playlist) }
+        val youTube = remember(playlist.id) { isYouTubeMusicImport(playlist) }
+        if (spotify || youTube) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(5.dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (spotify) com.auralis.music.ui.profile.SpotifyLogoIcon(Modifier.size(15.dp))
+                else YouTubeMusicMark(Modifier.size(15.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun libraryPlaylistSubtitle(playlist: Playlist, savedAlbums: List<SavedAlbum>): String {
+    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
+        isAlbumPlaylist(playlist, savedAlbums)
+    }
+    val songs = str(R.string.x_songs, playlist.tracks.size)
+    return if (isAlbum) "${str(R.string.album)} · $songs" else songs
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1594,252 +1632,16 @@ private fun UserPlaylistGridCard(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
-    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
-        isAlbumPlaylist(playlist, savedAlbums)
-    }
-    val validTracks = remember(playlist.tracks) {
-        playlist.tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
-    }
-    val distinctTracks = remember(playlist.tracks) {
-        getDistinctArtworkTracks(playlist.tracks)
-    }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .contextMenuAnchor(onClick)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(CARD_DARK_BG)
-        ) {
-            if (isAlbum) {
-                // Album cards must display ONE actual album cover matching Player artwork presentation (no 2x2 collage)
-                val albumCoverUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums) {
-                    resolveAlbumArtworkUrl(playlist, savedAlbums)
-                }
-                ArtworkCard(
-                    url = albumCoverUrl,
-                    fallbackTrack = validTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 18.dp,
-                    contentDescription = playlist.title
-                )
-            } else {
-                // Playlist/collection artwork behavior remains unchanged
-                if (!playlist.coverUrl.isNullOrBlank() && !usesTrackCollage(playlist, distinctTracks.size)) {
-                    ArtworkCard(
-                        url = playlist.coverUrl,
-                        fallbackTrack = validTracks.firstOrNull(),
-                        modifier = Modifier.fillMaxSize(),
-                        cornerRadius = 18.dp,
-                        contentDescription = playlist.title
-                    )
-                } else if (distinctTracks.size >= 4) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            ArtworkCard(
-                                url = distinctTracks[0].thumbnail,
-                                fallbackTrack = distinctTracks[0],
-                                modifier = Modifier.weight(1f).fillMaxSize(),
-                                cornerRadius = 0.dp,
-                                contentDescription = null
-                            )
-                            ArtworkCard(
-                                url = distinctTracks[1].thumbnail,
-                                fallbackTrack = distinctTracks[1],
-                                modifier = Modifier.weight(1f).fillMaxSize(),
-                                cornerRadius = 0.dp,
-                                contentDescription = null
-                            )
-                        }
-                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            ArtworkCard(
-                                url = distinctTracks[2].thumbnail,
-                                fallbackTrack = distinctTracks[2],
-                                modifier = Modifier.weight(1f).fillMaxSize(),
-                                cornerRadius = 0.dp,
-                                contentDescription = null
-                            )
-                            ArtworkCard(
-                                url = distinctTracks[3].thumbnail,
-                                fallbackTrack = distinctTracks[3],
-                                modifier = Modifier.weight(1f).fillMaxSize(),
-                                cornerRadius = 0.dp,
-                                contentDescription = null
-                            )
-                        }
-                    }
-                } else {
-                    ArtworkCard(
-                        url = validTracks.firstOrNull()?.thumbnail ?: playlist.tracks.firstOrNull()?.thumbnail,
-                        fallbackTrack = validTracks.firstOrNull() ?: playlist.tracks.firstOrNull(),
-                        modifier = Modifier.fillMaxSize(),
-                        cornerRadius = 18.dp,
-                        contentDescription = playlist.title
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = playlist.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 15.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = str(R.string.x_songs, playlist.tracks.size),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp
-        )
-    }
-}
-
-// ============================================================================
-// 📋 SMART LIBRARY LIST ROW (For List View Mode)
-// ============================================================================
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SmartLibraryListRow(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    tracks: List<Track> = emptyList(),
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .contextMenuAnchor(onClick)
-            .clip(RoundedCornerShape(14.dp))
-            .background(CARD_DARK_BG)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (tracks.isNotEmpty()) {
-                ArtworkCard(
-                    sizeToConstraints = true,
-                    url = tracks.first().thumbnail,
-                    fallbackTrack = tracks.first(),
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 10.dp,
-                    contentDescription = title
-                )
-            } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = LIME_TEXT,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 15.sp,
-                maxLines = 1
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
-            )
-        }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp)
-        )
-    }
-}
-
-// ============================================================================
-// 🎨 USER PLAYLIST LIST ROW (For List View Mode)
-// ============================================================================
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun UserPlaylistListRow(
-    playlist: Playlist,
-    savedAlbums: List<SavedAlbum> = emptyList(),
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
-) {
-    val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
-        isAlbumPlaylist(playlist, savedAlbums)
-    }
-    val firstValid = remember(playlist.tracks) {
-        playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() } ?: playlist.tracks.firstOrNull()
-    }
-    val artworkUrl = remember(playlist.coverUrl, playlist.tracks, savedAlbums, isAlbum) {
-        if (isAlbum) {
-            resolveAlbumArtworkUrl(playlist, savedAlbums)
-        } else {
-            playlist.coverUrl ?: firstValid?.thumbnail
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .contextMenuAnchor(onClick)
-            .clip(RoundedCornerShape(14.dp))
-            .background(CARD_DARK_BG)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ArtworkCard(
-            sizeToConstraints = true,
-            url = artworkUrl,
-            fallbackTrack = firstValid,
-            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)),
-            cornerRadius = 10.dp,
-            contentDescription = playlist.title
-        )
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        LibraryPlaylistCover(playlist, savedAlbums, 24.dp, Modifier.fillMaxWidth().aspectRatio(1f))
+        Spacer(modifier = Modifier.height(9.dp))
+        // Inset, because the hold preview rounds this whole card and would clip the corner text.
+        Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
             Text(
                 text = playlist.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -1851,18 +1653,65 @@ private fun UserPlaylistListRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = str(R.string.x_songs, playlist.tracks.size),
+                text = libraryPlaylistSubtitle(playlist, savedAlbums),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
+                fontSize = 13.sp,
+                maxLines = 1
             )
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp)
-        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun UserPlaylistListRow(
+    playlist: Playlist,
+    savedAlbums: List<SavedAlbum> = emptyList(),
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .contextMenuAnchor(onClick)
+            .clip(RoundedCornerShape(22.dp))
+            .background(libraryRowFill())
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = 10.dp, top = 10.dp, bottom = 10.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LibraryPlaylistCover(playlist, savedAlbums, 15.dp, Modifier.size(68.dp))
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = playlist.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = libraryPlaylistSubtitle(playlist, savedAlbums),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                maxLines = 1
+            )
+        }
+        if (onLongClick != null) {
+            IconButton(onClick = onLongClick) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = str(R.string.options),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
 }
 
@@ -2201,10 +2050,9 @@ private fun PlaylistDetailView(
         }
     }
 
-    // Liquid glass: the cover fills the top of the page edge to edge and fades into it, with
-    // the back / search buttons floating over it. Searching collapses the header and puts the
-    // buttons and search field in a plain bar.
-    val glassHero = com.auralis.music.ui.glass.LocalLiquidGlass.current != null
+    // The cover fills the top of the page edge to edge and fades into it, with the back / search
+    // buttons floating over it. Searching collapses the header and puts them in a plain bar.
+    val glassHero = true
     val heroMode = glassHero && !isSearchActive
     // The hero cover is recorded on its own, so the buttons over and under it can render it as
     // liquid glass (the page's own backdrop can't be used here: these buttons are part of it).
@@ -2212,7 +2060,8 @@ private fun PlaylistDetailView(
     val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
     val topBarButton: Modifier = if (heroGlass != null) {
         Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
-    } else Modifier
+    } else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+    val topBarIcon = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurface
 
     // Liquid glass: the bar always floats in the same place, so opening search never moves the
     // buttons. It fades in a solid page-coloured backing while searching, and the list makes room
@@ -2236,7 +2085,7 @@ private fun PlaylistDetailView(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = str(R.string.back),
-                    tint = Color.White,
+                    tint = topBarIcon,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -2265,7 +2114,7 @@ private fun PlaylistDetailView(
                 Icon(
                     imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
                     contentDescription = str(R.string.search),
-                    tint = if (isSearchActive) LIME_TEXT else Color.White,
+                    tint = if (isSearchActive) LIME_TEXT else topBarIcon,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -2335,8 +2184,8 @@ private fun PlaylistDetailView(
                             }
                         ) {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                            horizontalAlignment = Alignment.Start
                         ) {
                         // Centered Hero Cover (210dp x 210dp) with Custom Cover or 4-Quadrant Collage.
                         // Liquid glass: full-bleed square cover fading into the page instead.
@@ -2413,8 +2262,10 @@ private fun PlaylistDetailView(
                         // Playlist Title
                         Text(
                             text = playlist.title,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 34.sp,
+                            lineHeight = 38.sp,
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -2489,85 +2340,55 @@ private fun PlaylistDetailView(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         // ========================================================
-                        // 3. ACTION BUTTONS ROW (Shuffle, Big Play, 3-Dots)
+                        // 3. ACTION BUTTONS ROW
                         // ========================================================
+                        val onAccentColor = if (heroGlass != null) com.auralis.music.ui.glass.glassContentColor(heroGlass.isDark) else MaterialTheme.colorScheme.onPrimary
+                        val roundFill: Modifier = if (heroGlass != null) {
+                            Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
+                        } else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        val roundTint = if (heroGlass != null) onAccentColor else MaterialTheme.colorScheme.onSurface
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Shuffle Button
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(52.dp)
+                                    .weight(1f)
+                                    .height(52.dp)
                                     .then(
-                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
-                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
-                                    )
-                                    .clickable {
-                                        if (displayedTracks.isNotEmpty()) {
-                                            val shuffled = displayedTracks.shuffled()
-                                            onPlayTrack(shuffled.first(), shuffled)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shuffle,
-                                    contentDescription = str(R.string.shuffle),
-                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            // Large Play Button
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .then(
-                                        // Glass tinted with the accent, so play still reads as the main action.
                                         if (heroGlass != null) Modifier.liquidGlass(
-                                            heroGlass, CircleShape,
-                                            tint = com.auralis.music.ui.glass.glassIndicatorTint(heroGlass.isDark)
+                                            heroGlass, RoundedCornerShape(26.dp),
+                                            tint = LIME_TEXT.copy(alpha = if (heroGlass.isDark) .34f else .24f)
                                         )
-                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                                        else Modifier.clip(RoundedCornerShape(26.dp)).background(LIME_TEXT)
                                     )
-                                    .clickable {
-                                        if (displayedTracks.isNotEmpty()) {
-                                            onPlayTrack(displayedTracks.first(), displayedTracks)
-                                        }
+                                    .tactileBounce(scaleDown = 0.95f) {
+                                        if (displayedTracks.isNotEmpty()) onPlayTrack(displayedTracks.first(), displayedTracks)
                                     },
-                                contentAlignment = Alignment.Center
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = str(R.string.play),
-                                    tint = if (heroGlass != null) com.auralis.music.ui.glass.glassContentColor(heroGlass.isDark) else MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(32.dp)
-                                )
+                                Icon(Icons.Default.PlayArrow, null, tint = onAccentColor, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(str(R.string.play), color = onAccentColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            // 3-Dots Options Button
                             Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .then(
-                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
-                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
-                                    )
-                                    .clickable { showOptionsMenu = true },
+                                modifier = Modifier.size(52.dp).then(roundFill).tactileBounce(scaleDown = 0.90f) {
+                                    if (displayedTracks.isNotEmpty()) {
+                                        val shuffled = displayedTracks.shuffled()
+                                        onPlayTrack(shuffled.first(), shuffled)
+                                    }
+                                },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = str(R.string.playlist_options),
-                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                Icon(Icons.Default.Shuffle, str(R.string.shuffle), tint = roundTint, modifier = Modifier.size(22.dp))
+                            }
+                            Box(
+                                modifier = Modifier.size(52.dp).then(roundFill).tactileBounce(scaleDown = 0.90f) { showOptionsMenu = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.MoreVert, str(R.string.playlist_options), tint = roundTint, modifier = Modifier.size(22.dp))
                             }
                         }
 
@@ -2633,7 +2454,7 @@ private fun PlaylistDetailView(
                                             onDismiss = { showSortMenu = false }
                                         )
                                     }
-                                } else DropdownMenu(
+                                } else com.auralis.music.ui.components.AuralisDropdownMenu(
                                     expanded = showSortMenu,
                                     onDismissRequest = { showSortMenu = false },
                                     modifier = Modifier
@@ -2964,6 +2785,14 @@ internal fun PlaylistOptionsBottomSheet(
     if (activeDialog == null && glassAnchor != null) {
         val isAllDownloaded = playlist.tracks.isNotEmpty() && playlist.tracks.all { com.auralis.music.data.download.AuralisDownloadManager.isDownloaded(it.id) }
         val items = buildList {
+            if (!isSmartPlaylistMenu) {
+                LibraryPinStore.load(context)
+                val pinnedToLibrary = playlist.id in LibraryPinStore.pinned.value
+                add(com.auralis.music.ui.components.GlassMenuItem(
+                    str(if (pinnedToLibrary) R.string.unpin_from_library else R.string.pin_to_library),
+                    Icons.Default.PushPin
+                ) { LibraryPinStore.toggle(context, playlist.id) })
+            }
             if (!isSmartPlaylistMenu && syncPlaylist != null) add(com.auralis.music.ui.components.GlassMenuItem("Playlist sync", Icons.Default.Sync) {
                 onDismiss(); syncPlaylist(playlist)
             })
@@ -3167,6 +2996,18 @@ internal fun PlaylistOptionsBottomSheet(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
+                    if (!isSmartPlaylist) {
+                        LibraryPinStore.load(context)
+                        val pinnedToLibrary = playlist.id in LibraryPinStore.pinned.value
+                        PlaylistActionRow(
+                            icon = Icons.Default.PushPin,
+                            title = str(if (pinnedToLibrary) R.string.unpin_from_library else R.string.pin_to_library),
+                            onClick = {
+                                LibraryPinStore.toggle(context, playlist.id)
+                                onDismiss()
+                            }
+                        )
+                    }
                     if (!isSmartPlaylist && syncPlaylist != null) PlaylistActionRow(icon = Icons.Default.Sync,
                         title = "Playlist sync", subtitle = "Link YouTube Music · two-way sync",
                         onClick = { onDismiss(); syncPlaylist(playlist) })
@@ -3597,116 +3438,36 @@ internal fun PlaylistOptionsBottomSheet(
             )
         }
         PlaylistDialogType.DELETE -> {
-            AlertDialog(
-                onDismissRequest = {
+            val hidesGenerated = isRemovableMostPlayedPlaylist(playlist.id)
+            com.auralis.music.ui.components.AuralisConfirmDialog(
+                title = if (hidesGenerated) str(R.string.remove_playlist_from_library) else str(R.string.delete_playlist),
+                message = if (hidesGenerated) str(R.string.hide_generated_playlist_confirmation, playlist.title)
+                    else str(R.string.are_you_sure_you_want_to_delete_x, playlist.title),
+                confirmLabel = if (hidesGenerated) str(R.string.remove) else str(R.string.delete),
+                onConfirm = {
                     activeDialog = null
                     onDismiss()
+                    onDeletePlaylist?.invoke()
                 },
-                containerColor = CARD_DARK_BG,
-                shape = RoundedCornerShape(24.dp),
-                title = {
-                    Text(
-                        text = if (isRemovableMostPlayedPlaylist(playlist.id)) str(R.string.remove_playlist_from_library)
-                            else str(R.string.delete_playlist),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 20.sp
-                    )
-                },
-                text = {
-                    Text(
-                        text = if (isRemovableMostPlayedPlaylist(playlist.id))
-                            str(R.string.hide_generated_playlist_confirmation, playlist.title)
-                        else str(R.string.are_you_sure_you_want_to_delete_x, playlist.title),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 15.sp
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            activeDialog = null
-                            onDismiss()
-                            onDeletePlaylist?.invoke()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEF4444),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            if (isRemovableMostPlayedPlaylist(playlist.id)) str(R.string.remove) else str(R.string.delete),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            activeDialog = null
-                            onDismiss()
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(str(R.string.cancel), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
-                    }
+                onDismiss = {
+                    activeDialog = null
+                    onDismiss()
                 }
             )
         }
         PlaylistDialogType.DELETE_ALL_DOWNLOADS -> {
-            AlertDialog(
-                onDismissRequest = {
+            com.auralis.music.ui.components.AuralisConfirmDialog(
+                title = str(R.string.delete_all_downloads_2),
+                message = str(R.string.are_you_sure_you_want_to_delete_all_x_do, playlist.tracks.size),
+                confirmLabel = str(R.string.delete_all),
+                onConfirm = {
                     activeDialog = null
                     onDismiss()
+                    onClearAllDownloads?.invoke()
                 },
-                containerColor = CARD_DARK_BG,
-                shape = RoundedCornerShape(24.dp),
-                title = {
-                    Text(
-                        text = str(R.string.delete_all_downloads_2),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontSize = 20.sp
-                    )
-                },
-                text = {
-                    Text(
-                        text = str(R.string.are_you_sure_you_want_to_delete_all_x_do, playlist.tracks.size),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 15.sp
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            activeDialog = null
-                            onDismiss()
-                            onClearAllDownloads?.invoke()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEF4444),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(str(R.string.delete_all), fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            activeDialog = null
-                            onDismiss()
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(str(R.string.cancel), color = LIME_TEXT, fontWeight = FontWeight.SemiBold)
-                    }
+                onDismiss = {
+                    activeDialog = null
+                    onDismiss()
                 }
             )
         }

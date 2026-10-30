@@ -1,5 +1,6 @@
 package com.auralis.music.ui.lyrics
 
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -619,7 +620,15 @@ fun SyncedLyricsView(
             }
         }
 
+        // Glass needs something to bend: the list, recorded only while the button shows.
+        val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+        val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
         val lyricsGlide = remember { LyricsScrollGlide() }
+        val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+        // The tab stays composed while hidden, so leaving it has to end a selection itself.
+        LaunchedEffect(lyricsOnScreen) {
+            if (!lyricsOnScreen) selectedIndices = emptySet()
+        }
 
         // Suspend function to accurately and smoothly center any lyric line or interval in the viewport
         val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
@@ -684,7 +693,7 @@ fun SyncedLyricsView(
                             val scrollDelta = itemCenterY - targetCenterY
                             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                                 try {
-                                    if (animate) {
+                                    if (animate && lyricsOnScreen) {
                                         lyricsGlide.glide(listState, scrollDelta)
                                     } else {
                                         listState.scrollBy(scrollDelta)
@@ -797,6 +806,7 @@ fun SyncedLyricsView(
         LazyColumn(
             state = listState,
             modifier = Modifier
+                .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                 .fillMaxSize()
                 .nestedScroll(lyricsNestedScrollConnection)
                 .stationaryLyricsBlur(
@@ -965,7 +975,6 @@ fun SyncedLyricsView(
                                             }
                                         },
                                         onLongClick = {
-                                            if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) {
                                             isUserInteracting = true
                                             selectedIndices = if (isSelected) {
                                                 selectedIndices - index
@@ -976,7 +985,6 @@ fun SyncedLyricsView(
                                                     android.widget.Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), android.widget.Toast.LENGTH_SHORT).show()
                                                     selectedIndices
                                                 }
-                                            }
                                             }
                                         }
                                     )
@@ -1042,29 +1050,7 @@ fun SyncedLyricsView(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF1E1B18).copy(alpha = 0.92f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(32.dp))
-                    .clickable(onClick = resyncLyrics)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = str(R.string.re_sync),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.re_sync),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            LyricsResyncButton(resyncGlass, resyncLyrics)
         }
 
 

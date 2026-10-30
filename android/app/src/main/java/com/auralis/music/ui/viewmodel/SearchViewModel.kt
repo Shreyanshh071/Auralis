@@ -143,6 +143,23 @@ class SearchViewModel(
         return request
     }
 
+    /** A song's menu has "View artist": fetch the page and its photo now, so opening it is instant. */
+    fun preloadArtist(name: String) {
+        val key = name.lowercase()
+        if (name.isBlank() || artistPages[key] != null || artistRequests[key] != null) return
+        val request = artistPageRequest(Artist(id = "yt:$name", name = name))
+        viewModelScope.launch {
+            val photo = request.await()?.let { it.bannerUrl ?: it.artist.thumbnail }
+            if (context != null && !photo.isNullOrBlank()) {
+                coil.Coil.imageLoader(context).enqueue(
+                    coil.request.ImageRequest.Builder(context)
+                        .data(com.auralis.music.ui.components.getHighResArtworkUrl(photo))
+                        .build()
+                )
+            }
+        }
+    }
+
     private fun preloadSearchArtists(results: SearchResults) {
         val credits = com.auralis.music.domain.recommendations.SimilarSeedPlanner
             .splitArtistCredit(results.songs.firstOrNull()?.artist)

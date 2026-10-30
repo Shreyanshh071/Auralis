@@ -29,10 +29,13 @@ import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 
-/** Silent, lifecycle-aware cover loop. The caller keeps the still artwork underneath. */
+/**
+ * Silent, lifecycle-aware cover loop. The caller keeps the still artwork underneath.
+ * With [visible] false the loop stays loaded but fades away, leaving that still artwork.
+ */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier = Modifier) {
+internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier = Modifier, visible: Boolean = true) {
     val settings = LocalAppearanceSettings.current
     if (!settings.animatedCovers || track == null) return
     val context = LocalContext.current.applicationContext
@@ -82,7 +85,7 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
             onDispose { player.removeListener(listener); player.release() }
         }
         LaunchedEffect(isPlaying, foreground, failed) { player.playWhenReady = isPlaying && foreground && !failed }
-        val opacity by animateFloatAsState(if (ready && !failed) 1f else 0f, tween(350), label = "motionCover")
+        val opacity by animateFloatAsState(if (ready && !failed && visible) 1f else 0f, tween(if (visible) 350 else 180), label = "motionCover")
         AndroidView(
             modifier = modifier.alpha(opacity),
             factory = { viewContext ->

@@ -224,7 +224,7 @@ fun DownloadedHubView(
                             tint = MaterialTheme.dynamicOnBackground
                         )
                     }
-                    DropdownMenu(
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
@@ -400,51 +400,29 @@ fun DownloadedHubView(
 
     // ── CLEAR ALL DOWNLOADS DIALOG ──
     if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text(str(R.string.clear_all_downloads_2)) },
-            text = { Text(str(R.string.this_will_remove_all_downloaded_offline)) },
-            confirmButton = {
-                Button(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.clear_all_downloads_2),
+            message = str(R.string.this_will_remove_all_downloaded_offline),
+            confirmLabel = str(R.string.clear_all),
+            onDismiss = { showClearDialog = false },
+            onConfirm = {
                         showClearDialog = false
                         onClearAllDownloads()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(str(R.string.clear_all))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text(str(R.string.cancel))
-                }
-            }
         )
     }
 
     // ── DELETE SINGLE PLAYLIST FOLDER DIALOG ──
     jobToDelete?.let { jobId ->
-        AlertDialog(
-            onDismissRequest = { jobToDelete = null },
-            title = { Text(str(R.string.delete_playlist_downloads)) },
-            text = { Text(str(R.string.remove_downloaded_tracks_for_this_playli)) },
-            confirmButton = {
-                Button(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.delete_playlist_downloads),
+            message = str(R.string.remove_downloaded_tracks_for_this_playli),
+            confirmLabel = str(R.string.delete),
+            onDismiss = { jobToDelete = null },
+            onConfirm = {
                         onDeleteJob(jobId)
                         jobToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(str(R.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { jobToDelete = null }) {
-                    Text(str(R.string.cancel))
-                }
-            }
         )
     }
 }
@@ -705,7 +683,7 @@ private fun FolderCardItem(
                             )
                         }
 
-                        DropdownMenu(
+                        com.auralis.music.ui.components.AuralisDropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {

@@ -174,6 +174,28 @@ object ArtworkPaletteCache {
     }
 
     /**
+     * The palette of an image that is already on screen, right now, for a page opening on it.
+     * Runs on the caller's thread, which costs a few milliseconds once per image.
+     */
+    fun getCachedOrExtractNow(context: Context, url: String?): ArtworkPalette? {
+        if (url.isNullOrBlank()) return null
+        val optimized = getOptimizedThumbnailUrl(url)
+        getCached(url)?.let { return it }
+        optimized?.let { getCached(it) }?.let { return it }
+        val bitmap = try {
+            val memCache = context.imageLoader.memoryCache ?: return null
+            listOfNotNull(url, optimized, getHighResArtworkUrl(url))
+                .firstNotNullOfOrNull { memCache[coil.memory.MemoryCache.Key(it)]?.bitmap?.takeIf { bmp -> !bmp.isRecycled } }
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val palette = extractFromBitmap(bitmap).takeIf { !it.isDefault && !it.isPlaceholder } ?: return null
+        put(url, palette)
+        optimized?.let { put(it, palette) }
+        return palette
+    }
+
+    /**
      * Synchronously returns an authoritative, distinct ArtworkPalette for the track.
      * Checks memory cache, Coil's preloaded bitmap cache, dominant color, and finally
      * a deterministic vibrant seed derived from the track. Guarantees immediate color

@@ -3,6 +3,8 @@ package com.auralis.music.ui.screens
 import com.auralis.music.ui.components.contextMenuAnchor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
+import com.kyant.backdrop.backdrops.layerBackdrop
+import androidx.compose.runtime.derivedStateOf
 
 import android.content.Context
 import android.content.Intent
@@ -115,497 +117,189 @@ fun AlbumScreen(
         else -> ""
     }
 
-    val isLiquidGlass = LocalLiquidGlass.current != null
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val themePrimary = MaterialTheme.dynamicPrimary
-    val glassSpecularRim = remember(isDark) {
-        Brush.verticalGradient(
-            if (isDark) listOf(
-                Color.White.copy(alpha = 0.45f),
-                Color.White.copy(alpha = 0.15f),
-                Color.White.copy(alpha = 0.05f)
-            ) else listOf(
-                Color.White.copy(alpha = 0.95f),
-                Color.White.copy(alpha = 0.50f),
-                Color.Black.copy(alpha = 0.08f)
-            )
-        )
-    }
-    val glassActiveRim = remember(themePrimary) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.80f),
-                themePrimary.copy(alpha = 0.40f),
-                Color.White.copy(alpha = 0.20f)
-            )
-        )
-    }
-    val glassPillBg = if (isDark) Color(0xFF1E1E22).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
-    val glassActiveBg = remember(themePrimary) {
-        Brush.verticalGradient(
-            listOf(
-                themePrimary.copy(alpha = 0.95f),
-                themePrimary.copy(alpha = 0.72f)
-            )
-        )
-    }
+    val accent = MaterialTheme.dynamicPrimary
+    val pageBackground = MaterialTheme.dynamicBackground
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Records the list alone, for the frost under the pinned bar.
+    val listBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val isSaved = savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DARK_BG)
+    com.auralis.music.ui.glass.OptionalGlassPage(
+        background = pageBackground,
+        accent = accent,
+        modifier = modifier.fillMaxSize().background(pageBackground),
+        glowWithoutGlass = true
     ) {
-
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = bottomChromePadding()
+            state = listState,
+            modifier = Modifier.fillMaxSize().layerBackdrop(listBackdrop),
+            contentPadding = bottomChromePadding(),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // ================================================================
-            // 1. TOP APP BAR (Back Button + Title + Share Button)
-            // ================================================================
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val topButtonBaseModifier = if (isLiquidGlass) {
-                        Modifier
-                            .size(40.dp)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = CircleShape,
-                                ambientColor = Color.Black.copy(alpha = 0.45f),
-                                spotColor = Color.Black.copy(alpha = 0.35f)
-                            )
-                            .clip(CircleShape)
-                            .background(glassPillBg)
-                            .border(
-                                width = 1.dp,
-                                brush = glassSpecularRim,
-                                shape = CircleShape
-                            )
-                            .specularHighlight(CircleShape, highlightAlpha = 0.30f)
-                    } else {
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                    }
-
-                    Box(
-                        modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { onBack() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) {
-                                val shareText = str(R.string.listen_to_x_by_x_on_auralis_music_downlo, album.title, album.author ?: "Various Artists")
-                                val sendIntent = Intent().apply {
-                                    action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, shareText)
-                                    type = "text/plain"
-                                }
-                                context.startActivity(Intent.createChooser(sendIntent, str(R.string.share_album)))
-                            },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = str(R.string.share),
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Box(
-                            modifier = topButtonBaseModifier.tactileBounce(scaleDown = 0.88f) { showAlbumOptionsMenu = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = str(R.string.album_options),
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 2. ALBUM HERO HEADER (Artwork, Title, Artist, Play & Shuffle)
-            // ================================================================
-            item {
+            item(key = "album_hero", contentType = "hero") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                        .statusBarsPadding()
+                        .padding(start = 20.dp, end = 20.dp, top = 68.dp, bottom = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Large High-Res Artwork
                     ArtworkCard(
                         url = album.thumbnail ?: "",
-                        modifier = Modifier
-                            .size(220.dp)
-                            .clip(RoundedCornerShape(20.dp)),
-                        cornerRadius = 20.dp,
+                        modifier = Modifier.size(272.dp),
+                        cornerRadius = 26.dp,
+                        elevation = 16.dp,
                         contentDescription = album.title,
                         highRes = true
                     )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    // Album Title
+                    Spacer(modifier = Modifier.height(22.dp))
                     Text(
                         text = album.title,
                         style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Artist Name (Clickable)
                     if (!album.author.isNullOrBlank()) {
-                        Row(
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = album.author!!,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = accent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    onOpenArtist(Artist(id = "", name = album.author!!))
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = LIME_ACCENT,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = album.author!!,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = LIME_ACCENT
-                            )
-                        }
+                                .clickable { onOpenArtist(Artist(id = "", name = album.author!!)) }
+                                .padding(horizontal = 10.dp, vertical = 2.dp)
+                        )
                     }
-
                     Spacer(modifier = Modifier.height(4.dp))
-
-                    // Subtitle (Tracks count + Duration)
-                    val infoParts = buildList {
-                        add(str(R.string.album))
-                        if (tracks.isNotEmpty()) {
-                            add(str(R.string.x_songs, tracks.size))
-                        }
-                        if (durationText.isNotBlank()) {
-                            add(durationText)
-                        }
-                    }
                     Text(
-                        text = infoParts.joinToString(" • "),
+                        text = buildList {
+                            add(str(R.string.album))
+                            if (tracks.isNotEmpty()) add(str(R.string.x_songs, tracks.size))
+                            if (durationText.isNotBlank()) add(durationText)
+                        }.joinToString(" • "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
                     Spacer(modifier = Modifier.height(20.dp))
-
-                    // Action Buttons: Play All & Shuffle
-                    val buttonShape = RoundedCornerShape(24.dp)
-                    val playAction = {
-                        if (tracks.isNotEmpty()) {
-                            onTrackClick(tracks.first(), tracks)
-                        }
-                    }
-                    val shuffleAction = {
-                        if (tracks.isNotEmpty()) {
-                            val shuffled = tracks.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isLiquidGlass) {
-                            // Liquid Glass: Play All (Vibrant glass active capsule)
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .shadow(
-                                        elevation = 8.dp,
-                                        shape = buttonShape,
-                                        ambientColor = themePrimary.copy(alpha = 0.45f),
-                                        spotColor = Color.Black.copy(alpha = 0.30f)
-                                    )
-                                    .clip(buttonShape)
-                                    .background(glassActiveBg)
-                                    .border(width = 1.2.dp, brush = glassActiveRim, shape = buttonShape)
-                                    .specularHighlight(buttonShape, highlightAlpha = 0.38f)
-                                    .tactileBounce(scaleDown = 0.94f) { playAction() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = str(R.string.play),
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = str(R.string.play),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                }
+                    com.auralis.music.ui.screens.ArtistActions(
+                        isSubscribed = isSaved,
+                        enabled = tracks.isNotEmpty(),
+                        accent = accent,
+                        onPlay = { tracks.firstOrNull()?.let { onTrackClick(it, tracks) } },
+                        onShuffle = {
+                            if (tracks.isNotEmpty()) {
+                                val shuffled = tracks.shuffled()
+                                onTrackClick(shuffled.first(), shuffled)
                             }
-
-                            // Liquid Glass: Shuffle (Frosted glass specular capsule)
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .shadow(
-                                        elevation = 6.dp,
-                                        shape = buttonShape,
-                                        ambientColor = Color.Black.copy(alpha = 0.35f),
-                                        spotColor = Color.Black.copy(alpha = 0.25f)
-                                    )
-                                    .clip(buttonShape)
-                                    .background(glassPillBg)
-                                    .border(width = 1.dp, brush = glassSpecularRim, shape = buttonShape)
-                                    .specularHighlight(buttonShape, highlightAlpha = 0.25f)
-                                    .tactileBounce(scaleDown = 0.94f) { shuffleAction() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Shuffle,
-                                        contentDescription = str(R.string.shuffle),
-                                        tint = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = str(R.string.shuffle),
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp,
-                                        color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
-                                    )
-                                }
-                            }
-                        } else {
-                            // Standard Fallback Buttons
-                            Button(
-                                onClick = playAction,
-                                enabled = tracks.isNotEmpty(),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .tactileBounce(scaleDown = 0.94f),
-                                shape = buttonShape,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = LIME_ACCENT,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                        },
+                        onRadio = { tracks.firstOrNull()?.let(onStartRadio) },
+                        onToggleSubscribe = {
+                            onToggleSaveAlbum?.invoke(
+                                com.auralis.music.domain.model.SavedAlbum(
+                                    id = album.id,
+                                    title = album.title,
+                                    artist = album.author ?: "",
+                                    thumbnail = album.thumbnail
                                 )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = str(R.string.play),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = str(R.string.play),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
-
-                            OutlinedButton(
-                                onClick = shuffleAction,
-                                enabled = tracks.isNotEmpty(),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .tactileBounce(scaleDown = 0.94f),
-                                shape = buttonShape,
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.onBackground
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shuffle,
-                                    contentDescription = str(R.string.shuffle),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = str(R.string.shuffle),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 15.sp
-                                )
-                            }
-                        }
-                    }
+                            )
+                        },
+                        horizontalPadding = 0.dp
+                    )
                 }
             }
 
-            // ================================================================
-            // 3. TRACKLIST SECTION
-            // ================================================================
             if (isLoading && tracks.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = LIME_ACCENT,
-                            modifier = Modifier.size(36.dp)
-                        )
+                item(key = "album_loading", contentType = "loading") {
+                    Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = accent, modifier = Modifier.size(36.dp))
                     }
                 }
             } else if (tracks.isNotEmpty()) {
-                item {
-                    Text(
-                        text = str(R.string.tracks),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                    )
-                }
-
                 itemsIndexed(
                     items = tracks,
-                    key = { index, track -> "${track.id}_$index" }
+                    key = { index, track -> "${track.id}_$index" },
+                    contentType = { _, _ -> "track" }
                 ) { index, track ->
                     val isCurrent = track.id == currentTrackId
-
-                    SwipeableTrackContainer(
-                        onPlayNext = { onPlayNext(track) },
-                        onAddToQueue = { onAddToQueue(track) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .contextMenuAnchor { onTrackClick(track, tracks) }
-                                .combinedClickable(
-                                    onClick = { onTrackClick(track, tracks) },
-                                    onLongClick = { selectedTrackForMenu = track }
-                                )
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    val shape = RoundedCornerShape(
+                        topStart = if (index == 0) 22.dp else 6.dp,
+                        topEnd = if (index == 0) 22.dp else 6.dp,
+                        bottomStart = if (index == tracks.lastIndex) 22.dp else 6.dp,
+                        bottomEnd = if (index == tracks.lastIndex) 22.dp else 6.dp
+                    )
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        SwipeableTrackContainer(
+                            onPlayNext = { onPlayNext(track) },
+                            onAddToQueue = { onAddToQueue(track) }
                         ) {
-                            // Track Number or Equalizer
-                            Box(
-                                modifier = Modifier.width(32.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                if (isCurrent) {
-                                    EqualizerBars(
-                                        isPlaying = isPlaying,
-                                        modifier = Modifier.size(16.dp),
-                                        color = LIME_ACCENT
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(shape)
+                                    .background(
+                                        if (isCurrent) accent.copy(alpha = 0.14f)
+                                        else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f)
                                     )
-                                } else {
+                                    .contextMenuAnchor { onTrackClick(track, tracks) }
+                                    .combinedClickable(
+                                        onClick = { onTrackClick(track, tracks) },
+                                        onLongClick = { selectedTrackForMenu = track }
+                                    )
+                                    .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(Modifier.width(32.dp), contentAlignment = Alignment.CenterStart) {
+                                    if (isCurrent) {
+                                        EqualizerBars(isPlaying = isPlaying, modifier = Modifier.size(16.dp), color = accent)
+                                    } else {
+                                        Text(
+                                            text = "${index + 1}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "${index + 1}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = track.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCurrent) accent else MaterialTheme.colorScheme.onBackground,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    val duration = if (track.duration > 0) " • %d:%02d".format(track.duration / 60, track.duration % 60) else ""
+                                    Text(
+                                        text = "${track.artist.ifBlank { album.author ?: "" }}$duration",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                            }
-
-                            // Track Title & Artist
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isCurrent) LIME_ACCENT else MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = track.artist.ifBlank { album.author ?: "" },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Duration
-                            if (track.duration > 0) {
-                                val mins = track.duration / 60
-                                val secs = track.duration % 60
-                                Text(
-                                    text = String.format("%d:%02d", mins, secs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp)
-                                )
-                            }
-
-                            // 3-Dots Menu
-                            IconButton(
-                                onClick = { selectedTrackForMenu = track },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = str(R.string.options),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                IconButton(onClick = { selectedTrackForMenu = track }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = str(R.string.options),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             } else {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                item(key = "album_empty", contentType = "empty") {
+                    Box(Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
                         Text(
                             text = str(R.string.no_tracks_found_for_this_album),
                             style = MaterialTheme.typography.bodyMedium,
@@ -615,6 +309,21 @@ fun AlbumScreen(
                 }
             }
         }
+
+        ArtistFloatingButtons(
+            backdrop = listBackdrop,
+            onBack = onBack,
+            onShare = {
+                val shareText = str(R.string.listen_to_x_by_x_on_auralis_music_downlo, album.title, album.author ?: "Various Artists")
+                val sendIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    type = "text/plain"
+                }
+                context.startActivity(Intent.createChooser(sendIntent, str(R.string.share_album)))
+            },
+            onMore = { showAlbumOptionsMenu = true }
+        )
 
         // ================================================================
         // 4. TRACK OPTIONS MENU SHEET

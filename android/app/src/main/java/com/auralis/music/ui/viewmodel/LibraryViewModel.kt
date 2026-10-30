@@ -65,6 +65,8 @@ data class LibraryUiState(
     val spotifyImportMessage: String? = null
 )
 
+private const val ALBUM_PLAYLIST_PREFIX = "album:"
+
 class LibraryViewModel(
     private val libraryRepository: LibraryRepository,
     private val youtubeImporter: YouTubePlaylistImporter = YouTubePlaylistImporter(),
@@ -322,13 +324,25 @@ class LibraryViewModel(
         }
     }
 
-    fun toggleSaveAlbum(album: SavedAlbum) {
+    /** Library lists playlists, so a saved album also gets one, under an id tied to the album. */
+    fun toggleSaveAlbum(album: SavedAlbum, loadTracks: suspend () -> List<Track> = { emptyList() }) {
         viewModelScope.launch {
-            val isSaved = _uiState.value.savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
-            if (isSaved) {
-                libraryRepository.removeAlbum(album.id)
-            } else {
-                libraryRepository.saveAlbum(album)
+            // The same album can be saved under another id, so remove what matched rather than album.id.
+            val saved = libraryRepository.getSavedAlbums().first()
+                .filter { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+            if (saved.isNotEmpty()) {
+                saved.forEach {
+                    libraryRepository.removeAlbum(it.id)
+                    libraryRepository.deletePlaylist(ALBUM_PLAYLIST_PREFIX + it.id)
+                }
+                return@launch
+            }
+            libraryRepository.saveAlbum(album)
+            val tracks = runCatching { loadTracks() }.getOrDefault(emptyList())
+            if (tracks.isNotEmpty()) {
+                val id = ALBUM_PLAYLIST_PREFIX + album.id
+                libraryRepository.restorePlaylist(id, album.title, "Album by ${album.artist ?: "Various Artists"}", album.thumbnail)
+                libraryRepository.replacePlaylistTracks(id, tracks)
             }
         }
     }
@@ -687,6 +701,9 @@ class LibraryViewModel(
         if (playlistId.startsWith("smart_")) return
         viewModelScope.launch {
             libraryRepository.deletePlaylist(playlistId)
+            if (playlistId.startsWith(ALBUM_PLAYLIST_PREFIX)) {
+                libraryRepository.removeAlbum(playlistId.removePrefix(ALBUM_PLAYLIST_PREFIX))
+            }
             if (_uiState.value.selectedPlaylist?.id == playlistId) {
                 _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
             }
