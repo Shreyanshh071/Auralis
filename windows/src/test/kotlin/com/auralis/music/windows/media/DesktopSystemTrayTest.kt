@@ -15,6 +15,8 @@ import kotlin.test.*
 class DesktopSystemTrayTest {
     @Test fun nativeTrayInstallsOpenAndQuitActionsAndRemovesItself() {
         if (!SystemTray.isSupported()) return
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        if (isMac) return // macOS uses native Cocoa NSMenu (tested in MacDesktopLifecycleTest)
         EventQueue.invokeAndWait {
             val system = SystemTray.getSystemTray()
             val before = system.trayIcons.toSet()
@@ -113,6 +115,7 @@ class DesktopSystemTrayTest {
 
     @Test fun nativeClickOutsideDismissesEvenWithoutFocusLoss() {
         if (GraphicsEnvironment.isHeadless()) return
+        if (!System.getProperty("os.name").orEmpty().lowercase().contains("win")) return
         lateinit var menu: DesktopTrayMenu
         lateinit var target: Frame
         lateinit var watcher: TrayOutsideClicks

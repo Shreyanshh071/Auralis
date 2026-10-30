@@ -343,7 +343,18 @@ fun main(args: Array<String>) {
         }
 
         val openWindow: () -> Unit = {
+            if (isMac && java.awt.Desktop.isDesktopSupported()) {
+                val desktop = java.awt.Desktop.getDesktop()
+                if (desktop.isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
+                    runCatching { desktop.requestForeground(true) }
+                }
+            }
             windowState.isMinimized = false
+            (composeWindow as? java.awt.Frame)?.let { frame ->
+                if (frame.extendedState and java.awt.Frame.ICONIFIED != 0) {
+                    frame.extendedState = frame.extendedState and java.awt.Frame.ICONIFIED.inv()
+                }
+            }
             (composeWindow as? androidx.compose.ui.awt.ComposeWindow)?.takeIf { !it.isVisible }?.let { win ->
                 val handle = win.windowHandle
                 if (setWindowCloaked(handle, true)) {
@@ -427,9 +438,34 @@ fun main(args: Array<String>) {
             }
         }
         val requestClose: () -> Unit = {
-            if (com.auralis.music.windows.media.shouldCloseToTray(systemSettings.closeToTray, systemTray?.available == true)) {
+            if (isMac || com.auralis.music.windows.media.shouldCloseToTray(systemSettings.closeToTray, systemTray?.available == true)) {
                 windowVisible = false
             } else closeApp()
+        }
+
+        // macOS Dock click (reopen) and Application Menu Quit handling
+        DisposableEffect(Unit) {
+            val desktop = if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop() else null
+            val reopenListener = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_EVENT_REOPENED)) {
+                java.awt.desktop.AppReopenedListener {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                    }
+                }.also { desktop.addAppEventListener(it) }
+            } else null
+
+            val quitHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_QUIT_HANDLER)) {
+                java.awt.desktop.QuitHandler { _, _ ->
+                    java.awt.EventQueue.invokeLater {
+                        closeApp()
+                    }
+                }.also { desktop.setQuitHandler(it) }
+            } else null
+
+            onDispose {
+                reopenListener?.let { runCatching { desktop?.removeAppEventListener(it) } }
+                quitHandler?.let { runCatching { desktop?.setQuitHandler(null) } }
+            }
         }
 
         // Install system tray at application scope so it stays present even when the window is hidden/minimized to tray

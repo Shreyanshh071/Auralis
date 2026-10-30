@@ -20,28 +20,50 @@ internal class DesktopSystemTray(
         check(EventQueue.isDispatchThread())
         if (available) return
         if (!SystemTray.isSupported()) return
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
         runCatching {
             val image = trayImage() ?: return
-            val popup = DesktopTrayMenu(onOpen, onQuit)
-            menu = popup
-            fun showMenu(e: MouseEvent) {
-                if (!e.isPopupTrigger) return
-                // Windows tray events use physical pixels. MouseInfo supplies AWT's logical
-                // screen coordinates, matching JWindow even at 125/150% or mixed monitor DPI.
-                popup.showAt(pointerLocation() ?: e.locationOnScreen)
+            if (isMac) {
+                // macOS: native Cocoa NSMenu via AWT PopupMenu for genuine macOS glass, typography, and styling
+                val popup = PopupMenu().apply {
+                    val openItem = MenuItem("Open Auralis").apply {
+                        addActionListener { onOpen() }
+                    }
+                    val quitItem = MenuItem("Quit Auralis").apply {
+                        addActionListener { onQuit() }
+                    }
+                    add(openItem)
+                    addSeparator()
+                    add(quitItem)
+                }
+                val tray = TrayIcon(image, "Auralis", popup).apply {
+                    isImageAutoSize = false
+                }
+                SystemTray.getSystemTray().add(tray)
+                icon = tray
+                Log.i("AuralisTray", "macOS native status menu installed")
+            } else {
+                val popup = DesktopTrayMenu(onOpen, onQuit)
+                menu = popup
+                fun showMenu(e: MouseEvent) {
+                    if (!e.isPopupTrigger) return
+                    // Windows tray events use physical pixels. MouseInfo supplies AWT's logical
+                    // screen coordinates, matching JWindow even at 125/150% or mixed monitor DPI.
+                    popup.showAt(pointerLocation() ?: e.locationOnScreen)
+                }
+                val tray = TrayIcon(image, "Auralis").apply {
+                    // The multi-resolution tile supplies each tray size; AWT's own resize blurs it.
+                    isImageAutoSize = false
+                    addActionListener { popup.dismiss(); onOpen() }
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mousePressed(e: MouseEvent) = showMenu(e)
+                        override fun mouseReleased(e: MouseEvent) = showMenu(e)
+                    })
+                }
+                SystemTray.getSystemTray().add(tray)
+                icon = tray
+                Log.i("AuralisTray", "Windows tray installed")
             }
-            val tray = TrayIcon(image, "Auralis").apply {
-                // The multi-resolution tile supplies each tray size; AWT's own resize blurs it.
-                isImageAutoSize = false
-                addActionListener { popup.dismiss(); onOpen() }
-                addMouseListener(object : MouseAdapter() {
-                    override fun mousePressed(e: MouseEvent) = showMenu(e)
-                    override fun mouseReleased(e: MouseEvent) = showMenu(e)
-                })
-            }
-            SystemTray.getSystemTray().add(tray)
-            icon = tray
-            Log.i("AuralisTray", "Windows tray installed")
         }.onFailure {
             menu?.close()
             menu = null

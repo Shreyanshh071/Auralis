@@ -9,6 +9,12 @@ import javax.swing.border.EmptyBorder
 /** AWT's heavyweight PopupMenu cannot be themed. Keep this lightweight window on the AWT EDT. */
 internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit) : AutoCloseable {
     private var window: JWindow? = null
+    @Volatile
+    private var lastFocusLostTime = 0L
+
+    val isShowing: Boolean get() = window?.isVisible == true
+    val hadRecentFocusLoss: Boolean get() = System.currentTimeMillis() - lastFocusLostTime < 150
+
     internal var outsideClicks: TrayOutsideClicks? = null
         private set
     internal val content = TrayMenuPanel({ dismiss(); onOpen() }, { dismiss(); onQuit() })
@@ -21,6 +27,7 @@ internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit) : AutoClo
 
     fun showAt(anchor: Point) {
         check(EventQueue.isDispatchThread())
+        lastFocusLostTime = 0L
         val configuration = GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
             .flatMap { it.configurations.toList() }.firstOrNull { it.bounds.contains(anchor) }
             ?: GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
@@ -34,7 +41,10 @@ internal class DesktopTrayMenu(onOpen: () -> Unit, onQuit: () -> Unit) : AutoClo
             contentPane = content
             addWindowFocusListener(object : WindowAdapter() {
                 override fun windowLostFocus(e: WindowEvent) {
-                    if (window === e.window) dismiss()
+                    if (window === e.window) {
+                        lastFocusLostTime = System.currentTimeMillis()
+                        dismiss()
+                    }
                 }
             })
             pack()
@@ -80,9 +90,11 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
         background = Color(0x1B181F)
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(Color(0x39333F)), EmptyBorder(8, 8, 8, 8))
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        val fontName = if (isMac) Font.SANS_SERIF else "Segoe UI"
         val header = JLabel("AURALIS").apply {
             foreground = Color(0xAFA5BA)
-            font = Font("Segoe UI", Font.BOLD, 10)
+            font = Font(fontName, Font.BOLD, 10)
             border = EmptyBorder(3, 12, 9, 0)
             alignmentX = LEFT_ALIGNMENT
         }
@@ -148,7 +160,8 @@ internal class TrayMenuPanel(onOpen: () -> Unit, onQuit: () -> Unit) : JPanel() 
         alignmentX = LEFT_ALIGNMENT
         preferredSize = Dimension(216, 38)
         maximumSize = Dimension(Int.MAX_VALUE, 38)
-        font = Font("Segoe UI", Font.PLAIN, 13)
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        font = Font(if (isMac) Font.SANS_SERIF else "Segoe UI", Font.PLAIN, 13)
         foreground = if (quit) Color(0xF0B9BD) else Color(0xEEE8F3)
         border = EmptyBorder(0, 12, 0, 12)
         isContentAreaFilled = false
