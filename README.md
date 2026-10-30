@@ -66,12 +66,12 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <sub><b>Search & Discovery</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/account_sync.jpg" alt="Cloud Sync & Importer" width="100%" /><br />
-        <sub><b>Playlist Importers</b></sub>
+        <img src="docs/screenshots/library.jpg" alt="Library" width="100%" /><br />
+        <sub><b>Library</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/discord.jpg" alt="Discord Rich Presence" width="100%" /><br />
-        <sub><b>Discord Presence</b></sub>
+        <img src="docs/screenshots/wrapped.jpg" alt="Auralis Wrapped" width="100%" /><br />
+        <sub><b>Auralis Wrapped</b></sub>
       </td>
     </tr>
     <tr>
