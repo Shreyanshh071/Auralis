@@ -168,7 +168,7 @@ fun AuralisFloatingDock(
         if (isDark) Color.White else Color.Black,
         if (isDark) 0.08f else 0.04f
     )
-    // The song's own Material scheme (TonalSpot from the cover), as Echo Music colours its bar:
+    // The song's own Material scheme (TonalSpot from the cover), which colours the bar:
     // the raised surface tone keeps the cover's hue at a deep, readable tone. Blending the
     // pastel accent into grey (the previous approach) lightened the pill and looked washed out.
     val targetDockColor = if (appearance.dynamicTheme) MaterialTheme.colorScheme.surfaceContainerHigh else neutralDockColor

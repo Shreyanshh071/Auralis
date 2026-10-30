@@ -86,7 +86,7 @@ fun rememberPageHeaderGlass(backdrop: Backdrop): LiquidGlassContext? {
  * The page already clears the system status bar in AuralisApp.
  *
  * [collapsed] is true while a page opened from here (Profile, History, Listen Together, Stats)
- * covers the tab. The capsule then closes the way BitChord's action pill does: the logo and the
+ * covers the tab. The capsule then closes like an action pill: the logo and the
  * icons leave in the same frame and the empty glass springs shut, narrowing and thinning into its
  * right edge. On return it springs open from that edge with its icons already in place, revealed
  * as the glass grows. Driven by the page state rather than the tap, so a back gesture or a

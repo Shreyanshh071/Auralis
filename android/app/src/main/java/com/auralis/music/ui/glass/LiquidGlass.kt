@@ -128,7 +128,7 @@ fun Modifier.liquidGlass(
             .border(0.75.dp, rimBrush(glass.isDark), shape)
     }
     val density = LocalDensity.current
-    // Match BitChord's 8dp blur / 24dp lens at one-third capture resolution.
+    // 8dp blur / 24dp lens at one-third capture resolution.
     // Effects stay constant during presses; only the surface transform animates.
     val blurPx = with(density) { blurRadius.toPx() } * GLASS_RESOLUTION_SCALE
     val lensHeightPx = with(density) { lensDepth.toPx() } * GLASS_RESOLUTION_SCALE

@@ -184,7 +184,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviSlideDistanceFormula() {
+    fun testSheetSlideDistanceFormula() {
         // Slide formula: it / 8
         val screenWidths = listOf(720f, 1080f, 1440f)
 
@@ -232,7 +232,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviMiniPlayerAlphaFormula() {
+    fun testSheetMiniPlayerAlphaFormula() {
         fun miniPlayerAlpha(progress: Float): Float {
             return (1f - progress * 4f).coerceIn(0f, 1f)
         }
@@ -247,7 +247,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviFullPlayerAlphaFormula() {
+    fun testSheetFullPlayerAlphaFormula() {
         fun fullPlayerAlpha(progress: Float): Float {
             return ((progress - 0.15f) * 4f).coerceIn(0f, 1f)
         }
@@ -263,7 +263,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviScrimAlphaFormula() {
+    fun testSheetScrimAlphaFormula() {
         fun scrimAlpha(progress: Float): Float {
             return (1.4f * kotlin.math.sqrt((progress.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
         }
@@ -276,7 +276,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviCornerRadiusFormula() {
+    fun testSheetCornerRadiusFormula() {
         fun sheetCornerRadius(progress: Float): Float {
             return if (progress < 1f) 16f else 0f
         }
@@ -288,7 +288,7 @@ class NavigationParityUnitTest {
     }
 
     @Test
-    fun testViviDockAnimationFormula() {
+    fun testSheetDockAnimationFormula() {
         fun dockAlpha(progress: Float): Float {
             return (1f - progress * 2f).coerceIn(0f, 1f)
         }
@@ -677,36 +677,36 @@ class NavigationParityUnitTest {
         assertEquals("Downward drag on Full Player must decrease sheet progress (1.0 - 0.25 = 0.75)", 0.75f, currentProgress, 0.001f)
     }
     @Test
-    fun testViviBackgroundAlphaCurveAtProgressCheckpoints() {
-        fun calculateViviBackgroundAlpha(p: Float): Float {
+    fun testSheetBackgroundAlphaCurveAtProgressCheckpoints() {
+        fun calculateSheetBackgroundAlpha(p: Float): Float {
             return (1.4f * kotlin.math.sqrt((p.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
         }
 
         // 0% to 10% progress: background remains completely transparent
-        assertEquals(0f, calculateViviBackgroundAlpha(0.00f), 0.0001f)
-        assertEquals(0f, calculateViviBackgroundAlpha(0.05f), 0.0001f)
-        assertEquals(0f, calculateViviBackgroundAlpha(0.10f), 0.0001f)
+        assertEquals(0f, calculateSheetBackgroundAlpha(0.00f), 0.0001f)
+        assertEquals(0f, calculateSheetBackgroundAlpha(0.05f), 0.0001f)
+        assertEquals(0f, calculateSheetBackgroundAlpha(0.10f), 0.0001f)
 
         // 25% progress: 1.4 * sqrt(0.15) ~ 0.5422
-        val alpha25 = calculateViviBackgroundAlpha(0.25f)
+        val alpha25 = calculateSheetBackgroundAlpha(0.25f)
         assertEquals(0.5422f, alpha25, 0.001f)
 
         // 50% progress: 1.4 * sqrt(0.40) ~ 0.8854
-        val alpha50 = calculateViviBackgroundAlpha(0.50f)
+        val alpha50 = calculateSheetBackgroundAlpha(0.50f)
         assertEquals(0.8854f, alpha50, 0.001f)
 
         // 61% progress: 1.4 * sqrt(0.51) ~ 0.9997 (reaches full opacity ~61%)
-        val alpha61 = calculateViviBackgroundAlpha(0.61f)
+        val alpha61 = calculateSheetBackgroundAlpha(0.61f)
         assertEquals(1.0f, alpha61, 0.001f)
 
         // 75% and 100% progress: clamped at 1.0
-        assertEquals(1.0f, calculateViviBackgroundAlpha(0.75f), 0.0001f)
-        assertEquals(1.0f, calculateViviBackgroundAlpha(1.00f), 0.0001f)
+        assertEquals(1.0f, calculateSheetBackgroundAlpha(0.75f), 0.0001f)
+        assertEquals(1.0f, calculateSheetBackgroundAlpha(1.00f), 0.0001f)
     }
 
     @Test
-    fun testViviBackgroundContinuityOnMidTransitionReversal() {
-        fun calculateViviBackgroundAlpha(p: Float): Float {
+    fun testSheetBackgroundContinuityOnMidTransitionReversal() {
+        fun calculateSheetBackgroundAlpha(p: Float): Float {
             return (1.4f * kotlin.math.sqrt((p.coerceAtLeast(0.1f) - 0.1f))).coerceIn(0f, 1f)
         }
 
@@ -719,7 +719,7 @@ class NavigationParityUnitTest {
         currentProgress = (currentProgress + deltaProgress1).coerceIn(0f, 1f)
         assertEquals(0.45f, currentProgress, 0.001f)
 
-        val alphaAtMidDrag = calculateViviBackgroundAlpha(currentProgress)
+        val alphaAtMidDrag = calculateSheetBackgroundAlpha(currentProgress)
         // 1.4 * sqrt(0.35) ~ 0.8282
         assertEquals(0.8282f, alphaAtMidDrag, 0.001f)
 
@@ -729,7 +729,7 @@ class NavigationParityUnitTest {
         currentProgress = (currentProgress + deltaProgress2).coerceIn(0f, 1f)
         assertEquals(0.30f, currentProgress, 0.001f)
 
-        val alphaAtReversal = calculateViviBackgroundAlpha(currentProgress)
+        val alphaAtReversal = calculateSheetBackgroundAlpha(currentProgress)
         // 1.4 * sqrt(0.20) ~ 0.6261
         assertEquals(0.6261f, alphaAtReversal, 0.001f)
 

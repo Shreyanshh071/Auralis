@@ -15,7 +15,7 @@ internal object SpotifyWebApi {
     private const val QUERY_URL = "https://api-partner.spotify.com/pathfinder/v2/query"
     private const val HASH_REGISTRY = "https://francescograzioso.github.io/Meld/spotify-gql-hashes.json"
 
-    // Verified hashes from Meld's registry on 2026-10-04. A rejected hash triggers a registry refresh.
+    // Verified hashes from the registry on 2026-10-04. A rejected hash triggers a registry refresh.
     private val bundledHashes = mapOf(
         "searchDesktop" to "db61238974d27839a136c9dc02bfdbe3fab7635f21cf85976ebff9a1ee281345",
         "queryArtistOverview" to "9f8134ef565e78621f1e1793555bd6633c5ac144ae0f89604ed3ae3f80b3c8e6",

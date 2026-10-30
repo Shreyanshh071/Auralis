@@ -45,9 +45,9 @@ internal class DockGlassEffect : AutoCloseable {
     override fun close() = effect.close()
 }
 
-/** Directional half-dp highlight from Kyant's Highlight.Default, as used by BitChord. */
-internal class BitChordGlassRim : AutoCloseable {
-    private val effect = RuntimeEffect.makeForShader(BitChordHighlightShader)
+/** Directional half-dp highlight from Kyant's Highlight.Default. */
+internal class LiquidGlassRim : AutoCloseable {
+    private val effect = RuntimeEffect.makeForShader(LiquidGlassHighlightShader)
     fun draw(canvas: org.jetbrains.skia.Canvas, width: Float, height: Float, radius: Float, density: Float) {
         RuntimeShaderBuilder(effect).use { builder ->
             builder.uniform("size", width, height)
@@ -98,7 +98,7 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
     }
 }"""
 
-private val BitChordHighlightShader = """
+private val LiquidGlassHighlightShader = """
 uniform float2 size;
 uniform float4 cornerRadii;
 $RoundedRectSDF

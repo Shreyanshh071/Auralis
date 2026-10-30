@@ -33,7 +33,7 @@ internal val LocalPopupGlassSource = staticCompositionLocalOf<PopupGlassSource?>
 
 // BitChord's fixed liquid-glass recipe (LiquidGlass.kt, commit 04a4a83889bb8fa5bd6ee6f6097f0c6608671d68).
 // https://github.com/kushagrasinghx/BitChord (GPL-3.0); lens shader is Kyant's Apache-2.0 implementation.
-internal fun bitChordGlassTint(light: Boolean): Color =
+internal fun liquidGlassTint(light: Boolean): Color =
     (if (light) Color(0xFFFAFAFA) else Color(0xFF121212)).copy(alpha = .4f)
 private const val GLASS_SCALE = .33f
 
@@ -63,12 +63,12 @@ internal fun Modifier.recordPopupGlass(source: PopupGlassSource): Modifier = thi
 /** Shared by options menus and search; popup coordinates are relative to the owner window. */
 @Composable
 internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
-    tint: Color = bitChordGlassTint(false), frosted: Boolean = false, content: @Composable () -> Unit) {
+    tint: Color = liquidGlassTint(false), frosted: Boolean = false, content: @Composable () -> Unit) {
     val source = LocalPopupGlassSource.current
     val shape = RoundedCornerShape(18.dp)
     val layer = rememberGraphicsLayer()
     val effect = remember { DockGlassEffect() }
-    val rim = remember { BitChordGlassRim() }
+    val rim = remember { LiquidGlassRim() }
     var localOrigin by remember { mutableStateOf(Offset.Zero) }
     DisposableEffect(source) {
         source?.users?.let { it.intValue++ }

@@ -31,8 +31,8 @@ import java.util.concurrent.ConcurrentHashMap
  * album when the song's album is known; a compilation's video never stands in for a song elsewhere.
  */
 
-/** Where animated covers come from. Auto tries Apple Music, then Tidal, then the Vivi library. */
-internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), VIVI("Vivi Music library") }
+/** Where animated covers come from. Auto tries Apple Music, then Tidal, then the curated library. */
+internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), CURATED("Curated library") }
 
 internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO)
 
@@ -77,13 +77,13 @@ internal object CanvasLookup {
                 found[key] = url; return@withContext url.ifBlank { null }
             }
         }
-        val sources = if (source == CanvasSource.AUTO) listOf(CanvasSource.APPLE, CanvasSource.TIDAL, CanvasSource.VIVI) else listOf(source)
+        val sources = if (source == CanvasSource.AUTO) listOf(CanvasSource.APPLE, CanvasSource.TIDAL, CanvasSource.CURATED) else listOf(source)
         val url = sources.firstNotNullOfOrNull { s ->
             runCatching {
                 when (s) {
                     CanvasSource.APPLE -> apple(track)
                     CanvasSource.TIDAL -> tidal(track)
-                    CanvasSource.VIVI -> vivi(track)
+                    CanvasSource.CURATED -> curated(track)
                     CanvasSource.AUTO -> null
                 }
             }.onFailure { Log.w(TAG, "${s.label} lookup failed for '${track.title}': ${it.message}") }.getOrNull()
@@ -198,12 +198,12 @@ internal object CanvasLookup {
         return null
     }
 
-    // ── Vivi Music's curated library (a JSON list of song, artist, album and video) ──
-    @Volatile private var viviItems: List<JSONObject>? = null
-    private fun vivi(track: Track): String? {
-        val items = viviItems ?: get("https://vivimusicanvas.mkmdevilmi.workers.dev/canvas.json")?.let { body ->
+    // ── The curated library (a JSON list of song, artist, album and video) ──
+    @Volatile private var curatedItems: List<JSONObject>? = null
+    private fun curated(track: Track): String? {
+        val items = curatedItems ?: get("https://vivimusicanvas.mkmdevilmi.workers.dev/canvas.json")?.let { body ->
             JSONObject(body).optJSONArray("items")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
-        }?.also { viviItems = it } ?: return null
+        }?.also { curatedItems = it } ?: return null
         return items.firstOrNull { item ->
             titleMatch(track.title, item.optString("song")) && artistMatch(item.optString("artist"), listOf(track.artist)) &&
                 albumMatch(track, item.optString("album"))

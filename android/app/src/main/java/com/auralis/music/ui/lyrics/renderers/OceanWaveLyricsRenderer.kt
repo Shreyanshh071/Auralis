@@ -103,7 +103,7 @@ fun OceanWaveLyricsLine(
     val animatedBlur by animateFloatAsState(
         targetValue = targetBlur,
         animationSpec = if (!enableStandardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
-        label = "viviBlur"
+        label = "oceanBlur"
     )
 
     // ── Line duration for sentence-level timing ──
@@ -142,14 +142,14 @@ fun OceanWaveLyricsLine(
     val animatedAlpha by animateFloatAsState(
         targetValue = targetAlpha,
         animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-        label = "viviAlpha"
+        label = "oceanAlpha"
     )
 
     // ── Scale ──
     val scale by animateFloatAsState(
         targetValue = if (isActive) 1.05f else 1f,
         animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
-        label = "viviScale"
+        label = "oceanScale"
     )
 
     val itemModifier = modifier
@@ -192,7 +192,7 @@ fun OceanWaveLyricsLine(
             val globalWave by animateFloatAsState(
                 targetValue = rawGlobalWave,
                 animationSpec = tween(durationMillis = 80, easing = FastOutSlowInEasing),
-                label = "viviGlobalWaveProgress"
+                label = "oceanGlobalWaveProgress"
             )
 
             val waveFeather = 0.12f
@@ -286,7 +286,7 @@ fun OceanWaveLyricsLine(
             val sentenceAlpha by animateFloatAsState(
                 targetValue = targetSentenceAlpha,
                 animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-                label = "viviSentenceAlpha"
+                label = "oceanSentenceAlpha"
             )
 
             Text(

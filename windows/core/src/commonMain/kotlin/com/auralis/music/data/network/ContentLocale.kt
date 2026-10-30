@@ -39,7 +39,7 @@ object ContentLocale {
     fun gl(): String {
         val chosen = ContentSettingsSource.current().contentCountry
         if (chosen != ContentSettings.SYSTEM) return chosen
-        // Same order as ViviMusic/Metrolist: the app language's region (e.g. pt-BR → BR), then
+        // Order: the app language's region (e.g. pt-BR → BR), then
         // the phone's. The phone's region comes from the system configuration: with a per-app
         // language like plain "hi", Locale.getDefault() has no country, which used to fall to US.
         val appTag = appLanguageTag()

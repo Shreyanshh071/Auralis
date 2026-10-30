@@ -171,7 +171,7 @@ private fun AnimatedCoversSettings() {
             }
         }
         if (prefs.enabled && prefs.source == com.auralis.music.windows.player.CanvasSource.AUTO) Text(
-            desktopText("Auto looks on Apple Music first, then Tidal, then the Vivi Music library."),
+            desktopText("Auto looks on Apple Music first, then Tidal, then the curated library."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
