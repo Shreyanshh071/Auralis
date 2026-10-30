@@ -22,7 +22,10 @@ internal class DesktopSystemTray(
         if (!SystemTray.isSupported()) return
         val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
         runCatching {
-            val image = trayImage() ?: return
+            if (isMac) {
+                System.setProperty("apple.awt.enableTemplateImages", "true")
+            }
+            val image = (if (isMac) macTrayImage() else trayImage()) ?: return
             if (isMac) {
                 // macOS: native Cocoa NSMenu via AWT PopupMenu for genuine macOS glass, typography, and styling
                 val popup = PopupMenu().apply {
@@ -70,6 +73,19 @@ internal class DesktopSystemTray(
             Log.w("AuralisTray", "Tray unavailable: ${it.message}")
         }
     }
+    /**
+     * macOS menu bar template icons (all-white monochrome glyph on transparent background).
+     * Automatically adapts to light/dark themes and selection highlights via apple.awt.enableTemplateImages.
+     */
+    private fun macTrayImage(): Image? {
+        val tiles = listOf(16, 18, 20, 24, 32, 36, 40, 48).mapNotNull { size ->
+            javaClass.classLoader.getResourceAsStream("app-icon/tray_mac_$size.png")?.use(ImageIO::read)
+        }
+        if (tiles.isEmpty()) return trayImage()
+        val base = SystemTray.getSystemTray().trayIconSize.width.takeIf { it > 0 } ?: 20
+        return java.awt.image.BaseMultiResolutionImage(tiles.indexOfFirst { it.width >= base }.coerceAtLeast(0), *tiles.toTypedArray())
+    }
+
     /**
      * The Auralis tile drawn for each tray size, with the knot smaller than in the taskbar tiles
      * (more brown around it), rather than AWT's blurry shrink of the 256px logo.

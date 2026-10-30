@@ -24,6 +24,40 @@ class MacDesktopLifecycleTest {
                 assertNotNull(added.popupMenu, "macOS TrayIcon should have a native PopupMenu")
                 assertEquals(0, added.actionListeners.size, "macOS TrayIcon should not register ActionListeners")
 
+                // Verify macOS template image property is enabled
+                assertEquals("true", System.getProperty("apple.awt.enableTemplateImages"))
+
+                // Verify the tray icon image is multi-resolution with transparent background and monochrome white glyph
+                val img = added.image
+                assertTrue(img is java.awt.image.MultiResolutionImage, "macOS TrayIcon image must be MultiResolutionImage")
+                val variant = img.getResolutionVariant(40.0, 40.0)
+                val buf = java.awt.image.BufferedImage(variant.getWidth(null), variant.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                val g = buf.createGraphics()
+                g.drawImage(variant, 0, 0, null)
+                g.dispose()
+
+                // Corner must be transparent (no brown background box)
+                assertEquals(0, (buf.getRGB(0, 0) ushr 24) and 0xFF, "Corner pixel must be transparent")
+
+                // All non-transparent pixels must be monochrome white (R == G == B == 255)
+                var visibleCount = 0
+                for (y in 0 until buf.height) {
+                    for (x in 0 until buf.width) {
+                        val argb = buf.getRGB(x, y)
+                        val a = (argb ushr 24) and 0xFF
+                        val r = (argb ushr 16) and 0xFF
+                        val green = (argb ushr 8) and 0xFF
+                        val b = argb and 0xFF
+                        if (a > 0) {
+                            visibleCount++
+                            assertEquals(255, r, "Knot pixel must be pure white")
+                            assertEquals(255, green, "Knot pixel must be pure white")
+                            assertEquals(255, b, "Knot pixel must be pure white")
+                        }
+                    }
+                }
+                assertTrue(visibleCount > 50, "Knot glyph must contain visible pixels")
+
                 val popup = added.popupMenu
                 assertEquals(3, popup.itemCount, "Menu should have Open, separator, and Quit")
 

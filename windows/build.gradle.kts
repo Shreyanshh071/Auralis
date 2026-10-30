@@ -134,6 +134,7 @@ compose.desktop {
             )
         } else if (osName.contains("mac")) {
             jvmArgs(
+                "-Dapple.awt.enableTemplateImages=true",
                 "-Dskiko.renderApi=METAL",
                 "-Dio.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl=true",
                 "-Dio.netty.handler.ssl.noOpenSsl=true",

@@ -63,6 +63,7 @@ private data class ReadyComponents(
 
 fun main(args: Array<String>) {
     if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
+        System.setProperty("apple.awt.enableTemplateImages", "true")
         System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl", "true")
         System.setProperty("io.netty.handler.ssl.noOpenSsl", "true")
         System.setProperty("io.grpc.netty.shaded.io.netty.transport.noNative", "true")
