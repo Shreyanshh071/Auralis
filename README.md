@@ -80,8 +80,8 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <sub><b>Listening Stats</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/new_player.jpg" alt="New Player" width="100%" /><br />
-        <sub><b>New Player</b></sub>
+        <img src="docs/screenshots/new_player.jpg" alt="Immersive Player" width="100%" /><br />
+        <sub><b>Immersive Player</b></sub>
       </td>
       <td align="center" width="25%">
         <img src="docs/screenshots/new_player_lyrics.jpg" alt="Player with Lyrics" width="100%" /><br />
