@@ -1,5 +1,6 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.domain.model.withInlineLyrics
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -1318,11 +1319,30 @@ class PlayerViewModel(
         _uiState.update { it.copy(lyricsOffsetMs = offsetMs) }
     }
 
+    private var inlineLyricsDesign = com.auralis.music.domain.model.PlayerDesign.NEW
+
+    /** The saved choice for the design on screen: it lives in the account's synced settings. */
+    fun applyInlineLyrics(design: com.auralis.music.domain.model.PlayerDesign, shown: Boolean) {
+        inlineLyricsDesign = design
+        _uiState.update { it.copy(showInlineLyrics = shown) }
+    }
+
+    private fun saveInlineLyrics(shown: Boolean) {
+        val ctx = context ?: return
+        val design = inlineLyricsDesign
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = com.auralis.music.data.datastore.AppearanceSettingsDataStore(ctx)
+            store.updateSettings(store.settingsFlow.first().withInlineLyrics(design, shown))
+        }
+    }
+
     fun showLyrics() {
+        saveInlineLyrics(true)
         _uiState.update { it.copy(showLyricsView = false, showInlineLyrics = true, lyricsViewRequestId = it.lyricsViewRequestId + 1) }
     }
 
     fun hideLyrics() {
+        saveInlineLyrics(false)
         _uiState.update { it.copy(showLyricsView = false, showInlineLyrics = false, lyricsViewRequestId = it.lyricsViewRequestId + 1) }
     }
 

@@ -1,5 +1,6 @@
 package com.auralis.music.ui
 
+import com.auralis.music.domain.model.inlineLyricsFor
 import kotlinx.coroutines.flow.first
 
 import com.auralis.music.R
@@ -198,6 +199,11 @@ fun AuralisApp(
     val audioPlayerIsPlaying by viewModelProvider.audioPlayer.isPlaying.collectAsState()
     val playerUiState = playerViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.PlayerUiState()
     val playerSettings = playerViewModelState?.playerSettings?.collectAsState()?.value ?: com.auralis.music.domain.model.PlayerSettings()
+    val inlineLyricsDesign = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign)
+    val inlineLyricsShown = appearanceSettings.inlineLyricsFor(inlineLyricsDesign)
+    LaunchedEffect(playerViewModelState, inlineLyricsDesign, inlineLyricsShown) {
+        playerViewModelState?.applyInlineLyrics(inlineLyricsDesign, inlineLyricsShown)
+    }
 
     // SearchViewModel: only initialized when Explore tab is active or search/artist/album/recognition is used
     var searchViewModelState by remember {

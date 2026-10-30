@@ -31,6 +31,28 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** Decodes a cover's colour field, or returns it from the cache. Safe to call ahead of a song change. */
+internal suspend fun loadColorField(context: android.content.Context, url: String, cropArtwork: Boolean): ImageBitmap? {
+    val cacheKey = "$url#edge-v2:$cropArtwork"
+    return try {
+        fieldCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
+            var bitmap: Bitmap? = null
+            val candidates = listOfNotNull(com.auralis.music.ui.components.getHighResArtworkUrl(url), url).distinct()
+            for (candidate in candidates) {
+                try {
+                    val request = ImageRequest.Builder(context).data(candidate).size(FIELD_SOURCE_PX).allowHardware(false).build()
+                    val drawable = (context.imageLoader.execute(request) as? SuccessResult)?.drawable
+                    val decoded = (drawable as? BitmapDrawable)?.bitmap
+                    if (decoded != null && !decoded.isRecycled) { bitmap = decoded; break }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { /* Try the original thumbnail if high-resolution artwork is unavailable. */ }
+            }
+            if (bitmap != null && !bitmap.isRecycled) colorFieldOf(bitmap, cropArtwork) else null
+        }?.also { fieldCache.put(cacheKey, it) }
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+    catch (_: Exception) { null }
+}
+
 /** The visible cover's bottom-edge colours carried softly and continuously below it. */
 @Composable
 internal fun ImmersiveColorField(
@@ -47,25 +69,7 @@ internal fun ImmersiveColorField(
 
     LaunchedEffect(artworkUrl, cropArtwork) {
         val url = artworkUrl ?: return@LaunchedEffect
-        val next = try {
-            fieldCache.get(cacheKey!!) ?: withContext(Dispatchers.IO) {
-                var bitmap: Bitmap? = null
-                val candidates = listOfNotNull(com.auralis.music.ui.components.getHighResArtworkUrl(url), url).distinct()
-                for (candidate in candidates) {
-                    try {
-                        val request = ImageRequest.Builder(context).data(candidate).size(FIELD_SOURCE_PX).allowHardware(false).build()
-                        val drawable = (context.imageLoader.execute(request) as? SuccessResult)?.drawable
-                        val decoded = (drawable as? BitmapDrawable)?.bitmap
-                        if (decoded != null && !decoded.isRecycled) { bitmap = decoded; break }
-                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (_: Exception) { /* Try the original thumbnail if high-resolution artwork is unavailable. */ }
-                }
-                if (bitmap != null && !bitmap.isRecycled) {
-                    colorFieldOf(bitmap, cropArtwork)
-                } else null
-            }?.also { fieldCache.put(cacheKey!!, it) }
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (_: Exception) { null } ?: return@LaunchedEffect
+        val next = loadColorField(context, url, cropArtwork) ?: return@LaunchedEffect
 
         incoming?.let { shown = it }
         incoming = null

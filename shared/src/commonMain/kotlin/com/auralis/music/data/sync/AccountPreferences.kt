@@ -19,6 +19,8 @@ object AccountPreferenceSchema {
         "a.liquid_glass" to a.liquidGlass, "a.app_theme" to a.appTheme, "a.color_palette" to a.colorPalette,
         "a.mini_player_design" to a.miniPlayerDesign, "a.pure_black_mini_player" to a.pureBlackMiniPlayer,
         "a.mini_player_bg_style" to a.miniPlayerBackgroundStyle, "a.player_design" to a.playerDesign,
+        "a.inline_lyrics_new_player" to a.inlineLyricsNewPlayer, "a.inline_lyrics_old_player" to a.inlineLyricsOldPlayer,
+        "a.inline_lyrics_immersive" to a.inlineLyricsImmersive,
         "a.player_bg_style" to a.playerBackgroundStyle, "a.hide_player_thumbnail" to a.hidePlayerThumbnail,
         "a.crop_album_art" to a.cropAlbumArt, "a.player_button_colors" to a.playerButtonColors,
         "a.player_slider_style" to a.playerSliderStyle, "a.show_download_button" to a.showDownloadButton,

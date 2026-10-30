@@ -646,10 +646,12 @@ fun NowPlayingModal(
     }
 
     // Proactively pre-cache adjacent artwork and blur thumbnails in Coil memory cache
-    LaunchedEffect(pagerState.currentPage, queue) {
+    // The page is read in a flow: as a key it recomposed the whole player on every card passed.
+    LaunchedEffect(pagerState, queue) {
+        snapshotFlow { pagerState.currentPage }.collectLatest { page ->
         if (queue.isNotEmpty()) {
-            val nextTrack = queue.getOrNull(pagerState.currentPage + 1)
-            val prevTrack = queue.getOrNull(pagerState.currentPage - 1)
+            val nextTrack = queue.getOrNull(page + 1)
+            val prevTrack = queue.getOrNull(page - 1)
             withContext(Dispatchers.IO) {
                 val imageLoader = context.imageLoader
                 listOfNotNull(nextTrack, prevTrack).forEach { t ->
@@ -678,6 +680,7 @@ fun NowPlayingModal(
                     }
                 }
             }
+        }
         }
     }
 
@@ -818,10 +821,10 @@ fun NowPlayingModal(
 
     // Proactively pre-extract artwork palettes in parallel for current + upcoming queue tracks
     // so swiping or fast-skipping immediately hits memory cache with zero delay or color interruption.
-    LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
+    LaunchedEffect(currentTrackIndex, pagerState, currentTab, queue, isDynamicAccent) {
+        snapshotFlow { if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex }.collectLatest { cur ->
         val isImmersive = PlayerDesign.fromDisplayName(appearance.playerDesign) == PlayerDesign.IMMERSIVE
         if (queue.isNotEmpty() && isDynamicAccent && !isImmersive) {
-            val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
             val immediateTargets = listOfNotNull(
                 queue.getOrNull(cur + 1),
                 queue.getOrNull(cur - 1)
@@ -859,6 +862,7 @@ fun NowPlayingModal(
                     }
                 }
             }
+        }
         }
     }
 
@@ -2092,7 +2096,9 @@ fun NowPlayingModal(
             }
             PlayerDesign.IMMERSIVE -> {
                 ImmersivePlayerContainer(
-                    track = shownTrack,
+                    track = activeTrack,
+                    titleTrack = { shownTrack },
+                    onHeroSwipeStart = { userSwipedPager = true },
                     uiState = uiState,
                     currentTab = currentTab,
                     onTabChange = { currentTab = it },
