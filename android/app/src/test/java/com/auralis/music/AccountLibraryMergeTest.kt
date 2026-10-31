@@ -90,11 +90,23 @@ class AccountLibraryMergeTest {
         assertEquals(listOf("a", "b"), localNewer.account.playlists.single().tracks.map { it.id })
     }
 
-    @Test fun `a linked playlist keeps this device's copy`() {
+    @Test fun `a linked playlist gains a song added on another device and loses nothing`() {
         val before = list("x", "a")
         val plan = AccountLibraryMerge.merge(lib(list("x", "a", "local")), lib(list("x", "a", "cloud")), agreed(before), now, protected = setOf("x"))
+        assertEquals(listOf("a", "local", "cloud"), plan.writePlaylists.single().tracks.map { it.id })
+    }
+
+    @Test fun `a stale account copy never removes songs from a linked playlist`() {
+        val current = list("x", "a", "b")
+        val plan = AccountLibraryMerge.merge(lib(current), lib(list("x", "a")), agreed(list("x", "a")), now, protected = setOf("x"))
         assertTrue(plan.writePlaylists.isEmpty())
-        assertEquals(listOf("a", "local"), plan.account.playlists.single().tracks.map { it.id })
+        assertEquals(listOf("a", "b"), plan.account.playlists.single().tracks.map { it.id })
+    }
+
+    @Test fun `a removal elsewhere cannot strip a linked playlist`() {
+        val before = list("x", "a", "b")
+        val plan = AccountLibraryMerge.merge(lib(before), lib(list("x", "a")), agreed(before), now, protected = setOf("x"))
+        assertEquals(listOf("a", "b"), plan.account.playlists.single().tracks.map { it.id })
     }
 
     @Test fun `the oldest date added wins on every device`() {

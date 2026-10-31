@@ -105,7 +105,7 @@ object AccountLibraryMerge {
     private fun oldest(a: Long, b: Long) = if (a > 0 && (b <= 0 || a < b)) a else b
 
     /**
-     * @param protected playlists another sync owns (YouTube two-way sync): this device's copy stands.
+     * @param protected playlists another sync owns (YouTube two-way sync): songs are only ever added to them here, and that sync takes them on to the service.
      * @param duplicates a cloud playlist this device already holds under another id: never added here.
      */
     fun merge(
@@ -148,8 +148,8 @@ object AccountLibraryMerge {
                     val theirs = fingerprint(there)
                     val agreed = known?.get(id)
                     val merged = when {
-                        mine == theirs || id in protected || agreed == theirs -> here
-                        agreed == mine -> there
+                        mine == theirs || agreed == theirs -> here
+                        agreed == mine && id !in protected -> there
                         else -> bothChanged(here, there)
                     }.copy(createdAt = createdAt)
                     upload += merged

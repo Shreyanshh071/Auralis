@@ -21,6 +21,8 @@ interface PlaylistSyncRemote {
     val service: SyncService
     suspend fun account(): String
     suspend fun read(id: String): RemoteSyncPlaylist
+    /** Playlists with this name the signed-in account can edit, for when the imported one isn't theirs. */
+    suspend fun editablePlaylistsNamed(title: String): List<String> = emptyList()
     suspend fun create(title: String, description: String): String
     suspend fun identify(track: Track): String?
     /** Re-read and validate account, edit access and revision immediately before the first edit. */
@@ -29,9 +31,12 @@ interface PlaylistSyncRemote {
 data class PlaylistSyncLink(val localId: String, val service: SyncService, val remoteId: String,
     val account: String, val base: SyncSnapshot, val mapping: Map<String, String>,
     val enabled: Boolean = true, val syncedAt: Long = 0, val interrupted: Boolean = false,
-    val pendingTarget: SyncSnapshot? = null, val pendingLocal: SyncSnapshot? = null, val failure: String? = null)
+    val pendingTarget: SyncSnapshot? = null, val pendingLocal: SyncSnapshot? = null, val failure: String? = null,
+    /** Linked to this account's own same-named playlist rather than the one the import came from. */
+    val ownCopy: Boolean = false)
 data class PlaylistSyncPreview(val local: Playlist, val remote: RemoteSyncPlaylist?, val service: SyncService,
-    val account: String, val localSnapshot: SyncSnapshot, val mapping: Map<String, String>, val merged: SyncSnapshot?)
+    val account: String, val localSnapshot: SyncSnapshot, val mapping: Map<String, String>, val merged: SyncSnapshot?,
+    val ownCopy: Boolean = false)
 enum class SyncChoice { MERGE, AURALIS, REMOTE }
 
 /** Occurrence keys preserve intentional duplicate tracks, rather than deduplicating by recording. */
@@ -88,7 +93,7 @@ class PlaylistSyncStore(private val store: KeyValueStore) {
                 o.getString("account"), decode(o.getJSONObject("base")), map.keys().asSequence().associateWith { map.getString(it) },
                 o.optBoolean("enabled", true), o.optLong("at"), o.optBoolean("interrupted"),
                 o.optJSONObject("pendingTarget")?.let(::decode), o.optJSONObject("pendingLocal")?.let(::decode),
-                o.optString("failure").takeIf(String::isNotBlank)) }
+                o.optString("failure").takeIf(String::isNotBlank), o.optBoolean("ownCopy")) }
     }.getOrDefault(emptyList())
     @Synchronized fun put(link: PlaylistSyncLink) {
         val next = links.value.filterNot { it.localId == link.localId } + link
@@ -102,7 +107,7 @@ class PlaylistSyncStore(private val store: KeyValueStore) {
             .put("remote", link.remoteId).put("account", link.account).put("base", encode(link.base))
             .put("mapping", JSONObject(link.mapping)).put("enabled", link.enabled).put("at", link.syncedAt)
             .put("interrupted", link.interrupted).put("pendingTarget", link.pendingTarget?.let(::encode))
-            .put("pendingLocal", link.pendingLocal?.let(::encode)).put("failure", link.failure)) }
+            .put("pendingLocal", link.pendingLocal?.let(::encode)).put("failure", link.failure).put("ownCopy", link.ownCopy)) }
     }.toString())) }
     companion object {
         fun encode(s: SyncSnapshot) = JSONObject().put("title", s.title).put("description", s.description).put("ids", JSONArray(s.ids))
@@ -152,9 +157,35 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
     fun source(localId: String): Pair<SyncService, String>? =
         PlaylistSyncStore.imported(localId) ?: store.links.value.firstOrNull { it.localId == localId }?.let { it.service to it.remoteId }
 
-    private fun matchesImport(link: PlaylistSyncLink): Boolean = PlaylistSyncStore.imported(link.localId)?.let {
+    private fun matchesImport(link: PlaylistSyncLink): Boolean = link.ownCopy || PlaylistSyncStore.imported(link.localId)?.let {
         it == (link.service to link.remoteId)
     } ?: true
+
+    /**
+     * Another account imported this playlist, so this one may not be able to read or edit it. Its own
+     * playlist with the same name and the very same songs is then the same playlist; a same-named
+     * one with other songs is a different playlist and is never merged into. A song that can't be
+     * matched on a reachable playlist keeps its own message from [preview].
+     */
+    private suspend fun connectPreview(local: Playlist, service: SyncService, remoteId: String): PlaylistSyncPreview {
+        val api = remote(service)
+        if (service != SyncService.YOUTUBE) return preview(local, service, remoteId)
+        api.account()
+        val reachable = try { api.read(remoteId).editable }
+            catch (e: CancellationException) { throw e }
+            catch (e: java.io.IOException) { throw e }
+            catch (_: Exception) { false }
+        if (reachable) return preview(local, service, remoteId)
+        val own = api.editablePlaylistsNamed(local.title).firstNotNullOfOrNull { id ->
+            try {
+                preview(local, service, id).takeIf { it.localSnapshot.ids.toSet() == it.remote?.snapshot?.ids?.toSet() }
+            } catch (e: CancellationException) { throw e }
+            catch (e: java.io.IOException) { throw e }
+            catch (_: Exception) { null }
+        } ?: error("\u201C${local.title}\u201D isn't in the ${service.label} account you're signed in to. " +
+            "Sign in with the account that owns it, or use a playlist in your account with the same name and songs.")
+        return own.copy(ownCopy = true)
+    }
 
     /** The toggle always reconnects to this playlist's original service/list.
      * Initial linking merges additions from both copies; it never creates a new
@@ -168,7 +199,7 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
         check(store.links.value.none { it.localId == localId && it.interrupted }) {
             "The previous sync was interrupted. Turn sync off and on to reconnect both copies without deleting songs."
         }
-        val preview = preview(local, source.first, source.second)
+        val preview = connectPreview(local, source.first, source.second)
         check(preview.merged != null) { "Sync is paused because both copies have conflicting changes. Neither copy was overwritten." }
         apply(preview, SyncChoice.MERGE)
     }
@@ -244,7 +275,8 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             check(remoteBefore.editable) { "This account cannot edit the linked playlist." }
             val link = PlaylistSyncLink(local.id, preview.service, remoteBefore.id, preview.account,
                 preview.remote?.snapshot ?: remoteBefore.snapshot, preview.mapping, interrupted = true,
-                pendingTarget = target, pendingLocal = preview.localSnapshot)
+                pendingTarget = target, pendingLocal = preview.localSnapshot,
+                ownCopy = preview.ownCopy || store.links.value.any { it.localId == local.id && it.ownCopy })
             // An interrupted write never becomes an automatic overwrite on retry.
             val previousLink = store.links.value.firstOrNull { it.localId == local.id }
             stillEnabled(); store.put(link)

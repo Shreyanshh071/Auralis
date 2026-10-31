@@ -9,10 +9,13 @@ import java.security.MessageDigest
 /** Transport is supplied by the platform's selected YouTube Music session. */
 class YouTubePlaylistSync(private val identity: suspend () -> String,
     private val post: suspend (String, JSONObject) -> JSONObject,
-    private val search: suspend (String) -> List<Track> = { InnerTubeClient().search(it, InnerTubeClient.FILTER_SONGS).songs }
+    private val search: suspend (String) -> List<Track> = { InnerTubeClient().search(it, InnerTubeClient.FILTER_SONGS).songs },
+    private val libraryPlaylists: suspend () -> List<Pair<String, String>> = {
+        YouTubeMusicLibrary.fetchPlaylists().orEmpty().filterNot { it.isLikedMusic }.map { it.id to it.title }
+    }
 ) : PlaylistSyncRemote {
     override val service = SyncService.YOUTUBE
-    override suspend fun account(): String = identity().also { check(it.isNotBlank()) { "Connect YouTube Music before syncing." } }
+    override suspend fun account(): String = identity().also { check(it.isNotBlank()) { "Sign in to YouTube Music to sync this playlist." } }
     private fun playlistId(value: String): String {
         val id = if (value.contains("list=")) value.substringAfter("list=").substringBefore('&').substringBefore('#') else value.removePrefix("VL")
         require(Regex("[A-Za-z0-9_-]{12,100}").matches(id) && !id.startsWith("OLAK") && !id.startsWith("RD")) {
@@ -66,6 +69,10 @@ class YouTubePlaylistSync(private val identity: suspend () -> String,
         return Page(RemoteSyncPlaylist(key, user, snapshot, tracks, revision, editable), handles)
     }
     override suspend fun read(id: String): RemoteSyncPlaylist = page(id).remote
+    override suspend fun editablePlaylistsNamed(title: String): List<String> = libraryPlaylists()
+        .filter { (_, name) -> name.trim().equals(title.trim(), ignoreCase = true) }
+        .filter { (id, _) -> runCatching { page(id).remote.editable }.getOrDefault(false) }
+        .map { it.first }
     override suspend fun create(title: String, description: String): String {
         account()
         return post("playlist/create", JSONObject().put("title", title).put("description", description).put("privacyStatus", "PRIVATE"))
