@@ -1084,6 +1084,12 @@ class AuralisMediaService : MediaLibraryService() {
             try {
                 audioPlayer.persistQueue()
                 audioPlayer.stop()
+                // Android often keeps the process alive after a swipe, so the queue would still be
+                // in memory on reopening however the setting was.
+                if (!settings.persistentQueue) {
+                    audioPlayer.clearQueue()
+                    audioPlayer.clearCurrentTrack()
+                }
             } catch (_: Exception) {}
 
             try {

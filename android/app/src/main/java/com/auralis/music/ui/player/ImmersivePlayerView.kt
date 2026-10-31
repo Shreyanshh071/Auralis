@@ -2,11 +2,8 @@ package com.auralis.music.ui.player
 
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.foundation.MutatePriority
-import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -375,8 +372,8 @@ fun ImmersivePlayerContainer(
         }
     }
 
-    // The cover pager only hears touches that land on it. The name, artist, lyric line, grab strip
-    // and the area around them sit over or beside it, so a thumb starting there changed nothing.
+    // The whole player above the seek bar swipes songs, not just the cover. The name, artist, lyric
+    // line and grab strip sit over or beside the cover and would otherwise swallow a thumb.
     val heroSwipeEnabled by rememberUpdatedState(
         enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER && heroAtRest && !hidePlayerThumbnail
     )
@@ -394,44 +391,58 @@ fun ImmersivePlayerContainer(
                 containerWidthPx = it.size.width
                 containerHeightPx = it.size.height
             }
+            // Runs before the children and the sheet, so one place decides what a drag is. Left to
+            // race, the sheet's pull-down won any swipe that curved, and the swipe was lost.
             .pointerInput(pagerState) {
+                val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     if (!heroSwipeEnabled || down.position.y > heroSwipeBottomPx) return@awaitEachGesture
-                    var overSlop = 0f
-                    // Cancels by itself when the pager or a slider has already taken this drag.
-                    val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, amount ->
-                        change.consume()
-                        overSlop = amount
-                    } ?: return@awaitEachGesture
+                    var moved = Offset.Zero
+                    while (moved.getDistance() < slop) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id }
+                            ?: return@awaitEachGesture
+                        if (!change.pressed || change.isConsumed) return@awaitEachGesture
+                        moved += change.positionChange()
+                        if (moved.getDistance() >= slop) {
+                            if (kotlin.math.abs(moved.x) < kotlin.math.abs(moved.y)) return@awaitEachGesture
+                            change.consume()
+                        }
+                    }
                     onHeroSwipeStartNow()
                     val velocity = androidx.compose.ui.input.pointer.util.VelocityTracker()
-                    val deltas = Channel<Float>(Channel.UNLIMITED)
-                    deltas.trySend(-overSlop)
+                    val released = kotlinx.coroutines.CompletableDeferred<Unit>()
                     val dragging = heroSwipeScope.launch {
-                        pagerState.scroll(MutatePriority.UserInput) { for (delta in deltas) scrollBy(delta) }
+                        pagerState.scroll(MutatePriority.UserInput) { released.await() }
                     }
-                    horizontalDrag(start.id) { change ->
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
                         velocity.addPointerInputChange(change)
-                        deltas.trySend(-change.positionChange().x)
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        val dx = change.positionChange().x
                         change.consume()
+                        if (dx != 0f) pagerState.dispatchRawDelta(-dx)
                     }
-                    deltas.close()
+                    released.complete(Unit)
                     val speed = velocity.calculateVelocity().x
-                    val fastPx = 500.dp.toPx()
+                    val fastPx = 300.dp.toPx()
                     heroSwipeScope.launch {
                         dragging.join()
                         val offset = pagerState.currentPageOffsetFraction
                         val target = pagerState.currentPage + when {
                             speed < -fastPx && offset >= 0f -> 1
                             speed > fastPx && offset <= 0f -> -1
-                            offset > .35f -> 1
-                            offset < -.35f -> -1
+                            offset > .25f -> 1
+                            offset < -.25f -> -1
                             else -> 0
                         }
+                        // Starts at full speed, so letting go carries on from the finger.
                         pagerState.animateScrollToPage(
                             target.coerceIn(0, (pagerState.pageCount - 1).coerceAtLeast(0)),
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = tween(260, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
                         )
                     }
                 }
@@ -463,12 +474,8 @@ fun ImmersivePlayerContainer(
             HorizontalPager(
                 state = pagerState,
                 key = { page -> "${queue.getOrNull(page)?.id.orEmpty()}_$page" },
-                userScrollEnabled = enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER,
+                userScrollEnabled = false,
                 beyondViewportPageCount = 1,
-                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
-                    state = pagerState,
-                    snapPositionalThreshold = 0.35f
-                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)

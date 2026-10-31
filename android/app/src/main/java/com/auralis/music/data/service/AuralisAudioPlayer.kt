@@ -137,7 +137,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 tracks = persisted.tracks,
                                 startIndex = persisted.currentIndex,
                                 preserveOrderIfSame = false,
-                                isUserQueue = persisted.isUserQueue
+                                isUserQueue = persisted.isUserQueue && persisted.tracks.size > 1
                             )
                             queueManager.setRepeatMode(repeatMode)
                             // Shuffle was saved but never restored, so it silently turned off
@@ -161,6 +161,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 withContext(Dispatchers.Main) {
                     queueRestoreComplete = true
                     persistQueue()
+                    if (queueManager.state.queue.size == 1) requestAutoQueueExtension()
                 }
             }
         }
@@ -409,7 +410,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 syncUpcomingGaplessTrack()
                                 persistQueue()
                                 onGaplessTransitionCallback?.invoke(advancedTrack)
-                                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                                if (canExtendQueue() && queueManager.isNearEnd(4)) {
                                     requestAutoQueueExtension()
                                 }
                             } else {
@@ -551,11 +552,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                if (canExtendQueue() && queueManager.isNearEnd(4)) {
                     requestAutoQueueExtension()
                 }
             } else {
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+                if (canExtendQueue()) {
                     _isBuffering.value = true
                     persistQueue()
                     requestAutoQueueExtension(advanceWhenLoaded = true)
@@ -591,7 +592,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 if (!settings.autoLoadMore) {
                     autoQueueJob?.cancel()
                     advanceAfterAutoLoad = false
-                } else if (autoLoadEnabled && _isPlaying.value && queueManager.isNearEnd(4)) {
+                } else if (autoLoadEnabled && (queueManager.state.queue.size == 1 || _isPlaying.value && queueManager.isNearEnd(4))) {
                     requestAutoQueueExtension()
                 }
                 if (persistenceChanged) persistQueue()
@@ -1074,10 +1075,16 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private val radioClient by lazy { com.auralis.music.data.network.InnerTubeClient() }
 
     // Queue extension belongs to the existing player so it survives Activity/task removal.
+    /** A lone song always gets a queue; with Persistent queue off, that queue then runs out and stops. */
+    private fun canExtendQueue(): Boolean = runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue &&
+        (runtimeSettings.persistentQueue || queueManager.state.queue.size <= 1)
+
     fun requestAutoQueueExtension(advanceWhenLoaded: Boolean = false) {
-        if (!runtimeSettings.autoLoadMore || queueManager.state.isUserQueue || isGuestListenTogether.value) return
+        if (!canExtendQueue() || isGuestListenTogether.value) return
         // Repeat-all loops the queue as it stands: extending it meant the end, and so the loop, never came.
-        if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.ALL) return
+        // One song is not a queue to loop, though: with repeat-all on it stayed alone forever.
+        if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.ALL &&
+            queueManager.state.queue.size > 1) return
         val seed = queueManager.state.currentTrack ?: return
         advanceAfterAutoLoad = advanceAfterAutoLoad || advanceWhenLoaded
         if (autoQueueJob?.isActive == true) return
@@ -1085,7 +1092,15 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         autoQueueJob = scope.launch {
             try {
                 val tracks = withContext(Dispatchers.IO) {
-                    withTimeoutOrNull(5000L) { com.auralis.music.data.network.LocalizedContent.run { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } } ?: emptyList()
+                    // A failed radio request must still reach the fallbacks below.
+                    try {
+                        withTimeoutOrNull(5000L) { com.auralis.music.data.network.LocalizedContent.run { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } } ?: emptyList()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("AuralisPlayback", "[AutoRadio] Radio request failed: ${e.message}")
+                        emptyList()
+                    }
                 }
                 ensureActive()
                 if (!runtimeSettings.autoLoadMore || queueGenerationId.get() != genId ||
@@ -1564,7 +1579,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         play(track, initialSeekMs = initialPositionMs)
         syncUpcomingGaplessTrack()
         persistQueue()
-        if (isSingleSongSelection && runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+        if (isSingleSongSelection && canExtendQueue()) {
             requestAutoQueueExtension()
         }
     }
@@ -1827,14 +1842,14 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                if (canExtendQueue() && queueManager.isNearEnd(4)) {
                     requestAutoQueueExtension()
                 }
                 return true
             }
         }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() reached the end of the queue")
-        if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+        if (canExtendQueue()) {
             requestAutoQueueExtension(advanceWhenLoaded = true)
         } else {
             pause()

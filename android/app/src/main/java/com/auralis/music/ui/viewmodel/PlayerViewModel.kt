@@ -760,7 +760,9 @@ class PlayerViewModel(
                 }
             }
         }
-        val effectiveIsUserQueue = isUserQueue || (sourcePlaylistTitle != null)
+        // One song from a single, or from a one-song playlist, is not a list the user chose to end
+        // on: treating it as one stopped the queue from ever filling.
+        val effectiveIsUserQueue = (isUserQueue || sourcePlaylistTitle != null) && newQueue.size != 1
         val reqId = currentPlaybackRequestId.incrementAndGet()
         val isAutoQueue = !effectiveIsUserQueue
         isAutoRadioMode = isAutoQueue
