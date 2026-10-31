@@ -60,4 +60,28 @@ class YouTubeSessionTest {
         assertEquals("113244556677", YouTubeSession.normalizeDataSyncId("113244556677||998877"))
         assertEquals("", YouTubeSession.normalizeDataSyncId(""))
     }
+    @Test
+    fun `primary account never impersonates a delegated channel`() {
+        YouTubeSession.save(signedInCookie, "visitor", "0", "Primary", "113244556677||", "1.live")
+        val identity = YouTubeSession.playlistSyncIdentity()
+        assertFalse(YouTubeSession.playlistSyncUserContext().has("onBehalfOfUser"))
+        assertFalse(YouTubeSession.authHeaders("https://music.youtube.com").containsKey("X-Goog-PageId"))
+        assertEquals("1.live", YouTubeSession.clientVersion)
+        // Existing installations stored only the first component. Do not delegate those either.
+        YouTubeSession.save(signedInCookie, "visitor", "0", "Primary", "113244556677")
+        assertEquals(identity, YouTubeSession.playlistSyncIdentity())
+        assertFalse(YouTubeSession.playlistSyncUserContext().has("onBehalfOfUser"))
+    }
+
+    @Test
+    fun `secondary channel delegates consistently in headers and body`() {
+        YouTubeSession.save(signedInCookie, "visitor", "1", "Channel", "998877||113244556677")
+        assertEquals("998877", YouTubeSession.playlistSyncUserContext().getString("onBehalfOfUser"))
+        assertEquals("998877", YouTubeSession.authHeaders("https://music.youtube.com")["X-Goog-PageId"])
+        assertFalse(YouTubeSession.playlistSyncUserContext().getBoolean("lockedSafetyMode"))
+        YouTubeSession.signOut()
+        assertEquals("", YouTubeSession.clientVersion)
+        assertEquals("", YouTubeSession.delegatedSessionId)
+    }
+
 }

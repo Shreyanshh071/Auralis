@@ -7,6 +7,8 @@ import com.auralis.music.ui.i18n.str
 
 import android.annotation.SuppressLint
 import android.net.Uri
+import android.os.Build
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -58,6 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.theme.dynamicBackground
 import kotlinx.coroutines.CompletableDeferred
@@ -91,9 +96,14 @@ fun YouTubeAccountScreen(onDismiss: () -> Unit) {
 
     AccountPageTheme {
         if (isSigningIn) {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-                .statusBarsPadding().navigationBarsPadding()) {
-                YouTubeSignInWebView(onSignedIn = { isSigningIn = false }, onCancel = { isSigningIn = false })
+            // A separate window keeps Chromium out of the page's animated/backdrop layers.
+            Dialog(onDismissRequest = { isSigningIn = false }, properties = DialogProperties(
+                usePlatformDefaultWidth = false, decorFitsSystemWindows = false
+            )) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding().navigationBarsPadding().imePadding()) {
+                    YouTubeSignInWebView(onSignedIn = { isSigningIn = false }, onCancel = { isSigningIn = false })
+                }
             }
         } else {
             AccountPage(title = str(R.string.youtube_account), onBack = onDismiss) {
@@ -205,12 +215,12 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
                 val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
                 if (YouTubeSession.hasAuthCookies(cookie)) {
                     val config = readPageConfig(view)
-                    if (config != null && config.visitorData.isNotBlank()) {
+                    if (config != null && config.visitorData.isNotBlank() && config.dataSyncId.isNotBlank()) {
                         CookieManager.getInstance().flush()
-                        YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, accountLabel = "", dataSyncId = config.dataSyncId)
+                        YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, accountLabel = "", dataSyncId = config.dataSyncId, clientVersion = config.clientVersion)
                         val label = withContext(Dispatchers.IO) { fetchAccountLabel() }
                         if (label.isNotBlank()) {
-                            YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, label, config.dataSyncId)
+                            YouTubeSession.save(cookie, config.visitorData, config.sessionIndex, label, config.dataSyncId, config.clientVersion)
                         }
                         onSignedIn()
                         return@launch
@@ -229,6 +239,12 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
             factory = { ctx ->
                 CookieManager.getInstance().setAcceptCookie(true)
                 WebView(ctx).apply {
+                    // Login is a form, so avoid Chromium/GPU layer flicker on affected devices.
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    setBackgroundColor(android.graphics.Color.rgb(16, 16, 16))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+                    }
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -245,6 +261,11 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
                     }
                     loadUrl(SIGN_IN_URL)
                 }
+            },
+            onRelease = { view ->
+                view.stopLoading()
+                view.webViewClient = WebViewClient()
+                view.destroy()
             }
         )
 
@@ -293,15 +314,15 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
     }
 }
 
-private class PageConfig(val visitorData: String, val sessionIndex: String, val dataSyncId: String)
+private class PageConfig(val visitorData: String, val sessionIndex: String, val dataSyncId: String, val clientVersion: String)
 
 /** VISITOR_DATA, SESSION_INDEX and DATASYNC_ID from the signed-in music.youtube.com page, or null. */
 private suspend fun readPageConfig(view: WebView): PageConfig? {
     val result = CompletableDeferred<String?>()
     withContext(Dispatchers.Main) {
         view.evaluateJavascript(
-            "(function(){var c=window.yt&&window.yt.config_;" +
-                "return c?JSON.stringify({v:c.VISITOR_DATA||'',s:String(c.SESSION_INDEX||0),d:c.DATASYNC_ID||''}):'';})()"
+            "(function(){var c=(window.ytcfg&&window.ytcfg.data_)||(window.yt&&window.yt.config_);" +
+                "return c&&c.LOGGED_IN===true?JSON.stringify({v:c.VISITOR_DATA||'',s:String(c.SESSION_INDEX||0),d:c.DATASYNC_ID||'',cv:c.INNERTUBE_CLIENT_VERSION||''}):'';})()"
         ) { raw -> result.complete(raw) }
     }
     val raw = withTimeoutOrNull(1_500L) { result.await() } ?: return null
@@ -310,7 +331,7 @@ private suspend fun readPageConfig(view: WebView): PageConfig? {
         val inner = org.json.JSONTokener(raw).nextValue() as? String ?: return null
         if (inner.isBlank()) return null
         val json = JSONObject(inner)
-        PageConfig(json.optString("v"), json.optString("s", "0"), json.optString("d"))
+        PageConfig(json.optString("v"), json.optString("s", "0"), json.optString("d"), json.optString("cv"))
     } catch (_: Exception) {
         null
     }
@@ -325,7 +346,7 @@ private fun fetchAccountLabel(): String = try {
             "client",
             JSONObject()
                 .put("clientName", "WEB_REMIX")
-                .put("clientVersion", "1.20241201.01.00")
+                .put("clientVersion", YouTubeSession.clientVersion.ifBlank { com.auralis.music.data.network.YouTubeMusicLibrary.CLIENT_VERSION })
                 .put("hl", "en")
                 .apply { if (YouTubeSession.visitorData.isNotBlank()) put("visitorData", YouTubeSession.visitorData) }
         )

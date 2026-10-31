@@ -41,12 +41,13 @@ object AndroidPlaylistSync {
         val youtube = YouTubePlaylistSync(identity = { YouTubeSession.playlistSyncIdentity() }, post = { endpoint, extras ->
             withContext(Dispatchers.IO) {
                 val account = YouTubeSession.playlistSyncIdentity()
-                val version = YouTubeMusicLibrary.CLIENT_VERSION
+                val version = YouTubeSession.clientVersion.ifBlank { YouTubeMusicLibrary.CLIENT_VERSION }
                 val client = JSONObject().put("clientName", "WEB_REMIX").put("clientVersion", version)
                     .put("hl", ContentLocale.hl()).put("gl", ContentLocale.gl())
                 if (YouTubeSession.visitorData.isNotBlank()) client.put("visitorData", YouTubeSession.visitorData)
-                extras.put("context", JSONObject().put("client", client).put("user", JSONObject()
-                    .put("onBehalfOfUser", YouTubeSession.playlistSyncUser()).put("lockedSafetyMode", false)))
+                extras.put("context", JSONObject().put("client", client)
+                    .put("user", YouTubeSession.playlistSyncUserContext())
+                    .put("request", JSONObject().put("useSsl", true)))
                 val request = Request.Builder().url("https://music.youtube.com/youtubei/v1/$endpoint?prettyPrint=false")
                     .header("Origin", "https://music.youtube.com").header("Referer", "https://music.youtube.com/")
                     .header("X-YouTube-Client-Name", "67").header("X-YouTube-Client-Version", version)
