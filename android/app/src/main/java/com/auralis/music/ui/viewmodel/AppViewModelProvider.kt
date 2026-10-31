@@ -80,7 +80,8 @@ class AppViewModelProvider(
                         spotifyImporter,
                         historyRepository,
                         activity.getSharedPreferences("auralis_import_matching", android.content.Context.MODE_PRIVATE),
-                        statsRepository
+                        statsRepository,
+                        activity.getSharedPreferences("auralis_download_order", android.content.Context.MODE_PRIVATE)
                     ) as T
                 }
             }

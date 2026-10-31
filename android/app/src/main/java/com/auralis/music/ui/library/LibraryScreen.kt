@@ -20,6 +20,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
+import com.auralis.music.data.download.DownloadTrackOrder
 import com.auralis.music.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -549,6 +550,7 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
             DownloadedHubView(
                 downloadedTracks = uiState.downloadedTracks,
                 downloadedJobs = uiState.downloadedJobs,
+                downloadTrackOrders = uiState.downloadTrackOrders,
                 userPlaylists = uiState.playlists,
                 currentTrackId = currentTrackId,
                 isPlaying = isPlaying,
@@ -1836,7 +1838,9 @@ private fun PlaylistDetailView(
         playlist.tracks.filter { !it.title.startsWith("Track ") && it.title.isNotBlank() }
     }
 
-    val isCustomSort = sortOption == PlaylistSortOption.CUSTOM && searchQuery.isBlank() && !playlist.id.startsWith("smart_")
+    val supportsCustomOrder = !playlist.id.startsWith("smart_") ||
+        DownloadTrackOrder.supports(playlist.id)
+    val isCustomSort = sortOption == PlaylistSortOption.CUSTOM && searchQuery.isBlank() && supportsCustomOrder
     // Custom order is locked until the lock beside "Custom order" is opened: only then do the
     // drag handles show and a held row drag. Locked, holding a song opens its menu.
     var orderUnlocked by remember(playlist.id) { mutableStateOf(false) }

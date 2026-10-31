@@ -1,5 +1,6 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.data.download.DownloadTrackOrder
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -71,15 +72,20 @@ fun DownloadedHubView(
     onDeleteJob: (String) -> Unit,
     onRetryJob: (String) -> Unit,
     onClearAllDownloads: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    downloadTrackOrders: Map<String, List<String>> = emptyMap()
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
     var jobToDelete by remember { mutableStateOf<String?>(null) }
 
+    val orderedDownloads = remember(downloadedTracks, downloadTrackOrders) {
+        DownloadTrackOrder.apply(downloadedTracks, downloadTrackOrders["smart_downloaded_all"])
+    }
+
     // Build the list of folders
-    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists) {
+    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists, downloadTrackOrders) {
         val list = mutableListOf<DownloadFolderItem>()
         val accountedTrackIds = mutableSetOf<String>()
 
@@ -117,7 +123,8 @@ fun DownloadedHubView(
                             else -> "${downloadedForJob.size} songs • Offline"
                         },
                         totalCount = allTracks.size,
-                        downloadedTracks = downloadedForJob,
+                        downloadedTracks = DownloadTrackOrder.apply(
+                            downloadedForJob, downloadTrackOrders["smart_downloaded_folder_${job.jobId}"]),
                         status = job.status,
                         completedCount = job.completedCount,
                         failedCount = job.failedCount,
@@ -137,7 +144,8 @@ fun DownloadedHubView(
                     title = str(R.string.individual_songs),
                     subtitle = str(R.string.x_songs_downloaded_directly, individualTracks.size),
                     totalCount = individualTracks.size,
-                    downloadedTracks = individualTracks,
+                    downloadedTracks = DownloadTrackOrder.apply(
+                        individualTracks, downloadTrackOrders["smart_downloaded_folder_individual_downloads"]),
                     status = "COMPLETE",
                     completedCount = individualTracks.size,
                     failedCount = 0,
@@ -281,12 +289,12 @@ fun DownloadedHubView(
                             AllDownloadedSongsCard(
                                 totalTracks = downloadedTracks.size,
                                 onPlayAll = {
-                                    downloadedTracks.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, downloadedTracks)
+                                    orderedDownloads.firstOrNull()?.let { first ->
+                                        onPlayTracks(first, orderedDownloads)
                                     }
                                 },
                                 onShuffle = {
-                                    val shuffled = downloadedTracks.shuffled()
+                                    val shuffled = orderedDownloads.shuffled()
                                     shuffled.firstOrNull()?.let { first ->
                                         onPlayTracks(first, shuffled)
                                     }
@@ -298,7 +306,7 @@ fun DownloadedHubView(
                                             title = str(R.string.all_downloaded_songs),
                                             description = str(R.string.x_offline_songs, downloadedTracks.size),
                                             coverUrl = null,
-                                            tracks = downloadedTracks
+                                            tracks = orderedDownloads
                                         )
                                     )
                                 }

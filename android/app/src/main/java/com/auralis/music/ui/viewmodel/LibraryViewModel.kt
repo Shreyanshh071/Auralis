@@ -1,5 +1,6 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.data.download.DownloadTrackOrder
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -46,6 +47,7 @@ data class LibraryUiState(
     val playlists: List<Playlist> = emptyList(),
     val favorites: List<Track> = emptyList(),
     val downloadedTracks: List<Track> = emptyList(),
+    val downloadTrackOrders: Map<String, List<String>> = emptyMap(),
     val downloadedJobs: List<com.auralis.music.data.download.PlaylistDownloadJobEntity> = emptyList(),
     val savedArtists: List<SavedArtist> = emptyList(),
     val savedAlbums: List<SavedAlbum> = emptyList(),
@@ -73,13 +75,18 @@ class LibraryViewModel(
     private val spotifyImporter: SpotifyPlaylistImporter = SpotifyPlaylistImporter(),
     private val historyRepository: HistoryRepository? = null,
     private val matchReviewPrefs: android.content.SharedPreferences? = null,
-    private val statsRepository: com.auralis.music.domain.repository.StatsRepository? = null
+    private val statsRepository: com.auralis.music.domain.repository.StatsRepository? = null,
+    private val downloadOrderPrefs: android.content.SharedPreferences? = null
 ) : ViewModel() {
 
     var syncOnImport: Boolean = false
     var onPlaylistImported: (suspend (String) -> Unit)? = null
 
-    private val _uiState = MutableStateFlow(LibraryUiState())
+    private val _uiState = MutableStateFlow(LibraryUiState(
+        downloadTrackOrders = DownloadTrackOrder.decode(
+            downloadOrderPrefs?.getString("track_orders", null)
+        )
+    ))
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
     /** Bumped by [refresh]: recomputes the "last 7 / 30 days" windows from the current time. */
@@ -258,7 +265,7 @@ class LibraryViewModel(
                             updated.copy(
                                 selectedPlaylist = current.copy(
                                     description = "${downloaded.size} offline songs",
-                                    tracks = downloaded
+                                    tracks = DownloadTrackOrder.apply(downloaded, state.downloadTrackOrders[current.id])
                                 )
                             )
                         } else updated
@@ -289,7 +296,7 @@ class LibraryViewModel(
                                 selectedPlaylist = current.copy(
                                     description = "${downloadedForJob.size} of ${allTracks.size} offline songs",
                                     coverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() },
-                                    tracks = downloadedForJob
+                                    tracks = DownloadTrackOrder.apply(downloadedForJob, state.downloadTrackOrders[current.id])
                                 )
                             )
                         } else updated
@@ -669,7 +676,7 @@ class LibraryViewModel(
     }
 
     fun reorderPlaylistTracks(playlistId: String, fromIndex: Int, toIndex: Int) {
-        if (playlistId.startsWith("smart_")) return
+        if (playlistId.startsWith("smart_") && !DownloadTrackOrder.supports(playlistId)) return
         val currentPlaylist = _uiState.value.selectedPlaylist?.takeIf { it.id == playlistId }
             ?: _uiState.value.playlists.firstOrNull { it.id == playlistId }
             ?: return
@@ -680,6 +687,16 @@ class LibraryViewModel(
 
         val reordered = com.auralis.music.domain.library.PlaylistManager.reorderTracks(currentPlaylist.tracks, fromIndex, toIndex)
         val updatedPlaylist = currentPlaylist.copy(tracks = reordered)
+
+        if (DownloadTrackOrder.supports(playlistId)) {
+            val orders = _uiState.value.downloadTrackOrders + (playlistId to reordered.map { it.id })
+            downloadOrderPrefs?.edit()?.putString("track_orders",
+                DownloadTrackOrder.encode(orders))?.apply()
+            _uiState.update { state ->
+                state.copy(downloadTrackOrders = orders, selectedPlaylist = updatedPlaylist)
+            }
+            return
+        }
 
         _uiState.update { state ->
             state.copy(
@@ -723,7 +740,9 @@ class LibraryViewModel(
             return
         }
         if (initialPlaylist != null && initialPlaylist.id.startsWith("smart_downloaded_")) {
-            _uiState.update { it.copy(selectedPlaylist = initialPlaylist, selectedSmartCollection = SmartCollectionType.DOWNLOADED) }
+            _uiState.update { it.copy(selectedPlaylist = initialPlaylist.copy(tracks =
+                DownloadTrackOrder.apply(initialPlaylist.tracks, it.downloadTrackOrders[playlistId])),
+                selectedSmartCollection = SmartCollectionType.DOWNLOADED) }
             return
         }
         val cached = initialPlaylist ?: _uiState.value.playlists.find { it.id == playlistId }

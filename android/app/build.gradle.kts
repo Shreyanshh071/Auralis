@@ -249,3 +249,15 @@ val servicesJson = file("google-services.json")
 if (servicesJson.exists() && servicesJson.length() > 0) {
     apply(plugin = "com.google.gms.google-services")
 }
+
+val verifyReleaseFirebaseConfiguration by tasks.registering {
+    doLast {
+        check(servicesJson.isFile && servicesJson.length() > 0) {
+            "Release APK requires android/app/google-services.json from the Auralis Firebase project. " +
+                "Restore this local configuration before building a release; account sign-in and sync require it."
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyReleaseFirebaseConfiguration)
+}

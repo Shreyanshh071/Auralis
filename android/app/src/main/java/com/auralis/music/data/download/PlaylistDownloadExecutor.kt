@@ -53,17 +53,28 @@ class PlaylistDownloadExecutor(private val context: Context) {
             job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, null, false)
             onProgress(job)
 
+            // Only progress and result commits are serialized. Resolution, transfer and public
+            // file publishing can overlap, using the manager's existing two global transfer slots.
+            val progressLock = Mutex()
+            val activeTracks = ConcurrentHashMap.newKeySet<String>()
+            val folderName = job.folderName
             try {
-                for ((index, track) in tracks.withIndex()) {
-                    job = requireNotNull(repository.get(jobId))
-                    if (job.cancelRequested) throw CancellationException("Playlist download cancelled")
-                    val previous = results[track.id]
-                    if (previous != null && previous.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
-                        AuralisDownloadManager.isDownloaded(track.id) && publicFiles.verify(previous.contentUri)) {
-                        continue
+                forEachDownload(tracks.withIndex().toList()) { (index, track) ->
+                    val shouldDownload = progressLock.withLock {
+                        job = requireNotNull(repository.get(jobId))
+                        if (job.cancelRequested) throw CancellationException("Playlist download cancelled")
+                        val previous = results[track.id]
+                        if (previous != null && previous.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
+                            AuralisDownloadManager.isDownloaded(track.id) && publicFiles.verify(previous.contentUri)) {
+                            false
+                        } else {
+                            activeTracks.add(track.id)
+                            job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, track.id, false)
+                            onProgress(job)
+                            true
+                        }
                     }
-                    job = repository.update(job, results.values.toList(), PlaylistDownloadStatus.DOWNLOADING, track.id, false)
-                    onProgress(job)
+                    if (!shouldDownload) return@forEachDownload
                     var finalResult: TrackDownloadResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "download", "Initial failure")
                     var attempt = 0
                     val maxAttempts = 3
@@ -81,9 +92,11 @@ class PlaylistDownloadExecutor(private val context: Context) {
                                 finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "verification", "Private source download missing")
                             } else {
                                 try {
-                                    val published = publicFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
+                                    val published = publicFiles.publish(source, folderName, PlaylistDownloadPaths.trackFileName(index, track))
                                     finalResult = TrackDownloadResult(track.id, base.outcome, contentUri = published.first, bytes = published.second)
                                     break
+                                } catch (e: CancellationException) {
+                                    throw e
                                 } catch (e: Exception) {
                                     android.util.Log.w("PlaylistDownload", "Publish attempt $attempt failed for ${track.title}: ${e.message}")
                                     finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "public-storage", e.message ?: e.javaClass.simpleName)
@@ -95,9 +108,14 @@ class PlaylistDownloadExecutor(private val context: Context) {
                             if (AuralisDownloadManager.isAgeRestrictedError(base.error)) break
                         }
                     }
-                    results[track.id] = finalResult
-                    job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, null, false)
-                    onProgress(job)
+                    progressLock.withLock {
+                        results[track.id] = finalResult
+                        activeTracks.remove(track.id)
+                        job = requireNotNull(repository.get(jobId))
+                        if (job.cancelRequested) throw CancellationException("Playlist download cancelled")
+                        job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, activeTracks.firstOrNull(), false)
+                        onProgress(job)
+                    }
                 }
                 val verified = tracks.map { track ->
                     val result = results[track.id]
@@ -120,13 +138,16 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 onProgress(job)
                 job
             } catch (e: CancellationException) {
-                job.currentTrackId?.let { AuralisDownloadManager.cancelActiveDownload(it) }
                 val latest = repository.get(jobId) ?: job
                 if (latest.cancelRequested) {
                     job = repository.update(latest, results.values.toList(), PlaylistDownloadStatus.CANCELLED, null, false)
                     onProgress(job)
                 }
                 throw e
+            } finally {
+                // Manager transfers live in its own scope, so cancelling the workers alone
+                // does not stop their requests.
+                activeTracks.forEach { AuralisDownloadManager.cancelActiveDownload(it) }
             }
         }
     }
