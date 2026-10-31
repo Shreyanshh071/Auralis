@@ -105,7 +105,8 @@ class PlaylistDownloadExecutor(private val context: Context) {
                         } else {
                             android.util.Log.w("PlaylistDownload", "Download attempt $attempt failed for ${track.title}: ${base.error}")
                             finalResult = base
-                            if (AuralisDownloadManager.isAgeRestrictedError(base.error)) break
+                            // The download manager has already retried this song; only publishing retries here.
+                            break
                         }
                     }
                     progressLock.withLock {

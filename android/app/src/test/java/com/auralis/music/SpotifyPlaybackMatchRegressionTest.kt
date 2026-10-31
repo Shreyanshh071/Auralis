@@ -8,9 +8,13 @@ import com.auralis.music.domain.model.Track
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.mockkConstructor
+import io.mockk.unmockkConstructor
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpotifyPlaybackMatchRegressionTest {
@@ -65,6 +69,29 @@ class SpotifyPlaybackMatchRegressionTest {
         assertNull(AudioStreamResolver.resolveAudioStream(id, "A Song", "Artist"))
         assertEquals("failedyt123", AudioStreamResolver.getMatchedVideoId(id))
     }
+    @Test fun `a failed download never reroutes a YouTube song to its stand-in`() = runBlocking {
+        val standIn = Track(id = "standinyt12", title = "Raanjhanaa", artist = "A.R. Rahman", duration = 200)
+        mockkConstructor(InnerTubeClient::class)
+        try {
+            coEvery { anyConstructed<InnerTubeClient>().search(any(), any()) } returns SearchResults(songs = listOf(standIn))
+            AudioStreamResolver.rememberNativeExtractionFailure(standIn.id)
+            val stream = AudioStreamResolver.resolveNonRestrictedAlternative(
+                "Raanjhanaa (From \"Raanjhanaa\")", "A.R. Rahman", "EwLgGHAxTa8", duration = 200
+            )
+            assertNull(stream)
+            assertNull(AudioStreamResolver.getMatchedVideoId("EwLgGHAxTa8"))
+        } finally {
+            unmockkConstructor(InnerTubeClient::class)
+        }
+    }
+
+    @Test fun `film tag does not make another song a stand-in`() {
+        val song = "Raanjhanaa (From \"Raanjhanaa\")"
+        assertFalse(AudioStreamResolver.isSameSongTitle(song, "Piya Milenge (From \"Raanjhanaa\")"))
+        assertTrue(AudioStreamResolver.isSameSongTitle(song, "Raanjhanaa"))
+        assertTrue(AudioStreamResolver.isSameSongTitle("Starboy", "Starboy - Remastered 2020"))
+    }
+
     @Test fun `Attention import stores the actual YouTube recording and duration`() = runBlocking {
         val spotify = Track(id = "sp_attention", title = "Attention", artist = "Charlie Puth", duration = 208)
         val youtube = Track(id = "vxUBYHz_q1I", title = "Attention", artist = "Charlie Puth", duration = 212)
