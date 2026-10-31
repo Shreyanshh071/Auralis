@@ -39,8 +39,8 @@ android {
         applicationId = "com.auralis.music"
         minSdk = 24
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 5
+        versionName = "1.1.3"
         testInstrumentationRunner = if (providers.gradleProperty("motionArtworkTests").isPresent)
             "com.auralis.music.MotionArtworkTestRunner" else "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -98,6 +98,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipeExtractor calls Java APIs that Android only has from API 33 (URLDecoder with a
+        // Charset, and others). Without this, extraction throws NoSuchMethodError below Android 13.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -138,6 +141,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
     // AndroidX Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -243,6 +248,23 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+}
+
+// Keeps every release on the Desktop, with the mapping file that makes its crash traces readable.
+val desktopDir = file("${System.getProperty("user.home")}/Desktop")
+val exportReleaseToDesktop = tasks.register<Copy>("exportReleaseToDesktop") {
+    val version = android.defaultConfig.versionName
+    onlyIf { desktopDir.isDirectory }
+    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk")) {
+        rename { "Auralis-$version.apk" }
+    }
+    from(layout.buildDirectory.file("outputs/mapping/release/mapping.txt")) {
+        rename { "Auralis-$version-mapping.txt" }
+    }
+    into(desktopDir.resolve("Auralis Release"))
+}
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(exportReleaseToDesktop)
 }
 
 val servicesJson = file("google-services.json")

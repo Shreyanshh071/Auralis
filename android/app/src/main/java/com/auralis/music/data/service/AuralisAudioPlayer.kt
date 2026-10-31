@@ -651,6 +651,22 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
         }
 
+        youTubeEngine.setOnRendererGoneCallback {
+            val curTrack = _currentTrack.value
+            if (!isUsingExoPlayer && curTrack != null && syncWantsPlay) {
+                if (nativeRetryCount < 2) {
+                    nativeRetryCount++
+                    Log.w("AuralisPlayback", "[WebView Auto-Recovery #$nativeRetryCount] Restarting '${curTrack.title}' after the renderer was lost")
+                    play(curTrack, initialSeekMs = _playbackPositionMs.value)
+                } else {
+                    nativeRetryCount = 0
+                    syncWantsPlay = false
+                    _isBuffering.value = false
+                    _playbackError.value = "Couldn't play '${curTrack.title}'. Try again in a moment."
+                }
+            }
+        }
+
         // Real-time progress ticker for ExoPlayer UI seekbars & time indicators (100ms is completely smooth
         // for seekbars and stops main-thread flooding. Lyrics has its own dedicated 60fps withFrameMillis clock).
         scope.launch {
@@ -827,14 +843,21 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         // Start both engines without waiting for a slow extraction.
                         // A ready native stream can still win while the web page loads.
                         val preparation = scope.async(Dispatchers.IO) {
-                            AudioStreamResolver.resolveAudioStream(
-                                videoId = track.id,
-                                title = track.title,
-                                artist = track.artist,
-                                quality = currentAudioQuality,
-                                context = appContext,
-                                duration = track.duration
-                            )
+                            // Nothing that fails here may end the app: the web engine still plays the song.
+                            try {
+                                AudioStreamResolver.resolveAudioStream(
+                                    videoId = track.id,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    quality = currentAudioQuality,
+                                    context = appContext,
+                                    duration = track.duration
+                                )
+                            } catch (e: Throwable) {
+                                if (e is CancellationException) throw e
+                                Log.w("AuralisPlayback", "[Resolver] Native stream failed: ${e.javaClass.simpleName} - ${e.message}")
+                                null
+                            }
                         }
                         nativeStreamPreparation = preparation
                         directUrl = withTimeoutOrNull(250L) { preparation.await() }

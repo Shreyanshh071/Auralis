@@ -540,18 +540,23 @@ fun AuralisApp(
     // ── Dedicated Background Audio Engine Host ──
     val needsWebView by (playerViewModelState?.getAudioPlayer()?.needsWebView?.collectAsState()
         ?: remember { mutableStateOf(false) })
+    val webViewGeneration by (playerViewModelState?.getAudioPlayer()?.youTubeEngine?.rendererGeneration?.collectAsState()
+        ?: remember { mutableStateOf(0) })
     if (needsWebView) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(-1f)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    playerViewModelState?.getAudioPlayer()?.getOrCreateWebView(ctx) ?: android.view.View(ctx)
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            // A lost renderer means a new WebView, which only a new factory run can attach.
+            androidx.compose.runtime.key(webViewGeneration) {
+                AndroidView(
+                    factory = { ctx ->
+                        playerViewModelState?.getAudioPlayer()?.getOrCreateWebView(ctx) ?: android.view.View(ctx)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 

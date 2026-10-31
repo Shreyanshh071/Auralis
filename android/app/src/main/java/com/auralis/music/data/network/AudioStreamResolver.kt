@@ -289,7 +289,8 @@ object AudioStreamResolver {
                         diagLog("[Diag-Resolver] Native Extractor returned no stream for $actualTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback")
                         return@withContext null
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // Throwable: a missing platform API in the extractor is an Error, and the web engine can still play.
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     rememberNativeExtractionFailure(actualTargetId)
                     diagLog("[Diag-Resolver] Native Extractor exception for $actualTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback")
@@ -414,7 +415,7 @@ object AudioStreamResolver {
                         cacheStream(originalVideoId, streamUrl)
                         return streamUrl
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     rememberNativeExtractionFailure(candidate.id)
                     diagLog("[Diag-Resolver] Candidate ${candidate.id} ('${candidate.title}') failed: ${e.message}; trying next candidate...")

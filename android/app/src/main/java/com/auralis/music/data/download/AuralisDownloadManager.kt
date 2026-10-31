@@ -286,7 +286,7 @@ object AuralisDownloadManager {
                 } catch (e: org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) {
                     ageRestricted = true
                     Log.w(TAG, "Strategy D direct NewPipe notice: ${e.message}")
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.w(TAG, "Strategy D direct NewPipe notice: ${e.message}")
                 }
             }

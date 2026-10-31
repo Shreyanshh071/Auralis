@@ -20,6 +20,7 @@ class AuralisApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        com.auralis.music.util.CrashDiagnostics.install(this)
         com.auralis.music.ui.i18n.AppLanguage.init(this)
         com.auralis.music.data.datastore.OnboardingStore.init(this,
             try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.isAnonymous == false } catch (_: Exception) { false })

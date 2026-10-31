@@ -405,6 +405,8 @@
     <string name="creator_lead_developer">Creator &amp; Lead Developer</string>
     <string name="discord_user_shreyanshh12_3_copied_to_cl">Discord user: shreyanshh12_3 copied to clipboard</string>
     <string name="contributors">Contributors</string>
+    <string name="copy_diagnostic_report">Copy diagnostic report</string>
+    <string name="diagnostic_report_copied">Diagnostic report copied</string>
     <string name="ishaan_thakur">Ishaan Thakur</string>
     <string name="contributor">Contributor</string>
     <string name="ai_lyrics_translation">AI lyrics translation</string>

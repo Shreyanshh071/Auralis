@@ -218,6 +218,33 @@ fun AboutScreen(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Auralis diagnostic report", com.auralis.music.util.CrashDiagnostics.report(context))
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, str(R.string.diagnostic_report_copied), Toast.LENGTH_SHORT).show()
+                        } catch (_: Exception) {}
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = onBackground
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                ) {
+                    Text(
+                        text = str(R.string.copy_diagnostic_report),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
 
