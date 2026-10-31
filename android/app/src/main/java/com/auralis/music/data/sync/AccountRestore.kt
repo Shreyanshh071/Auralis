@@ -19,7 +19,9 @@ data class CloudPlaylist(
     val title: String,
     val description: String?,
     val coverUrl: String?,
-    val tracks: List<Track>
+    val tracks: List<Track>,
+    val createdAt: Long = 0L,
+    val isCustom: Boolean = true
 )
 
 /** The account backup document `users/{uid}`: playlists with their songs, likes, albums, artists. */
@@ -27,8 +29,19 @@ data class CloudLibrary(
     val playlists: List<CloudPlaylist> = emptyList(),
     val favorites: List<Track> = emptyList(),
     val albums: List<SavedAlbum> = emptyList(),
-    val artists: List<SavedArtist> = emptyList()
+    val artists: List<SavedArtist> = emptyList(),
+    val pins: List<String> = emptyList(),
+    val pinsAt: Long = 0L,
+    val deleted: Map<String, Long> = emptyMap()
 ) {
+    fun toSyncedLibrary() = SyncedLibrary(
+        playlists = playlists.filter { it.id != null }.map {
+            com.auralis.music.domain.model.Playlist(it.id!!, it.title, it.description, it.coverUrl, it.tracks,
+                createdAt = it.createdAt, isCustom = it.isCustom)
+        },
+        favorites = favorites, albums = albums, artists = artists, pins = pins, pinsAt = pinsAt, deleted = deleted
+    )
+
     companion object {
         private fun track(raw: Any?): Track? {
             val m = raw as? Map<*, *> ?: return null
@@ -51,7 +64,9 @@ data class CloudLibrary(
                     title = (p["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Restored Playlist",
                     description = p["description"] as? String,
                     coverUrl = p["coverUrl"] as? String,
-                    tracks = (p["tracks"] as? List<*>).orEmpty().mapNotNull(::track)
+                    tracks = (p["tracks"] as? List<*>).orEmpty().mapNotNull(::track),
+                    createdAt = (p["createdAt"] as? Number)?.toLong() ?: 0L,
+                    isCustom = p["isCustom"] as? Boolean ?: true
                 )
             },
             favorites = (doc["favorites"] as? List<*>).orEmpty().mapNotNull(::track),
@@ -73,7 +88,15 @@ data class CloudLibrary(
                 val id = (a["id"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val name = (a["name"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 SavedArtist(id, name, a["thumbnail"] as? String, a["subscribers"] as? String)
-            }
+            },
+            pins = ((doc["librarySync"] as? Map<*, *>)?.get("pins") as? List<*>).orEmpty().filterIsInstance<String>(),
+            pinsAt = ((doc["librarySync"] as? Map<*, *>)?.get("pinsAt") as? Number)?.toLong() ?: 0L,
+            deleted = ((doc["librarySync"] as? Map<*, *>)?.get("deleted") as? List<*>).orEmpty().mapNotNull { raw ->
+                val d = raw as? Map<*, *> ?: return@mapNotNull null
+                val id = d["id"] as? String ?: return@mapNotNull null
+                val at = (d["at"] as? Number)?.toLong() ?: return@mapNotNull null
+                id to at
+            }.toMap()
         )
     }
 }

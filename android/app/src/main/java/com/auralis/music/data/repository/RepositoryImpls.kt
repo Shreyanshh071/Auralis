@@ -153,6 +153,10 @@ class LibraryRepositoryImpl(
         return upsertPlaylistById(importedPlaylistLocalId(source, remoteId), title, description, coverUrl)
     }
 
+    override suspend fun setPlaylistCreatedAt(playlistId: String, createdAt: Long) {
+        playlistDao.setCreatedAt(playlistId, createdAt)
+    }
+
     override suspend fun restorePlaylist(id: String, title: String, description: String?, coverUrl: String?): Playlist {
         require(id.isNotBlank())
         return upsertPlaylistById(id, title, description, coverUrl)

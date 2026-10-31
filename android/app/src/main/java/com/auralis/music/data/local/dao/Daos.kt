@@ -94,6 +94,9 @@ interface PlaylistDao {
     @Upsert
     suspend fun upsertPlaylist(playlist: PlaylistEntity)
 
+    @Query("UPDATE playlists SET createdAt = :createdAt WHERE id = :playlistId")
+    suspend fun setCreatedAt(playlistId: String, createdAt: Long)
+
     @Query("UPDATE playlists SET title = :title, description = :description, coverUrl = :coverUrl WHERE id = :playlistId")
     suspend fun updatePlaylist(playlistId: String, title: String, description: String?, coverUrl: String?)
 

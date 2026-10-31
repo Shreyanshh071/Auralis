@@ -16,6 +16,7 @@ interface LibraryRepository {
         createPlaylist(title, description, coverUrl)
     suspend fun restorePlaylist(id: String, title: String, description: String? = null, coverUrl: String? = null): Playlist =
         createPlaylist(title, description, coverUrl)
+    suspend fun setPlaylistCreatedAt(playlistId: String, createdAt: Long) {}
     suspend fun updatePlaylist(playlistId: String, title: String, description: String? = null, coverUrl: String? = null)
     suspend fun addTrackToPlaylist(playlistId: String, track: Track): Boolean
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)

@@ -125,6 +125,9 @@ class DesktopLibraryRepository(file: File) : LibraryRepository {
     override suspend fun upsertImportedPlaylist(source: String, remoteId: String, title: String, description: String?, coverUrl: String?): Playlist =
         restorePlaylist("imported:$source:$remoteId", title, description, coverUrl)
 
+    override suspend fun setPlaylistCreatedAt(playlistId: String, createdAt: Long) =
+        editPlaylist(playlistId) { it.copy(createdAt = createdAt) }
+
     override suspend fun updatePlaylist(playlistId: String, title: String, description: String?, coverUrl: String?) =
         editPlaylist(playlistId) { it.copy(title = title, description = description, coverUrl = coverUrl) }
 

@@ -206,15 +206,21 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             val addedPlaylists = mutableSetOf<String>()
             val addedFavorites = mutableSetOf<String>()
             val catchUpDone = syncMarks.getString("account_items_v1_$uid", "") == "1"
-            val serviceLinks = com.auralis.music.data.playlistsync.PlaylistSyncStore(
-                com.auralis.music.util.PropertiesFileKeyValueStore(File(sessionFile.parentFile, "playlist-sync.properties"), synchronous = true))
-                .links.value.filter { it.enabled }.map { it.localId }.toSet()
+            val serviceLinks = serviceLinkedPlaylists()
+            val cloudSync = cloudLibrary(doc)
+            val agreed = com.auralis.music.data.sync.SyncBaseline.decode(syncMarks.getString(baselineKey(uid), ""))
+            val localFavorites = library.getFavoriteTracks().first().map { it.id }.toSet()
+            val localAlbums = library.getSavedAlbums().first().map { it.id }.toSet()
+            val localArtists = library.getSavedArtists().first().map { it.id }.toSet()
             for (p in objects(doc.optJSONArray("playlists"))) {
                 val title = p.optString("title").ifBlank { "Restored Playlist" }
                 val description = p.optString("description").takeIf { it.isNotBlank() }
                 val cover = p.optString("coverUrl").takeIf { it.isNotBlank() }
                 val id = p.optString("id").takeIf { it.isNotBlank() }
                 val tracks = objects(p.optJSONArray("tracks")).map(::track).filter { it.id.isNotBlank() }
+                // Deleted on a device, or removed here and not uploaded yet: pushLibrary settles it.
+                if (id != null && (id in cloudSync.deleted ||
+                    (agreed?.playlists?.containsKey(id) == true && localPlaylists.none { it.id == id }))) continue
                 // The same playlist under another id (same name AND the very same songs) is not added
                 // twice. A same-named playlist with different songs (99 vs 100) is its own playlist.
                 if (localPlaylists.any { it.id != id && sameNameAndSongs(it, title, tracks) }) continue
@@ -232,7 +238,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             }
             for (f in objects(doc.optJSONArray("favorites"))) {
                 val t = track(f)
-                if (t.id.isNotBlank()) {
+                if (t.id.isNotBlank() && (agreed == null || t.id in localFavorites || t.id !in agreed.favorites)) {
                     library.setFavorite(t, true); liked++
                     if (t.id !in localFavoriteIds) addedFavorites += t.id
                 }
@@ -241,13 +247,13 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             syncMarks.putStrings(mapOf("account_items_v1_$uid" to "1"))
             for (a in objects(doc.optJSONArray("savedAlbums"))) {
                 val id = a.optString("id"); val title = a.optString("title")
-                if (id.isNotBlank() && title.isNotBlank()) library.saveAlbum(com.auralis.music.domain.model.SavedAlbum(id, title,
+                if (id.isNotBlank() && title.isNotBlank() && (agreed == null || id in localAlbums || id !in agreed.albums)) library.saveAlbum(com.auralis.music.domain.model.SavedAlbum(id, title,
                     a.optString("artist").takeIf { it.isNotBlank() }, a.optString("thumbnail").takeIf { it.isNotBlank() },
                     a.optInt("trackCount").takeIf { it > 0 }, a.optLong("savedAt").takeIf { it > 0 } ?: System.currentTimeMillis()))
             }
             for (a in objects(doc.optJSONArray("savedArtists"))) {
                 val id = a.optString("id"); val name = a.optString("name")
-                if (id.isNotBlank() && name.isNotBlank()) library.saveArtist(com.auralis.music.domain.model.SavedArtist(id, name,
+                if (id.isNotBlank() && name.isNotBlank() && (agreed == null || id in localArtists || id !in agreed.artists)) library.saveArtist(com.auralis.music.domain.model.SavedArtist(id, name,
                     a.optString("thumbnail").takeIf { it.isNotBlank() }, a.optString("subscribers").takeIf { it.isNotBlank() }))
             }
         }
@@ -284,7 +290,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         playlists.filter { it in present }.forEach { library.deletePlaylist(it) }
         library.getFavoriteTracks().first().filter { it.id in favorites }.forEach { library.setFavorite(it, false) }
         syncMarks.putStrings(mapOf("account_playlists_$uid" to "", "account_favorites_$uid" to "",
-            "pulled_at_$uid" to "0", "account_items_v1_$uid" to ""))
+            "pulled_at_$uid" to "0", "account_items_v1_$uid" to "", baselineKey(uid) to ""))
         playlists.count { it in present }
     }
 
@@ -294,11 +300,54 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         com.auralis.music.util.PropertiesFileKeyValueStore(File(sessionFile.parentFile, "account-sync.properties"))
     }
 
+    private fun baselineKey(uid: String) = "library_baseline_$uid"
+
+    private fun serviceLinkedPlaylists() = com.auralis.music.data.playlistsync.PlaylistSyncStore(
+        com.auralis.music.util.PropertiesFileKeyValueStore(File(sessionFile.parentFile, "playlist-sync.properties"), synchronous = true))
+        .links.value.filter { it.enabled }.map { it.localId }.toSet()
+
+    /** The account document as the shape every device merges. */
+    private fun cloudLibrary(doc: org.json.JSONObject?): com.auralis.music.data.sync.SyncedLibrary {
+        fun objects(a: org.json.JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a!!.optJSONObject(it) }
+        fun text(o: org.json.JSONObject, key: String) = o.optString(key).takeIf { it.isNotBlank() && it != "null" }
+        fun track(o: org.json.JSONObject) = com.auralis.music.domain.model.Track(
+            id = o.optString("id"), title = o.optString("title").ifBlank { "Unknown Track" },
+            artist = o.optString("artist").ifBlank { "Unknown Artist" }, album = text(o, "album"),
+            thumbnail = o.optString("thumbnail"), duration = o.optLong("duration"))
+        val sync = doc?.optJSONObject("librarySync")
+        val pins = sync?.optJSONArray("pins")
+        return com.auralis.music.data.sync.SyncedLibrary(
+            playlists = objects(doc?.optJSONArray("playlists")).mapNotNull { p ->
+                val id = text(p, "id") ?: return@mapNotNull null
+                com.auralis.music.domain.model.Playlist(id, p.optString("title").ifBlank { "Restored Playlist" },
+                    text(p, "description"), text(p, "coverUrl"),
+                    objects(p.optJSONArray("tracks")).map(::track).filter { it.id.isNotBlank() },
+                    createdAt = p.optLong("createdAt"), isCustom = p.optBoolean("isCustom", true))
+            },
+            favorites = objects(doc?.optJSONArray("favorites")).map(::track).filter { it.id.isNotBlank() },
+            albums = objects(doc?.optJSONArray("savedAlbums")).mapNotNull { a ->
+                val id = text(a, "id") ?: return@mapNotNull null
+                val title = text(a, "title") ?: return@mapNotNull null
+                com.auralis.music.domain.model.SavedAlbum(id, title, text(a, "artist"), text(a, "thumbnail"),
+                    a.optInt("trackCount").takeIf { it > 0 }, a.optLong("savedAt").takeIf { it > 0 } ?: System.currentTimeMillis())
+            },
+            artists = objects(doc?.optJSONArray("savedArtists")).mapNotNull { a ->
+                val id = text(a, "id") ?: return@mapNotNull null
+                val name = text(a, "name") ?: return@mapNotNull null
+                com.auralis.music.domain.model.SavedArtist(id, name, text(a, "thumbnail"), text(a, "subscribers"))
+            },
+            pins = (0 until (pins?.length() ?: 0)).mapNotNull { pins?.optString(it)?.takeIf(String::isNotBlank) },
+            pinsAt = sync?.optLong("pinsAt") ?: 0L,
+            deleted = objects(sync?.optJSONArray("deleted")).mapNotNull { d ->
+                (text(d, "id") ?: return@mapNotNull null) to d.optLong("at")
+            }.toMap()
+        )
+    }
+
     /**
-     * Uploads this PC's library in the phone's backup shape (`users/{uid}`: playlists with their
-     * songs, favorites, saved albums and artists). Only after this session read the account's
-     * backup into the PC library ([pullCloudBackup]), so the upload is the union of both devices
-     * and never drops a playlist that only the phone has. The phone restores it on its next start.
+     * Merges this PC's library with the account's (see AccountLibraryMerge) and applies what other
+     * devices changed. Only after this session read the account's backup ([pullCloudBackup]). The
+     * merge never drops what another device added, and pins set on phones stay in the account.
      */
     suspend fun pushLibrary(library: com.auralis.music.domain.repository.LibraryRepository): Boolean = withContext(Dispatchers.IO) {
         val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext false
@@ -308,28 +357,52 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
             .put("thumbnail", t.thumbnail).put("duration", t.duration)
         val playlists = library.getPlaylists().first()
         val favorites = library.getFavoriteTracks().first()
-        val albums = library.getSavedAlbums().first()
-        val artists = library.getSavedArtists().first()
+        val local = com.auralis.music.data.sync.SyncedLibrary(playlists, favorites,
+            library.getSavedAlbums().first(), library.getSavedArtists().first())
         val now = System.currentTimeMillis()
-        val fields = org.json.JSONObject()
-            .put("playlists", org.json.JSONArray(playlists.map { p ->
-                org.json.JSONObject().put("id", p.id).put("title", p.title)
-                    .put("description", p.description ?: org.json.JSONObject.NULL).put("coverUrl", p.coverUrl ?: org.json.JSONObject.NULL)
-                    .put("createdAt", p.createdAt).put("isCustom", p.isCustom)
-                    .put("tracks", org.json.JSONArray(p.tracks.map(::trackJson)))
-            }))
-            .put("favorites", org.json.JSONArray(favorites.map(::trackJson)))
-            .put("savedAlbums", org.json.JSONArray(albums.map { a ->
-                org.json.JSONObject().put("id", a.id).put("title", a.title).put("artist", a.artist ?: org.json.JSONObject.NULL)
-                    .put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL).put("trackCount", a.trackCount ?: org.json.JSONObject.NULL)
-                    .put("savedAt", a.savedAt)
-            }))
-            .put("savedArtists", org.json.JSONArray(artists.map { a ->
-                org.json.JSONObject().put("id", a.id).put("name", a.name).put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL)
-                    .put("subscribers", a.subscribers ?: org.json.JSONObject.NULL)
-            }))
-            .put("updatedAt", now).put("playlistsUpdatedAt", now).put("favoritesUpdatedAt", now).put("schemaVersion", 1)
-        api.write("users/$uid", fields)
+        val plan = com.auralis.music.data.sync.AccountLibraryMerge.merge(
+            local, cloudLibrary(api.get("users/$uid")),
+            com.auralis.music.data.sync.SyncBaseline.decode(syncMarks.getString(baselineKey(uid), "")),
+            now, serviceLinkedPlaylists()
+        ) { cloud -> playlists.any { it.id != cloud.id && sameNameAndSongs(it, cloud.title, cloud.tracks) } }
+        if (mutable.value.profile?.uid != uid) return@withContext false
+        if (plan.accountChanged) {
+            val merged = plan.account
+            api.write("users/$uid", org.json.JSONObject()
+                .put("playlists", org.json.JSONArray(merged.playlists.map { p ->
+                    org.json.JSONObject().put("id", p.id).put("title", p.title)
+                        .put("description", p.description ?: org.json.JSONObject.NULL).put("coverUrl", p.coverUrl ?: org.json.JSONObject.NULL)
+                        .put("createdAt", p.createdAt).put("isCustom", p.isCustom)
+                        .put("tracks", org.json.JSONArray(p.tracks.map(::trackJson)))
+                }))
+                .put("favorites", org.json.JSONArray(merged.favorites.map(::trackJson)))
+                .put("savedAlbums", org.json.JSONArray(merged.albums.map { a ->
+                    org.json.JSONObject().put("id", a.id).put("title", a.title).put("artist", a.artist ?: org.json.JSONObject.NULL)
+                        .put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL).put("trackCount", a.trackCount ?: org.json.JSONObject.NULL)
+                        .put("savedAt", a.savedAt)
+                }))
+                .put("savedArtists", org.json.JSONArray(merged.artists.map { a ->
+                    org.json.JSONObject().put("id", a.id).put("name", a.name).put("thumbnail", a.thumbnail ?: org.json.JSONObject.NULL)
+                        .put("subscribers", a.subscribers ?: org.json.JSONObject.NULL)
+                }))
+                .put("librarySync", org.json.JSONObject().put("pins", org.json.JSONArray(merged.pins)).put("pinsAt", merged.pinsAt)
+                    .put("deleted", org.json.JSONArray(merged.deleted.map { (id, at) -> org.json.JSONObject().put("id", id).put("at", at) })))
+                .put("updatedAt", now).put("playlistsUpdatedAt", now).put("favoritesUpdatedAt", now).put("schemaVersion", 1))
+        }
+        plan.deletePlaylists.forEach { library.deletePlaylist(it) }
+        for (p in plan.writePlaylists) {
+            library.restorePlaylist(p.id, p.title, p.description, p.coverUrl)
+            library.replacePlaylistTracks(p.id, p.tracks)
+            library.setPlaylistCreatedAt(p.id, p.createdAt)
+        }
+        plan.addFavorites.forEach { library.setFavorite(it, true) }
+        favorites.filter { it.id in plan.removeFavorites }.forEach { library.setFavorite(it, false) }
+        plan.addAlbums.forEach { library.saveAlbum(it) }
+        plan.removeAlbums.forEach { library.removeAlbum(it) }
+        plan.addArtists.forEach { library.saveArtist(it) }
+        plan.removeArtists.forEach { library.removeArtist(it) }
+        rememberAccountItems(uid, plan.addedPlaylistIds, plan.addFavorites.mapTo(HashSet()) { it.id })
+        syncMarks.putStrings(mapOf(baselineKey(uid) to plan.baseline.encode()))
         true
     }
 

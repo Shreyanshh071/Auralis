@@ -57,6 +57,8 @@ import com.auralis.music.ui.viewmodel.SearchViewModel
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
+    private var accountSync: GoogleAccountSyncManager? = null
+
 
     private val launchTouchGate = com.auralis.music.ui.components.LaunchTouchGate()
     private var launchDrawingComplete by mutableStateOf(false)
@@ -171,6 +173,7 @@ class MainActivity : ComponentActivity() {
             com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
             kotlinx.coroutines.delay(3000L)
             com.auralis.music.data.sync.AndroidAccountPreferences(applicationContext).start(this)
+            accountSync = googleAccountSyncManager
             googleAccountSyncManager.startContinuousCloudSync(this)
             // Listening stats live on the account too, so a reinstall doesn't wipe them.
             com.auralis.music.data.sync.StatsCloudSync.start(this)
@@ -368,6 +371,8 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         com.auralis.music.data.connect.AuralisConnect.setForeground(true)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
+        // Back from the background: pick up what other devices changed meanwhile.
+        accountSync?.let { sync -> lifecycleScope.launch { sync.backupLibraryToCloud() } }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
