@@ -1699,6 +1699,13 @@ open class InnerTubeClient(
         return null
     }
 
+    /** Songs among the rows YouTube Music suggests; its artist and album rows are left out. */
+    fun parseSuggestedSongs(rows: List<JSONObject>): List<Track> {
+        val songs = mutableListOf<Track>()
+        rows.forEach { parseMusicListItem(it, songs, mutableListOf(), mutableListOf(), mutableListOf()) }
+        return songs
+    }
+
     fun parseMusicListItem(
         item: JSONObject,
         songs: MutableList<Track>,

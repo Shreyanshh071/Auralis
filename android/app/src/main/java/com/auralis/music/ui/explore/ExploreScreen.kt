@@ -598,10 +598,10 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                                 contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
+                                // 1. Live Autocomplete Text Suggestions
                                 if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
                                     items(
-                                        items = uiState.suggestions.take(3),
+                                        items = uiState.suggestions.take(6),
                                         key = { "sug_$it" }
                                     ) { suggestion ->
                                         Row(
@@ -648,7 +648,7 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                                     item(key = "header_top_songs") {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Text(
-                                            text = str(R.string.top_songs),
+                                            text = str(R.string.top_result),
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,

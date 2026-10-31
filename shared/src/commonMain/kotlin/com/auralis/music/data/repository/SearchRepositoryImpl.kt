@@ -920,24 +920,37 @@ class SearchRepositoryImpl(
         } + general).distinctBy { it.id }
     }
 
+    /** YouTube Music's own picks lead, in its order; ranked search fills in behind them. */
     override suspend fun searchLiveSongs(query: String, onResults: (List<Track>) -> Unit) = coroutineScope {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@coroutineScope
-        val responses = kotlinx.coroutines.channels.Channel<Pair<Boolean, List<Track>>>(2)
-        listOf(true, false).forEach { filtered ->
+        // Whichever answers first shows first, and one failing never takes the others down.
+        val responses = kotlinx.coroutines.channels.Channel<Pair<Int, List<Track>>>(3)
+        val sources = listOf<suspend () -> List<Track>>(
+            { innerTubeClient.parseSuggestedSongs(suggestionsClient.getSuggestedRows(trimmed)) },
+            { innerTubeClient.searchLive(trimmed, InnerTubeClient.FILTER_SONGS).songs },
+            { innerTubeClient.searchLive(trimmed, null).songs }
+        )
+        sources.forEachIndexed { source, fetch ->
             launch(Dispatchers.IO) {
-                val songs = innerTubeClient.searchLive(trimmed, if (filtered) InnerTubeClient.FILTER_SONGS else null).songs
-                responses.send(filtered to songs)
+                val songs = try { fetch() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+                responses.send(source to songs)
             }
         }
+        var suggested = emptyList<Track>()
         var filteredSongs = emptyList<Track>()
         var generalSongs = emptyList<Track>()
-        repeat(2) {
-            val (filtered, songs) = responses.receive()
-            if (filtered) filteredSongs = songs else generalSongs = songs
+        repeat(sources.size) {
+            val (source, songs) = responses.receive()
+            when (source) {
+                0 -> suggested = songs
+                1 -> filteredSongs = songs
+                else -> generalSongs = songs
+            }
             val candidates = mergeSongResults(filteredSongs, generalSongs)
             val (matched, remaining) = SearchQueryMatcher.partitionResults(candidates, trimmed)
-            if (candidates.isNotEmpty()) onResults(if (matched.isNotEmpty()) matched else remaining.take(10))
+            val combined = (suggested + if (matched.isNotEmpty()) matched else remaining.take(10)).distinctBy { it.id }
+            if (combined.isNotEmpty()) onResults(combined)
         }
     }
 

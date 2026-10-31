@@ -211,11 +211,11 @@ class SearchViewModel(
             )
         }
 
-        // 1. Fast text autocomplete suggestions (top 3)
+        // 1. Fast text autocomplete suggestions
         suggestionsJob = viewModelScope.launch {
             delay(120)
             val suggestions = try {
-                searchRepository.getSuggestions(trimmed).take(3)
+                searchRepository.getSuggestions(trimmed).take(6)
             } catch (_: Exception) {
                 emptyList()
             }
