@@ -21,11 +21,13 @@ class PlaylistSyncTest {
     private inner class Remote(@Volatile var current: SyncSnapshot, override val service: SyncService = SyncService.SPOTIFY) : PlaylistSyncRemote {
         var creations = 0
         var beforeWrite: (suspend () -> Unit)? = null
+        var beforeRead: (suspend () -> Unit)? = null
         val reads = java.util.concurrent.CopyOnWriteArrayList<String>()
         var user = "account"; var revision = 0; var writes = 0; var fail = false; var editable = true; var failWrite = false
         override suspend fun account() = user
         override suspend fun read(id: String): RemoteSyncPlaylist {
             reads += id
+            beforeRead?.invoke()
             if (fail) error("Offline")
             return RemoteSyncPlaylist(id, user, current, current.ids.map(::track), "$revision", editable)
         }
@@ -425,5 +427,76 @@ class PlaylistSyncTest {
             assertEquals(setOf("a","b","c"),remote.current.ids.toSet())
             assertFalse(store.links.value.single().interrupted)
         } finally {dir.deleteRecursively()}
+    }
+
+    @Test fun slowBackgroundChecksKeepTheLastCompletedStatusAndTurningOffCannotRelink() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("sync-slow-status").toFile()
+        try {
+            val library = SyncTestLibrary(java.io.File(dir, "library.json"))
+            val local = library.restorePlaylist("imported:youtube_music:original", "Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a")))
+            val remote = Remote(snap("a"), SyncService.YOUTUBE)
+            val store = PlaylistSyncStore(Memory())
+            var engine = PlaylistSyncEngine(library, store, mapOf(SyncService.YOUTUBE to remote))
+            engine.enable(local.id)
+            // Reopening the app must use the durable completed result during its first read.
+            engine = PlaylistSyncEngine(library, store, mapOf(SyncService.YOUTUBE to remote))
+            val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            remote.beforeRead = { entered.complete(Unit); release.await() }
+            val checking = async { engine.sync(local.id) }
+            withTimeout(3000) { entered.await() }
+            assertEquals("Up to date", engine.status.value[local.id])
+            // A remote change makes a stale read attempt apply unless the disable epoch is checked.
+            remote.current = snap("a", "b"); remote.revision++
+            engine.disable(local.id); release.complete(Unit); checking.await()
+            assertTrue(store.links.value.isEmpty())
+            assertEquals("Sync off. Both playlists are kept.", engine.status.value[local.id])
+            assertEquals(listOf("a"), library.getPlaylist(local.id).first()!!.tracks.map { it.id })
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun stalledCheckTimesOutAndTheWorkerRetriesWithoutLosingItsBaseline() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("sync-check-timeout").toFile()
+        val job = SupervisorJob(); val scope = CoroutineScope(job + Dispatchers.Default)
+        try {
+            val library = SyncTestLibrary(java.io.File(dir, "library.json"))
+            val local = library.restorePlaylist("imported:youtube_music:original", "Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a")))
+            val remote = Remote(snap("a"), SyncService.YOUTUBE)
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.YOUTUBE to remote),
+                pollIntervalMs = 60_000, retryDelayMs = 100, checkTimeoutMs = 200)
+            engine.enable(local.id)
+            remote.beforeRead = { awaitCancellation() }
+            engine.start(scope)
+            withTimeout(3000) { engine.status.first { it[local.id]?.contains("timed out") == true } }
+            assertFalse(store.links.value.single().interrupted)
+            assertEquals(listOf("a"), store.links.value.single().base.ids)
+            remote.beforeRead = null
+            withTimeout(3000) { engine.status.first { it[local.id] == "Up to date" } }
+        } finally { job.cancelAndJoin(); dir.deleteRecursively() }
+    }
+
+    @Test fun cancelledCheckClearsProgressAndTheSameEngineCanRestartItsWorker() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("sync-worker-restart").toFile()
+        val firstJob = SupervisorJob(); val nextJob = SupervisorJob()
+        try {
+            val library = SyncTestLibrary(java.io.File(dir, "library.json"))
+            val local = library.restorePlaylist("imported:youtube_music:original", "Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a")))
+            val remote = Remote(snap("a"), SyncService.YOUTUBE)
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.YOUTUBE to remote))
+            engine.enable(local.id)
+            val entered = CompletableDeferred<Unit>()
+            remote.beforeRead = { entered.complete(Unit); awaitCancellation() }
+            engine.start(CoroutineScope(firstJob + Dispatchers.Default))
+            withTimeout(3000) { entered.await() }
+            firstJob.cancelAndJoin()
+            assertEquals("Sync pending. Will check when Auralis resumes.", engine.status.value[local.id])
+            remote.beforeRead = null
+            engine.start(CoroutineScope(nextJob + Dispatchers.Default))
+            withTimeout(3000) { engine.status.first { it[local.id] == "Up to date" } }
+        } finally { firstJob.cancelAndJoin(); nextJob.cancelAndJoin(); dir.deleteRecursively() }
     }
 }

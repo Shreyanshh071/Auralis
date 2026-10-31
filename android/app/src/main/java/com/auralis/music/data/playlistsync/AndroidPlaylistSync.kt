@@ -6,6 +6,13 @@ import com.auralis.music.domain.repository.LibraryRepository
 import com.auralis.music.util.KeyValueStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -47,13 +54,26 @@ object AndroidPlaylistSync {
                     .apply { YouTubeSession.authHeaders("https://music.youtube.com").forEach { (key, value) -> header(key, value) } }
                     .post(extras.toString().toRequestBody("application/json".toMediaType())).build()
                 check(YouTubeSession.playlistSyncIdentity() == account) { "YouTube Music account changed. Sync paused." }
-                NetworkClientProvider.okHttpClient.newCall(request).execute().use { response ->
-                    check(response.isSuccessful) { "YouTube Music sync failed (HTTP ${response.code}). Reconnect or retry later." }
-                    val result = JSONObject(response.body?.string() ?: error("YouTube returned an empty response."))
-                    check(!result.has("error")) { "YouTube Music did not authorize this playlist request." }
-                    check(YouTubeSession.playlistSyncIdentity() == account) { "YouTube Music account changed. Review sync again." }
-                    result
+                val body = suspendCancellableCoroutine<String> { continuation ->
+                    val call = NetworkClientProvider.okHttpClient.newCall(request)
+                    continuation.invokeOnCancellation { call.cancel() }
+                    call.enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) { continuation.resumeWithException(e) }
+                        override fun onResponse(call: Call, response: Response) {
+                            val result = runCatching {
+                                response.use {
+                                    check(it.isSuccessful) { "YouTube Music sync failed (HTTP ${it.code}). Reconnect or retry later." }
+                                    it.body?.string() ?: error("YouTube returned an empty response.")
+                                }
+                            }
+                            result.fold({ continuation.resume(it) }, { continuation.resumeWithException(it) })
+                        }
+                    })
                 }
+                val result = JSONObject(body)
+                check(!result.has("error")) { "YouTube Music did not authorize this playlist request." }
+                check(YouTubeSession.playlistSyncIdentity() == account) { "YouTube Music account changed. Review sync again." }
+                result
             }
         })
         return PlaylistSyncEngine(library, PlaylistSyncStore(store), mapOf(SyncService.YOUTUBE to youtube, SyncService.SPOTIFY to SpotifyPlaylistSync()))

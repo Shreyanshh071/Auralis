@@ -121,13 +121,13 @@ class PlaylistSyncStore(private val store: KeyValueStore) {
 class PlaylistSyncEngine(private val library: LibraryRepository, val store: PlaylistSyncStore,
     private val remotes: Map<SyncService, PlaylistSyncRemote>,
     private val pollIntervalMs: Long = 5_000, private val localDebounceMs: Long = 150,
-    private val retryDelayMs: Long = 1_000) {
+    private val retryDelayMs: Long = 1_000, private val checkTimeoutMs: Long = 30_000) {
     val status = MutableStateFlow<Map<String, String>>(emptyMap())
     private val lock = Mutex()
     private var worker: Job? = null
     private val epochs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     fun start(scope: CoroutineScope) {
-        if (worker != null) return
+        if (worker?.isActive == true) return
         worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             val requests = Channel<Unit>(Channel.CONFLATED)
             // Artwork refreshes must not keep postponing a real playlist edit.
@@ -282,11 +282,31 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
     suspend fun sync(id: String) {
         // A local edit arriving during an upload must wait, not lose its request.
         lock.withLock { }
+        val epoch = epochs.getOrDefault(id, 0L)
         val link = store.links.value.firstOrNull { it.localId == id && it.enabled } ?: return
         if (!matchesImport(link)) { message(id, "Sync paused: the saved link differs from the import source. Turn sync off and on to reconnect the original playlist."); return }
         val local = library.getPlaylist(id).first() ?: run { store.unlink(id); return }
-        message(id, "Checking changes…")
-        val p = preview(local, link.service, link.remoteId)
+        // Polling must not replace the last completed result with a permanent-looking
+        // progress message, especially when reading a large remote playlist.
+        if (status.value[id] == null) message(id, if (link.syncedAt > 0) "Up to date" else "Checking changes…")
+        val p = try {
+            withTimeout(checkTimeoutMs) { preview(local, link.service, link.remoteId) }
+        } catch (e: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            if (epochs.getOrDefault(id, 0L) != epoch) return
+            val text = "Sync check timed out. Retrying automatically."
+            message(id, text)
+            throw IllegalStateException(text, e)
+        } catch (e: CancellationException) {
+            if (epochs.getOrDefault(id, 0L) == epoch) message(id, "Sync pending. Will check when Auralis resumes.")
+            throw e
+        } catch (e: Exception) {
+            if (epochs.getOrDefault(id, 0L) != epoch) return
+            message(id, e.message ?: "Sync pending. Retrying automatically.")
+            throw e
+        }
+        // Turning sync off while a read is in flight must not re-link the playlist.
+        if (epochs.getOrDefault(id, 0L) != epoch) return
         val merged = if (link.interrupted) {
             val online = p.remote!!.snapshot
             if (link.pendingTarget != null && online != link.base && online != link.pendingTarget) {
