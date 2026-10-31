@@ -38,3 +38,4 @@ include(":windows")
 // The Windows app's own copy of the core code; the Android app builds only from :shared.
 include(":windows-core")
 project(":windows-core").projectDir = file("windows/core")
+include(":discord-bot")

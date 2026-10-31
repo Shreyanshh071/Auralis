@@ -55,6 +55,9 @@ object LocalStreamRelay {
         val refreshLock = Any()
     }
 
+    /** Streams kept at once. One player needs few; the Discord bot plays one per server. */
+    @Volatile var maxStreams = 4
+
     private val streams = ConcurrentHashMap<String, Stream>()
     private val registrationOrder = ConcurrentLinkedQueue<String>()
     private val prefetcher = Executors.newFixedThreadPool(2) { r -> Thread(r, "stream-prefetch").apply { isDaemon = true } }
@@ -136,7 +139,7 @@ object LocalStreamRelay {
         synchronized(firstBlocks) { firstBlocks.remove(upstreamUrl) }?.let { synchronized(stream.blocks) { stream.blocks[0L] = it } }
         streams[token] = stream
         registrationOrder.add(token)
-        while (streams.size > 4) registrationOrder.poll()?.let { streams.remove(it)?.generation?.incrementAndGet() }
+        while (streams.size > maxStreams) registrationOrder.poll()?.let { streams.remove(it)?.generation?.incrementAndGet() }
         // Pre-warm the first block so it's in memory when libVLC connects (unless the check brought it).
         if (synchronized(stream.blocks) { stream.blocks[0L] } == null) prefetcher.execute {
             runCatching {
