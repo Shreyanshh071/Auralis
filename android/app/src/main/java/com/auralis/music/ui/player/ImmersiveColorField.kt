@@ -29,11 +29,15 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Decodes a cover's colour field, or returns it from the cache. Safe to call ahead of a song change. */
-internal suspend fun loadColorField(context: android.content.Context, url: String, cropArtwork: Boolean): ImageBitmap? {
-    val cacheKey = "$url#edge-v2:$cropArtwork"
+// Full-cover blurred backdrop adapted from BitChord (GPL-3.0): https://github.com/kushagrasinghx/BitChord
+
+/** Decodes a cover's blurred backdrop, or returns it from the cache. Safe to call ahead of a song change. */
+internal suspend fun loadColorField(context: android.content.Context, url: String): ImageBitmap? {
+    val cacheKey = "$url#full-blur"
     return try {
         fieldCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
             var bitmap: Bitmap? = null
@@ -47,29 +51,29 @@ internal suspend fun loadColorField(context: android.content.Context, url: Strin
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (_: Exception) { /* Try the original thumbnail if high-resolution artwork is unavailable. */ }
             }
-            if (bitmap != null && !bitmap.isRecycled) colorFieldOf(bitmap, cropArtwork) else null
+            if (bitmap != null && !bitmap.isRecycled) blurredField(bitmap) else null
         }?.also { fieldCache.put(cacheKey, it) }
     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
     catch (_: Exception) { null }
 }
 
-/** The visible cover's bottom-edge colours carried softly and continuously below it. */
+/**
+ * The whole cover, cropped across the player and blurred, so its colours run down the screen in
+ * their own order. The blur is baked once off the main thread, so drawing is one image sample.
+ */
 @Composable
 internal fun ImmersiveColorField(
     artworkUrl: String?,
-    seamPx: () -> Float,
-    modifier: Modifier = Modifier,
-    cropArtwork: Boolean = true
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val cacheKey = artworkUrl?.let { "$it#edge-v2:$cropArtwork" }
-    var shown by remember { mutableStateOf<ImageBitmap?>(cacheKey?.let { fieldCache.get(it) }) }
+    var shown by remember { mutableStateOf<ImageBitmap?>(artworkUrl?.let { fieldCache.get("$it#full-blur") }) }
     var incoming by remember { mutableStateOf<ImageBitmap?>(null) }
     val fade = remember { Animatable(0f) }
 
-    LaunchedEffect(artworkUrl, cropArtwork) {
+    LaunchedEffect(artworkUrl) {
         val url = artworkUrl ?: return@LaunchedEffect
-        val next = loadColorField(context, url, cropArtwork) ?: return@LaunchedEffect
+        val next = loadColorField(context, url) ?: return@LaunchedEffect
 
         incoming?.let { shown = it }
         incoming = null
@@ -91,50 +95,82 @@ internal fun ImmersiveColorField(
             // Opaque floor outside the backdrop, so nothing behind the player can show through.
             .background(Color(0xFF121212))
     ) {
-        val seam = seamPx().coerceIn(0f, size.height)
-        shown?.let { drawField(it, seam, 1f) }
-        incoming?.let { drawField(it, seam, fade.value) }
-        // Just enough to keep white text readable on a bright cover.
-        drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.06f), Color.Black.copy(alpha = 0.16f))))
+        shown?.let { drawField(it, 1f) }
+        incoming?.let { drawField(it, fade.value) }
+        // Everything on this is white: keep the colours while bright covers stay readable.
+        drawRect(FieldScrim)
     }
 }
 
-private fun DrawScope.drawField(field: ImageBitmap, seam: Float, alpha: Float) {
+private fun DrawScope.drawField(field: ImageBitmap, alpha: Float) {
     if (alpha <= 0.001f) return
-    val width = size.width.roundToInt()
-    if (seam > 0.5f) {
-        drawImage(
-            image = field,
-            srcOffset = IntOffset.Zero,
-            srcSize = IntSize(field.width, 1),
-            dstOffset = IntOffset.Zero,
-            dstSize = IntSize(width, seam.roundToInt()),
-            alpha = alpha,
-            filterQuality = FilterQuality.Medium
-        )
-    }
+    val scale = max(size.width / field.width, size.height / field.height)
+    val srcWidth = (size.width / scale).roundToInt().coerceIn(1, field.width)
+    val srcHeight = (size.height / scale).roundToInt().coerceIn(1, field.height)
     drawImage(
         image = field,
-        srcOffset = IntOffset.Zero,
-        srcSize = IntSize(field.width, field.height),
-        dstOffset = IntOffset(0, seam.roundToInt()),
-        dstSize = IntSize(width, (size.height - seam).roundToInt().coerceAtLeast(1)),
+        srcOffset = IntOffset((field.width - srcWidth) / 2, (field.height - srcHeight) / 2),
+        srcSize = IntSize(srcWidth, srcHeight),
+        dstSize = IntSize(ceil(size.width).toInt(), ceil(size.height).toInt()),
         alpha = alpha,
-        filterQuality = FilterQuality.Medium
+        filterQuality = FilterQuality.Low
     )
 }
 
-private const val FIELD_SOURCE_PX = 120
-private const val FIELD_TEXTURE = 48
+private const val FIELD_SOURCE_PX = 128
+private const val FIELD_BLUR_PASSES = 3
 private const val FIELD_FADE_MS = 400
+
+private val FieldScrim = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = 0.34f),
+    0.55f to Color.Black.copy(alpha = 0.48f),
+    1f to Color.Black.copy(alpha = 0.64f)
+)
 
 private val fieldCache = android.util.LruCache<String, ImageBitmap>(32)
 
-private fun colorFieldOf(source: Bitmap, cropSquare: Boolean): ImageBitmap? = try {
-    if (source.width < 1 || source.height < 1 || source.isRecycled) null else {
-        val pixels = IntArray(source.width * source.height)
-        source.getPixels(pixels, 0, source.width, 0, 0, source.width, source.height)
-        val texture = ImmersiveBackdropColors.texture(pixels, source.width, source.height, FIELD_TEXTURE, cropSquare)
-        Bitmap.createBitmap(texture, FIELD_TEXTURE, FIELD_TEXTURE, Bitmap.Config.ARGB_8888).asImageBitmap()
+private fun blurredField(source: Bitmap): ImageBitmap? = try {
+    val width = source.width
+    val height = source.height
+    if (width < 2 || height < 2 || source.isRecycled) null else {
+        var from = IntArray(width * height)
+        source.getPixels(from, 0, width, 0, 0, width, height)
+        val to = IntArray(from.size)
+        val radius = (minOf(width, height) / 12).coerceAtLeast(2)
+        repeat(FIELD_BLUR_PASSES) {
+            boxBlurPass(from, to, width, height, radius, horizontal = true)
+            boxBlurPass(to, from, width, height, radius, horizontal = false)
+        }
+        Bitmap.createBitmap(from, width, height, Bitmap.Config.ARGB_8888).asImageBitmap()
     }
 } catch (_: Exception) { null }
+
+private fun boxBlurPass(source: IntArray, target: IntArray, width: Int, height: Int, radius: Int, horizontal: Boolean) {
+    val major = if (horizontal) width else height
+    val minor = if (horizontal) height else width
+    val window = radius * 2 + 1
+    for (fixed in 0 until minor) {
+        fun pixel(at: Int): Int {
+            val position = at.coerceIn(0, major - 1)
+            return if (horizontal) source[fixed * width + position] else source[position * width + fixed]
+        }
+        var red = 0
+        var green = 0
+        var blue = 0
+        for (offset in -radius..radius) {
+            val color = pixel(offset)
+            red += (color shr 16) and 0xFF
+            green += (color shr 8) and 0xFF
+            blue += color and 0xFF
+        }
+        for (moving in 0 until major) {
+            val index = if (horizontal) fixed * width + moving else moving * width + fixed
+            target[index] = (0xFF shl 24) or ((red / window) shl 16) or ((green / window) shl 8) or (blue / window)
+            val leaving = pixel(moving - radius)
+            val entering = pixel(moving + radius + 1)
+            red += ((entering shr 16) and 0xFF) - ((leaving shr 16) and 0xFF)
+            green += ((entering shr 8) and 0xFF) - ((leaving shr 8) and 0xFF)
+            blue += (entering and 0xFF) - (leaving and 0xFF)
+        }
+    }
+}

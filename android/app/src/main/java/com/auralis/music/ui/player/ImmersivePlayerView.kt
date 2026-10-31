@@ -363,11 +363,11 @@ fun ImmersivePlayerContainer(
     val queueListState = rememberLazyListState()
 
     // The backdrop is ready before the song changes, so it arrives with the cover, not after it.
-    LaunchedEffect(pagerState, queue, cropAlbumArt) {
+    LaunchedEffect(pagerState, queue) {
         androidx.compose.runtime.snapshotFlow { pagerState.settledPage }.collectLatest { page ->
             delay(250)
             listOf(page, page + 1, page - 1).forEach { index ->
-                queue.getOrNull(index)?.thumbnail?.takeIf { it.isNotBlank() }?.let { loadColorField(context, it, cropAlbumArt) }
+                queue.getOrNull(index)?.thumbnail?.takeIf { it.isNotBlank() }?.let { loadColorField(context, it) }
             }
         }
     }
@@ -448,7 +448,7 @@ fun ImmersivePlayerContainer(
                 }
             }
     ) {
-        // The cover's colours carried on below it; the seam rides the cover's bottom edge.
+        // The whole cover, blurred behind the player; the sleeve feathers its foot into it.
         val foliaStyle = PlayerBackgroundStyle.fromKey(com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerBackgroundStyle)
         if (foliaStyle.isFolia) {
             val palette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
@@ -457,11 +457,6 @@ fun ImmersivePlayerContainer(
         } else {
         ImmersiveColorField(
             artworkUrl = track.thumbnail,
-            cropArtwork = cropAlbumArt,
-            seamPx = {
-                if (hidePlayerThumbnail) 0f
-                else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
-            },
             modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) }
         )
         }
