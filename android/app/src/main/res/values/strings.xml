@@ -550,6 +550,7 @@
     <string name="spotify_account_description">Sign in to import all your Spotify playlists, including private playlists, and Liked Songs.</string>
     <string name="import_all_spotify_playlists">Import all Spotify playlists</string>
     <string name="sign_in_to_spotify">Sign in to Spotify</string>
+    <string name="import_spotify_liked_songs_and_playlists">Import Liked Songs and playlists directly from your Spotify account—including private playlists—without pasting links or setting them to public.</string>
     <string name="your_spotify_playlists">Your Spotify playlists</string>
     <string name="spotify_picker_description">Private playlists are included. Liked Songs are added to your liked songs; importing a playlist again updates it.</string>
     <string name="spotify_playlists_load_failed">Couldn\'t load your Spotify playlists. Sign in again or try again.</string>

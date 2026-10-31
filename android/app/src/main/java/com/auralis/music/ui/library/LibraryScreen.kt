@@ -2950,21 +2950,35 @@ internal fun PlaylistOptionsBottomSheet(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
+                    // ── GROUP 0: PIN & SYNC ──
                     if (!isSmartPlaylist) {
                         LibraryPinStore.load(context)
                         val pinnedToLibrary = playlist.id in LibraryPinStore.pinned.value
-                        PlaylistActionRow(
-                            icon = Icons.Default.PushPin,
-                            title = str(if (pinnedToLibrary) R.string.unpin_from_library else R.string.pin_to_library),
-                            onClick = {
-                                LibraryPinStore.toggle(context, playlist.id)
-                                onDismiss()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.White.copy(alpha = 0.08f))
+                        ) {
+                            PlaylistActionRow(
+                                icon = Icons.Default.PushPin,
+                                title = str(if (pinnedToLibrary) R.string.unpin_from_library else R.string.pin_to_library),
+                                onClick = {
+                                    LibraryPinStore.toggle(context, playlist.id)
+                                    onDismiss()
+                                }
+                            )
+                            if (syncPlaylist != null) {
+                                HorizontalDivider(
+                                    color = Color.White.copy(alpha = 0.05f),
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                PlaylistActionRow(icon = Icons.Default.Sync,
+                                    title = "Playlist sync", subtitle = "Link YouTube Music · two-way sync",
+                                    onClick = { onDismiss(); syncPlaylist(playlist) })
                             }
-                        )
+                        }
                     }
-                    if (!isSmartPlaylist && syncPlaylist != null) PlaylistActionRow(icon = Icons.Default.Sync,
-                        title = "Playlist sync", subtitle = "Link YouTube Music · two-way sync",
-                        onClick = { onDismiss(); syncPlaylist(playlist) })
                     // ── GROUP 1: EDIT & EXPORT ──
                     Column(
                         modifier = Modifier

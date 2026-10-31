@@ -676,6 +676,20 @@ fun dynamicColorSchemeFromSeed(
     }
 }
 
+private const val ACCENT_CLASH_DEGREES = 60.0
+private const val TINTED_NEUTRAL_CHROMA = 3.0
+private const val HARMONIZED_SEED_CHROMA = 48.0
+private const val HARMONIZED_SEED_TONE = 40.0
+
+/**
+ * Wallpaper styles such as Expressive rotate the accent far from the neutrals on purpose: a brown
+ * wallpaper gets a brown page with blue buttons. The app's surfaces are tinted, so that reads as a bug.
+ */
+internal fun accentClashesWithNeutral(accentHue: Double, neutralHue: Double, neutralChroma: Double): Boolean {
+    val apart = kotlin.math.abs(accentHue - neutralHue) % 360.0
+    return neutralChroma >= TINTED_NEUTRAL_CHROMA && minOf(apart, 360.0 - apart) > ACCENT_CLASH_DEGREES
+}
+
 /**
  * Resolves the phone's system dynamic Monet ColorScheme synchronously on Android 12+ (API 31+).
  * Runs instantly on the composition thread (reading pre-loaded Android framework resources).
@@ -690,6 +704,18 @@ fun getSystemDynamicColorScheme(
 ): ColorScheme {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val dynamicSys = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        val neutral = dynamicSys.surfaceVariant.toHct()
+        if (accentClashesWithNeutral(dynamicSys.primary.toHct().hue, neutral.hue, neutral.chroma)) {
+            val key = "system-${neutral.hue.toInt()}-$isDark-$isAmoled-$appTheme"
+            return curatedSchemeCache.getOrPut(key) {
+                dynamicColorSchemeFromSeed(
+                    seedColor = Color(com.materialkolor.hct.Hct.from(neutral.hue, HARMONIZED_SEED_CHROMA, HARMONIZED_SEED_TONE).toInt()),
+                    isDark = isDark,
+                    isAmoled = isAmoled,
+                    appTheme = appTheme
+                )
+            }
+        }
         if (isDark) {
             when {
                 isAmoled -> dynamicSys.copy(

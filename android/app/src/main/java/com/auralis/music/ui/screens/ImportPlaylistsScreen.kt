@@ -162,7 +162,7 @@ fun ImportPlaylistsScreen(
                 )
                 SpotifyAccountCard(
                     signedIn = spotifySignedIn, accountLabel = spotifyAccountLabel,
-                    isLoadingPlaylists = isLoadingSpotifyPlaylists,
+                    isLoadingPlaylists = isLoadingSpotifyPlaylists, playlists = spotifyPlaylists,
                     isImporting = isImportingSpotify,
                     importMessage = if (spotifyPlaylistLoadFailed) str(R.string.spotify_playlists_load_failed)
                         else if (spotifyImportFromAccount) spotifyImportMessage else null,
@@ -284,6 +284,7 @@ private fun SpotifyAccountCard(
     signedIn: Boolean,
     accountLabel: String,
     isLoadingPlaylists: Boolean,
+    playlists: List<SpotifyLibrary.LibraryPlaylist>?,
     isImporting: Boolean,
     importMessage: String?,
     onOpenPicker: () -> Unit,
@@ -298,30 +299,42 @@ private fun SpotifyAccountCard(
                 Text(str(R.string.spotify_account), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(if (signedIn) accountLabel.ifBlank { str(R.string.signed_in) }
                     else str(R.string.account_ui_spotify_description),
-                    fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.height(16.dp))
-        AccountAction(
-            label = when {
-                isLoadingPlaylists -> str(R.string.loading_playlists)
-                isImporting -> str(R.string.importing_songs)
-                signedIn -> str(R.string.choose_playlists_to_import)
-                else -> str(R.string.account_ui_connect_spotify)
-            },
-            icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
-            onClick = if (signedIn) onOpenPicker else onSignIn,
-            loading = isLoadingPlaylists || isImporting, secondary = true
-        )
+        Spacer(Modifier.height(12.dp))
+        if (signedIn && playlists != null && !isLoadingPlaylists) {
+            AccountBadge(str(R.string.choose_playlists_x_available, playlists.size))
+            Spacer(Modifier.height(12.dp))
+        }
+        if (signedIn) {
+            Text(str(R.string.import_spotify_liked_songs_and_playlists), fontSize = 12.sp,
+                lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            AccountAction(
+                label = when {
+                    isLoadingPlaylists -> str(R.string.loading_playlists)
+                    isImporting -> str(R.string.importing)
+                    signedIn -> str(R.string.choose_playlists_to_import)
+                    else -> str(R.string.account_ui_connect_spotify)
+                },
+                icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
+                onClick = if (signedIn) onOpenPicker else onSignIn,
+                loading = isLoadingPlaylists || isImporting,
+                modifier = Modifier.weight(1f)
+            )
+            if (signedIn) OutlinedIconButton(onClick = onDisconnect,
+                enabled = !isImporting && !isLoadingPlaylists,
+                shape = AccountButtonShape, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.LinkOff, str(R.string.disconnect_spotify), modifier = Modifier.size(20.dp))
+            }
+        }
         if (importMessage != null) {
             Spacer(Modifier.height(10.dp))
             Text(importMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (signedIn) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onDisconnect, enabled = !isImporting && !isLoadingPlaylists) {
-                Text(str(R.string.disconnect_spotify), fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
     }
 }
