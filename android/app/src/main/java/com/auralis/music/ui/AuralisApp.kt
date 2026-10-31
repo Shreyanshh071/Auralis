@@ -1904,6 +1904,7 @@ fun AuralisApp(
                     onImportSelectedPlaylists = { authVM.importSelectedPlaylists() },
                     onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
                     onImportSpotifyLibraryPlaylists = { libVM.importSpotifyLibraryPlaylists(it) },
+                    importedPlaylistIds = remember(libraryUiState.playlists) { libraryUiState.playlists.mapTo(HashSet()) { it.id } },
                     onClearSpotifyImportMessage = { libVM.clearSpotifyImportMessage() },
                     isImportingSpotify = libraryUiState.isImportingSpotify,
                     spotifyImportMessage = libraryUiState.spotifyImportMessage,

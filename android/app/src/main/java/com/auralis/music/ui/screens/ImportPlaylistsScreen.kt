@@ -60,7 +60,7 @@ import androidx.compose.runtime.rememberCoroutineScope
  * Gives users clean choices:
  * 1. Pick from their signed-in YouTube Music account via a scrollable popup.
  * 2. Import a YouTube Music playlist by link.
- * 3. Import every playlist and Liked Songs from a signed-in Spotify account.
+ * 3. Pick from their signed-in Spotify account; picking an imported list adds only what's new.
  * 4. Import a Spotify playlist by link.
  */
 @Composable
@@ -77,6 +77,7 @@ fun ImportPlaylistsScreen(
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,
+    importedPlaylistIds: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
@@ -96,7 +97,8 @@ fun ImportPlaylistsScreen(
     var spotifyPlaylistLoadFailed by remember { mutableStateOf(false) }
     var spotifyReloadKey by remember { mutableStateOf(0) }
     var spotifyImportFromAccount by remember { mutableStateOf(false) }
-    var importAllAfterSpotifySignIn by remember { mutableStateOf(false) }
+    var showSpotifyPicker by remember { mutableStateOf(false) }
+    val selectedSpotifyPlaylists = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(youTubeSignedIn, reloadKey) {
         if (youTubeSignedIn) {
@@ -119,15 +121,10 @@ fun ImportPlaylistsScreen(
             spotifyPlaylists = result
             spotifyPlaylistLoadFailed = result == null
             isLoadingSpotifyPlaylists = false
-            if (result != null && importAllAfterSpotifySignIn) {
-                importAllAfterSpotifySignIn = false
-                spotifyImportFromAccount = true
-                onImportSpotifyLibraryPlaylists(result)
-            }
         } else {
             spotifyPlaylists = null
             spotifyPlaylistLoadFailed = false
-            importAllAfterSpotifySignIn = false
+            selectedSpotifyPlaylists.clear()
         }
     }
 
@@ -135,7 +132,8 @@ fun ImportPlaylistsScreen(
         SpotifySignInScreen(
             onSignedIn = {
                 showSpotifySignIn = false
-                importAllAfterSpotifySignIn = true
+                showSpotifyPicker = true
+                spotifyImportFromAccount = true
                 spotifyReloadKey++
             },
             onDismiss = { showSpotifySignIn = false }
@@ -168,11 +166,11 @@ fun ImportPlaylistsScreen(
                     isImporting = isImportingSpotify,
                     importMessage = if (spotifyPlaylistLoadFailed) str(R.string.spotify_playlists_load_failed)
                         else if (spotifyImportFromAccount) spotifyImportMessage else null,
-                    onImportAll = {
+                    onOpenPicker = {
                         onClearSpotifyImportMessage()
                         spotifyImportFromAccount = true
-                        importAllAfterSpotifySignIn = true
-                        spotifyReloadKey++
+                        showSpotifyPicker = true
+                        spotifyReloadKey++ // Picks up playlists made in Spotify since the last look.
                     },
                     onSignIn = { showSpotifySignIn = true },
                     onDisconnect = { SpotifySession.signOut() }
@@ -197,7 +195,20 @@ fun ImportPlaylistsScreen(
                 onRetry = { reloadKey++ }, selected = selectedPlaylists,
                 isImporting = isImportingYouTube, importMessage = youtubeImportMessage,
                 onImport = onImportYouTubeLibraryPlaylists,
-                onDismiss = { showPlaylistPickerPopup = false }
+                onDismiss = { showPlaylistPickerPopup = false },
+                importedPlaylistIds = importedPlaylistIds
+            )
+        }
+
+        if (showSpotifyPicker) {
+            SpotifyPlaylistPickerBottomSheet(
+                playlists = spotifyPlaylists, isLoading = isLoadingSpotifyPlaylists,
+                loadFailed = spotifyPlaylistLoadFailed, onRetry = { spotifyReloadKey++ },
+                selected = selectedSpotifyPlaylists, importedPlaylistIds = importedPlaylistIds,
+                isImporting = isImportingSpotify, importMessage = spotifyImportMessage,
+                onImport = onImportSpotifyLibraryPlaylists,
+                onSignInAgain = { showSpotifyPicker = false; showSpotifySignIn = true },
+                onDismiss = { showSpotifyPicker = false }
             )
         }
     }
@@ -275,7 +286,7 @@ private fun SpotifyAccountCard(
     isLoadingPlaylists: Boolean,
     isImporting: Boolean,
     importMessage: String?,
-    onImportAll: () -> Unit,
+    onOpenPicker: () -> Unit,
     onSignIn: () -> Unit,
     onDisconnect: () -> Unit
 ) {
@@ -295,11 +306,11 @@ private fun SpotifyAccountCard(
             label = when {
                 isLoadingPlaylists -> str(R.string.loading_playlists)
                 isImporting -> str(R.string.importing_songs)
-                signedIn -> str(R.string.import_all_spotify_playlists)
+                signedIn -> str(R.string.choose_playlists_to_import)
                 else -> str(R.string.account_ui_connect_spotify)
             },
             icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
-            onClick = if (signedIn) onImportAll else onSignIn,
+            onClick = if (signedIn) onOpenPicker else onSignIn,
             loading = isLoadingPlaylists || isImporting, secondary = true
         )
         if (importMessage != null) {
@@ -614,6 +625,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
     loadFailed: Boolean,
     onRetry: () -> Unit,
     selected: SnapshotStateList<String>,
+    importedPlaylistIds: Set<String>,
     isImporting: Boolean,
     importMessage: String?,
     onImport: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit,
@@ -685,7 +697,8 @@ private fun SpotifyPlaylistPickerBottomSheet(
                             Column(Modifier.weight(1f)) {
                                 Text(item.title, fontWeight = FontWeight.SemiBold, maxLines = 1,
                                     overflow = TextOverflow.Ellipsis)
-                                Text(item.subtitle, fontSize = 12.sp,
+                                val imported = "imported:spotify:${item.id}" in importedPlaylistIds
+                                Text(if (imported) "Already imported • adds only new songs" else item.subtitle, fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -730,7 +743,8 @@ fun YouTubePlaylistPickerBottomSheet(
     isImporting: Boolean,
     importMessage: String?,
     onImport: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    importedPlaylistIds: Set<String> = emptySet()
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -930,9 +944,10 @@ fun YouTubePlaylistPickerBottomSheet(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (item.subtitle.isNotBlank()) {
+                                    val imported = "imported:youtube_music:${item.id}" in importedPlaylistIds
+                                    if (imported || item.subtitle.isNotBlank()) {
                                         Text(
-                                            text = item.subtitle,
+                                            text = if (imported) "Already imported • re-import updates it" else item.subtitle,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 12.sp,
                                             maxLines = 1,

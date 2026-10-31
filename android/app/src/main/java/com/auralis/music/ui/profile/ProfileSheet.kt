@@ -100,6 +100,7 @@ fun ProfileSheet(
     onImportSpotifyPlaylist: (String) -> Unit = {},
     /** Playlists picked from the signed-in Spotify library. */
     onImportSpotifyLibraryPlaylists: (List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) -> Unit = {},
+    importedPlaylistIds: Set<String> = emptySet(),
     onClearSpotifyImportMessage: () -> Unit = {},
     isImportingSpotify: Boolean = false,
     spotifyImportMessage: String? = null,
@@ -271,6 +272,7 @@ fun ProfileSheet(
                 onImportYouTubePlaylist = onImportYouTubePlaylist,
                 onImportSpotifyPlaylist = onImportSpotifyPlaylist,
                 onImportSpotifyLibraryPlaylists = onImportSpotifyLibraryPlaylists,
+                importedPlaylistIds = importedPlaylistIds,
                 isImportingSpotify = isImportingSpotify,
                 spotifyImportMessage = spotifyImportMessage,
                 onClearSpotifyImportMessage = onClearSpotifyImportMessage
