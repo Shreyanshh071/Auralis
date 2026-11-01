@@ -55,13 +55,13 @@ users/{uid}/connect/queue               its queue window (written with the sessi
 `deviceId` is a random UUID per (install, account), never derived from hardware or the name.
 Device documents hold the platform-reported name (Android: Settings > About > Device name, else
 maker + model; Windows: the computer name via JNA), an optional nickname, platform, type, whether
-it can play, an online flag and a server-time heartbeat (`seenAt`, every 10 s, stale after 30 s). Duplicate names
+it can play, an online flag and a server-time heartbeat (`seenAt`, every 2 min, stale after 5 min). Duplicate names
 are shown as "Name", "Name (2)"…; blank names fall back to "Android phone" / "Windows computer".
 Registrations not seen for 30 days are deleted by the account's other clients.
 Android marks an idle phone offline when its activity stops, and restores availability when it
 returns or starts playback. Background audio remains available. Windows refreshes device records
 every second while its picker is open. A sudden process kill or lost network still requires the
-30-second heartbeat expiry; graceful backgrounding sends an explicit offline update.
+5-minute heartbeat expiry; graceful backgrounding sends an explicit offline update.
 
 ### Session fields that make it safe
 

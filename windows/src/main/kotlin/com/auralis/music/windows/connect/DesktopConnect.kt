@@ -442,7 +442,7 @@ class DesktopConnect(
                 while (isActive) {
                     refreshDevices(e, b)
                     var waited = 0L
-                    while (isActive && waited < 30_000L && !(pickerOpen && waited >= 1_000L) && !devicesWanted) { delay(500L); waited += 500L }
+                    while (isActive && waited < 120_000L && !(pickerOpen && waited >= 3_000L) && !devicesWanted) { delay(500L); waited += 500L }
                     devicesWanted = false
                 }
             })
@@ -468,12 +468,13 @@ class DesktopConnect(
     private suspend fun refreshDevices(e: ConnectEngine, b: DesktopConnectBackend) {
         try { e.onDevices(b.devices()) } catch (ex: Exception) {
             if (ex is kotlinx.coroutines.CancellationException) throw ex
+            Log.i(TAG, "Device list failed: ${ex.message}")
         }
     }
 
     /**
      * Reads cost against the free Firestore quota, so polling follows what's happening:
-     * 0.25 s during a handoff or while the picker is open, 1 s during playback on either device,
+     * 1 s during a handoff or while the picker is open, 1 s during playback on either device,
      * 2 s while this PC is paused, 1.5 s while
      * another device is the output (a handoff to this PC is only seen on the next read), 6 s
      * otherwise; twice as slow while minimised.
@@ -483,11 +484,11 @@ class DesktopConnect(
         // A watch can stop delivering before the transport reports its failure.
         // Keep a short reconciliation bound while another device is present, so
         // a phone seek cannot sit unseen for the old thirty-second interval.
-        if (sessionWatchCurrent) return if (u.otherDevicesOnline) 2_000L else 30_000L
+        if (sessionWatchCurrent) return 30_000L
         // Controls come in bursts (dragging the seek bar, tapping lyric lines, pause then play):
         // after one, sent or applied here, read fast so the rest feel immediate on both devices.
-        if (u.transfer?.failed == false || pickerOpen || (ConnectControls.recent() && u.otherDevicesOnline)) return 250L
-        if (u.otherDevicesOnline) return 500L
+        if (u.transfer?.failed == false || pickerOpen || (ConnectControls.recent() && u.otherDevicesOnline)) return 1_000L
+        if (u.otherDevicesOnline) return 3_000L
         val base = when {
             e.isOutput -> if (u.output?.playing == true) 1_000L else 2_000L
             u.remote?.playing == true -> 1_000L

@@ -195,8 +195,9 @@ class ConnectEngine(
     companion object {
         const val LEASE_MS = 90_000L
         const val RENEW_EVERY_MS = 30_000L
-        const val HEARTBEAT_MS = 10_000L
-        const val ONLINE_WINDOW_MS = 30_000L
+        // Every client writes this all day, against a 20k-writes-a-day project quota: keep it rare.
+        const val HEARTBEAT_MS = 120_000L
+        const val ONLINE_WINDOW_MS = 300_000L
         const val RECENT_WINDOW_MS = 14L * 86_400_000L
         const val FORGET_AFTER_MS = 30L * 86_400_000L
         const val COMMAND_TTL_MS = 30_000L
@@ -322,7 +323,8 @@ class ConnectEngine(
     /** Called about once a second: lease renewal, heartbeats, handoff timeouts. */
     fun tick() {
         if (stopped) return
-        if (localNow() - lastHeartbeatLocal >= HEARTBEAT_MS) scope.launch { heartbeatNow() }
+        // Hiding already wrote "offline", so a hidden idle client has nothing new to say.
+        if (deviceAvailable && localNow() - lastHeartbeatLocal >= HEARTBEAT_MS) scope.launch { heartbeatNow() }
         scope.launch {
             locked {
                 if (current == null) refetch()
@@ -1180,7 +1182,7 @@ class ConnectEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            lastHeartbeatLocal = localNow() - HEARTBEAT_MS + 10_000L // retry in ten seconds
+            lastHeartbeatLocal = localNow() - HEARTBEAT_MS + 60_000L // retry in a minute
             onConnectionLost(e.message)
         }
     }
