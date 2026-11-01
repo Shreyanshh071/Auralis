@@ -82,6 +82,9 @@ private fun renderPageGlow(pageSize: Size, background: Color, accent: Color): Im
 @Composable
 internal fun pageGlassEnabled(): Boolean = LocalPageCardGlass.current != null
 
+/** Blur for a small button over artwork: heavier averages everything under it into one colour. */
+internal val ARTWORK_GLASS_BLUR = 3.dp
+
 @Composable
 internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modifier = Modifier,
     /** Keeps the glow on the normal theme too, for pages that would otherwise read as flat. */
@@ -148,13 +151,16 @@ internal fun FloatingPageButton(
     description: String,
     backdrop: com.kyant.backdrop.Backdrop,
     modifier: Modifier = Modifier,
+    /** Over a picture: keeps it recognisable through the button instead of a flat colour. */
+    overArtwork: Boolean = false,
     onClick: () -> Unit
 ) {
     val glass = com.auralis.music.ui.components.rememberPageHeaderGlass(backdrop)
     val press = rememberGlassPress()
     val body = if (glass != null) {
         modifier.size(46.dp)
-            .liquidGlass(glass, CircleShape, tint = glassBarTint(glass.isDark), press = press, blurRadius = 14.dp)
+            .liquidGlass(glass, CircleShape, tint = glassBarTint(glass.isDark), press = press,
+                blurRadius = if (overArtwork) ARTWORK_GLASS_BLUR else 14.dp, vibrant = !overArtwork)
             .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
     } else {
         modifier.size(46.dp)

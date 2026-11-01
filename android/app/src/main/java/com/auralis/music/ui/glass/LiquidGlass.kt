@@ -106,7 +106,9 @@ fun Modifier.liquidGlass(
     lensDepth: androidx.compose.ui.unit.Dp = 24.dp,
     edgeHighlight: Highlight? = Highlight.Default,
     /** Bends only the rim. On a tall card a wide lens's inner edge shows as a faint rectangle. */
-    rimLens: Boolean = false
+    rimLens: Boolean = false,
+    /** Off over artwork: on a small button it pushes the blurred picture into one vivid colour. */
+    vibrant: Boolean = true
 ): Modifier {
     // Held, the glass swells on a bouncy spring; the scale goes through the backdrop's layer
     // block so the library inverts it and the glass keeps showing what is really behind it.
@@ -143,7 +145,7 @@ fun Modifier.liquidGlass(
         // RenderEffect every frame, and the first rebuild on touch-down froze the screen ~190ms
         // (measured on device), so the swell started late. The press only scales and glows.
         effects = {
-            vibrancy()
+            if (vibrant) vibrancy()
             blur(blurPx)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lens(

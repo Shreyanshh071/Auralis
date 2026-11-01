@@ -245,11 +245,16 @@ fun ThemeAndColorsScreen(
         androidx.compose.runtime.mutableStateOf(settings.liquidGlass)
     }
     val glassScope = androidx.compose.runtime.rememberCoroutineScope()
+    val pendingGlassChange = androidx.compose.runtime.remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     val setLiquidGlass = { enabled: Boolean ->
         glassSwitchOn = enabled
-        glassScope.launch {
-            kotlinx.coroutines.delay(GlassSwitchSlideMillis)
-            com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) { onUpdateSettings(settings.copy(liquidGlass = enabled)) }
+        // Changing the theme rebuilds the whole app, so rapid flips wait for the last one.
+        pendingGlassChange[0]?.cancel()
+        pendingGlassChange[0] = glassScope.launch {
+            kotlinx.coroutines.delay(GlassSwitchSettleMillis)
+            if (enabled != settings.liquidGlass) {
+                com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) { onUpdateSettings(settings.copy(liquidGlass = enabled)) }
+            }
         }
         Unit
     }
@@ -784,7 +789,7 @@ fun ThemeAndColorsScreen(
     }
 }
 
-private const val GlassSwitchSlideMillis = 220L
+private const val GlassSwitchSettleMillis = 320L
 
 /**
  * Visual Theme Mode Card Item with distinct container highlight,

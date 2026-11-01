@@ -1246,10 +1246,11 @@ open class InnerTubeClient(
                     }
                 }
 
-                if (!sourceShelfTitle.isNullOrBlank() && (otherTracks.isNotEmpty() || otherPlaylists.isNotEmpty())) {
+                // Shelves of single items are videos and live performances, which Auralis leaves out.
+                if (!sourceShelfTitle.isNullOrBlank() && otherPlaylists.isNotEmpty()) {
                     otherShelves.add(com.auralis.music.domain.model.ArtistShelf(
                         title = sourceShelfTitle,
-                        tracks = otherTracks.distinctBy { it.id },
+                        tracks = emptyList(),
                         playlists = otherPlaylists.distinctBy { it.id }
                     ))
                 }

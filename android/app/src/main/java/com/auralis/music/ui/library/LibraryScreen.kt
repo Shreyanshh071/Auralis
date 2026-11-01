@@ -1008,7 +1008,15 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             if (headerGlass != null) {
-                                item(key = "library_glass_header") { browseHeader() }
+                                item(key = "library_glass_header") {
+                                    // The list adds 10dp between rows. Leave the same 4dp as the grid.
+                                    Box(Modifier.layout { measurable, constraints ->
+                                        val header = measurable.measure(constraints)
+                                        layout(header.width, (header.height - 6.dp.roundToPx()).coerceAtLeast(0)) {
+                                            header.placeRelative(0, 0)
+                                        }
+                                    }) { browseHeader() }
+                                }
                             }
                             if (showCollectionShelf) {
                                 item(key = "library_collections", contentType = "collections") { collectionShelf() }
@@ -2021,7 +2029,8 @@ private fun PlaylistDetailView(
     val heroBackdrop = rememberLayerBackdrop()
     val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
     val topBarButton: Modifier = if (heroGlass != null) {
-        Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
+        Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark),
+            blurRadius = com.auralis.music.ui.glass.ARTWORK_GLASS_BLUR, vibrant = false)
     } else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
     val topBarIcon = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurface
 
@@ -2041,7 +2050,8 @@ private fun PlaylistDetailView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             com.auralis.music.ui.glass.FloatingPageButton(
-                Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), heroBackdrop, onClick = onBack
+                Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), heroBackdrop,
+                overArtwork = glassHero, onClick = onBack
             )
             // The search field grows out of the search button.
             AnimatedVisibility(
@@ -3877,16 +3887,15 @@ private fun Modifier.layoutSwitchEntrance(index: Int, switchedAt: Long): Modifie
     }
     val progress = remember { Animatable(if (animate) 0f else 1f) }
     if (animate) {
-        LaunchedEffect(Unit) {
-            progress.animateTo(1f, tween(280, delayMillis = index.coerceAtMost(9) * 24, easing = FastOutSlowInEasing))
-        }
+        LaunchedEffect(Unit) { progress.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
     }
+    // Cards start mostly visible and together: the old layout is already gone, so a card waiting
+    // at alpha 0 leaves the page empty for a moment.
     return graphicsLayer {
         val hidden = 1f - progress.value
-        alpha = progress.value
-        scaleX = 1f - hidden * .08f
-        scaleY = 1f - hidden * .08f
-        translationY = hidden * 36.dp.toPx()
+        alpha = 1f - hidden * .4f
+        scaleX = 1f - hidden * .02f
+        scaleY = 1f - hidden * .02f
     }
 }
 

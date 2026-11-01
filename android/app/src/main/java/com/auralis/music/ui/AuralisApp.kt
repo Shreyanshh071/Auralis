@@ -1657,8 +1657,13 @@ fun AuralisApp(
                         }
                         val libraryHeaderVisible = libraryUiState.selectedPlaylist == null &&
                             libraryUiState.selectedSmartCollection != com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED
-                        if (glassEnabled && headerPage != null &&
-                            (currentDestination != AppDestination.LIBRARY || libraryHeaderVisible)) {
+                        // It fades in once the page it replaces has left, not on top of that page.
+                        if (glassEnabled && headerPage != null) DeferredVisibility(
+                            visible = { currentDestination != AppDestination.LIBRARY || libraryHeaderVisible },
+                            enter = fadeIn(tween(160, delayMillis = 170)),
+                            exit = fadeOut(tween(90)),
+                            modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+                        ) {
                             com.auralis.music.ui.components.LiquidGlassPageHeader(
                                 glass = tabHeaderGlass,
                                 onLogoClick = { headerPage.scrollToTop() },
@@ -1677,8 +1682,7 @@ fun AuralisApp(
                                     isStatsOpen = true
                                 }) else null,
                                 // Shut while a page opened from it covers the tab, so it can't show through that page's fade.
-                                collapsed = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen,
-                                modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+                                collapsed = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
                             )
                         }
                     }
@@ -2694,7 +2698,9 @@ fun AuralisApp(
         DeferredVisibility(
             visible = { isHomeMenuOpen && !isNowPlayingOpen && currentDestination == AppDestination.HOME },
             enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(160))
+            exit = fadeOut(tween(160)),
+            // Above the toast pill (1200): a passing pill mustn't cover the menu's rows.
+            modifier = Modifier.zIndex(1300f)
         ) {
             androidx.activity.compose.BackHandler { isHomeMenuOpen = false }
             Box(
@@ -3247,7 +3253,8 @@ private fun DeferredVisibility(
     visible: () -> Boolean,
     enter: EnterTransition,
     exit: ExitTransition,
+    modifier: Modifier = Modifier,
     content: @Composable AnimatedVisibilityScope.() -> Unit
 ) {
-    AnimatedVisibility(visible = visible(), enter = enter, exit = exit, content = content)
+    AnimatedVisibility(visible = visible(), modifier = modifier, enter = enter, exit = exit, content = content)
 }

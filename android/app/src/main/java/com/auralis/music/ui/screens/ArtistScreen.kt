@@ -75,7 +75,7 @@ private val PillShape = RoundedCornerShape(26.dp)
  * - A parallax portrait that melts into the page, with the name and audience below it
  * - A bar that stays pinned over the scroll and takes the artist's name once the portrait is gone
  * - Play, Shuffle, Radio and Subscribe
- * - Top songs, then every shelf the artist has (albums, singles, videos, featured on...)
+ * - Top songs, then every shelf the artist has (albums, singles, featured on...)
  * - About, and fans might also like
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -268,12 +268,6 @@ fun ArtistScreen(
             }
 
             artistPage.shelves.forEach { shelf ->
-                if (shelf.tracks.isNotEmpty()) {
-                    item(key = "shelf_tracks_${shelf.title}", contentType = "videos") {
-                        ArtistVideoShelf(shelf.title, shelf.tracks, accent,
-                            onClick = { onTrackClick(it, shelf.tracks) }, onLongClick = { selectedTrackForMenu = it })
-                    }
-                }
                 if (shelf.playlists.isNotEmpty()) {
                     item(key = "shelf_playlists_${shelf.title}", contentType = "releases") {
                         ArtistReleaseShelf(shelf.title, shelf.playlists, "", accent,
@@ -833,62 +827,6 @@ private fun ArtistReleaseShelf(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ArtistVideoShelf(
-    title: String,
-    tracks: List<Track>,
-    accent: Color,
-    onClick: (Track) -> Unit,
-    onLongClick: (Track) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ArtistSectionHeader(title, accent)
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(items = tracks, key = { it.id }, contentType = { "video" }) { track ->
-                Column(
-                    Modifier
-                        .width(248.dp)
-                        .contextMenuAnchor { onClick(track) }
-                        .clip(RoundedCornerShape(18.dp))
-                        .combinedClickable(onClick = { onClick(track) }, onLongClick = { onLongClick(track) })
-                        .padding(4.dp)
-                ) {
-                    AsyncImage(
-                        model = track.thumbnail,
-                        contentDescription = track.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(135.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = track.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
 @Composable
 private fun ArtistAbout(description: String, accent: Color) {
     var expanded by remember(description) { mutableStateOf(false) }
@@ -946,9 +884,9 @@ internal fun BoxScope.ArtistFloatingButtons(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        com.auralis.music.ui.glass.FloatingPageButton(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), backdrop, onClick = onBack)
+        com.auralis.music.ui.glass.FloatingPageButton(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), backdrop, overArtwork = true, onClick = onBack)
         Spacer(Modifier.weight(1f))
-        com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.Share, str(R.string.share), backdrop, onClick = onShare)
-        if (onMore != null) com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.MoreVert, str(R.string.options), backdrop, onClick = onMore)
+        com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.Share, str(R.string.share), backdrop, overArtwork = true, onClick = onShare)
+        if (onMore != null) com.auralis.music.ui.glass.FloatingPageButton(Icons.Default.MoreVert, str(R.string.options), backdrop, overArtwork = true, onClick = onMore)
     }
 }
