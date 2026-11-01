@@ -20,7 +20,7 @@ enum class AudioQuality(
     val targetBitrate: Int
 ) {
     AUTO("Auto (Adaptive)", "High on Wi-Fi, Standard on Mobile Data", 0),
-    HIGH("High Quality", "~160 kbps (High-bitrate Opus)", 160_000),
+    HIGH("High Quality", "Up to 320 kbps (JioSaavn, then YouTube Music)", 160_000),
     STANDARD("Standard", "~128 kbps (AAC / Opus)", 128_000),
     LOW("Data Saver (Low)", "~48–64 kbps (Opus / AAC)", 55_000);
 

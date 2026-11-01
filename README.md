@@ -263,7 +263,7 @@ Auralis is built on the work of many people. Thank you to all of them.
 - **[Zemer Cipher](https://github.com/ZemerTeam/zemer-cipher)** by alltechdev and the Zemer team — age-restricted downloads, along with the upstream work credited there, including yt-dlp, NewPipe and BgUtils.
 - **[Media3 / ExoPlayer](https://github.com/androidx/media)** — audio and animated cover playback.
 - **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
-- **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the optional JioSaavn 320kbps audio source (GPL-3.0).
+- **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the JioSaavn 320kbps audio in High Quality (GPL-3.0).
 - **shazam_identifier** by Shashwat and **Shazam** — music recognition.
 
 **Design & interface**

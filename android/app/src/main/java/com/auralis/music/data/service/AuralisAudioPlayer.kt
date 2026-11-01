@@ -200,6 +200,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     var isUsingExoPlayer: Boolean = false
+    private var signalDecoder: String? = null
+    private var signalOutputBits: String? = null
+    private var signalNetworkKbps: Int? = null
+    private var signalUnderruns = 0
         private set
     private var nativeRetryCount = 0
     private var streamResolveJob: Job? = null
@@ -299,6 +303,51 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     .build()
                 setAudioAttributes(audioAttributes, true)
                 setHandleAudioBecomingNoisy(true)
+
+                addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onMediaItemTransition(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        mediaItem: MediaItem?,
+                        reason: Int
+                    ) {
+                        signalUnderruns = 0
+                        signalNetworkKbps = null
+                    }
+
+                    override fun onAudioDecoderInitialized(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        decoderName: String,
+                        initializedTimestampMs: Long,
+                        initializationDurationMs: Long
+                    ) {
+                        signalDecoder = decoderName
+                    }
+
+                    override fun onAudioTrackInitialized(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig
+                    ) {
+                        signalOutputBits = PlaybackSignals.outputBits(audioTrackConfig.encoding)
+                    }
+
+                    override fun onAudioUnderrun(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        bufferSize: Int,
+                        bufferSizeMs: Long,
+                        elapsedSinceLastFeedMs: Long
+                    ) {
+                        signalUnderruns++
+                    }
+
+                    override fun onBandwidthEstimate(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        totalLoadTimeMs: Int,
+                        totalBytesLoaded: Long,
+                        bitrateEstimate: Long
+                    ) {
+                        signalNetworkKbps = (bitrateEstimate / 1000).toInt().takeIf { it > 0 }
+                    }
+                })
 
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
@@ -2067,6 +2116,50 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             exoPlayer.clearMediaItems()
         } catch (_: Exception) {}
         youTubeEngine.stop()
+    }
+
+    /** Stats for nerds. Reads the player, so call it on the main thread. */
+    fun playbackSignal(): PlaybackSignal {
+        // A song restored after a restart stays paused and unloaded until play is pressed. The web
+        // engine plays YouTube too, but reports none of these figures.
+        if (!isUsingExoPlayer) {
+            return PlaybackSignal(source = if (_isPlaying.value) SignalSource.YOUTUBE else SignalSource.NOT_STARTED)
+        }
+        val item = exoPlayer.currentMediaItem
+        val uri = item?.localConfiguration?.uri
+        val url = uri?.toString().orEmpty()
+        val source = PlaybackSignals.sourceOf(url)
+        val format = exoPlayer.audioFormat
+        val durationMs = exoPlayer.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+        val fileBytes = uri?.takeIf { it.scheme == "file" }?.path?.let { java.io.File(it).length() }
+        return PlaybackSignal(
+            source = source,
+            mediaId = item?.mediaId,
+            itag = if (source == SignalSource.YOUTUBE) PlaybackSignals.itagOf(url) else null,
+            codec = PlaybackSignals.codecName(format?.sampleMimeType),
+            kbps = PlaybackSignals.bitrateOf(url, durationMs, fileBytes, format?.bitrate ?: -1),
+            sampleRateHz = format?.sampleRate?.takeIf { it > 0 },
+            channels = format?.channelCount?.takeIf { it > 0 },
+            decoder = signalDecoder,
+            outputBits = signalOutputBits,
+            outputDevice = activeOutputName(),
+            bufferedMs = exoPlayer.totalBufferedDuration,
+            networkKbps = if (source == SignalSource.DOWNLOAD) null else signalNetworkKbps,
+            underruns = signalUnderruns,
+            speed = exoPlayer.playbackParameters.speed
+        )
+    }
+
+    private fun activeOutputName(): String? {
+        val speaker = appContext.getString(com.auralis.music.R.string.stats_device_speaker)
+        if (_isSpeakerForced.value) return speaker
+        val manager = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return null
+        val outputs = manager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+        val wireless = setOf(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+        val wired = setOf(android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_HEADSET)
+        val device = outputs.firstOrNull { it.type in wireless } ?: outputs.firstOrNull { it.type in wired }
+            ?: return speaker
+        return device.productName?.toString()?.takeIf { it.isNotBlank() }
     }
 
     fun getOrCreateWebView(ctx: Context): View {

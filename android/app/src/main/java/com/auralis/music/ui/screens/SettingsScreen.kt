@@ -191,11 +191,6 @@ fun SettingsScreen(
                                         }
                                     }
                                     SettingsSwitchRow(Icons.Default.SurroundSound, str(R.string.t_3d_spatial_soundstage), str(R.string.android_audio_virtualization_when_suppor), settings.spatialAudio, onToggleSpatialAudio)
-                                    val jioSaavnContext = androidx.compose.ui.platform.LocalContext.current
-                                    val jioSaavnOn by com.auralis.music.data.network.JioSaavnAudio.enabled.collectAsState()
-                                    SettingsSwitchRow(Icons.Default.HighQuality, str(R.string.jiosaavn_320_title), str(R.string.jiosaavn_320_description), jioSaavnOn) {
-                                        com.auralis.music.data.network.JioSaavnAudio.setEnabled(jioSaavnContext, it)
-                                    }
                                     SettingsSwitchRow(Icons.Default.GraphicEq, str(R.string.gapless_playback), str(R.string.preload_the_next_track_for_smoother_tran), settings.gaplessPlayback, onToggleGaplessPlayback)
                                     SettingsSwitchRow(Icons.Default.FastForward, str(R.string.remove_silence), str(R.string.skip_quiet_passages_during_playback), settings.skipSilence, onToggleSkipSilence)
                                 }

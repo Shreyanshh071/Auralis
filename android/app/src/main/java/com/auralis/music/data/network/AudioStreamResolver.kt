@@ -101,7 +101,6 @@ object AudioStreamResolver {
             }
             NewPipeDownloader.init(context.cacheDir)
             PlayerJsCache.init(context)
-            JioSaavnAudio.init(context)
             ensureNewPipeInitialized()
             // Asynchronous background warmup so first search/playback doesn't hit cold Rhino JS init
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -277,8 +276,8 @@ object AudioStreamResolver {
             val actualTargetId = if (!mappedId.isNullOrBlank() && !mappedId.startsWith("sp_") && !mappedId.startsWith("spotify:")) mappedId else effectiveTargetId
             val isSpotifyId = actualTargetId.startsWith("sp_") || actualTargetId.startsWith("spotify:")
 
-            // 0. Optional 320kbps copy of the same recording; any miss carries on to YouTube.
-            if (JioSaavnAudio.enabled.value && title.isNotBlank() &&
+            // 0. High quality means JioSaavn's 320kbps copy of the same recording; any miss carries on to YouTube.
+            if (title.isNotBlank() &&
                 (quality == com.auralis.music.domain.model.AudioQuality.HIGH || quality == com.auralis.music.domain.model.AudioQuality.AUTO)) {
                 val saavn = try {
                     JioSaavnAudio.find320(com.auralis.music.domain.model.Track(id = videoId, title = title, artist = artist, duration = duration))
@@ -289,9 +288,8 @@ object AudioStreamResolver {
                 }
                 if (!saavn.isNullOrBlank()) {
                     diagLog("[Diag-Resolver] WINNER: JioSaavn 320kbps for '$title' in ${System.currentTimeMillis() - t0Resolve}ms")
+                    // Under this quality only: a lower setting must not pick up the 320kbps copy.
                     cacheStream(cacheKey, saavn)
-                    cacheStream(effectiveTargetId, saavn)
-                    cacheStream(videoId, saavn)
                     return@withContext saavn
                 }
             }

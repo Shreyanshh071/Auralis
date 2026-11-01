@@ -1,12 +1,9 @@
 package com.auralis.music.data.network
 
-import android.content.Context
 import android.util.Log
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -19,7 +16,7 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.math.abs
 
 /**
- * Optional 320kbps audio from JioSaavn (Settings → Audio quality), off by default.
+ * 320kbps audio from JioSaavn, used by the High Quality setting.
  *
  * Approach credited to Vivi Music (GPL-3.0): https://github.com/vivizzz007/vivi-music
  * Adapted from BitChord's JioSaavnService (GPL-3.0): https://github.com/kushagrasinghx/BitChord
@@ -30,26 +27,12 @@ import kotlin.math.abs
  */
 object JioSaavnAudio {
     private const val TAG = "JioSaavn"
-    private const val PREFS = "jiosaavn_audio"
-    private const val KEY_ENABLED = "enabled"
     private const val API = "https://www.jiosaavn.com/api.php"
     private const val URL_KEY = "38346591"
     private const val MAX_LENGTH_GAP_SEC = 2L
     private const val MIN_MATCH_SCORE = 40.0
 
     private val client: OkHttpClient get() = NetworkClientProvider.okHttpClient
-    private val enabledState = MutableStateFlow(false)
-    val enabled = enabledState.asStateFlow()
-
-    fun init(context: Context) {
-        enabledState.value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-    }
-
-    fun setEnabled(context: Context, on: Boolean) {
-        enabledState.value = on
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, on).apply()
-        AudioStreamResolver.clearCache()
-    }
 
     internal data class Candidate(
         val id: String,

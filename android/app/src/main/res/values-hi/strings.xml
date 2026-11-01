@@ -864,7 +864,7 @@
     <string name="opt_auto_adaptive">ऑटो (अनुकूल)</string>
     <string name="opt_high_on_wi_fi_standard_on_mobile_data">Wi-Fi पर ऊँची, मोबाइल डेटा पर स्टैंडर्ड</string>
     <string name="opt_high_quality">ऊँची क्वालिटी</string>
-    <string name="opt_160_kbps_high_bitrate_opus">~160 kbps (हाई-बिटरेट Opus)</string>
+    <string name="opt_160_kbps_high_bitrate_opus">320 kbps तक (JioSaavn, फिर YouTube Music)</string>
     <string name="opt_standard">स्टैंडर्ड</string>
     <string name="opt_128_kbps_aac_opus">~128 kbps (AAC / Opus)</string>
     <string name="opt_data_saver_low">डेटा सेवर (कम)</string>

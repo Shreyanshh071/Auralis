@@ -95,6 +95,11 @@ fun TrackOptionsMenu(
         com.auralis.music.ui.lyrics.ImportedLyricsDialog(track = track, onDismiss = onDismiss)
         return
     }
+    var showPlaybackStats by remember(track.id) { mutableStateOf(false) }
+    if (showPlaybackStats) {
+        com.auralis.music.ui.player.PlaybackStatsSheet(onDismiss = onDismiss)
+        return
+    }
     val presentationActions = LocalSongPresentationActions.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -322,6 +327,9 @@ fun TrackOptionsMenu(
                 add(GlassMenuItem(str(R.string.add_to_room_queue), Icons.Default.Group) { onRecommendToRoom(track) })
             }
             add(GlassMenuItem("Custom lyrics", Icons.Default.Lyrics, dismisses = false) { showCustomLyrics = true })
+            if (presentationActions?.isNowPlaying(track) == true) {
+                add(GlassMenuItem(str(R.string.stats_for_nerds), Icons.Default.Insights, dismisses = false) { showPlaybackStats = true })
+            }
             add(GlassMenuItem(str(R.string.share), Icons.Default.Share) { shareTrack() })
         }
         GlassContextMenu(anchor = glassAnchor, items = glassItems, onDismiss = onDismiss)
@@ -641,6 +649,8 @@ fun TrackOptionsMenu(
                             val lyricsShown = actions.isLyricsShown(track)
                             TrackOptionRow(icon = Icons.Default.Lyrics, title = str(if (lyricsShown) R.string.hide_lyrics else R.string.show_lyrics), subtitle = null,
                                 onClick = { onDismiss(); if (lyricsShown) actions.hideLyrics(track) else actions.openLyrics(track) })
+                            TrackOptionRow(icon = Icons.Default.Insights, title = str(R.string.stats_for_nerds), subtitle = null,
+                                onClick = { showPlaybackStats = true })
                         }
                     }
 

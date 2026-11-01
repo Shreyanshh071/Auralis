@@ -161,7 +161,7 @@ object UiLabels {
         "Auto (Adaptive)" to R.string.opt_auto_adaptive,
         "High on Wi-Fi, Standard on Mobile Data" to R.string.opt_high_on_wi_fi_standard_on_mobile_data,
         "High Quality" to R.string.opt_high_quality,
-        "~160 kbps (High-bitrate Opus)" to R.string.opt_160_kbps_high_bitrate_opus,
+        "Up to 320 kbps (JioSaavn, then YouTube Music)" to R.string.opt_160_kbps_high_bitrate_opus,
         "Standard" to R.string.opt_standard,
         "~128 kbps (AAC / Opus)" to R.string.opt_128_kbps_aac_opus,
         "Data Saver (Low)" to R.string.opt_data_saver_low,
