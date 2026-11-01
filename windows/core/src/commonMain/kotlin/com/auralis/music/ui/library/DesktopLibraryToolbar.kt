@@ -13,6 +13,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
@@ -46,9 +58,6 @@ import com.auralis.music.ui.i18n.Strings
 import com.auralis.music.ui.i18n.UiLabels
 import com.auralis.music.ui.i18n.str
 
-/** Everything fits on one line from this width; narrower panels move the filters to a second line. */
-private val ONE_LINE_TOOLBAR_MIN_WIDTH = 1240.dp
-
 /** The art in the grid sits 10dp inside each card, so 18dp of grid padding lines up with this. */
 internal val LIBRARY_PAGE_MARGIN = 28.dp
 
@@ -56,6 +65,7 @@ internal val LIBRARY_PAGE_MARGIN = 28.dp
 @Composable
 internal fun DesktopLibraryToolbar(
     itemCount: Int,
+    title: String,
     query: String,
     onQueryChange: (String) -> Unit,
     sortOrder: String,
@@ -66,34 +76,34 @@ internal fun DesktopLibraryToolbar(
     onNewPlaylist: () -> Unit,
     filters: @Composable () -> Unit
 ) {
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(start = LIBRARY_PAGE_MARGIN, end = LIBRARY_PAGE_MARGIN, top = 18.dp, bottom = 8.dp)) {
-        val oneLine = maxWidth >= ONE_LINE_TOOLBAR_MIN_WIDTH
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(str(Strings.library), fontSize = 28.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
-                Spacer(Modifier.width(10.dp))
-                Text(itemCount.toString(), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp))
-                Spacer(Modifier.width(24.dp))
-                if (oneLine) {
-                    Box(Modifier.weight(1f)) { filters() }
-                    Spacer(Modifier.width(16.dp))
-                    SortAndLayout(sortOrder, sortOptions, onSortChange, isGridView, onToggleLayout)
-                    Spacer(Modifier.width(8.dp))
-                } else Spacer(Modifier.weight(1f))
-                LibrarySearchField(query, onQueryChange)
-                Spacer(Modifier.width(8.dp))
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val narrow = maxWidth < 560.dp
+        Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("YOUR MUSIC, IN ONE PLACE", fontSize = 10.sp, letterSpacing = 2.sp,
+                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(title, fontSize = 42.sp, lineHeight = 50.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground)
+                    Text("$itemCount items in your collection", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 NewPlaylistButton(onNewPlaylist)
             }
-            if (!oneLine) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { filters() }
-                Spacer(Modifier.width(16.dp))
-                SortAndLayout(sortOrder, sortOptions, onSortChange, isGridView, onToggleLayout)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                LibrarySearchField(query, onQueryChange)
+                if (!narrow) {
+                    Spacer(Modifier.weight(1f))
+                    SortAndLayout(sortOrder, sortOptions, onSortChange, isGridView, onToggleLayout)
+                }
             }
+            if (narrow) SortAndLayout(sortOrder, sortOptions, onSortChange, isGridView, onToggleLayout)
+            // Narrow panels retain the navigation as a horizontal strip.
+            filters()
         }
     }
 }
+
 
 @Composable
 private fun LibrarySearchField(query: String, onQueryChange: (String) -> Unit) {
@@ -185,5 +195,90 @@ internal fun LibrarySectionHeader(title: String, count: Int, modifier: Modifier 
         Spacer(Modifier.width(8.dp))
         Text(count.toString(), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 2.dp))
+    }
+}
+
+/** Dedicated navigation pane, independent of the scrollable cover browser. */
+@Composable
+internal fun DesktopLibraryRail(
+    selected: LibrarySourceFilter?,
+    onSelect: (LibrarySourceFilter?) -> Unit,
+    favoriteCount: Int,
+    showLiked: Boolean,
+    onLiked: () -> Unit,
+    onNew: () -> Unit,
+    collections: @Composable () -> Unit
+) {
+    Column(Modifier.width(194.dp).fillMaxHeight()
+        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = .035f))
+        .verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("BROWSE LIBRARY", fontSize = 10.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 18.dp, bottom = 16.dp))
+        LibraryRailEntry("Overview", Icons.Default.LibraryMusic, selected == null) { onSelect(null) }
+        LibraryRailEntry("Playlists", Icons.Default.GridView, selected == LibrarySourceFilter.PLAYLISTS) { onSelect(LibrarySourceFilter.PLAYLISTS) }
+        LibraryRailEntry("Albums", Icons.Default.Album, selected == LibrarySourceFilter.ALBUMS) { onSelect(LibrarySourceFilter.ALBUMS) }
+        LibraryRailEntry("Artists", Icons.Default.Person, selected == LibrarySourceFilter.ARTISTS) { onSelect(LibrarySourceFilter.ARTISTS) }
+        HorizontalDivider(Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onBackground.copy(alpha = .09f))
+        Text("CONNECTED SOURCES", fontSize = 10.sp, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp))
+        LibraryRailEntry("Spotify", Icons.Default.PlayArrow, selected == LibrarySourceFilter.SPOTIFY) { onSelect(LibrarySourceFilter.SPOTIFY) }
+        LibraryRailEntry("YouTube Music", Icons.Default.PlayArrow, selected == LibrarySourceFilter.YOUTUBE) { onSelect(LibrarySourceFilter.YOUTUBE) }
+        Spacer(Modifier.height(28.dp))
+        if (showLiked) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = .24f), MaterialTheme.colorScheme.primary.copy(alpha = .06f))))
+            .clickable(onClick = onLiked).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.Favorite, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Text("Liked songs", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("$favoriteCount favorites", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        }
+        collections()
+        Spacer(Modifier.height(16.dp))
+        LibraryRailEntry("Create playlist", Icons.Default.Add, false, onNew)
+    }
+}
+
+@Composable
+internal fun LibraryRailEntry(title: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(10.dp))
+        .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .15f) else androidx.compose.ui.graphics.Color.Transparent)
+        .clickable(onClick = onClick).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
+        Text(title, color = tint, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun LibrarySpotlight(playlist: com.auralis.music.domain.model.Playlist, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+        val compact = maxWidth < 600.dp
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+            .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = .23f), MaterialTheme.colorScheme.primary.copy(alpha = .04f))))
+            .padding(if (compact) 20.dp else 28.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            if (!compact) com.auralis.music.ui.components.ArtworkCard(
+                url = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
+                fallbackTrack = playlist.tracks.firstOrNull(),
+                modifier = Modifier.size(154.dp), cornerRadius = 12.dp, contentDescription = null)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("FROM YOUR COLLECTION", fontSize = 10.sp, letterSpacing = 2.sp,
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(playlist.title, fontSize = if (compact) 28.sp else 36.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(str(Strings.x_songs, playlist.tracks.size), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (onPlay != null) Row(Modifier.height(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                        .clickable(onClick = onPlay).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                        Text("Play", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    Box(Modifier.height(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onBackground.copy(alpha = .08f))
+                        .clickable(onClick = onOpen).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                        Text("Open playlist", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
     }
 }
