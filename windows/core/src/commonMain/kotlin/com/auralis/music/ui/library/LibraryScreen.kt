@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -168,14 +169,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.positionInRoot
@@ -268,11 +266,10 @@ private fun smartCollectionSubtitleFor(playlist: Playlist, isJobDownloading: Boo
 
 /** Below this the playlist page switches from the song table to a plain list. */
 private val PLAYLIST_TABLE_MIN_WIDTH = 480.dp
-private val LIBRARY_SORT_OPTIONS = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
 
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
- * "Date added â†“" sorting bar, Grid vs List toggle, Search filtering, 2-column grid or single-column list of Liked default playlist
+ * "Date added ↓" sorting bar, Grid vs List toggle, Search filtering, 2-column grid or single-column list of Liked default playlist
  * + user & synced playlists with 4-cover collages, and bottom right floating '+' button.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -327,6 +324,8 @@ fun LibraryScreen(
     emptyLibraryContent: (@Composable (LibrarySourceFilter?, String) -> Unit)? = null,
     /** Desktop also recognises older imports that predate source IDs. */
     playlistSource: ((Playlist) -> LibrarySourceFilter?)? = null,
+    /** Windows: the list stays on the left and the chosen playlist opens beside it. */
+    desktopBrowser: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
@@ -413,7 +412,7 @@ fun LibraryScreen(
     }
 
     com.auralis.music.ui.components.PlatformBackHandler(
-        enabled = uiState.selectedPlaylist != null || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
+        enabled = (!desktopBrowser && uiState.selectedPlaylist != null) || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
     ) {
         if (selectedPlaylistForMenu != null) selectedPlaylistForMenu = null
         else if (showCreateDialog) showCreateDialog = false
@@ -433,11 +432,103 @@ fun LibraryScreen(
     val detailBackwardEnter = auralisDetailBackwardEnter()
     val detailBackwardExit = auralisDetailBackwardExit()
 
-    // â”€â”€ STATE PRESERVATION: SaveableStateHolder keeps playlist detail scroll
-    // state alive when navigating back to the library list. â”€â”€
+    // ── STATE PRESERVATION: SaveableStateHolder keeps playlist detail scroll
+    // state alive when navigating back to the library list. ──
     val librarySaveableStateHolder = rememberSaveableStateHolder()
 
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    fun libraryPlaylists(query: String, filter: LibrarySourceFilter?): List<Playlist> =
+        sortLibraryPlaylists(
+                playlists = buildList {
+                    if (query.isBlank()) {
+                        if (appearance.showLikedPlaylist) add(likedPlaylist)
+                        if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
+                        if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
+                        // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
+                        if (appearance.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
+                        if (appearance.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
+                        if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
+                    }
+                    addAll(uiState.playlists.filter { it.title.contains(query, ignoreCase = true) })
+                }.filter { playlist ->
+                    val chosen = filter ?: return@filter true
+                    val isSmart = smartCollectionTypeFor(playlist.id) != null
+                    when (chosen) {
+                        LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ARTISTS -> false
+                        LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == chosen else isSpotifyImport(playlist)
+                        LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == chosen else isYouTubeMusicImport(playlist)
+                    }
+                },
+                order = uiState.sortOrder,
+                recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
+            )
+    fun libraryArtists(query: String, filter: LibrarySourceFilter?) =
+        if (filter == null || filter == LibrarySourceFilter.ARTISTS)
+                uiState.savedArtists.filter { it.name.contains(query, ignoreCase = true) }
+                    .distinctBy { it.id }.let { artists -> when (uiState.sortOrder) {
+                        "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
+                        "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
+                        else -> artists.sortedByDescending { it.savedAt }
+                    } }
+            else emptyList()
+
+    // The right side always has something to show: Liked until another playlist is chosen.
+    if (desktopBrowser) LaunchedEffect(uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {
+        if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) onSmartCollectionClick(SmartCollectionType.LIKED)
+    }
+
+    Row(modifier.fillMaxSize()) {
+    if (desktopBrowser) {
+        var paneQuery by remember { mutableStateOf("") }
+        var paneFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
+        val sourceLabel: (Playlist) -> String? = { playlist ->
+            when (playlistSource?.invoke(playlist)) {
+                LibrarySourceFilter.SPOTIFY -> "Spotify"
+                LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+                else -> null
+            }
+        }
+        DesktopLibraryPane(
+            rows = libraryPlaylists(paneQuery, paneFilter).map { playlist ->
+                val isSmart = smartCollectionTypeFor(playlist.id) != null
+                LibraryPaneRow(
+                    playlist = playlist,
+                    subtitle = when {
+                        isSmart -> smartCollectionSubtitleFor(playlist, isJobDownloading)
+                        // A saved album keeps no track list here, so its artist says more than "0 songs".
+                        playlist.tracks.isEmpty() && isAlbumPlaylist(playlist, uiState.savedAlbums) -> playlist.description ?: "Album"
+                        else -> listOfNotNull(sourceLabel(playlist), str(Strings.x_songs, playlist.tracks.size)).joinToString(" \u00b7 ")
+                    },
+                    icon = if (isSmart) smartCollectionIconFor(playlist.id, isJobDownloading) else null
+                )
+            },
+            artists = libraryArtists(paneQuery, paneFilter),
+            selectedId = uiState.selectedPlaylist?.id,
+            query = paneQuery,
+            onQueryChange = { paneQuery = it },
+            filter = paneFilter,
+            onFilterChange = { paneFilter = it },
+            sortOrder = uiState.sortOrder,
+            sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count"),
+            onSortChange = onSortChange,
+            onNewPlaylist = { showCreateDialog = true },
+            onOpen = { playlist ->
+                val smartType = smartCollectionTypeFor(playlist.id)
+                if (smartType != null) onSmartCollectionClick(smartType) else onPlaylistSelect(playlist)
+            },
+            onMenu = { selectedPlaylistForMenu = it },
+            onOpenArtist = { artist ->
+                onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+            },
+            empty = { emptyLibraryContent?.invoke(paneFilter, paneQuery) },
+            modifier = Modifier.width(300.dp)
+        )
+        Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 16.dp).background(MaterialTheme.colorScheme.onBackground.copy(alpha = .08f)))
+    }
     AnimatedContent(
+        modifier = Modifier.weight(1f).fillMaxHeight(),
         targetState = when {
             uiState.selectedPlaylist != null -> "playlist_${uiState.selectedPlaylist.id}"
             uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED -> "downloaded_hub"
@@ -467,6 +558,7 @@ fun LibraryScreen(
                     isPlaying = isPlaying,
                     userName = userName,
                     userAvatarUrl = userAvatarUrl,
+                    showBack = !desktopBrowser,
                     onBack = { onPlaylistSelect(null) },
                     onPlayTrack = { track, list -> onTrackClick(track, list) },
                     onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
@@ -563,7 +655,7 @@ fun LibraryScreen(
                     onClearAllDownloads = { platformActions.clearAllDownloads() }
                 )
             )
-        } else {
+        } else if (!desktopBrowser) {
 
     val gridScrollState = rememberLazyGridState()
     val listScrollState = rememberLazyListState()
@@ -612,478 +704,328 @@ fun LibraryScreen(
                 }
             }
         }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val desktopRailVisible = maxWidth >= 780.dp && headerGlass == null
-            Row(Modifier.fillMaxSize()) {
-            if (desktopRailVisible) DesktopLibraryRail(
-                selected = sourceFilter,
-                onSelect = { sourceFilter = it },
-                favoriteCount = uiState.favorites.size,
-                showLiked = com.auralis.music.ui.theme.LocalAppearanceSettings.current.showLikedPlaylist,
-                onLiked = { onSmartCollectionClick(SmartCollectionType.LIKED) },
-                onNew = { showCreateDialog = true },
-                collections = {
-                    val settings = com.auralis.music.ui.theme.LocalAppearanceSettings.current
-                    val shortcuts = buildList {
-                        if (settings.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
-                        if (settings.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
-                        if (settings.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
-                        if (settings.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
-                        if (settings.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
-                    }
-                    shortcuts.forEach { playlist ->
-                        LibraryRailEntry(playlist.title, smartCollectionIconFor(playlist.id, isJobDownloading), false) {
-                            smartCollectionTypeFor(playlist.id)?.let(onSmartCollectionClick)
-                        }
-                    }
-                }
-            )
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxSize()
-                ) {
-                    val browseHeader: @Composable () -> Unit = {
-                        Column {
-                            // ================================================================
-                            // 1. TOP APP BAR: "Library" Title + 3 Action Icons
-                            // ================================================================
-                            if (headerGlass != null) {
-                                LiquidGlassPageTitle(
-                                    str(Strings.library),
-                                    scrollOffsetPx = {
-                                        if (isGridView) {
-                                            if (gridScrollState.firstVisibleItemIndex == 0) gridScrollState.firstVisibleItemScrollOffset
-                                            else Int.MAX_VALUE
-                                        } else {
-                                            if (listScrollState.firstVisibleItemIndex == 0) listScrollState.firstVisibleItemScrollOffset
-                                            else Int.MAX_VALUE
-                                        }
-                                    }
-                                )
-                            } else {
-                                val themeOnBackground = MaterialTheme.dynamicOnBackground
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(64.dp)
-                                        .padding(start = 16.dp, end = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        // Windows page title: no logo, the same size as the other pages' headings.
-                                        Text(
-                                            text = str(Strings.library),
-                                            style = MaterialTheme.typography.headlineMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = themeOnBackground,
-                                            fontSize = 32.sp,
-                                            lineHeight = 38.sp
-                                        )
-                                    }
-
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+        ) {
+            val browseHeader: @Composable () -> Unit = {
+                Column {
+                    // ================================================================
+                    // 1. TOP APP BAR: "Library" Title + 3 Action Icons
+                    // ================================================================
+                    if (headerGlass != null) {
+                        LiquidGlassPageTitle(
+                            str(Strings.library),
+                            scrollOffsetPx = {
+                                if (isGridView) {
+                                    if (gridScrollState.firstVisibleItemIndex == 0) gridScrollState.firstVisibleItemScrollOffset
+                                    else Int.MAX_VALUE
+                                } else {
+                                    if (listScrollState.firstVisibleItemIndex == 0) listScrollState.firstVisibleItemScrollOffset
+                                    else Int.MAX_VALUE
                                 }
-
                             }
-
-                            // Source filter pills sit above the sort / search / layout row.
-                            if (headerGlass != null) {
-                                // Keep only a layout anchor in the recorded scrolling layer.
-                                // The glass row is drawn below as a sibling of that layer.
-                                androidx.compose.runtime.DisposableEffect(Unit) {
-                                    onDispose { filterOrigin = null }
-                                }
-                                Spacer(Modifier.fillMaxWidth().height(filterHeight).onGloballyPositioned {
-                                    filterOrigin = it.positionInRoot()
-                                })
-                            } else {
-                                LibrarySourcePills(
-                                    selected = sourceFilter,
-                                    onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+                        )
+                    } else {
+                        val themeOnBackground = MaterialTheme.dynamicOnBackground
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .padding(start = 16.dp, end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Windows page title: no logo, the same size as the other pages' headings.
+                                Text(
+                                    text = str(Strings.library),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = themeOnBackground,
+                                    fontSize = 32.sp,
+                                    lineHeight = 38.sp
                                 )
                             }
 
-                            // ================================================================
-                            // 2. SORTING & CONTROLS BAR ("Date added â†“", Search & Grid/List Toggle)
-                            // ================================================================
-                            if (isSearchActive) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = if (headerGlass != null) 0.dp else 16.dp, vertical = 6.dp)
-                                        .height(48.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(CARD_DARK_BG)
-                                        .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-                                        .padding(horizontal = 14.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = null,
-                                            tint = LIME_TEXT,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Box(
-                                            modifier = Modifier.weight(1f),
-                                            contentAlignment = Alignment.CenterStart
-                                        ) {
-                                            if (searchQuery.isEmpty()) {
-                                                Text(
-                                                    text = str(Strings.search_library),
-                                                    style = TextStyle(
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        fontSize = 15.sp,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                )
-                                            }
-                                            BasicTextField(
-                                                value = searchQuery,
-                                                onValueChange = { searchQuery = it },
-                                                textStyle = TextStyle(
-                                                    color = MaterialTheme.colorScheme.onBackground,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Normal
-                                                ),
-                                                cursorBrush = SolidColor(LIME_TEXT),
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                if (searchQuery.isNotEmpty()) {
-                                                    searchQuery = ""
-                                                } else {
-                                                    isSearchActive = false
-                                                }
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = str(Strings.clear),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        // Tucked up under the filter pills.
-                                        .padding(start = if (headerGlass != null) 2.dp else 18.dp, end = if (headerGlass != null) 2.dp else 18.dp, top = 0.dp, bottom = if (headerGlass != null) 0.dp else 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Sorting Selector
-                                    Row(
-                                        modifier = Modifier
-                                            .clickable { showSortMenu = true }
-                                            .padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} â†“",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = LIME_TEXT,
-                                            fontSize = 15.sp
-                                        )
-                                    }
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        IconButton(onClick = { isSearchActive = true }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Search,
-                                                contentDescription = str(Strings.search_library_2),
-                                                tint = MaterialTheme.colorScheme.onBackground,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        IconButton(onClick = {
-                                            isGridView = !isGridView
-                                            onToggleGridView()
-                                        }) {
-                                            Icon(
-                                                imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-                                                contentDescription = if (isGridView) str(Strings.switch_to_list_view) else str(Strings.switch_to_grid_view),
-                                                tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (headerGlass == null) Spacer(modifier = Modifier.height(6.dp))
-
                         }
-                    }
-                    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
-                    val displayedPlaylists = sortLibraryPlaylists(
-                        playlists = buildList {
-                            if (searchQuery.isBlank()) {
-                                if (appearance.showLikedPlaylist) add(likedPlaylist)
-                                if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
-                                if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
-                                // Empty unless Settings â†’ Content â†’ Wrapped â†’ Most playlists is on (see LibraryViewModel).
-                                if (appearance.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
-                                if (appearance.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
-                                if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
-                            }
-                            addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
-                        }.filter { playlist ->
-                            val filter = sourceFilter ?: return@filter true
-                            val isSmart = smartCollectionTypeFor(playlist.id) != null
-                            when (filter) {
-                                LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
-                                LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
-                                LibrarySourceFilter.ARTISTS -> false
-                                LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == filter else isSpotifyImport(playlist)
-                                LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == filter else isYouTubeMusicImport(playlist)
-                            }
-                        },
-                        order = uiState.sortOrder,
-                        recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
-                    )
-                    val gridAnimate = !LocalReducedMotion.current
-                    val displayedArtists = if (sourceFilter == null || sourceFilter == LibrarySourceFilter.ARTISTS)
-                        uiState.savedArtists.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                            .distinctBy { it.id }.let { artists -> when (uiState.sortOrder) {
-                                "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
-                                "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
-                                else -> artists.sortedByDescending { it.savedAt }
-                            } }
-                    else emptyList()
-                    val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
-                    val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
 
-                    // Cards carry their own 10dp hover inset, so these include it.
-                    val minGridSize = when (appearance.gridCellSize) {
-                        "Small" -> 190.dp
-                        "Large" -> 270.dp
-                        else -> 230.dp
                     }
-                    val collections = displayedPlaylists.filter { smartCollectionTypeFor(it.id) != null }
-                    val albums = displayedPlaylists.filter { smartCollectionTypeFor(it.id) == null && isAlbumPlaylist(it, uiState.savedAlbums) }
-                    val ownPlaylists = displayedPlaylists - collections.toSet() - albums.toSet()
-                    val sourceLabelOf: (Playlist) -> String? = { playlist ->
-                        when (playlistSource?.invoke(playlist) ?: when {
-                            isSpotifyImport(playlist) -> LibrarySourceFilter.SPOTIFY
-                            isYouTubeMusicImport(playlist) -> LibrarySourceFilter.YOUTUBE
-                            else -> null
-                        }) {
-                            LibrarySourceFilter.SPOTIFY -> "Spotify"
-                            LibrarySourceFilter.YOUTUBE -> "YouTube Music"
-                            else -> null
+
+                    // Source filter pills sit above the sort / search / layout row.
+                    if (headerGlass != null) {
+                        // Keep only a layout anchor in the recorded scrolling layer.
+                        // The glass row is drawn below as a sibling of that layer.
+                        androidx.compose.runtime.DisposableEffect(Unit) {
+                            onDispose { filterOrigin = null }
                         }
-                    }
-                    val playlistCard: @Composable (Playlist) -> Unit = { playlist ->
-                        UserPlaylistGridCard(
-                            playlist = playlist,
-                            savedAlbums = uiState.savedAlbums,
-                            sourceLabel = sourceLabelOf(playlist),
-                            onClick = { onPlaylistSelect(playlist) },
-                            onLongClick = { selectedPlaylistForMenu = playlist },
-                            onPlay = playlist.tracks.firstOrNull()?.let { first ->
-                                { onTrackClick(first, playlist.tracks) }
-                            }
+                        Spacer(Modifier.fillMaxWidth().height(filterHeight).onGloballyPositioned {
+                            filterOrigin = it.positionInRoot()
+                        })
+                    } else {
+                        LibrarySourcePills(
+                            selected = sourceFilter,
+                            onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
                         )
                     }
 
-                    if (headerGlass == null) DesktopLibraryToolbar(
-                        itemCount = displayedPlaylists.size + displayedArtists.size,
-                        title = when (sourceFilter) {
-                            LibrarySourceFilter.PLAYLISTS -> "Playlists"
-                            LibrarySourceFilter.ALBUMS -> "Albums"
-                            LibrarySourceFilter.ARTISTS -> "Artists"
-                            LibrarySourceFilter.SPOTIFY -> str(Strings.spotify)
-                            LibrarySourceFilter.YOUTUBE -> "YouTube Music"
-                            null -> str(Strings.library)
-                        },
-                        query = searchQuery,
-                        onQueryChange = { searchQuery = it },
-                        sortOrder = uiState.sortOrder,
-                        sortOptions = LIBRARY_SORT_OPTIONS,
-                        onSortChange = onSortChange,
-                        isGridView = isGridView,
-                        onToggleLayout = {
-                            isGridView = !isGridView
-                            onToggleGridView()
-                        },
-                        onNewPlaylist = { showCreateDialog = true },
-                        filters = {
-                            if (!desktopRailVisible) LibrarySourcePills(
-                                selected = sourceFilter,
-                                horizontalPadding = 0.dp,
-                                onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
-                            )
+                    // ================================================================
+                    // 2. SORTING & CONTROLS BAR ("Date added ↓", Search & Grid/List Toggle)
+                    // ================================================================
+                    if (isSearchActive) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = if (headerGlass != null) 0.dp else 16.dp, vertical = 6.dp)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(CARD_DARK_BG)
+                                .border(1.dp, LIME_TEXT.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = LIME_TEXT,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = str(Strings.search_library),
+                                            style = TextStyle(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        textStyle = TextStyle(
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Normal
+                                        ),
+                                        cursorBrush = SolidColor(LIME_TEXT),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            searchQuery = ""
+                                        } else {
+                                            isSearchActive = false
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = str(Strings.clear),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
-                    )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // Tucked up under the filter pills.
+                                .padding(start = if (headerGlass != null) 2.dp else 18.dp, end = if (headerGlass != null) 2.dp else 18.dp, top = 0.dp, bottom = if (headerGlass != null) 0.dp else 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Sorting Selector
+                            Row(
+                                modifier = Modifier
+                                    .clickable { showSortMenu = true }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${com.auralis.music.ui.i18n.UiLabels.of(uiState.sortOrder)} ↓",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = LIME_TEXT,
+                                    fontSize = 15.sp
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = { isSearchActive = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = str(Strings.search_library_2),
+                                        tint = MaterialTheme.colorScheme.onBackground,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    isGridView = !isGridView
+                                    onToggleGridView()
+                                }) {
+                                    Icon(
+                                        imageVector = if (isGridView) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                        contentDescription = if (isGridView) str(Strings.switch_to_list_view) else str(Strings.switch_to_grid_view),
+                                        tint = if (isGridView) MaterialTheme.colorScheme.onBackground else LIME_TEXT,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (headerGlass == null) Spacer(modifier = Modifier.height(6.dp))
+
+                }
+            }
+            if (headerGlass == null) browseHeader()
+
+            val displayedPlaylists = libraryPlaylists(searchQuery, sourceFilter)
+            val gridAnimate = !LocalReducedMotion.current
+            val displayedArtists = libraryArtists(searchQuery, sourceFilter)
+            val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
+            val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
+            
+            val minGridSize = when (appearance.gridCellSize) {
+                "Small" -> 135.dp
+                "Large" -> 195.dp
+                else -> 160.dp
+            }
 
 
-                    AuralisRefreshBox(
-                        refresh = onRefresh,
-                        indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
-                        modifier = Modifier.fillMaxSize()
-                            .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
-                            .background(MaterialTheme.dynamicBackground)
-                    ) {
-                        AnimatedContent(
-                            targetState = isGridView,
-                            transitionSpec = {
-                                gridFadeEnter togetherWith gridFadeExit using SizeTransform(clip = false)
-                            },
+            AuralisRefreshBox(
+                refresh = onRefresh,
+                indicatorTopInset = if (headerGlass != null) com.auralis.music.ui.components.LiquidGlassHeaderHeight else 0.dp,
+                modifier = Modifier.fillMaxSize()
+                    .then(if (headerGlass != null) Modifier.layerBackdrop(headerBackdrop) else Modifier)
+                    .background(MaterialTheme.dynamicBackground)
+            ) {
+                AnimatedContent(
+                    targetState = isGridView,
+                    transitionSpec = {
+                        gridFadeEnter togetherWith gridFadeExit using SizeTransform(clip = false)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    label = "libraryLayoutMode"
+                ) { gridMode ->
+                    if (gridMode) {
+                        LazyVerticalGrid(
+                            state = gridScrollState,
+                            columns = GridCells.Adaptive(minSize = minGridSize),
+                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (headerGlass != null) {
+                                item(key = "library_glass_header", span = { GridItemSpan(maxLineSpan) }) {
+                                    // The grid adds 16dp between rows. Leave just 4dp after the controls.
+                                    Box(Modifier.layout { measurable, constraints ->
+                                        val header = measurable.measure(constraints)
+                                        layout(header.width, (header.height - 12.dp.roundToPx()).coerceAtLeast(0)) {
+                                            header.placeRelative(0, 0)
+                                        }
+                                    }) { browseHeader() }
+                                }
+                            }
+                            if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
+                                item(key = "empty_library", span = { GridItemSpan(maxLineSpan) }) {
+                                    emptyLibraryContent(sourceFilter, searchQuery)
+                                }
+                            }
+                            items(displayedPlaylists, key = { it.id }) { playlist ->
+                                Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                    val smartType = smartCollectionTypeFor(playlist.id)
+                                    if (smartType != null) {
+                                        SmartLibraryCard(
+                                            title = playlist.title,
+                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                            tracks = playlist.tracks,
+                                            onClick = { onSmartCollectionClick(smartType) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    } else {
+                                        UserPlaylistGridCard(
+                                            playlist = playlist,
+                                            savedAlbums = uiState.savedAlbums,
+                                            onClick = { onPlaylistSelect(playlist) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    }
+                                }
+                            }
+                            items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
+                                SavedArtistCard(artist, onClick = {
+                                    onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+                                })
+                            }
+                        }
+                    } else {
+                        // ============================================================
+                        // 📋 1-COLUMN LIST VIEW
+                        // ============================================================
+                        LazyColumn(
+                            state = listScrollState,
                             modifier = Modifier.fillMaxSize(),
-                            label = "libraryLayoutMode"
-                        ) { gridMode ->
-                            if (gridMode) {
-                                LazyVerticalGrid(
-                                    state = gridScrollState,
-                                    columns = GridCells.Adaptive(minSize = minGridSize),
-                                    contentPadding = bottomChromePadding(start = 18.dp, end = 18.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    if (headerGlass != null) {
-                                        item(key = "library_glass_header", span = { GridItemSpan(maxLineSpan) }) {
-                                            // The grid adds 16dp between rows. Leave just 4dp after the controls.
-                                            Box(Modifier.layout { measurable, constraints ->
-                                                val header = measurable.measure(constraints)
-                                                layout(header.width, (header.height - 12.dp.roundToPx()).coerceAtLeast(0)) {
-                                                    header.placeRelative(0, 0)
-                                                }
-                                            }) { browseHeader() }
-                                        }
-                                    }
-                                    if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
-                                        item(key = "empty_library", span = { GridItemSpan(maxLineSpan) }) {
-                                            emptyLibraryContent(sourceFilter, searchQuery)
-                                        }
-                                    }
-                                    if (sourceFilter == null && searchQuery.isBlank() && ownPlaylists.isNotEmpty()) {
-                                        item(key = "library_spotlight", span = { GridItemSpan(maxLineSpan) }) {
-                                            val featured = ownPlaylists.first()
-                                            LibrarySpotlight(featured,
-                                                onOpen = { onPlaylistSelect(featured) },
-                                                onPlay = featured.tracks.firstOrNull()?.let { first -> { onTrackClick(first, featured.tracks) } })
-                                        }
-                                    }
-                                    if (collections.isNotEmpty() && !desktopRailVisible) {
-                                        item(key = "section_collections", span = { GridItemSpan(maxLineSpan) }) {
-                                            LibrarySectionHeader("Collections", collections.size)
-                                        }
-                                        item(key = "collection_tiles", span = { GridItemSpan(maxLineSpan) }) {
-                                            Column(Modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                collections.chunked(3).forEach { row ->
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                        row.forEach { playlist ->
-                                                            Box(Modifier.weight(1f)) {
-                                                                CollectionTile(
-                                                                    title = playlist.title,
-                                                                    subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                                                    icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                                                    onClick = { smartCollectionTypeFor(playlist.id)?.let(onSmartCollectionClick) },
-                                                                    onLongClick = { selectedPlaylistForMenu = playlist },
-                                                                    onPlay = playlist.tracks.firstOrNull()?.let { first ->
-                                                                        { onTrackClick(first, playlist.tracks) }
-                                                                    }
-                                                                )
-                                                            }
-                                                        }
-                                                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (ownPlaylists.isNotEmpty()) {
-                                        item(key = "section_playlists", span = { GridItemSpan(maxLineSpan) }) {
-                                            LibrarySectionHeader("Playlists", ownPlaylists.size)
-                                        }
-                                        items(ownPlaylists, key = { it.id }) { playlist ->
-                                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) { playlistCard(playlist) }
-                                        }
-                                    }
-                                    if (albums.isNotEmpty()) {
-                                        item(key = "section_albums", span = { GridItemSpan(maxLineSpan) }) {
-                                            LibrarySectionHeader("Albums", albums.size)
-                                        }
-                                        items(albums, key = { it.id }) { playlist ->
-                                            Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) { playlistCard(playlist) }
-                                        }
-                                    }
-                                    if (displayedArtists.isNotEmpty()) {
-                                        item(key = "section_artists", span = { GridItemSpan(maxLineSpan) }) {
-                                            LibrarySectionHeader("Artists", displayedArtists.size)
-                                        }
-                                        items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
-                                            SavedArtistCard(artist, onClick = {
-                                                onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
-                                            })
-                                        }
+                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (headerGlass != null) {
+                                item(key = "library_glass_header") { browseHeader() }
+                            }
+                            if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
+                                item(key = "empty_library") { emptyLibraryContent(sourceFilter, searchQuery) }
+                            }
+                            items(
+                                items = displayedPlaylists,
+                                key = { it.id },
+                                contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
+                            ) { playlist ->
+                                Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
+                                    val smartType = smartCollectionTypeFor(playlist.id)
+                                    if (smartType != null) {
+                                        SmartLibraryListRow(
+                                            title = playlist.title,
+                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                            tracks = playlist.tracks,
+                                            onClick = { onSmartCollectionClick(smartType) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
+                                    } else {
+                                        UserPlaylistListRow(
+                                            playlist = playlist,
+                                            savedAlbums = uiState.savedAlbums,
+                                            onClick = { onPlaylistSelect(playlist) },
+                                            onLongClick = { selectedPlaylistForMenu = playlist }
+                                        )
                                     }
                                 }
-                            } else {
-                                // ============================================================
-                                // ðŸ“‹ 1-COLUMN LIST VIEW
-                                // ============================================================
-                                LazyColumn(
-                                    state = listScrollState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = bottomChromePadding(start = LIBRARY_PAGE_MARGIN, end = LIBRARY_PAGE_MARGIN),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    if (headerGlass != null) {
-                                        item(key = "library_glass_header") { browseHeader() }
-                                    }
-                                    if (displayedPlaylists.isEmpty() && displayedArtists.isEmpty() && emptyLibraryContent != null) {
-                                        item(key = "empty_library") { emptyLibraryContent(sourceFilter, searchQuery) }
-                                    }
-                                    items(
-                                        items = displayedPlaylists,
-                                        key = { it.id },
-                                        contentType = { if (smartCollectionTypeFor(it.id) != null) "smart_row" else "playlist" }
-                                    ) { playlist ->
-                                        Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                            val smartType = smartCollectionTypeFor(playlist.id)
-                                            if (smartType != null) {
-                                                SmartLibraryListRow(
-                                                    title = playlist.title,
-                                                    subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                                    icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                                    tracks = playlist.tracks,
-                                                    onClick = { onSmartCollectionClick(smartType) },
-                                                    onLongClick = { selectedPlaylistForMenu = playlist }
-                                                )
-                                            } else {
-                                                UserPlaylistListRow(
-                                                    playlist = playlist,
-                                                    savedAlbums = uiState.savedAlbums,
-                                                    onClick = { onPlaylistSelect(playlist) },
-                                                    onLongClick = { selectedPlaylistForMenu = playlist }
-                                                )
-                                            }
-                                        }
-                                    }
-                                    items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
-                                        SavedArtistCard(artist, listMode = true, onClick = {
-                                            onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
-                                        })
-                                    }
-                                }
+                            }
+                            items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
+                                SavedArtistCard(artist, listMode = true, onClick = {
+                                    onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+                                })
                             }
                         }
                     }
@@ -1133,7 +1075,7 @@ fun LibraryScreen(
 
     // Sort Options Dialog
     if (showSortMenu) {
-        val sortOptions = LIBRARY_SORT_OPTIONS
+        val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
         AlertDialog(
             onDismissRequest = { showSortMenu = false },
             title = { Text(str(Strings.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
@@ -1174,18 +1116,20 @@ fun LibraryScreen(
         )
     }
 
+    }
+} // SaveableStateProvider
+} // AnimatedContent lambda
+    } // Row
+
     // Create New Playlist Dialog
     if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
-        val dialogShape = RoundedCornerShape(28.dp)
-        val pageView = com.auralis.music.ui.glass.rememberDialogPageAnchor()
 
         com.auralis.music.ui.components.GlassAlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            modifier = if (headerGlass != null) Modifier.liquidGlassDialog(headerGlass, dialogShape, pageView) else Modifier,
-            shape = if (headerGlass != null) dialogShape else AlertDialogDefaults.shape,
-            containerColor = if (headerGlass != null) Color.Transparent else CARD_DARK_BG,
-            tonalElevation = if (headerGlass != null) 0.dp else AlertDialogDefaults.TonalElevation,
+            shape = AlertDialogDefaults.shape,
+            containerColor = CARD_DARK_BG,
+            tonalElevation = AlertDialogDefaults.TonalElevation,
             title = {
                 Text(
                     text = str(Strings.new_playlist),
@@ -1262,70 +1206,167 @@ fun LibraryScreen(
             }
         )
     }
-    }
-} // SaveableStateProvider
-} // AnimatedContent lambda
-} // AnimatedContent call
+} // LibraryScreen
 
 
 // ============================================================================
-// ðŸ”² SMART LIBRARY CARD (Liked, Downloaded, Cached, My Top 50, Uploaded)
+// 🔲 SMART LIBRARY CARD (Liked, Downloaded, Cached, My Top 50, Uploaded)
 // ============================================================================
 
 
 
 
 
-/** A built-in collection on Windows: a compact wide tile, set apart from the user's own covers. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CollectionTile(
+private fun SmartLibraryCard(
     title: String,
-    subtitle: String?,
     icon: ImageVector,
+    subtitle: String? = null,
+    tracks: List<Track> = emptyList(),
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-    onPlay: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null
 ) {
-    val hoverSource = remember { MutableInteractionSource() }
-    val hovered by hoverSource.collectIsHoveredAsState()
-    val fill by animateColorAsState(
-        MaterialTheme.colorScheme.onBackground.copy(alpha = if (hovered) .14f else .07f),
-        tween(140), label = "collectionTileHover"
-    )
-    Row(
+    val validTracks = remember(tracks) {
+        tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
+    }
+    val distinctTracks = remember(tracks) {
+        getDistinctArtworkTracks(tracks)
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(fill)
-            .hoverable(hoverSource)
             .contextMenuAnchor(onClick)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(
-            Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .2f)),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(CARD_DARK_BG)
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+            if (distinctTracks.size >= 4) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ArtworkCard(
+                            url = distinctTracks[0].thumbnail,
+                            fallbackTrack = distinctTracks[0],
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                        ArtworkCard(
+                            url = distinctTracks[1].thumbnail,
+                            fallbackTrack = distinctTracks[1],
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                    }
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ArtworkCard(
+                            url = distinctTracks[2].thumbnail,
+                            fallbackTrack = distinctTracks[2],
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                        ArtworkCard(
+                            url = distinctTracks[3].thumbnail,
+                            fallbackTrack = distinctTracks[3],
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            cornerRadius = 0.dp,
+                            contentDescription = null
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.75f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = LIME_TEXT,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else if (validTracks.isNotEmpty()) {
+                ArtworkCard(
+                    url = validTracks.first().thumbnail,
+                    fallbackTrack = validTracks.first(),
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 18.dp,
+                    contentDescription = title
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.75f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = LIME_TEXT,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = CREAM_ICON_COLOR,
+                        modifier = Modifier.size(54.dp)
+                    )
+                }
+            }
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (subtitle != null) Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (onPlay != null && hovered) Box(
-            Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).clickable(onClick = onPlay),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(22.dp))
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp
+            )
         }
     }
 }
+
+// ============================================================================
+// 🎨 USER PLAYLIST GRID CARD (With 4-Cover Collage or Single Artwork)
+// ============================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1333,9 +1374,7 @@ private fun UserPlaylistGridCard(
     playlist: Playlist,
     savedAlbums: List<SavedAlbum> = emptyList(),
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-    sourceLabel: String? = null,
-    onPlay: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null
 ) {
     val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
         isAlbumPlaylist(playlist, savedAlbums)
@@ -1346,30 +1385,20 @@ private fun UserPlaylistGridCard(
     val distinctTracks = remember(playlist.tracks) {
         getDistinctArtworkTracks(playlist.tracks)
     }
-    val hoverSource = remember { MutableInteractionSource() }
-    val hovered by hoverSource.collectIsHoveredAsState()
-    val hoverFill by animateColorAsState(
-        if (hovered) MaterialTheme.colorScheme.onBackground.copy(alpha = .08f) else Color.Transparent,
-        tween(140), label = "gridCardHover"
-    )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(hoverFill)
-            .hoverable(hoverSource)
             .contextMenuAnchor(onClick)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(10.dp)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(if (isAlbum) 1f else 1.45f)
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(18.dp))
                 .background(CARD_DARK_BG)
         ) {
@@ -1440,63 +1469,33 @@ private fun UserPlaylistGridCard(
                     )
                 }
             }
-            // Desktop hover: a play button on the artwork that starts the collection without opening it.
-            if (onPlay != null) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = hovered,
-                    enter = androidx.compose.animation.fadeIn(tween(120)) + androidx.compose.animation.scaleIn(tween(120), initialScale = .85f),
-                    exit = androidx.compose.animation.fadeOut(tween(100)) + androidx.compose.animation.scaleOut(tween(100), targetScale = .85f),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .shadow(8.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable(onClick = onPlay),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
-            }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = playlist.title,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Text(
-            // A saved album keeps no track list here, so its artist says more than "0 songs".
-            text = if (isAlbum && playlist.tracks.isEmpty()) playlist.description ?: "Album"
-                else listOfNotNull(sourceLabel, str(Strings.x_songs, playlist.tracks.size)).joinToString(" Â· "),
+            text = str(Strings.x_songs, playlist.tracks.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            fontSize = 13.sp
         )
     }
 }
 
 // ============================================================================
-// ðŸ“‹ SMART LIBRARY LIST ROW (For List View Mode)
+// 📋 SMART LIBRARY LIST ROW (For List View Mode)
 // ============================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1575,7 +1574,7 @@ private fun SmartLibraryListRow(
 }
 
 // ============================================================================
-// ðŸŽ¨ USER PLAYLIST LIST ROW (For List View Mode)
+// 🎨 USER PLAYLIST LIST ROW (For List View Mode)
 // ============================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1650,11 +1649,11 @@ private fun UserPlaylistListRow(
 }
 
 // ============================================================================
-// ðŸ“‘ PLAYLIST DETAIL VIEW (Matching Photos 2, 3, and 4)
+// 📑 PLAYLIST DETAIL VIEW (Matching Photos 2, 3, and 4)
 // ============================================================================
 
 // ============================================================================
-// ðŸ”„ PLAYLIST REORDER SWAP LOGIC & STALE-LAYOUT HYSTERESIS PROTECTION
+// 🔄 PLAYLIST REORDER SWAP LOGIC & STALE-LAYOUT HYSTERESIS PROTECTION
 // ============================================================================
 
 data class PlaylistReorderItemInfo(
@@ -1786,6 +1785,7 @@ private fun PlaylistDetailView(
     isPlaying: Boolean,
     userName: String = "You",
     userAvatarUrl: String? = null,
+    showBack: Boolean = true,
     onBack: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onRemoveTrack: (String) -> Unit,
@@ -2105,7 +2105,7 @@ private fun PlaylistDetailView(
                     ) {
                         if (wideTable) DesktopPlaylistHero(
                             playlist, savedAlbums,
-                            "${playlist.tracks.size} tracks â€¢ $durationFormatted",
+                            "${playlist.tracks.size} tracks • $durationFormatted",
                             searchQuery, { searchQuery = it },
                             onPlay = { displayedTracks.firstOrNull()?.let { onPlayTrack(it, displayedTracks) } },
                             onShuffle = { displayedTracks.shuffled().let { tracks -> tracks.firstOrNull()?.let { onPlayTrack(it, tracks) } } },
@@ -2225,7 +2225,7 @@ private fun PlaylistDetailView(
 
                         // Subtitle: Track count, duration
                         val trackCountStr = "${playlist.tracks.size} ${if (playlist.tracks.size == 1) "track" else "tracks"}"
-                        val subtitle = if (playlist.tracks.isNotEmpty()) "$trackCountStr â€¢ $durationFormatted" else trackCountStr
+                        val subtitle = if (playlist.tracks.isNotEmpty()) "$trackCountStr • $durationFormatted" else trackCountStr
 
                         Text(
                             text = subtitle,
@@ -2629,7 +2629,7 @@ private fun PlaylistDetailView(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${draggedTrack.artist} â€¢ $trackDurationStr",
+                                text = "${draggedTrack.artist} • $trackDurationStr",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -2667,7 +2667,7 @@ private fun PlaylistDetailView(
     // The song-table layout: Back floats over the page (as on album and artist pages), so it
     // stays reachable however far down the songs are scrolled.
     BoxWithConstraints {
-        if (maxWidth >= PLAYLIST_TABLE_MIN_WIDTH) IconButton(onClick = onBack,
+        if (showBack && maxWidth >= PLAYLIST_TABLE_MIN_WIDTH) IconButton(onClick = onBack,
             modifier = Modifier.padding(start = 12.dp, top = 8.dp).size(40.dp).clip(CircleShape)
                 .background(Color(0xFF202024).copy(alpha = .72f))
                 .border(1.dp, Color.White.copy(alpha = .16f), CircleShape)) {
@@ -2701,7 +2701,7 @@ private fun PlaylistDetailView(
 }
 
 // ============================================================================
-// ðŸ“‘ PLAYLIST OPTIONS BOTTOM SHEET & DIALOGS
+// 📑 PLAYLIST OPTIONS BOTTOM SHEET & DIALOGS
 // ============================================================================
 
 
@@ -2732,7 +2732,7 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     val trackDurationStr = remember(track.duration) { "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec" }
     val subtitleText = remember(track.artist, track.duration) {
         if (track.duration > 0 && track.duration != 210L) {
-            "${track.artist} â€¢ $trackDurationStr"
+            "${track.artist} • $trackDurationStr"
         } else {
             track.artist
         }

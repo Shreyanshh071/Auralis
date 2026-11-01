@@ -112,6 +112,7 @@ fun DesktopLibrary(
             onOpenArtist = browse::openArtist,
             onOpenAlbum = { browse.openAlbum(it) },
             onReorderPlaylistTracks = viewModel::reorderPlaylistTracks,
+            desktopBrowser = true,
             isTrackPinned = homeViewModel::isTrackPinned,
             onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
             emptyLibraryContent = { filter, query ->
