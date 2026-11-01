@@ -431,7 +431,7 @@ private fun DrawScope.drawWave(from: Float, to: Float, color: Color, stroke: Flo
 
 /** GitHub release notes, lightly rendered: headings, bullets, **bold**, `code` and [links](url). */
 @Composable
-private fun ReleaseNotes(markdown: String?, textColor: Color, accent: Color) {
+internal fun ReleaseNotes(markdown: String?, textColor: Color, accent: Color) {
     val body = markdown?.trim().orEmpty()
     if (body.isEmpty()) {
         Text(str(R.string.update_no_notes), color = textColor.copy(alpha = 0.66f), fontSize = 14.sp)

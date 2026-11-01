@@ -49,6 +49,7 @@ import com.auralis.music.data.network.SpotifySession
 import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.profile.SpotifyLogoIcon
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicBackground
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.launch
@@ -128,21 +129,15 @@ fun ImportPlaylistsScreen(
         }
     }
 
-    if (showSpotifySignIn) {
-        SpotifySignInScreen(
-            onSignedIn = {
-                showSpotifySignIn = false
-                showSpotifyPicker = true
-                spotifyImportFromAccount = true
-                spotifyReloadKey++
-            },
-            onDismiss = { showSpotifySignIn = false }
-        )
-        return
-    }
+    val signInPush = com.auralis.music.ui.theme.rememberPushProgress(showSpotifySignIn)
 
+    Box(Modifier.fillMaxSize()) {
     AccountPageTheme {
-        AccountPage(title = str(R.string.import_playlists), onBack = onDismiss, modifier = modifier) {
+        AccountPage(
+            title = str(R.string.import_playlists),
+            onBack = onDismiss,
+            modifier = modifier.auralisPushParent(signInPush)
+        ) {
             Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp, lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp))
 
@@ -211,6 +206,19 @@ fun ImportPlaylistsScreen(
                 onDismiss = { showSpotifyPicker = false }
             )
         }
+    }
+
+    com.auralis.music.ui.theme.AuralisPushedPage(page = if (showSpotifySignIn) Unit else null) {
+        SpotifySignInScreen(
+            onSignedIn = {
+                showSpotifySignIn = false
+                showSpotifyPicker = true
+                spotifyImportFromAccount = true
+                spotifyReloadKey++
+            },
+            onDismiss = { showSpotifySignIn = false }
+        )
+    }
     }
 }
 

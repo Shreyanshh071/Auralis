@@ -30,6 +30,9 @@ data class UpdateInfo(
     val error: String? = null
 )
 
+/** One published version, for the changelog. */
+data class AppRelease(val version: String, val publishedAt: String, val notes: String)
+
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_REPO = "Shreyanshh071/Auralis"
@@ -131,6 +134,50 @@ object UpdateChecker {
                 error = e.localizedMessage ?: "Network connection failed"
             )
         }
+    }
+
+    /** Published Android releases, newest first. Keeps the last answer for offline and rate limits. */
+    suspend fun fetchReleases(context: Context): List<AppRelease> = withContext(Dispatchers.IO) {
+        val cache = File(context.filesDir, "changelog_releases.json")
+        val fresh = runCatching {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/$GITHUB_REPO/releases?per_page=30")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Auralis-Android-App")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) response.body?.string() else null
+            }
+        }.getOrNull()
+        val parsed = fresh?.let { runCatching { parseReleases(it) }.getOrNull() }.orEmpty()
+        if (parsed.isNotEmpty()) {
+            runCatching { cache.writeText(fresh!!) }
+            parsed
+        } else {
+            runCatching { parseReleases(cache.readText()) }.getOrDefault(emptyList())
+        }
+    }
+
+    internal fun parseReleases(json: String): List<AppRelease> {
+        val releases = org.json.JSONArray(json)
+        return (0 until releases.length()).mapNotNull { i ->
+            val release = releases.optJSONObject(i) ?: return@mapNotNull null
+            val tag = release.optString("tag_name")
+            if (release.optBoolean("draft") || release.optBoolean("prerelease") || tag.contains("macos", ignoreCase = true)) {
+                return@mapNotNull null
+            }
+            // "v1.1.1-rebuilt" is version 1.1.1.
+            val version = tag.removePrefix("v").takeWhile { it.isDigit() || it == '.' }.trimEnd('.')
+            if (version.isEmpty()) return@mapNotNull null
+            AppRelease(
+                version = version,
+                publishedAt = release.optString("published_at").take(10),
+                // The download line only makes sense on the GitHub page.
+                notes = release.optString("body").lines()
+                    .filterNot { it.trimStart().startsWith("Download **") }
+                    .joinToString("\n").trim()
+            )
+        }.distinctBy { it.version }
     }
 
     private fun isVersionNewer(latest: String, current: String): Boolean {

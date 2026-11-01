@@ -17,7 +17,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.auralis.music.data.datastore.UpdaterDataStore
 import com.auralis.music.data.datastore.UpdaterSettings
 import com.auralis.music.data.network.UpdateChecker
+import com.auralis.music.ui.theme.AuralisPushedPage
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicOnSurface
+import com.auralis.music.ui.theme.rememberPushProgress
 import com.auralis.music.ui.theme.dynamicPrimary
 import kotlinx.coroutines.launch
 
@@ -38,12 +41,21 @@ fun UpdaterScreen(
     var showUpdateFlow by rememberSaveable { mutableStateOf(false) }
     val updatePhase by UpdateFlow.phase.collectAsState()
     val isChecking = updatePhase == UpdatePhase.Checking
+    var showChangelog by rememberSaveable { mutableStateOf(false) }
+
+    // Both push over this page the way the Settings sections do.
+    val pushedPage = when {
+        showChangelog -> UpdaterPage.CHANGELOG
+        showUpdateFlow -> UpdaterPage.UPDATE
+        else -> null
+    }
+    val pagePush = rememberPushProgress(pushedPage != null)
 
     val primaryColor = MaterialTheme.dynamicPrimary
     val onSurface = MaterialTheme.dynamicOnSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
-    SettingsPage(title = str(R.string.updater), onBack = onDismiss) {
+    SettingsPage(title = str(R.string.updater), onBack = onDismiss, modifier = Modifier.auralisPushParent(pagePush)) {
         // 1. CURRENT VERSION
         item {
             SettingsGroup(str(R.string.current_version)) {
@@ -102,13 +114,22 @@ fun UpdaterScreen(
                         UpdateFlow.open(context)
                     }
                 )
+                SettingsRow(
+                    icon = Icons.Default.NewReleases,
+                    title = str(R.string.changelog),
+                    onClick = { showChangelog = true }
+                )
             }
         }
     }
 
-    if (showUpdateFlow) {
-        UpdateFlowScreen(onDismiss = { showUpdateFlow = false })
+    AuralisPushedPage(page = pushedPage) { page ->
+        when (page) {
+            UpdaterPage.CHANGELOG -> ChangelogScreen(onDismiss = { showChangelog = false })
+            UpdaterPage.UPDATE -> UpdateFlowScreen(onDismiss = { showUpdateFlow = false })
+        }
     }
-
 }
+
+private enum class UpdaterPage { CHANGELOG, UPDATE }
 

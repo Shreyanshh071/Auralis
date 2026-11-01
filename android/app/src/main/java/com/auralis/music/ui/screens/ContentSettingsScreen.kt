@@ -76,6 +76,8 @@ import com.auralis.music.domain.model.LyricsProviderId
 import com.auralis.music.domain.model.ProxyType
 import com.auralis.music.domain.model.QuickPicksMode
 import com.auralis.music.domain.model.RomanizationScript
+import com.auralis.music.ui.theme.AuralisPushedPage
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicOnBackground
 import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
@@ -114,13 +116,7 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
         },
         onDismiss = { showSpotifyDisconnect = false }
     )
-    if (showSpotifyLogin) {
-        SpotifySignInScreen(onSignedIn = {
-            com.auralis.music.data.datastore.CatalogSettingsStore.select(com.auralis.music.data.datastore.CatalogSource.SPOTIFY)
-            showSpotifyLogin = false
-        }, onDismiss = { showSpotifyLogin = false })
-        return
-    }
+    val spotifyPush = com.auralis.music.ui.theme.rememberPushProgress(showSpotifyLogin)
     if (showCatalogPicker) com.auralis.music.ui.components.AuralisSheetDialog(
         onDismissRequest = { showCatalogPicker = false },
         title = { Text("Search catalog") },
@@ -145,7 +141,11 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val onBackground = MaterialTheme.dynamicOnBackground
 
-    SettingsPage(title = str(R.string.content), onBack = onDismiss) {
+    SettingsPage(
+        title = str(R.string.content),
+        onBack = onDismiss,
+        modifier = Modifier.auralisPushParent(spotifyPush)
+    ) {
         item(key = "catalog") {
             SettingsGroup("Music catalog") {
                 ValueRow(Icons.Default.Public, "Search catalog", catalogSource.label) { showCatalogPicker = true }
@@ -346,6 +346,13 @@ fun ContentSettingsScreen(onDismiss: () -> Unit) {
         if (proxyUnusable) {
             Toast.makeText(context, str(R.string.proxy_address_isn_t_host_port_connecting), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    AuralisPushedPage(page = if (showSpotifyLogin) Unit else null) {
+        SpotifySignInScreen(onSignedIn = {
+            com.auralis.music.data.datastore.CatalogSettingsStore.select(com.auralis.music.data.datastore.CatalogSource.SPOTIFY)
+            showSpotifyLogin = false
+        }, onDismiss = { showSpotifyLogin = false })
     }
 }
 
