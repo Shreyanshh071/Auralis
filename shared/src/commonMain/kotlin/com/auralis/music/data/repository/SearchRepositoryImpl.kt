@@ -357,7 +357,8 @@ class SearchRepositoryImpl(
                 topSongTier in setOf(
                     SearchQueryMatcher.MatchTier.EXACT_TITLE,
                     SearchQueryMatcher.MatchTier.PREFIX_TITLE,
-                    SearchQueryMatcher.MatchTier.CLOSE_TITLE
+                    SearchQueryMatcher.MatchTier.CLOSE_TITLE,
+                    SearchQueryMatcher.MatchTier.TYPO_MATCH
                 )
 
             // An album named exactly like the query against the top song: the more listened one wins.
@@ -444,7 +445,9 @@ class SearchRepositoryImpl(
                 topSongWins -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
-                popularTitleSongWins && !isYtmArtistValidMatch -> {
+                // A same-named artist keeps the spot only when their songs outplay this one: a tiny
+                // act called "Imposter Syndrome" must not hide a 86M-play song, "radiohead" stays.
+                popularTitleSongWins && (!isYtmArtistValidMatch || topSongViews > queriedArtistPlays) -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
                 isYtmArtistValidMatch -> {

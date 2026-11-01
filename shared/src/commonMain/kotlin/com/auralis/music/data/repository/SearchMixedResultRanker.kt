@@ -35,6 +35,7 @@ fun rankMixedSearchResults(
     }.sortedWith(compareBy<Match> { it.tier }.thenByDescending { it.plays }.thenBy { it.index })
 
     val titleTiers = SearchQueryMatcher.MatchTier.CLOSE_TITLE.priority
+    val typoTier = SearchQueryMatcher.MatchTier.TYPO_MATCH.priority
     val pendingSongs = ArrayDeque(songMatches)
     val pendingAlbums = ArrayDeque(albumMatches)
     val ranked = mutableListOf<SearchTopResult>()
@@ -42,9 +43,13 @@ fun rankMixedSearchResults(
         val song = pendingSongs.firstOrNull()
         val album = pendingAlbums.firstOrNull()
         // Strictly more plays: on a tie the song keeps its place (a single is its song).
-        val albumFirst = song == null || (album != null && (
-            if (song.tier <= titleTiers && album.tier <= titleTiers) album.plays > song.plays
-            else album.tier < song.tier || (album.tier == song.tier && album.plays > song.plays)))
+        val albumFirst = song == null || (album != null && when {
+            song.tier <= titleTiers && album.tier <= titleTiers -> album.plays > song.plays
+            // A misspelt song clears the bar it clears against an exact song: 10x the plays
+            // ("imposter syndrome": Impostor Syndrome 86M above a 358K single spelled like the query).
+            song.tier == typoTier && album.tier <= titleTiers -> song.plays < maxOf(album.plays, 1L) * 10L
+            else -> album.tier < song.tier || (album.tier == song.tier && album.plays > song.plays)
+        })
         ranked += if (albumFirst) pendingAlbums.removeFirst().result else pendingSongs.removeFirst().result
     }
     return ranked
