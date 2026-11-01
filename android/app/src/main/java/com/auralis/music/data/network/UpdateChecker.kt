@@ -362,6 +362,40 @@ object UpdateChecker {
 
     const val UPDATE_CHANNEL_ID = "auralis_app_updates"
 
+    private val _updateOffer = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
+    /** The update to offer inside the app. Needs no permission, so it reaches everyone who opens it. */
+    val updateOffer: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateOffer
+
+    internal fun shouldOffer(latestVersion: String, skippedVersion: String?): Boolean = latestVersion != skippedVersion
+
+    fun offerUpdate(context: Context, updateInfo: UpdateInfo) {
+        val prefs = context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE)
+        if (shouldOffer(updateInfo.latestVersion, prefs.getString("skipped_version", null))) _updateOffer.value = updateInfo
+    }
+
+    /** "Later": this version isn't offered again, and the next one is. */
+    fun skipOffer(context: Context, updateInfo: UpdateInfo) {
+        context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE).edit()
+            .putString("skipped_version", updateInfo.latestVersion).apply()
+        _updateOffer.value = null
+    }
+
+    fun clearOffer() {
+        _updateOffer.value = null
+    }
+
+    /**
+     * One notification per version, however often the check runs. Nothing is recorded while
+     * notifications are off, so turning them on later still announces the waiting update.
+     */
+    fun notifyOnce(context: Context, updateInfo: UpdateInfo) {
+        if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        val prefs = context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE)
+        if (prefs.getString("notified_version", null) == updateInfo.latestVersion) return
+        showUpdateNotification(context, updateInfo)
+        prefs.edit().putString("notified_version", updateInfo.latestVersion).apply()
+    }
+
     fun showUpdateNotification(context: Context, updateInfo: UpdateInfo) {
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return

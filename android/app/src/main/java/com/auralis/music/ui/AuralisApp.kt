@@ -300,6 +300,7 @@ fun AuralisApp(
     }
 
     var showUpdaterFromNav by remember { mutableStateOf(initialNavDestination == "updater") }
+    var startUpdateFromOffer by remember { mutableStateOf(false) }
     LaunchedEffect(initialNavDestination) {
         if (initialNavDestination == "updater") {
             showUpdaterFromNav = true
@@ -3106,7 +3107,33 @@ fun AuralisApp(
 
         if (showUpdaterFromNav) {
             com.auralis.music.ui.screens.UpdaterScreen(
-                onDismiss = { showUpdaterFromNav = false }
+                onDismiss = {
+                    showUpdaterFromNav = false
+                    startUpdateFromOffer = false
+                },
+                startUpdate = startUpdateFromOffer
+            )
+        }
+
+        val updateOffer by com.auralis.music.data.network.UpdateChecker.updateOffer.collectAsState()
+        updateOffer?.takeIf { !showUpdaterFromNav }?.let { offer ->
+            val offerContext = androidx.compose.ui.platform.LocalContext.current
+            com.auralis.music.ui.components.AuralisAlertDialog(
+                onDismissRequest = { com.auralis.music.data.network.UpdateChecker.skipOffer(offerContext, offer) },
+                title = { androidx.compose.material3.Text(str(R.string.update_offer_title)) },
+                text = { androidx.compose.material3.Text(str(R.string.update_offer_message, offer.latestVersion)) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        com.auralis.music.data.network.UpdateChecker.clearOffer()
+                        startUpdateFromOffer = true
+                        showUpdaterFromNav = true
+                    }) { androidx.compose.material3.Text(str(R.string.update_offer_update)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        com.auralis.music.data.network.UpdateChecker.skipOffer(offerContext, offer)
+                    }) { androidx.compose.material3.Text(str(R.string.update_offer_later)) }
+                }
             )
         }
     }

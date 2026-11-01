@@ -99,6 +99,10 @@
     <string name="top_songs">Top Songs</string>
     <string name="history">History</string>
     <string name="top_result">Top result</string>
+    <string name="update_offer_title">Update available</string>
+    <string name="update_offer_message">Auralis v%1$s is ready to download.</string>
+    <string name="update_offer_update">Update</string>
+    <string name="update_offer_later">Later</string>
     <string name="changelog">Changelog</string>
     <string name="changelog_installed">Installed</string>
     <string name="changelog_loading">Loading updates…</string>

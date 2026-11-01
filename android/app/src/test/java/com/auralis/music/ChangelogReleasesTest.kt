@@ -28,6 +28,12 @@ class ChangelogReleasesTest {
         assertEquals("## Added\n\n- A", UpdateChecker.parseReleases(json).single().notes)
     }
 
+    @Test fun `a version put off with Later isn't offered again, the next one is`() {
+        assertEquals(false, UpdateChecker.shouldOffer("1.1.4", "1.1.4"))
+        assertEquals(true, UpdateChecker.shouldOffer("1.1.5", "1.1.4"))
+        assertEquals(true, UpdateChecker.shouldOffer("1.1.4", null))
+    }
+
     @Test fun `the date is the published day`() {
         assertEquals("2026-11-01", UpdateChecker.parseReleases("[${release("v1.1.3")}]").single().publishedAt)
     }

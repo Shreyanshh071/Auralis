@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun UpdaterScreen(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    startUpdate: Boolean = false
 ) {
     androidx.activity.compose.BackHandler(enabled = true) {
         onDismiss()
@@ -38,7 +39,8 @@ fun UpdaterScreen(
     val settings by dataStore.settingsFlow.collectAsState(initial = UpdaterSettings())
 
     val currentVersion = remember { UpdateChecker.getCurrentVersion(context) }
-    var showUpdateFlow by rememberSaveable { mutableStateOf(false) }
+    var showUpdateFlow by rememberSaveable { mutableStateOf(startUpdate) }
+    LaunchedEffect(startUpdate) { if (startUpdate) UpdateFlow.open(context) }
     val updatePhase by UpdateFlow.phase.collectAsState()
     val isChecking = updatePhase == UpdatePhase.Checking
     var showChangelog by rememberSaveable { mutableStateOf(false) }
