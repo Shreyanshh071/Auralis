@@ -652,6 +652,8 @@ fun ImmersivePlayerContainer(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .zIndex(if (currentTab == NowPlayingTab.LYRICS) 1f else 0f)
+                                        // Parked while hidden: alpha 0 alone still takes touches.
+                                        .offset { IntOffset(0, if (motion.lyricsLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
                                         .graphicsLayer {
                                             alpha = motion.lyricsAlpha.value
                                             translationY = motion.lyricsTranslationYDp.value.dp.toPx()
@@ -692,6 +694,9 @@ fun ImmersivePlayerContainer(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .zIndex(if (currentTab == NowPlayingTab.QUEUE) 1f else 0f)
+                                        // Parked while hidden: an invisible row's options button
+                                        // otherwise sits over the title's and opens the wrong song.
+                                        .offset { IntOffset(0, if (motion.queueLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
                                         .graphicsLayer {
                                             alpha = motion.queueAlpha.value
                                             translationY = motion.queueTranslationYDp.value.dp.toPx()

@@ -1406,7 +1406,7 @@ internal class ClassicPlayerMotionHolder(
     val queueLayerOnScreen: State<Boolean>
 )
 
-private const val HiddenLayerOffsetPx = 1_000_000
+internal const val HiddenLayerOffsetPx = 1_000_000
 
 /** A hidden tab stops its per-frame lyric motion, and only its own readers recompose on a switch. */
 @Composable
