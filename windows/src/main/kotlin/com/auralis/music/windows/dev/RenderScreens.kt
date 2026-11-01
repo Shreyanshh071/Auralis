@@ -117,6 +117,18 @@ fun main(args: Array<String>) {
                 onTrackClick = { _, _ -> }, onFavoriteToggle = {})
             }
         },
+        "library-desktop" to {
+            com.auralis.music.ui.library.LibraryScreen(
+                currentTrackId = null, isPlaying = false,
+                uiState = com.auralis.music.ui.viewmodel.LibraryUiState(
+                    favorites = previewSongs.take(6),
+                    playlists = listOf("puchuk", "SONGS", "Nuh uh", "gili gili(old)", "Currents", "wan pisiuu", "Zup", "gili gili").mapIndexed { i, name ->
+                        com.auralis.music.domain.model.Playlist("preview-$i", name, tracks = previewSongs.drop(i).take(5 + i), coverUrl = previewSongs.getOrNull(i)?.thumbnail)
+                    },
+                    savedArtists = listOf(com.auralis.music.domain.model.SavedArtist("artist-preview", "Billy Idol", previewSongs.getOrNull(1)?.thumbnail, "1.23M subscribers"))),
+                onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
+                onTrackClick = { _, _ -> }, onFavoriteToggle = {})
+        },
         "library-artists" to {
             com.auralis.music.ui.library.LibraryScreen(
                 currentTrackId = null, isPlaying = false,
@@ -428,7 +440,7 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "library-desktop" -> 1160; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
                 height = when (name) { "titlebar", "titlebar-narrow" -> 44; "seekbar" -> 80; "up-next" -> 100; "menu-playlist", "menu-song" -> 860; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(

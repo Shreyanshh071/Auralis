@@ -49,7 +49,6 @@ import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import com.auralis.music.ui.lyrics.ExperimentalWordLevelLyrics
 import com.auralis.music.ui.lyrics.InstrumentalIntroIndicator
 import com.auralis.music.ui.lyrics.LyricsIntervalIndicator
-import com.auralis.music.ui.lyrics.instrumentalBreakWindows
 import com.auralis.music.ui.lyrics.resolveExperimentalWordTimestamps
 import com.auralis.music.ui.lyrics.presentationWordTimestamps
 import com.auralis.music.ui.lyrics.smoothCenterLyric
@@ -103,10 +102,13 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     val active by remember(lines, synced) { derivedStateOf {
         if (synced) LyricsEngine.findActiveLyricIndex(lines, position.value) else -1
     } }
-    val highlighted by remember(lines, synced, position, mode) { derivedStateOf {
+    val breaks = remember(lines, synced, durationMs, mode) {
+        if (!synced) emptyMap() else com.auralis.music.ui.lyrics.phoneInstrumentalBreaks(lines)
+    }
+    val highlighted by remember(lines, synced, position, mode, breaks) { derivedStateOf {
         // Fullscreen keeps the current phrase lit through ordinary breaths, without
         // extending any word timestamps. Preserve its paired lead/background display too.
-        if (synced && mode == LyricsAnimationMode.SPICY_LYRICS) {
+        val sung: Set<Int> = if (synced && mode == LyricsAnimationMode.SPICY_LYRICS) {
             spicyVocalTimeline.activeIndices(position.value)
         } else if (synced) {
             val visual = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, position.value)
@@ -116,6 +118,9 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
                 }
             }
         } else emptySet()
+        // Between lines the line just sung stays lit until the next one starts, under the dots.
+        val gapLine = breaks.entries.firstOrNull { position.value >= it.value.first && position.value < it.value.second }?.key
+        if (gapLine == null) sung else sung + gapLine
     } }
     // Same intro countdown the full player shows before the first synced line.
     val introDurationMs = if (synced) (lines.firstOrNull { mode != LyricsAnimationMode.SPICY_LYRICS || !it.isBackground }?.time ?: 0L).takeIf {
@@ -125,10 +130,6 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
     // Opening dots sit near the header; sung lines follow in the middle of the card.
     val followAnchorFraction = if (introActive) introAnchorFraction else lyricsAnchorFraction
     val introTime = remember { derivedStateOf { position.value.coerceAtLeast(0L) } }
-    val breaks = remember(lines, synced, durationMs, mode) {
-        if (!synced) emptyMap() else if (mode == LyricsAnimationMode.SPICY_LYRICS)
-            com.auralis.music.ui.lyrics.spicyInterludeWindows(lines) else instrumentalBreakWindows(lines, durationMs)
-    }
     val activeBreak by remember(breaks) { derivedStateOf {
         breaks.entries.firstOrNull { position.value >= it.value.first && position.value < it.value.second }?.key
     } }

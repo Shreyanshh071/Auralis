@@ -565,8 +565,7 @@ fun ExperimentalLyricsView(
 
     val mergedLyricsList = remember(effectiveLines, playbackDurationMs, lyrics?.durationMs, appearance.lyricsAnimation) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
-        val breaks = if (spicyStyle) spicyInterludeWindows(effectiveLines) else
-            instrumentalBreakWindows(effectiveLines, playbackDurationMs.takeIf { it > 0L } ?: lyrics?.durationMs)
+        val breaks = phoneInstrumentalBreaks(effectiveLines)
         effectiveLines.forEachIndexed { index, line ->
             list.add(ExperimentalLyricsListItem.Line(index, line))
             breaks[index]?.let { (start, end) ->

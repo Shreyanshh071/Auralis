@@ -168,11 +168,14 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.positionInRoot
@@ -265,6 +268,7 @@ private fun smartCollectionSubtitleFor(playlist: Playlist, isJobDownloading: Boo
 
 /** Below this the playlist page switches from the song table to a plain list. */
 private val PLAYLIST_TABLE_MIN_WIDTH = 480.dp
+private val LIBRARY_SORT_OPTIONS = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
 
 /**
  * Pure Jetpack Compose Library Screen with top App Bar (Library title, History, Listen Together, Profile),
@@ -801,8 +805,6 @@ fun LibraryScreen(
 
                 }
             }
-            if (headerGlass == null) browseHeader()
-
             val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
             val displayedPlaylists = sortLibraryPlaylists(
                 playlists = buildList {
@@ -842,11 +844,60 @@ fun LibraryScreen(
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
             
+            // Cards carry their own 10dp hover inset, so these include it.
             val minGridSize = when (appearance.gridCellSize) {
-                "Small" -> 135.dp
-                "Large" -> 195.dp
-                else -> 160.dp
+                "Small" -> 152.dp
+                "Large" -> 220.dp
+                else -> 180.dp
             }
+            val collections = displayedPlaylists.filter { smartCollectionTypeFor(it.id) != null }
+            val albums = displayedPlaylists.filter { smartCollectionTypeFor(it.id) == null && isAlbumPlaylist(it, uiState.savedAlbums) }
+            val ownPlaylists = displayedPlaylists - collections.toSet() - albums.toSet()
+            val sourceLabelOf: (Playlist) -> String? = { playlist ->
+                when (playlistSource?.invoke(playlist) ?: when {
+                    isSpotifyImport(playlist) -> LibrarySourceFilter.SPOTIFY
+                    isYouTubeMusicImport(playlist) -> LibrarySourceFilter.YOUTUBE
+                    else -> null
+                }) {
+                    LibrarySourceFilter.SPOTIFY -> "Spotify"
+                    LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+                    else -> null
+                }
+            }
+            val playlistCard: @Composable (Playlist) -> Unit = { playlist ->
+                UserPlaylistGridCard(
+                    playlist = playlist,
+                    savedAlbums = uiState.savedAlbums,
+                    sourceLabel = sourceLabelOf(playlist),
+                    onClick = { onPlaylistSelect(playlist) },
+                    onLongClick = { selectedPlaylistForMenu = playlist },
+                    onPlay = playlist.tracks.firstOrNull()?.let { first ->
+                        { onTrackClick(first, playlist.tracks) }
+                    }
+                )
+            }
+
+            if (headerGlass == null) DesktopLibraryToolbar(
+                itemCount = displayedPlaylists.size + displayedArtists.size,
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                sortOrder = uiState.sortOrder,
+                sortOptions = LIBRARY_SORT_OPTIONS,
+                onSortChange = onSortChange,
+                isGridView = isGridView,
+                onToggleLayout = {
+                    isGridView = !isGridView
+                    onToggleGridView()
+                },
+                onNewPlaylist = { showCreateDialog = true },
+                filters = {
+                    LibrarySourcePills(
+                        selected = sourceFilter,
+                        horizontalPadding = 0.dp,
+                        onSelect = { tapped -> sourceFilter = if (sourceFilter == tapped) null else tapped }
+                    )
+                }
+            )
 
 
             AuralisRefreshBox(
@@ -868,9 +919,9 @@ fun LibraryScreen(
                         LazyVerticalGrid(
                             state = gridScrollState,
                             columns = GridCells.Adaptive(minSize = minGridSize),
-                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = bottomChromePadding(start = 18.dp, end = 18.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             if (headerGlass != null) {
@@ -889,32 +940,59 @@ fun LibraryScreen(
                                     emptyLibraryContent(sourceFilter, searchQuery)
                                 }
                             }
-                            items(displayedPlaylists, key = { it.id }) { playlist ->
-                                Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) {
-                                    val smartType = smartCollectionTypeFor(playlist.id)
-                                    if (smartType != null) {
-                                        SmartLibraryCard(
-                                            title = playlist.title,
-                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
-                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
-                                            tracks = playlist.tracks,
-                                            onClick = { onSmartCollectionClick(smartType) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
-                                    } else {
-                                        UserPlaylistGridCard(
-                                            playlist = playlist,
-                                            savedAlbums = uiState.savedAlbums,
-                                            onClick = { onPlaylistSelect(playlist) },
-                                            onLongClick = { selectedPlaylistForMenu = playlist }
-                                        )
+                            if (collections.isNotEmpty()) {
+                                item(key = "section_collections", span = { GridItemSpan(maxLineSpan) }) {
+                                    LibrarySectionHeader("Collections", collections.size)
+                                }
+                                item(key = "collection_tiles", span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(Modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        collections.chunked(3).forEach { row ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                row.forEach { playlist ->
+                                                    Box(Modifier.weight(1f)) {
+                                                        CollectionTile(
+                                                            title = playlist.title,
+                                                            subtitle = smartCollectionSubtitleFor(playlist, isJobDownloading),
+                                                            icon = smartCollectionIconFor(playlist.id, isJobDownloading),
+                                                            onClick = { smartCollectionTypeFor(playlist.id)?.let(onSmartCollectionClick) },
+                                                            onLongClick = { selectedPlaylistForMenu = playlist },
+                                                            onPlay = playlist.tracks.firstOrNull()?.let { first ->
+                                                                { onTrackClick(first, playlist.tracks) }
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
-                                SavedArtistCard(artist, onClick = {
-                                    onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
-                                })
+                            if (ownPlaylists.isNotEmpty()) {
+                                item(key = "section_playlists", span = { GridItemSpan(maxLineSpan) }) {
+                                    LibrarySectionHeader("Playlists", ownPlaylists.size)
+                                }
+                                items(ownPlaylists, key = { it.id }) { playlist ->
+                                    Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) { playlistCard(playlist) }
+                                }
+                            }
+                            if (albums.isNotEmpty()) {
+                                item(key = "section_albums", span = { GridItemSpan(maxLineSpan) }) {
+                                    LibrarySectionHeader("Albums", albums.size)
+                                }
+                                items(albums, key = { it.id }) { playlist ->
+                                    Box(modifier = if (gridAnimate) Modifier.animateItem() else Modifier) { playlistCard(playlist) }
+                                }
+                            }
+                            if (displayedArtists.isNotEmpty()) {
+                                item(key = "section_artists", span = { GridItemSpan(maxLineSpan) }) {
+                                    LibrarySectionHeader("Artists", displayedArtists.size)
+                                }
+                                items(displayedArtists, key = { "artist:${it.id}" }) { artist ->
+                                    SavedArtistCard(artist, onClick = {
+                                        onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+                                    })
+                                }
                             }
                         }
                     } else {
@@ -924,7 +1002,7 @@ fun LibraryScreen(
                         LazyColumn(
                             state = listScrollState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
+                            contentPadding = bottomChromePadding(start = LIBRARY_PAGE_MARGIN, end = LIBRARY_PAGE_MARGIN),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (headerGlass != null) {
@@ -1012,7 +1090,7 @@ fun LibraryScreen(
 
     // Sort Options Dialog
     if (showSortMenu) {
-        val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
+        val sortOptions = LIBRARY_SORT_OPTIONS
         AlertDialog(
             onDismissRequest = { showSortMenu = false },
             title = { Text(str(Strings.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
@@ -1155,156 +1233,56 @@ fun LibraryScreen(
 
 
 
+/** A built-in collection on Windows: a compact wide tile, set apart from the user's own covers. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SmartLibraryCard(
+private fun CollectionTile(
     title: String,
+    subtitle: String?,
     icon: ImageVector,
-    subtitle: String? = null,
-    tracks: List<Track> = emptyList(),
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = null
 ) {
-    val validTracks = remember(tracks) {
-        tracks.filter { !it.thumbnail.isNullOrBlank() || it.id.isNotBlank() }
-    }
-    val distinctTracks = remember(tracks) {
-        getDistinctArtworkTracks(tracks)
-    }
-
-    Column(
+    val hoverSource = remember { MutableInteractionSource() }
+    val hovered by hoverSource.collectIsHoveredAsState()
+    val fill by animateColorAsState(
+        MaterialTheme.colorScheme.onBackground.copy(alpha = if (hovered) .14f else .07f),
+        tween(140), label = "collectionTileHover"
+    )
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(76.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(fill)
+            .hoverable(hoverSource)
             .contextMenuAnchor(onClick)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(CARD_DARK_BG)
+            Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .2f)),
+            contentAlignment = Alignment.Center
         ) {
-            if (distinctTracks.size >= 4) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = distinctTracks[0].thumbnail,
-                            fallbackTrack = distinctTracks[0],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = distinctTracks[1].thumbnail,
-                            fallbackTrack = distinctTracks[1],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ArtworkCard(
-                            url = distinctTracks[2].thumbnail,
-                            fallbackTrack = distinctTracks[2],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                        ArtworkCard(
-                            url = distinctTracks[3].thumbnail,
-                            fallbackTrack = distinctTracks[3],
-                            modifier = Modifier.weight(1f).fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            contentDescription = null
-                        )
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.75f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = LIME_TEXT,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else if (validTracks.isNotEmpty()) {
-                ArtworkCard(
-                    url = validTracks.first().thumbnail,
-                    fallbackTrack = validTracks.first(),
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 18.dp,
-                    contentDescription = title
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.75f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = LIME_TEXT,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = CREAM_ICON_COLOR,
-                        modifier = Modifier.size(54.dp)
-                    )
-                }
-            }
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 15.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        if (subtitle != null) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
-            )
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (onPlay != null && hovered) Box(
+            Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).clickable(onClick = onPlay),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(22.dp))
         }
     }
 }
-
-// ============================================================================
-// 🎨 USER PLAYLIST GRID CARD (With 4-Cover Collage or Single Artwork)
-// ============================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1312,7 +1290,9 @@ private fun UserPlaylistGridCard(
     playlist: Playlist,
     savedAlbums: List<SavedAlbum> = emptyList(),
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    sourceLabel: String? = null,
+    onPlay: (() -> Unit)? = null
 ) {
     val isAlbum = remember(playlist.id, playlist.title, playlist.description, playlist.tracks, savedAlbums) {
         isAlbumPlaylist(playlist, savedAlbums)
@@ -1323,15 +1303,25 @@ private fun UserPlaylistGridCard(
     val distinctTracks = remember(playlist.tracks) {
         getDistinctArtworkTracks(playlist.tracks)
     }
+    val hoverSource = remember { MutableInteractionSource() }
+    val hovered by hoverSource.collectIsHoveredAsState()
+    val hoverFill by animateColorAsState(
+        if (hovered) MaterialTheme.colorScheme.onBackground.copy(alpha = .08f) else Color.Transparent,
+        tween(140), label = "gridCardHover"
+    )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(hoverFill)
+            .hoverable(hoverSource)
             .contextMenuAnchor(onClick)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
+            .padding(10.dp)
     ) {
         Box(
             modifier = Modifier
@@ -1407,27 +1397,57 @@ private fun UserPlaylistGridCard(
                     )
                 }
             }
+            // Desktop hover: a play button on the artwork that starts the collection without opening it.
+            if (onPlay != null) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = hovered,
+                    enter = androidx.compose.animation.fadeIn(tween(120)) + androidx.compose.animation.scaleIn(tween(120), initialScale = .85f),
+                    exit = androidx.compose.animation.fadeOut(tween(100)) + androidx.compose.animation.scaleOut(tween(100), targetScale = .85f),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .shadow(8.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable(onClick = onPlay),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
             text = playlist.title,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(3.dp))
 
         Text(
-            text = str(Strings.x_songs, playlist.tracks.size),
+            // A saved album keeps no track list here, so its artist says more than "0 songs".
+            text = if (isAlbum && playlist.tracks.isEmpty()) playlist.description ?: "Album"
+                else listOfNotNull(sourceLabel, str(Strings.x_songs, playlist.tracks.size)).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
