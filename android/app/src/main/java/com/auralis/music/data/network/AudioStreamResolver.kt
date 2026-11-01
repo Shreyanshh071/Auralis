@@ -101,6 +101,7 @@ object AudioStreamResolver {
             }
             NewPipeDownloader.init(context.cacheDir)
             PlayerJsCache.init(context)
+            JioSaavnAudio.init(context)
             ensureNewPipeInitialized()
             // Asynchronous background warmup so first search/playback doesn't hit cold Rhino JS init
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -203,6 +204,21 @@ object AudioStreamResolver {
     var isPlaybackResolving: Boolean = false
         private set
 
+    /**
+     * The YouTube recording for a Spotify track, matched from the whole track and remembered.
+     * Downloads need the album too: it is how an album cut that YouTube Music lists without the
+     * song's featured artist is told from a different version.
+     */
+    suspend fun matchSpotifyRecording(
+        track: com.auralis.music.domain.model.Track,
+        importer: SpotifyPlaylistImporter = SpotifyPlaylistImporter()
+    ): String? {
+        getMatchedVideoId(track.id)?.let { return it }
+        val recording = importer.matchToYouTube(track) ?: return null
+        rememberMatchedVideoId(track.id, recording.id, recording.duration)
+        return recording.id
+    }
+
     suspend fun resolvePlaybackVideoId(track: com.auralis.music.domain.model.Track): String? {
         if (track.id.startsWith("unavailable:")) return null
         getMatchedVideoId(track.id)?.let { return it }
@@ -260,6 +276,25 @@ object AudioStreamResolver {
 
             val actualTargetId = if (!mappedId.isNullOrBlank() && !mappedId.startsWith("sp_") && !mappedId.startsWith("spotify:")) mappedId else effectiveTargetId
             val isSpotifyId = actualTargetId.startsWith("sp_") || actualTargetId.startsWith("spotify:")
+
+            // 0. Optional 320kbps copy of the same recording; any miss carries on to YouTube.
+            if (JioSaavnAudio.enabled.value && title.isNotBlank() &&
+                (quality == com.auralis.music.domain.model.AudioQuality.HIGH || quality == com.auralis.music.domain.model.AudioQuality.AUTO)) {
+                val saavn = try {
+                    JioSaavnAudio.find320(com.auralis.music.domain.model.Track(id = videoId, title = title, artist = artist, duration = duration))
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.w(TAG, "[Resolver] JioSaavn notice: ${e.message}")
+                    null
+                }
+                if (!saavn.isNullOrBlank()) {
+                    diagLog("[Diag-Resolver] WINNER: JioSaavn 320kbps for '$title' in ${System.currentTimeMillis() - t0Resolve}ms")
+                    cacheStream(cacheKey, saavn)
+                    cacheStream(effectiveTargetId, saavn)
+                    cacheStream(videoId, saavn)
+                    return@withContext saavn
+                }
+            }
 
             // 1. Tier 1: Native Stream Extractor for exact YouTube ID
             if (!isSpotifyId) {

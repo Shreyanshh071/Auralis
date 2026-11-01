@@ -238,8 +238,15 @@ object AuralisDownloadManager {
             stage = "resolution"
             Log.d(TAG, "Starting download for '${track.title}' (${track.id})")
 
-            val mappedId = AudioStreamResolver.getMatchedVideoId(track.id)
             val isSpotifyId = track.id.startsWith("sp_") || track.id.startsWith("spotify:")
+            val mappedId = if (!isSpotifyId) AudioStreamResolver.getMatchedVideoId(track.id) else try {
+                withTimeoutOrNull(15000L) { AudioStreamResolver.matchSpotifyRecording(track) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Spotify match notice for '${track.title}': ${e.message}")
+                null
+            }
             val youtubeId = if (isSpotifyId) mappedId else track.id
             var ageRestricted = false
             var signedInStreamTried = false

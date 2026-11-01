@@ -69,6 +69,16 @@ fun ProfileSettingsView(
             onClick = { showQualityDialog = true }
         )
 
+        val jioSaavnContext = androidx.compose.ui.platform.LocalContext.current
+        val jioSaavnOn by com.auralis.music.data.network.JioSaavnAudio.enabled.collectAsState()
+        SettingsSwitchCard(
+            title = str(R.string.jiosaavn_320_title),
+            subtitle = str(R.string.jiosaavn_320_description),
+            icon = Icons.Default.HighQuality,
+            isChecked = jioSaavnOn,
+            onCheckedChange = { com.auralis.music.data.network.JioSaavnAudio.setEnabled(jioSaavnContext, it) }
+        )
+
         // ── 3. SPATIAL AUDIO SECTION ──
         SettingsSectionHeader(title = str(R.string.spatial_audio), icon = Icons.Default.Headphones)
 

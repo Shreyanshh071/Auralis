@@ -267,7 +267,7 @@ Auralis is built on the work of many people. Thank you to all of them.
 
 **Design & interface**
 
-- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation and motion references.
+- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation, motion references and the optional JioSaavn 320kbps audio source (GPL-3.0).
 - **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
 
 **Services**

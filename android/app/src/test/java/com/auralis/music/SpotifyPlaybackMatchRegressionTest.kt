@@ -85,6 +85,28 @@ class SpotifyPlaybackMatchRegressionTest {
         }
     }
 
+    @Test fun `a download matches the album cut that leaves the feature uncredited`() = runBlocking {
+        val spotify = Track(id = "sp_like_him", title = "Like Him (feat. Lola Young)",
+            artist = "Tyler, The Creator, Lola Young", album = "CHROMAKOPIA", duration = 279)
+        val albumCut = Track(id = "albumcutyt1", title = "Like Him", artist = "Tyler, The Creator",
+            album = "CHROMAKOPIA", duration = 279)
+        val client = mockk<InnerTubeClient>()
+        coEvery { client.search(any(), any()) } returns SearchResults(songs = listOf(albumCut))
+        val importer = SpotifyPlaylistImporter(innerTubeClient = client)
+        assertEquals(albumCut.id, AudioStreamResolver.matchSpotifyRecording(spotify, importer))
+        assertEquals(albumCut.id, AudioStreamResolver.getMatchedVideoId(spotify.id))
+    }
+
+    @Test fun `without the album that cut is not trusted, which is why downloads must pass it`() = runBlocking {
+        val spotify = Track(id = "sp_like_him_blank", title = "Like Him (feat. Lola Young)",
+            artist = "Tyler, The Creator, Lola Young", duration = 279)
+        val albumCut = Track(id = "albumcutyt2", title = "Like Him", artist = "Tyler, The Creator",
+            album = "CHROMAKOPIA", duration = 279)
+        val client = mockk<InnerTubeClient>()
+        coEvery { client.search(any(), any()) } returns SearchResults(songs = listOf(albumCut))
+        assertNull(AudioStreamResolver.matchSpotifyRecording(spotify, SpotifyPlaylistImporter(innerTubeClient = client)))
+    }
+
     @Test fun `film tag does not make another song a stand-in`() {
         val song = "Raanjhanaa (From \"Raanjhanaa\")"
         assertFalse(AudioStreamResolver.isSameSongTitle(song, "Piya Milenge (From \"Raanjhanaa\")"))

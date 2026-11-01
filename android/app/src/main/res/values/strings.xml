@@ -99,6 +99,8 @@
     <string name="top_songs">Top Songs</string>
     <string name="history">History</string>
     <string name="top_result">Top result</string>
+    <string name="jiosaavn_320_title">JioSaavn 320kbps</string>
+    <string name="jiosaavn_320_description">Plays and downloads JioSaavn\'s 320kbps copy when it matches the song. Otherwise uses YouTube.</string>
     <string name="also_matching">Also matching</string>
     <string name="top_songs_info">Top songs &amp; info</string>
     <string name="top_songs_albums">Top songs &amp; albums</string>
