@@ -21,6 +21,7 @@ import kotlin.math.abs
 /**
  * Optional 320kbps audio from JioSaavn (Settings → Audio quality), off by default.
  *
+ * Approach credited to Vivi Music (GPL-3.0): https://github.com/vivizzz007/vivi-music
  * Adapted from BitChord's JioSaavnService (GPL-3.0): https://github.com/kushagrasinghx/BitChord
  *
  * YouTube stays the source of the song: JioSaavn only supplies its audio when it has a 320kbps file
