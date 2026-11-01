@@ -110,6 +110,35 @@ class SearchSuggestedSongsTest {
         assertEquals(null, com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(spotify, albumCut))
     }
 
+    @Test fun `album names written with initials are the same album`() {
+        val spotify = com.auralis.music.domain.model.Track(id = "sp_x", title = "Broccoli (feat. Lil Yachty)",
+            artist = "Shelley FKA DRAM, Lil Yachty", album = "Big Baby D.R.A.M.", duration = 225)
+        val albumCut = com.auralis.music.domain.model.Track(id = "yt", title = "Broccoli",
+            artist = "DRAM", album = "Big Baby DRAM (Deluxe Version)", duration = 226)
+        assertEquals(null, com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(spotify, albumCut))
+    }
+
+    @Test fun `a bare version label on the same album is the same recording`() {
+        val spotify = com.auralis.music.domain.model.Track(id = "sp_x", title = "tv off (feat. lefty gunplay)",
+            artist = "Kendrick Lamar, Lefty Gunplay", album = "GNX", duration = 220)
+        val listed = com.auralis.music.domain.model.Track(id = "yt", title = "tv off (Taylor's Version)",
+            artist = "Kendrick Lamar", album = "GNX", duration = 221)
+        assertEquals(null, com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(spotify, listed))
+    }
+
+    @Test fun `a remix on the same album still clashes`() {
+        val spotify = com.auralis.music.domain.model.Track(id = "sp_x", title = "Song", artist = "Main", album = "Album", duration = 200)
+        val remix = com.auralis.music.domain.model.Track(id = "yt", title = "Song (Remix)", artist = "Main", album = "Album", duration = 200)
+        assertTrue(com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(spotify, remix) != null)
+    }
+
+    @Test fun `a version on another album still clashes`() {
+        val spotify = com.auralis.music.domain.model.Track(id = "sp_x", title = "Style", artist = "Taylor Swift", album = "1989", duration = 231)
+        val rerecorded = com.auralis.music.domain.model.Track(id = "yt", title = "Style (Taylor's Version)",
+            artist = "Taylor Swift", album = "1989 (Taylor's Version)", duration = 231)
+        assertTrue(com.auralis.music.domain.search.SearchQueryMatcher.recordingMismatch(spotify, rerecorded) != null)
+    }
+
     @Test fun `a version without the feature on another release is still rejected`() {
         val spotify = com.auralis.music.domain.model.Track(id = "sp_x", title = "Song (feat. Guest)",
             artist = "Main, Guest", album = "Album", duration = 200)

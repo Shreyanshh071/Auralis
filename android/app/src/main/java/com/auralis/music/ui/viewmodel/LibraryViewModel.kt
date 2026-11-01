@@ -958,7 +958,9 @@ class LibraryViewModel(
                             description = remote.description,
                             coverUrl = cover
                         )
+                        val twin = twinPlaylist(remote.title, remote.tracks, playlist.id, libraryRepository.getPlaylists().firstOrNull().orEmpty())
                         libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
+                        twin?.let { replaceTwin(it, playlist.id) }
                         importedSync?.invoke(playlist.id)
                     }
                     imported++
@@ -983,6 +985,20 @@ class LibraryViewModel(
 
     fun clearYouTubeImportMessage() {
         _uiState.update { it.copy(importMessage = null) }
+    }
+
+    /** The user's own or link-imported copy of this playlist, which the import should become. */
+    private fun twinPlaylist(title: String, tracks: List<Track>, importedId: String, playlists: Collection<Playlist>): Playlist? =
+        playlists.firstOrNull { local ->
+            local.id != importedId && !local.id.startsWith("imported:") && !local.id.startsWith("smart_") &&
+                com.auralis.music.data.network.SpotifyIncrementalImport.isSamePlaylist(
+                    title, tracks, local, com.auralis.music.data.network.AudioStreamResolver::getMatchedVideoId)
+        }
+
+    /** One playlist from two: [twin]'s place in the library moves to the imported playlist. */
+    private suspend fun replaceTwin(twin: Playlist, importedId: String) {
+        libraryRepository.setPlaylistCreatedAt(importedId, twin.createdAt)
+        libraryRepository.deletePlaylist(twin.id)
     }
 
     private fun seenSpotifySongs(key: String): Set<String> =
@@ -1061,6 +1077,7 @@ class LibraryViewModel(
                         }
                         val cover = importedPlaylist.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
                         val existing = localPlaylists["imported:spotify:${item.id}"]
+                        val twin = twinPlaylist(importedPlaylist.title, importedPlaylist.tracks, "imported:spotify:${item.id}", localPlaylists.values)
                         val playlist = libraryRepository.upsertImportedPlaylist(
                             source = "spotify",
                             remoteId = importedPlaylist.id.removePrefix("sp_"),
@@ -1068,15 +1085,22 @@ class LibraryViewModel(
                             description = importedPlaylist.description,
                             coverUrl = cover
                         )
-                        if (existing == null) {
+                        // The same list already here: it becomes the Spotify one, with its matches and order.
+                        if (twin != null) {
+                            if (existing == null) libraryRepository.replacePlaylistTracks(playlist.id, twin.tracks)
+                            replaceTwin(twin, playlist.id)
+                            importedSync?.invoke(playlist.id)
+                        }
+                        val base = existing ?: twin
+                        if (base == null) {
                             libraryRepository.replacePlaylistTracks(playlist.id, importedPlaylist.tracks)
                             importedSync?.invoke(playlist.id)
                             newPlaylists++
                         } else {
                             val added = com.auralis.music.data.network.SpotifyIncrementalImport
-                                .newTracks(importedPlaylist.tracks, existing.tracks, seenSpotifySongs(seenKey), matchedId)
+                                .newTracks(importedPlaylist.tracks, base.tracks, seenSpotifySongs(seenKey), matchedId)
                             if (added.isNotEmpty()) {
-                                libraryRepository.replacePlaylistTracks(playlist.id, existing.tracks + added)
+                                libraryRepository.replacePlaylistTracks(playlist.id, base.tracks + added)
                                 importedSync?.invoke(playlist.id)
                                 newSongs += added.size
                             }
@@ -1131,14 +1155,18 @@ class LibraryViewModel(
                 )
                 if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
                     // 1. Immediately create the playlist in Room DB so user has 0ms wait time
+                    val remoteId = imported.id.removePrefix("sp_")
+                    val twin = twinPlaylist(imported.title, imported.tracks, "imported:spotify:$remoteId",
+                        libraryRepository.getPlaylists().firstOrNull().orEmpty())
                     val playlist = libraryRepository.upsertImportedPlaylist(
                         source = "spotify",
-                        remoteId = imported.id.removePrefix("sp_"),
+                        remoteId = remoteId,
                         title = imported.title,
                         description = imported.description,
                         coverUrl = imported.coverUrl
                     )
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
+                    twin?.let { replaceTwin(it, playlist.id) }
                     importedSync?.invoke(playlist.id)
                     val successMsg = str(R.string.imported_x_x_songs, imported.title, imported.tracks.size)
                     android.util.Log.i("SpotifyImporter", successMsg)

@@ -854,7 +854,8 @@ object SearchQueryMatcher {
             val rest = EDITION_WORDS.replace(m.groupValues[1], " ").replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
             if (rest.isEmpty()) " " else m.value
         }
-        return normalize(a)
+        // Initials are one word: Spotify's "Big Baby D.R.A.M." is YouTube Music's "Big Baby DRAM".
+        return normalize(a.replace(Regex("""(?<=\p{L})\.(?=\p{L})"""), ""))
     }
 
     /**
@@ -870,7 +871,14 @@ object SearchQueryMatcher {
 
         val targetMarkers = recordingVersionMarkers(target)
         val candidateMarkers = recordingVersionMarkers(candidate)
-        if (targetMarkers != candidateMarkers) return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
+        val targetAlbumId = albumIdentity(target.album)
+        val onSameAlbum = targetAlbumId.isNotBlank() && targetAlbumId == albumIdentity(candidate.album)
+        // A bare "Version" label on the same album and length names no other cut: YouTube Music
+        // lists GNX's "tv off" as "tv off (Taylor's Version)". Remix, live and the like still clash.
+        val onlyVersionLabel = (targetMarkers - candidateMarkers) + (candidateMarkers - targetMarkers) == setOf("version")
+        if (targetMarkers != candidateMarkers && !(onSameAlbum && onlyVersionLabel)) {
+            return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
+        }
 
         // Someone the source never credits, named anywhere on the candidate: "(feat. X)" in its
         // title, its artist list ("Tame Impala & JENNIE"), or its release ("Dracula (with JENNIE)").
@@ -887,12 +895,7 @@ object SearchQueryMatcher {
         // it is the official album cut (e.g. tracks where features are not repeated in YTM titles).
         val candidateCredits = normalize("${candidate.artist} ${candidate.title} ${candidate.album.orEmpty()}")
         if (featuredArtists(target).any { hasUncreditedArtist(candidateCredits, it) }) {
-            val targetAlbum = albumIdentity(target.album)
-            val candAlbum = albumIdentity(candidate.album)
-            val sameAlbum = targetAlbum.isNotBlank() && targetAlbum == candAlbum
-            if (!sameAlbum) {
-                return "missing requested featured artist"
-            }
+            if (!onSameAlbum) return "missing requested featured artist"
         }
         return null
     }

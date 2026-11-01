@@ -30,6 +30,27 @@ object InnerTubePlayerResolver {
 
     suspend fun resolveStream(videoId: String): String? = withContext(Dispatchers.IO) {
         val sts = PlayerJsCache.getSignatureTimestamp() ?: 20689
+        unavailableReports.remove(videoId)
+
+        // 0. VISIONOS is the one signed-out client that serves a whole file. With a visitor session
+        // it opened every song that got "confirm you're not a bot" elsewhere, read to the last byte.
+        val visitor = anonymousVisitorData()
+        if (!visitor.isNullOrBlank()) {
+            val visionStream = requestPlayerStream(
+                videoId, sts, "VISIONOS", "0.1", "https://www.youtube.com",
+                userAgent = VISIONOS_USER_AGENT,
+                extraHeaders = mapOf(
+                    "X-YouTube-Client-Name" to "101",
+                    "X-YouTube-Client-Version" to "0.1",
+                    "X-Goog-Visitor-Id" to visitor
+                ),
+                visitorData = visitor,
+                clientFields = VISIONOS_DEVICE,
+                transformN = false
+            )
+            if (!visionStream.isNullOrBlank()) return@withContext visionStream
+            anonymousVisitor = null
+        }
 
         // 1. Try WEB_REMIX (YouTube Music Web)
         val webRemixStream = requestPlayerStream(videoId, sts, "WEB_REMIX", "1.20241201.01.00", "https://music.youtube.com")
@@ -45,6 +66,44 @@ object InnerTubePlayerResolver {
 
         null
     }
+
+    private const val VISIONOS_USER_AGENT =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    private val VISIONOS_DEVICE = mapOf(
+        "osName" to "visionOS",
+        "osVersion" to "1.3.21O771",
+        "deviceMake" to "Apple",
+        "deviceModel" to "RealityDevice14,1"
+    )
+
+    @Volatile private var anonymousVisitor: String? = null
+
+    private val UNAVAILABLE_REASONS = setOf("this video is not available", "video unavailable")
+    private val unavailableReports = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+
+    /** Two clients said the video itself isn't there, so it isn't a refusal another try could pass. */
+    fun isUnavailable(videoId: String): Boolean = (unavailableReports[videoId]?.size ?: 0) >= 2
+
+    /** A signed-out visitor session: without one, YouTube refuses every client as a bot. */
+    private fun anonymousVisitorData(): String? {
+        anonymousVisitor?.let { return it }
+        return try {
+            val request = Request.Builder()
+                .url("https://www.youtube.com/sw.js_data")
+                .header("User-Agent", VISIONOS_USER_AGENT)
+                .build()
+            val body = client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
+            body?.let { parseVisitorData(it) }?.also { anonymousVisitor = it }
+        } catch (e: Exception) {
+            Log.w(TAG, "Visitor session request failed: ${e.message}")
+            null
+        }
+    }
+
+    internal fun parseVisitorData(body: String): String? = runCatching {
+        org.json.JSONArray(body.removePrefix(")]}'").trim())
+            .getJSONArray(0).getJSONArray(2).getJSONArray(0).getJSONArray(0).getString(13)
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /** A YouTube web client that accepts the user's sign-in (versions from zemer-app, 2026-09). */
     private class SignedInClient(
@@ -196,7 +255,9 @@ object InnerTubePlayerResolver {
         userAgent: String = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         extraHeaders: Map<String, String> = emptyMap(),
         visitorData: String = "",
-        apiHost: String = "https://www.youtube.com"
+        apiHost: String = "https://www.youtube.com",
+        clientFields: Map<String, String> = emptyMap(),
+        transformN: Boolean = true
     ): String? {
         try {
             val payload = JSONObject().apply {
@@ -216,6 +277,7 @@ object InnerTubePlayerResolver {
                         put("hl", "en")
                         put("gl", ContentLocale.gl())
                         if (visitorData.isNotBlank()) put("visitorData", visitorData)
+                        clientFields.forEach { (name, value) -> put(name, value) }
                     })
                 })
             }
@@ -231,7 +293,7 @@ object InnerTubePlayerResolver {
 
             val res = client.newCall(req).execute()
             if (!res.isSuccessful) {
-                if (extraHeaders.isNotEmpty()) Log.w(TAG, "Signed-in player request for $videoId ($clientName) got HTTP ${res.code}")
+                if (extraHeaders.isNotEmpty()) Log.w(TAG, "Player request for $videoId ($clientName) got HTTP ${res.code}")
                 return null
             }
 
@@ -241,6 +303,9 @@ object InnerTubePlayerResolver {
             if (streamingData == null) {
                 val playability = json.optJSONObject("playabilityStatus")
                 Log.w(TAG, "No streams for $videoId ($clientName): ${playability?.optString("status")} ${playability?.optString("reason")}")
+                if (playability?.optString("reason").orEmpty().trim().lowercase() in UNAVAILABLE_REASONS) {
+                    unavailableReports.getOrPut(videoId) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(clientName)
+                }
                 return null
             }
             val formats = streamingData.optJSONArray("adaptiveFormats") ?: return null
@@ -275,7 +340,7 @@ object InnerTubePlayerResolver {
             }
 
             // Transform n parameter if present in query string
-            return applyNParamTransformation(bestUrl)
+            return if (transformN) applyNParamTransformation(bestUrl) else bestUrl
         } catch (e: Exception) {
             Log.w(TAG, "Direct player request failed for $videoId ($clientName): ${e.message}")
             return null

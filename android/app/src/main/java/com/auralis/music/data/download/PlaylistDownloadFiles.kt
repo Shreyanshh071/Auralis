@@ -31,6 +31,12 @@ object PlaylistDownloadPaths {
     fun trackFileName(index: Int, track: Track): String =
         "%02d - %s.m4a".format(index + 1, sanitize(track.title, "Track"))
 
+    const val INDIVIDUAL_SONGS = "Individual Songs"
+
+    /** With the artist: two songs downloaded on their own can share a title. */
+    fun individualFileName(track: Track): String =
+        "${sanitize(track.title, "Track")} - ${sanitize(track.artist, "Unknown Artist")}.m4a"
+
     fun relativePath(folderName: String): String {
         val base = Environment.DIRECTORY_DOWNLOADS ?: "Download"
         return "$base/Auralis/${sanitize(folderName)}/"
@@ -128,6 +134,23 @@ class PlaylistDownloadFiles(private val context: Context) {
             val uri = Uri.parse(uriString)
             if (uri.scheme == "file") File(requireNotNull(uri.path)).delete()
             else context.contentResolver.delete(uri, null, null)
+        }
+    }
+
+    /** Removes the public copy of [fileName] in [folderName], if there is one. */
+    fun deletePublished(folderName: String, fileName: String) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val path = PlaylistDownloadPaths.relativePath(folderName)
+                findPublished(path, PlaylistDownloadPaths.sanitize(fileName, "Track.m4a"))?.let { (uri, _) ->
+                    context.contentResolver.delete(uri, null, null)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                PlaylistDownloadPaths.legacyFile(root, folderName, fileName).delete()
+                deleteFolderIfEmpty(folderName)
+            }
         }
     }
 

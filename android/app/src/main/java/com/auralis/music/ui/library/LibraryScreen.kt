@@ -440,9 +440,14 @@ fun LibraryScreen(
             else -> null
         },
         transitionSpec = {
-            if (targetState != null && initialState == null) {
-                detailForwardEnter togetherWith detailForwardExit
-            } else if (targetState == null && initialState != null) {
+            // Library, then Downloaded, then a playlist: moving up that ladder is going back,
+            // including from a downloaded playlist to Downloaded.
+            fun depth(key: String?) = when (key) {
+                null -> 0
+                "downloaded_hub" -> 1
+                else -> 2
+            }
+            if (depth(targetState) < depth(initialState)) {
                 detailBackwardEnter togetherWith detailBackwardExit
             } else {
                 detailForwardEnter togetherWith detailForwardExit

@@ -49,7 +49,13 @@ object AuralisDownloadManager {
     /** Signed in, but no YouTube client handed over a downloadable stream. */
     const val AGE_RESTRICTED_ACCOUNT_ERROR = "Age-restricted on YouTube. Couldn't download it even with your YouTube sign-in"
 
+    /** YouTube says the video itself is gone, so retrying can't help. */
+    const val NOT_ON_YOUTUBE_ERROR = "Not available on YouTube"
+    /** The search finished without finding this recording. It can be a bad moment, so it gets its retries. */
+    const val NO_YOUTUBE_MATCH_ERROR = "This version isn't on YouTube"
+
     fun isAgeRestrictedError(error: String?) = error == AGE_RESTRICTED_ERROR || error == AGE_RESTRICTED_ACCOUNT_ERROR
+    fun isNotOnYouTubeError(error: String?) = error == NOT_ON_YOUTUBE_ERROR || error == NO_YOUTUBE_MATCH_ERROR
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -149,7 +155,19 @@ object AuralisDownloadManager {
         synchronized(jobsLock) { activeDownloadJobs[trackId] }?.cancel()
     }
 
-    private fun requestTrack(track: Track): Deferred<TrackDownloadResult> = synchronized(jobsLock) {
+    /** The public copy of a song downloaded on its own: Downloads/Auralis/Individual Songs. */
+    private fun publishIndividualSong(track: Track) {
+        val ctx = appContext ?: return
+        try {
+            val file = checkNotNull(store?.downloadedFile(track.id)) { "Saved file is missing" }
+            PlaylistDownloadFiles(ctx).publish(file, PlaylistDownloadPaths.INDIVIDUAL_SONGS, PlaylistDownloadPaths.individualFileName(track))
+        } catch (e: Exception) {
+            // The song is already saved in the app; only the shared copy is missing.
+            Log.w(TAG, "Couldn't copy '${track.title}' to Individual Songs: ${e.message}")
+        }
+    }
+
+    private fun requestTrack(track: Track, individualSong: Boolean = false): Deferred<TrackDownloadResult> = synchronized(jobsLock) {
         activeDownloadJobs[track.id]?.let { return@synchronized it }
         if (clearingDownloads || track.id in blockedIds) {
             return@synchronized CompletableDeferred(TrackDownloadResult(
@@ -162,7 +180,7 @@ object AuralisDownloadManager {
                 transferSlots.withPermit {
                     if (isDownloaded(track.id)) TrackDownloadResult(track.id, DownloadOutcome.ALREADY_DOWNLOADED)
                     else downloadWithRetries(track)
-                }
+                }.also { if (individualSong && it.outcome == DownloadOutcome.SUCCESS) publishIndividualSong(track) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -199,7 +217,7 @@ object AuralisDownloadManager {
 
         showToast("Downloading '${track.title}'...")
 
-        requestTrack(track)
+        requestTrack(track, individualSong = true)
     }
 
     private class StreamSource(val name: String, val timeoutMs: Long, val resolve: suspend () -> String?)
@@ -208,7 +226,8 @@ object AuralisDownloadManager {
     private suspend fun downloadWithRetries(track: Track): TrackDownloadResult {
         var result = performDownload(track)
         var attempt = 1
-        while (attempt < MAX_DOWNLOAD_ATTEMPTS && result.outcome == DownloadOutcome.FAILURE && !isAgeRestrictedError(result.error)) {
+        while (attempt < MAX_DOWNLOAD_ATTEMPTS && result.outcome == DownloadOutcome.FAILURE &&
+            !isAgeRestrictedError(result.error) && result.error != NOT_ON_YOUTUBE_ERROR) {
             attempt++
             AudioStreamResolver.invalidateStream(track.id)
             delay(1200L * attempt)
@@ -217,7 +236,7 @@ object AuralisDownloadManager {
         }
         if (result.outcome == DownloadOutcome.FAILURE) {
             showToast(
-                if (isAgeRestrictedError(result.error)) "'${track.title}': ${result.error}"
+                if (isAgeRestrictedError(result.error) || isNotOnYouTubeError(result.error)) "'${track.title}': ${result.error}"
                 else "Download failed for '${track.title}'"
             )
         }
@@ -239,8 +258,9 @@ object AuralisDownloadManager {
             Log.d(TAG, "Starting download for '${track.title}' (${track.id})")
 
             val isSpotifyId = track.id.startsWith("sp_") || track.id.startsWith("spotify:")
+            var searchFinished = false
             val mappedId = if (!isSpotifyId) AudioStreamResolver.getMatchedVideoId(track.id) else try {
-                withTimeoutOrNull(15000L) { AudioStreamResolver.matchSpotifyRecording(track) }
+                withTimeoutOrNull(15000L) { AudioStreamResolver.matchSpotifyRecording(track).also { searchFinished = true } }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -270,6 +290,10 @@ object AuralisDownloadManager {
                         retryFailedExtraction = true
                     )
                 },
+                // InnerTube /player API (bypasses NewPipe cipher issues); VISIONOS opens what NewPipe can't
+                StreamSource("InnerTube player", 12000L) {
+                    youtubeId?.let { com.auralis.music.data.network.InnerTubePlayerResolver.resolveStream(it) }
+                },
                 StreamSource("direct NewPipe", 30000L) {
                     if (youtubeId.isNullOrBlank()) return@StreamSource null
                     try {
@@ -291,10 +315,6 @@ object AuralisDownloadManager {
                         null
                     }
                 },
-                // InnerTube /player API (bypasses NewPipe cipher issues)
-                StreamSource("InnerTube player", 10000L) {
-                    youtubeId?.let { com.auralis.music.data.network.InnerTubePlayerResolver.resolveStream(it) }
-                },
                 // Search-based alternative (finds same song under different video ID)
                 StreamSource("alternative search", 15000L) {
                     if (track.title.isBlank()) return@StreamSource null
@@ -307,9 +327,10 @@ object AuralisDownloadManager {
                         duration = track.duration
                     )
                 },
-                // Age-restricted videos only play for a signed-in YouTube account.
+                // Last resort: age-restricted videos and "confirm you're not a bot" refusals
+                // ("Like Him") only open for a signed-in YouTube account.
                 StreamSource("YouTube sign-in", 30000L) {
-                    if (!ageRestricted || youtubeId == null || !com.auralis.music.data.network.YouTubeSession.isSignedIn) {
+                    if (youtubeId == null || !com.auralis.music.data.network.YouTubeSession.isSignedIn) {
                         return@StreamSource null
                     }
                     signedInStreamTried = true
@@ -357,6 +378,10 @@ object AuralisDownloadManager {
                         else AGE_RESTRICTED_ERROR
                     )
                 }
+                if (youtubeId != null && com.auralis.music.data.network.InnerTubePlayerResolver.isUnavailable(youtubeId)) {
+                    throw IllegalStateException(NOT_ON_YOUTUBE_ERROR)
+                }
+                if (isSpotifyId && youtubeId == null && searchFinished) throw IllegalStateException(NO_YOUTUBE_MATCH_ERROR)
                 throw IllegalStateException("Unable to resolve audio stream URL for '${track.title}'")
             }
 
@@ -596,12 +621,17 @@ object AuralisDownloadManager {
                 job?.cancel()
                 job?.join()
                 val downloadStore = checkNotNull(store)
+                val saved = _downloadedTracks.value.firstOrNull { it.id == trackId }
                 synchronized(downloadStore) {
                     val file = downloadStore.downloadedFile(trackId)
                     val artFile = downloadStore.artworkFile(trackId)
                     publishDownloads(downloadStore.remove(trackId))
                     file?.delete()
                     if (artFile.exists()) artFile.delete()
+                }
+                if (saved != null) appContext?.let { ctx ->
+                    PlaylistDownloadFiles(ctx).deletePublished(
+                        PlaylistDownloadPaths.INDIVIDUAL_SONGS, PlaylistDownloadPaths.individualFileName(saved))
                 }
                 showToast("Removed download")
                 Log.d(TAG, "Removed download: $trackId")

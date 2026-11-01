@@ -52,6 +52,7 @@ private data class DownloadFolderItem(
     val status: String,
     val completedCount: Int,
     val failedCount: Int,
+    val worthRetrying: Boolean = true,
     val jobId: String? = null,
     val coverUrl: String? = null,
     val isAllSongs: Boolean = false,
@@ -80,6 +81,19 @@ fun DownloadedHubView(
     var showClearDialog by remember { mutableStateOf(false) }
     var jobToDelete by remember { mutableStateOf<String?>(null) }
 
+    // A download keeps the song list from when it started, so songs added to the playlist later
+    // were never fetched and its folder read as complete, 2 songs short.
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    androidx.compose.runtime.LaunchedEffect(downloadedJobs, userPlaylists) {
+        downloadedJobs.filter { it.status == "COMPLETE" || it.status == "PARTIAL_FAILURE" }.forEach { job ->
+            val playlist = userPlaylists.firstOrNull { it.id == job.playlistId } ?: return@forEach
+            val saved = PlaylistDownloadCoordinator.tracks(job).mapTo(mutableSetOf()) { it.id }
+            if (playlist.tracks.any { it.id !in saved && !it.id.startsWith("unavailable:") }) {
+                PlaylistDownloadCoordinator.enqueue(appContext, job.playlistId, playlist.title, playlist.tracks)
+            }
+        }
+    }
+
     val orderedDownloads = remember(downloadedTracks, downloadTrackOrders) {
         DownloadTrackOrder.apply(downloadedTracks, downloadTrackOrders["smart_downloaded_all"])
     }
@@ -89,8 +103,9 @@ fun DownloadedHubView(
         val list = mutableListOf<DownloadFolderItem>()
         val accountedTrackIds = mutableSetOf<String>()
 
-        // 1. Jobs from PlaylistDownloadCoordinator
-        for (job in downloadedJobs) {
+        // 1. Jobs from PlaylistDownloadCoordinator, newest first by when they started. Jobs arrive
+        // by last update, which made folders swap places every time one finished a song.
+        for (job in downloadedJobs.sortedWith(compareByDescending<PlaylistDownloadJobEntity> { it.createdAt }.thenBy { it.jobId })) {
             val allTracks = PlaylistDownloadCoordinator.tracks(job)
             val successfulResults = PlaylistDownloadCoordinator.results(job)
                 .filter { it.outcome in com.auralis.music.data.download.PlaylistDownloadRepository.SUCCESS_OUTCOMES }
@@ -99,6 +114,7 @@ fun DownloadedHubView(
                 successfulResults.containsKey(track.id) && AuralisDownloadManager.isDownloaded(track.id)
             }
 
+            val notOnYouTube = PlaylistDownloadCoordinator.results(job).count { AuralisDownloadManager.isNotOnYouTubeError(it.error) }
             val isJobActive = job.status == "DOWNLOADING"
             val hasDownloadedTracks = downloadedForJob.isNotEmpty() || (job.completedCount > 0 && job.status != "FAILED" && job.status != "CANCELLED")
 
@@ -119,7 +135,11 @@ fun DownloadedHubView(
                         title = job.playlistName,
                         subtitle = when (job.status) {
                             "DOWNLOADING" -> str(R.string.downloading_x_of_x_songs, job.completedCount, allTracks.size)
-                            "PARTIAL_FAILURE" -> str(R.string.x_of_x_downloaded_x_failed, downloadedForJob.size, allTracks.size, job.failedCount)
+                            "PARTIAL_FAILURE" -> when {
+                                notOnYouTube == 0 -> str(R.string.x_of_x_downloaded_x_failed, downloadedForJob.size, allTracks.size, job.failedCount)
+                                notOnYouTube >= job.failedCount -> str(R.string.x_of_x_downloaded_x_not_on_youtube, downloadedForJob.size, allTracks.size, notOnYouTube)
+                                else -> str(R.string.x_of_x_downloaded_x_failed_x_not_on_youtube, downloadedForJob.size, allTracks.size, job.failedCount - notOnYouTube, notOnYouTube)
+                            }
                             else -> "${downloadedForJob.size} songs • Offline"
                         },
                         totalCount = allTracks.size,
@@ -128,6 +148,7 @@ fun DownloadedHubView(
                         status = job.status,
                         completedCount = job.completedCount,
                         failedCount = job.failedCount,
+                        worthRetrying = job.failedCount > notOnYouTube,
                         jobId = job.jobId,
                         coverUrl = resolvedCoverUrl
                     )
@@ -622,7 +643,7 @@ private fun FolderCardItem(
                         Text(
                             text = folder.subtitle,
                             fontSize = 12.sp,
-                            color = if (isFailedOrPartial) MaterialTheme.colorScheme.error
+                            color = if (isFailedOrPartial && folder.worthRetrying) MaterialTheme.colorScheme.error
                             else if (isDownloading) MaterialTheme.dynamicPrimary
                             else MaterialTheme.dynamicOnBackground.copy(alpha = 0.65f),
                             maxLines = 1,
@@ -642,7 +663,7 @@ private fun FolderCardItem(
                                 .size(22.dp)
                                 .rotate(rotation)
                         )
-                    } else if (isFailedOrPartial && folder.jobId != null) {
+                    } else if (isFailedOrPartial && folder.worthRetrying && folder.jobId != null) {
                         IconButton(onClick = onRetry, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
