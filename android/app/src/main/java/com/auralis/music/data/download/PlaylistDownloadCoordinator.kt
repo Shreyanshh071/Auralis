@@ -205,7 +205,13 @@ object PlaylistDownloadCoordinator {
     private suspend fun reconcileAll(context: Context) {
         val repository = PlaylistDownloadRepository(context)
         val files = PlaylistDownloadFiles(context)
-        repository.getAll().forEach { job ->
+        val jobs = repository.getAll()
+        // No jobs at all can mean a wiped database, which is no reason to delete anyone's music.
+        if (jobs.isNotEmpty()) files.deleteAbandonedFolders(jobs.map { it.folderName })
+        jobs.forEach { job ->
+            if (job.status == PlaylistDownloadStatus.COMPLETE.name || job.status == PlaylistDownloadStatus.PARTIAL_FAILURE.name) {
+                files.pruneFolder(job.folderName, repository.results(job).mapNotNull { it.contentUri })
+            }
             if (job.status !in setOf(
                     PlaylistDownloadStatus.COMPLETE.name,
                     PlaylistDownloadStatus.PARTIAL_FAILURE.name,
@@ -235,7 +241,7 @@ object PlaylistDownloadCoordinator {
             delay(250)
             val files = PlaylistDownloadFiles(context)
             repository.results(job).forEach { files.delete(it.contentUri) }
-            files.deleteFolderIfEmpty(job.folderName)
+            files.deleteFolder(job.folderName)
             // Also remove each track from the main DownloadStore only if no other
             // playlist job still has that track downloaded.
             val otherJobs = repository.getAll().filter { it.jobId != jobId }

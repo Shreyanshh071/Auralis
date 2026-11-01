@@ -31,6 +31,12 @@ object PlaylistDownloadPaths {
     fun trackFileName(index: Int, track: Track): String =
         "%02d - %s.m4a".format(index + 1, sanitize(track.title, "Track"))
 
+    /** Compared by the last part of the address: MediaStore hands out two prefixes for one file. */
+    fun staleFiles(files: List<String>, keepFiles: Collection<String>): List<String> {
+        val keep = keepFiles.mapTo(HashSet()) { it.substringAfterLast('/') }
+        return files.filter { it.substringAfterLast('/') !in keep }
+    }
+
     const val INDIVIDUAL_SONGS = "Individual Songs"
 
     /** With the artist: two songs downloaded on their own can share a title. */
@@ -155,10 +161,68 @@ class PlaylistDownloadFiles(private val context: Context) {
     }
 
     fun deleteFolderIfEmpty(folderName: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
         @Suppress("DEPRECATION")
         val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val folder = File(root, "Auralis/${PlaylistDownloadPaths.sanitize(folderName)}")
-        runCatching { if (folder.isDirectory && folder.listFiles().isNullOrEmpty()) folder.delete() }
+        // File.delete() refuses a folder that still holds anything, so this can't lose a file.
+        runCatching { File(root, "Auralis/${PlaylistDownloadPaths.sanitize(folderName)}").delete() }
+    }
+
+    /** Every file Auralis saved in Downloads, as (uri or file, folder path ending in "/"). */
+    private fun publishedFiles(folderName: String? = null): List<Pair<String, String>> {
+        val base = "${Environment.DIRECTORY_DOWNLOADS ?: "Download"}/Auralis/"
+        val wanted = folderName?.let(PlaylistDownloadPaths::relativePath)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.RELATIVE_PATH)
+            val files = mutableListOf<Pair<String, String>>()
+            context.contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection,
+                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?", arrayOf("$base%"), null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(1).orEmpty().let { if (it.endsWith("/")) it else "$it/" }
+                    val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+                    if (wanted == null || path == wanted) files.add(uri.toString() to path)
+                }
+            }
+            files
+        } else {
+            @Suppress("DEPRECATION")
+            val root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Auralis")
+            root.listFiles().orEmpty().filter { it.isDirectory }.flatMap { folder ->
+                val path = "$base${folder.name}/"
+                if (wanted != null && path != wanted) emptyList()
+                else folder.listFiles().orEmpty().map { it.toURI().toString() to path }
+            }
+        }
+    }
+
+    private fun deleteFiles(files: List<Pair<String, String>>) {
+        files.forEach { (file, _) -> delete(file) }
+        files.map { it.second.trimEnd('/').substringAfterLast('/') }.distinct().forEach(::deleteFolderIfEmpty)
+    }
+
+    /** The whole folder, including copies left by earlier downloads the job no longer tracks. */
+    fun deleteFolder(folderName: String) {
+        runCatching { deleteFiles(publishedFiles(folderName)) }
+        deleteFolderIfEmpty(folderName)
+    }
+
+    /** Extra copies of a playlist's songs: a song saved again at a new position got a new file name. */
+    fun pruneFolder(folderName: String, keepFiles: Collection<String>) {
+        if (keepFiles.isEmpty()) return
+        runCatching {
+            val stale = PlaylistDownloadPaths.staleFiles(publishedFiles(folderName).map { it.first }, keepFiles).toSet()
+            deleteFiles(publishedFiles(folderName).filter { it.first in stale })
+        }
+    }
+
+    /** Folders of playlists whose download no longer exists, which nothing in the app can reach. */
+    fun deleteAbandonedFolders(activeFolders: Collection<String>) {
+        val keep = (activeFolders + PlaylistDownloadPaths.INDIVIDUAL_SONGS).mapTo(HashSet(), PlaylistDownloadPaths::relativePath)
+        runCatching { deleteFiles(publishedFiles().filter { it.second !in keep }) }
+    }
+
+    fun deleteAllPublished() {
+        runCatching { deleteFiles(publishedFiles()) }
     }
 }

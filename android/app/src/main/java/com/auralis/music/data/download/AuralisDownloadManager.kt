@@ -677,6 +677,7 @@ object AuralisDownloadManager {
                     }
                 }
                 _playlistDownloads.value = emptyMap()
+                appContext?.let { PlaylistDownloadFiles(it).deleteAllPublished() }
                 showToast("All downloads cleared")
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing all downloads: ${e.message}", e)

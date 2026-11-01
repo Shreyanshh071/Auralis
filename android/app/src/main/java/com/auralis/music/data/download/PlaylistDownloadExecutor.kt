@@ -136,6 +136,9 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 }
                 val shouldEnableOffline = (job.offlineEnabled || status == PlaylistDownloadStatus.COMPLETE) && status == PlaylistDownloadStatus.COMPLETE
                 job = repository.update(job, verified, status, null, shouldEnableOffline)
+                if (status == PlaylistDownloadStatus.COMPLETE || status == PlaylistDownloadStatus.PARTIAL_FAILURE) {
+                    publicFiles.pruneFolder(job.folderName, verified.mapNotNull { it.contentUri })
+                }
                 onProgress(job)
                 job
             } catch (e: CancellationException) {
