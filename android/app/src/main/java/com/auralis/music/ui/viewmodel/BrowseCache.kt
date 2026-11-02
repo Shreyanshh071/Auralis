@@ -28,6 +28,10 @@ internal class BrowseCache(context: Context) {
 
     suspend fun saveArtist(name: String, value: ArtistPage) = write("artist:${name.lowercase()}", json.encodeToString(value))
 
+    suspend fun applePhoto(name: String): String? = read("apple_photo:${name.lowercase()}") { it }
+
+    suspend fun saveApplePhoto(name: String, url: String) = write("apple_photo:${name.lowercase()}", url)
+
     private suspend fun <T> read(key: String, decode: (String) -> T): T? = withContext(Dispatchers.IO) {
         runCatching { fileFor(key).takeIf(File::exists)?.readText()?.let(decode) }.getOrNull()
     }

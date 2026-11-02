@@ -741,120 +741,27 @@ fun TrackOptionsMenu(
                 }
             } else {
                 // ── PLAYLIST PICKER VIEW ──
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = { showPlaylistPicker = false }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Text(
-                        text = str(R.string.save_to_playlist),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    IconButton(onClick = { showCreatePlaylistDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = str(R.string.new_playlist),
-                            tint = dynamicPrimary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (userPlaylists.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = str(R.string.no_custom_playlists_yet),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { showCreatePlaylistDialog = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = dynamicPrimary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(str(R.string.create_playlist), fontWeight = FontWeight.Bold)
-                            }
+                PlaylistPickerHeader(
+                    title = str(R.string.save_to_playlist),
+                    subtitle = "${track.title} • ${track.artist}",
+                    artworkUrl = track.thumbnail,
+                    onBack = { showPlaylistPicker = false }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                PlaylistPickerList(
+                    playlists = userPlaylists,
+                    isInPlaylist = { playlist -> playlist.tracks.any { it.id == track.id } },
+                    onCreate = { showCreatePlaylistDialog = true },
+                    onPick = { playlist ->
+                        if (playlist.tracks.any { it.id == track.id }) {
+                            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
+                        } else {
+                            onAddToPlaylist(playlist)
+                            showPlaylistPicker = false
+                            onDismiss()
                         }
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 380.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(userPlaylists, key = { it.id }) { playlist ->
-                            val alreadyInPlaylist = playlist.tracks.any { it.id == track.id }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        if (alreadyInPlaylist) {
-                                            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
-                                        } else {
-                                            onAddToPlaylist(playlist)
-                                            showPlaylistPicker = false
-                                            onDismiss()
-                                        }
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
-                                    modifier = Modifier.size(42.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = playlist.title
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = playlist.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = str(R.string.x_songs, playlist.tracks.size),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Icon(
-                                    imageVector = if (alreadyInPlaylist) Icons.Default.Check else Icons.Default.Add,
-                                    contentDescription = if (alreadyInPlaylist) str(R.string.already_in_playlist) else str(R.string.add),
-                                    tint = if (alreadyInPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
             }

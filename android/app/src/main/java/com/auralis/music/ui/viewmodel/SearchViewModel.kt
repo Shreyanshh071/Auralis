@@ -120,6 +120,8 @@ class SearchViewModel(
     private val artistRequests = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ArtistPage?>>()
     private val albumPages = java.util.concurrent.ConcurrentHashMap<String, List<Track>>()
     private val browseCache = context?.let { BrowseCache(it) }
+    /** Lowercase artist name to Apple Music photo. Blank while looking, or when Apple has none. */
+    private val applePhotos = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private fun artistPageRequest(artist: Artist): kotlinx.coroutines.Deferred<ArtistPage?> {
         val key = artist.name.lowercase()
@@ -386,9 +388,9 @@ class SearchViewModel(
                     if (e is CancellationException && e !is TimeoutCancellationException) throw e
                     null
                 }
-                val page = loaded?.let {
+                val page = (loaded?.let {
                     if (it.topSongs.isEmpty()) it.copy(topSongs = top.artistPage.topSongs) else it
-                } ?: top.artistPage
+                } ?: top.artistPage).withKnownPhoto()
                 _uiState.update { cur ->
                     val stack = cur.detailStack.map { if (it === top) top.copy(artistPage = page, isLoading = false,
                         loadFailed = page.topSongs.isEmpty()) else it }
@@ -470,7 +472,7 @@ class SearchViewModel(
             artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail!!.contains("i.ytimg.com") && !artist.thumbnail!!.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
             else -> null
         }
-        val cachedPage = artistPages[artist.name.lowercase()]
+        val cachedPage = artistPages[artist.name.lowercase()]?.withKnownPhoto()
         val initialPage = cachedPage ?: ArtistPage(
             artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
         val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = cachedPage == null)
@@ -487,14 +489,68 @@ class SearchViewModel(
             )
         }
 
-        if (cachedPage != null) return
+        if (cachedPage != null) {
+            upgradeArtistPhoto(cachedPage)
+            return
+        }
         viewModelScope.launch {
             val stored = browseCache?.artist(artist.name)
-            if (stored != null) showArtistPage(artist, stored)
+            if (stored != null) {
+                showArtistPage(artist, stored)
+                upgradeArtistPhoto(stored)
+            }
             val knownChannel = stored?.artist?.id?.takeIf { !artist.id.startsWith("UC") && it.startsWith("UC") }
             val page = artistPageRequest(if (knownChannel != null) artist.copy(id = knownChannel) else artist).await()
             showArtistPage(artist, page ?: stored ?: initialPage)
-            page?.let(::preloadAlbums)
+            page?.let {
+                preloadAlbums(it)
+                upgradeArtistPhoto(it)
+            }
+        }
+    }
+
+    private fun ArtistPage.withKnownPhoto(): ArtistPage {
+        val photo = applePhotos[artist.name.lowercase()]?.takeIf(String::isNotBlank) ?: return this
+        return copy(artist = artist.copy(thumbnail = photo), bannerUrl = photo)
+    }
+
+    /** The page opens on its normal photo, then swaps to Apple Music's once that has fully loaded. */
+    private fun upgradeArtistPhoto(page: ArtistPage) {
+        val appContext = context ?: return
+        val name = page.artist.name
+        val key = name.lowercase()
+        if (applePhotos.putIfAbsent(key, "") != null) return
+        viewModelScope.launch {
+            val saved = browseCache?.applePhoto(name)
+            val photo = saved ?: try {
+                com.auralis.music.data.network.AppleArtistPhoto.find(
+                    name, page.topSongs.map { it.title } + (page.albums + page.singles).map { it.title }
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                applePhotos.remove(key)
+                return@launch
+            } ?: return@launch
+            val loaded = coil.Coil.imageLoader(appContext).execute(
+                coil.request.ImageRequest.Builder(appContext)
+                    .data(com.auralis.music.ui.components.getHighResArtworkUrl(photo))
+                    .build()
+            )
+            if (loaded !is coil.request.SuccessResult) {
+                applePhotos.remove(key)
+                return@launch
+            }
+            applePhotos[key] = photo
+            if (saved == null) browseCache?.saveApplePhoto(name, photo)
+            _uiState.update { current ->
+                val updatedStack = current.detailStack.map { detail ->
+                    if (detail is ExploreDetail.Artist) detail.copy(artistPage = detail.artistPage.withKnownPhoto()) else detail
+                }
+                current.copy(
+                    detailStack = updatedStack,
+                    selectedArtistPage = (updatedStack.lastOrNull() as? ExploreDetail.Artist)?.artistPage ?: current.selectedArtistPage
+                )
+            }
         }
     }
 
@@ -502,7 +558,7 @@ class SearchViewModel(
         _uiState.update { current ->
             val updatedStack = current.detailStack.map { detail ->
                 if (detail is ExploreDetail.Artist && (detail.artistPage.artist.id == artist.id || detail.artistPage.artist.name.equals(artist.name, ignoreCase = true))) {
-                    detail.copy(artistPage = page, isLoading = false, loadFailed = page.topSongs.isEmpty())
+                    detail.copy(artistPage = page.withKnownPhoto(), isLoading = false, loadFailed = page.topSongs.isEmpty())
                 } else {
                     detail
                 }

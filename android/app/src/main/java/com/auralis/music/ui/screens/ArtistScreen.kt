@@ -6,8 +6,10 @@ import com.auralis.music.ui.i18n.str
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +28,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -62,6 +66,7 @@ import com.auralis.music.ui.glass.glassBarTint
 import com.auralis.music.ui.glass.liquidGlass
 import com.auralis.music.ui.glass.pageGlassActionColor
 import com.auralis.music.ui.glass.pageGlassSelection
+import com.auralis.music.ui.glass.underStatusBar
 import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -69,6 +74,25 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 private const val TOP_SONGS_SHOWN = 5
 private val PillShape = RoundedCornerShape(26.dp)
+
+/** The sharp photo dissolves into the blur before the name starts, eased so no line shows. */
+private val HeroPhotoFade = Brush.verticalGradient(
+    0.62f to Color.Black,
+    0.78f to Color.Black.copy(alpha = .62f),
+    0.92f to Color.Black.copy(alpha = .14f),
+    1f to Color.Transparent
+)
+
+/** The blur under the name melts into the page. */
+private val HeroFade = Brush.verticalGradient(
+    0.8f to Color.Black,
+    0.92f to Color.Black.copy(alpha = .55f),
+    1f to Color.Transparent
+)
+
+/** Room under the photo for the name and audience. */
+private val HeroTextSpace = 84.dp
+private val HeroPhotoMaxHeight = 520.dp
 
 /**
  * Artist page, with the same layout on the normal and liquid glass themes:
@@ -145,8 +169,10 @@ fun ArtistScreen(
         onBack()
     }
 
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
     OptionalGlassPage(background = pageBackground, accent = accent,
-        modifier = modifier.fillMaxSize().background(pageBackground)) {
+        modifier = modifier.underStatusBar().fillMaxSize().background(pageBackground)) {
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -321,7 +347,20 @@ fun ArtistScreen(
             }
         }
 
+        // The list passes behind the status bar too, so the page's colour closes over it on the way up.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(statusBarHeight)
+                .graphicsLayer {
+                    alpha = if (listState.firstVisibleItemIndex > 0) 1f
+                    else (listState.firstVisibleItemScrollOffset / 300.dp.toPx()).coerceIn(0f, 1f)
+                }
+                .background(pageBackground)
+        )
+
         ArtistFloatingButtons(
+            topInset = statusBarHeight,
             backdrop = contentBackdrop,
             onBack = onBack,
             onShare = {
@@ -445,7 +484,11 @@ private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset:
         isKanye && (rawBanner.isNullOrBlank() || rawBanner.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA")) -> defaultKanye
         else -> rawBanner
     }
-    Box(Modifier.fillMaxWidth().height(430.dp)) {
+    val pageBackground = MaterialTheme.dynamicBackground
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    // Square like the photos themselves, so nothing is cropped, with the text below it on the blur.
+    val photoHeight = maxWidth.coerceAtMost(HeroPhotoMaxHeight)
+    Box(Modifier.fillMaxWidth().height(photoHeight + HeroTextSpace)) {
         // The photo fades to nothing instead of to a colour, so it melts into the page's own
         // background on both themes, including the glass page's glow.
         Box(
@@ -457,25 +500,53 @@ private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset:
                 }
                 .drawWithContent {
                     drawContent()
-                    drawRect(
-                        brush = Brush.verticalGradient(0.5f to Color.Black, 0.97f to Color.Transparent),
-                        blendMode = BlendMode.DstIn
-                    )
+                    drawRect(brush = HeroFade, blendMode = BlendMode.DstIn)
                 }
         ) {
-            if (!banner.isNullOrBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(getHighResArtworkUrl(banner))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = artistPage.artist.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer))
+            // The old photo stays underneath while a better one fades in, so the swap never blinks.
+            Crossfade(targetState = banner, modifier = Modifier.fillMaxSize(), animationSpec = tween(600), label = "artistPhoto") { photo ->
+                Box(Modifier.fillMaxSize()) {
+                    if (!photo.isNullOrBlank()) {
+                        val request = ImageRequest.Builder(context)
+                            .data(getHighResArtworkUrl(photo))
+                            .crossfade(true)
+                            .build()
+                        // Blur only on Android 12 and up; below that the photo fades to the page.
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            AsyncImage(
+                                model = request,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().blur(48.dp, BlurredEdgeTreatment.Rectangle)
+                            )
+                        }
+                        AsyncImage(
+                            model = request,
+                            contentDescription = artistPage.artist.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(photoHeight)
+                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .drawWithContent {
+                                    drawContent()
+                                    drawRect(brush = HeroPhotoFade, blendMode = BlendMode.DstIn)
+                                }
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer))
+                    }
+                }
             }
+            // Calms a bright blur so the name stays readable.
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0.6f to pageBackground.copy(alpha = 0f),
+                        0.84f to pageBackground.copy(alpha = .5f)
+                    )
+                )
+            )
             // Keeps the status bar and pinned buttons readable on a bright photo.
             Box(
                 Modifier.fillMaxWidth().height(130.dp).background(
@@ -508,6 +579,7 @@ private fun ArtistHero(artistPage: ArtistPage, audience: String, parallaxOffset:
                 )
             }
         }
+    }
     }
 }
 
@@ -873,13 +945,16 @@ internal fun BoxScope.ArtistFloatingButtons(
     backdrop: com.kyant.backdrop.Backdrop,
     onBack: () -> Unit,
     onShare: () -> Unit,
-    onMore: (() -> Unit)? = null
+    onMore: (() -> Unit)? = null,
+    /** For a page that runs behind the status bar, where the system inset is already used up. */
+    topInset: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     Row(
         Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
             .statusBarsPadding()
+            .padding(top = topInset)
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)

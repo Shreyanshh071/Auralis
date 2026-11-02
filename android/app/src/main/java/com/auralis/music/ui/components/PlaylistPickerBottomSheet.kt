@@ -1,7 +1,5 @@
 package com.auralis.music.ui.components
 
-import com.auralis.music.ui.glass.liquidGlass
-import com.auralis.music.ui.glass.liquidGlassDialog
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -35,10 +33,8 @@ import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.Track
 
 /**
- * High-Speed Direct Playlist Picker Bottom Sheet.
- * 
- * Opened immediately upon clicking the '+' button on the MiniPlayer.
- * Shows all user playlists with one-tap add, high-res covers, track counts, and instant '+ New Playlist' creator.
+ * Opened by the '+' button on the MiniPlayer: one tap adds to a playlist and the sheet stays open,
+ * so a song can go into several.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,242 +55,30 @@ fun PlaylistPickerBottomSheet(
         if (glass != null) modalVisual?.opened()
         onDispose { if (glass != null) modalVisual?.closed() }
     }
-    val pageView = androidx.compose.ui.platform.LocalView.current
-    val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    val dynamicSurface = MaterialTheme.colorScheme.surface
-    val dynamicPrimary = MaterialTheme.colorScheme.primary
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = if (glass == null) dynamicSurface else Color.Transparent,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    ) {
-        Box(Modifier.fillMaxWidth()) {
-            if (glass != null) Box(Modifier.matchParentSize().liquidGlassDialog(glass,sheetShape,pageView))
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-        ) {
-            // ── DRAG HANDLE ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.35f))
-                )
-            }
-
-            // ── HEADER: TRACK INFO + CLOSE BUTTON ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ArtworkCard(
-                    url = track.thumbnail,
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
-                    cornerRadius = 10.dp,
-                    contentDescription = track.title
-                )
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = str(R.string.add_to_playlist),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${track.title} • ${track.artist}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.close),
-                        tint = Color.White.copy(alpha = 0.75f)
-                    )
-                }
-            }
-
-            HorizontalDivider(
-                color = Color.White.copy(alpha = 0.08f),
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+    AuralisOptionSheet(
+        onDismiss = onDismiss,
+        title = {
+            PlaylistPickerHeader(
+                title = str(R.string.add_to_playlist),
+                subtitle = "${track.title} • ${track.artist}",
+                artworkUrl = track.thumbnail
             )
-
-            // ── NEW PLAYLIST PILL ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .then(if (glass == null) Modifier.background(Color(0xFF262021)) else Modifier.liquidGlass(glass, RoundedCornerShape(16.dp)))
-                    .clickable { showCreateDialog = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = str(R.string.new_playlist),
-                        tint = dynamicPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = str(R.string.new_playlist),
-                        color = dynamicPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp
-                    )
+        }
+    ) {
+        PlaylistPickerList(
+            playlists = userPlaylists,
+            isInPlaylist = { playlist -> recentlyAddedId == playlist.id || playlist.tracks.any { it.id == track.id } },
+            onCreate = { showCreateDialog = true },
+            onPick = { playlist ->
+                if (playlist.tracks.any { it.id == track.id }) {
+                    com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
+                } else {
+                    recentlyAddedId = playlist.id
+                    onAddToPlaylist(playlist)
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // ── PLAYLISTS LIST ──
-            if (userPlaylists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.PlaylistAdd,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.5f),
-                            modifier = Modifier.size(40.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = str(R.string.no_custom_playlists_yet_2),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = str(R.string.tap_new_playlist_above_to_create_your_fi),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 380.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(userPlaylists, key = { it.id }, contentType = { "playlist" }) { playlist ->
-                        val isAdded = recentlyAddedId == playlist.id
-                        val alreadyInPlaylist = remember(playlist.tracks, track.id) { playlist.tracks.any { it.id == track.id } }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .then(if (glass == null) Modifier.background(
-                                    if (alreadyInPlaylist || isAdded) dynamicPrimary.copy(alpha = 0.15f) else Color(0xFF262021))
-                                else Modifier.playlistRowGlass(glass.isDark, alreadyInPlaylist || isAdded, dynamicPrimary))
-                                .clickable {
-                                    if (alreadyInPlaylist) {
-                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
-                                    } else {
-                                        recentlyAddedId = playlist.id
-                                        onAddToPlaylist(playlist)
-                                    }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Playlist Artwork / Icon
-                            val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
-                            if (!coverUrl.isNullOrBlank()) {
-                                ArtworkCard(
-                                    url = coverUrl,
-                                    modifier = Modifier.size(44.dp),
-                                    cornerRadius = 8.dp,
-                                    sizeToConstraints = true,
-                                    crossfade = false,
-                                    contentDescription = playlist.title
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(dynamicSurface),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QueueMusic,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = playlist.title,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = str(R.string.x_tracks, playlist.tracks.size),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.6f)
-                                )
-                            }
-
-                            if (isAdded || alreadyInPlaylist) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = str(R.string.added),
-                                    tint = dynamicPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        }
+        )
     }
 
     // ── CREATE PLAYLIST DIALOG ──

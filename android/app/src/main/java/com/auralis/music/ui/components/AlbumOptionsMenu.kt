@@ -430,109 +430,23 @@ fun AlbumOptionsMenu(
                 }
             } else {
                 // ── PLAYLIST PICKER VIEW ──
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = { showPlaylistPicker = false }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                PlaylistPickerHeader(
+                    title = str(R.string.add_album_to_playlist),
+                    subtitle = album.title,
+                    artworkUrl = album.thumbnail,
+                    onBack = { showPlaylistPicker = false }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                PlaylistPickerList(
+                    playlists = userPlaylists,
+                    isInPlaylist = { false },
+                    onCreate = { showCreatePlaylistDialog = true },
+                    onPick = { playlist ->
+                        onAddToPlaylist(playlist)
+                        showPlaylistPicker = false
+                        onDismiss()
                     }
-                    Text(
-                        text = str(R.string.add_album_to_playlist),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    IconButton(onClick = { showCreatePlaylistDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = str(R.string.new_playlist),
-                            tint = dynamicPrimary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (userPlaylists.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = str(R.string.no_custom_playlists_yet),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { showCreatePlaylistDialog = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = dynamicPrimary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(str(R.string.create_playlist), fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 380.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(userPlaylists, key = { it.id }) { playlist ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        onAddToPlaylist(playlist)
-                                        showPlaylistPicker = false
-                                        onDismiss()
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = playlist.coverUrl,
-                                    modifier = Modifier.size(42.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = playlist.title
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = playlist.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = str(R.string.x_songs, playlist.tracks.size),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
             }

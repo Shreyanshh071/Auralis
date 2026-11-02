@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,21 +91,26 @@ internal val ARTWORK_GLASS_BLUR = 3.dp
 internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modifier = Modifier,
     /** Keeps the glow on the normal theme too, for pages that would otherwise read as flat. */
     glowWithoutGlass: Boolean = false,
-    /** For pages that start below the status bar: carries the glow up behind it. */
-    glowBehindStatusBar: Boolean = false,
+    /** Pages start below the status bar, so this carries their colour and glow up behind it. Off for popups. */
+    glowBehindStatusBar: Boolean = true,
     content: @Composable BoxScope.() -> Unit) {
     val backdrop = rememberLayerBackdrop()
     val glass = rememberPageHeaderGlass(backdrop)
     val pageGlow = remember { PageGlow() }
     pageGlow.enabled = glass != null || glowWithoutGlass
     if (glowBehindStatusBar) DisposableEffect(pageGlow) {
-        onDispose { if (StatusBarGlow.image === pageGlow.image) StatusBarGlow.image = null }
+        onDispose { if (StatusBarGlow.owner === pageGlow) StatusBarGlow.clear() }
     }
     CompositionLocalProvider(LocalPageCardGlass provides glass, LocalPageGlow provides pageGlow) {
         // Switching the theme rebuilds the page: cards already drawn kept the old look until they
         // next redrew, so the page looked stale until it was scrolled.
         key(glass != null) {
-            Box(modifier) {
+            // Set on draw: a tab kept alive in the background must take the strip back.
+            Box(if (glowBehindStatusBar) modifier.drawBehind {
+                StatusBarGlow.owner = pageGlow
+                StatusBarGlow.color = background
+                if (!pageGlow.enabled) StatusBarGlow.image = null
+            } else modifier) {
                 if (pageGlow.enabled) Box(Modifier.fillMaxSize()
                     .then(if (glass != null) Modifier.layerBackdrop(backdrop) else Modifier).drawWithCache {
                     val image = renderPageGlow(size, background, accent)
@@ -111,7 +118,6 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
                     pageGlow.image = image
                     pageGlow.pageSize = pageSize
                     onDrawBehind {
-                    // Set on draw: a tab kept alive in the background must take the strip back.
                     if (glowBehindStatusBar) StatusBarGlow.image = image
                     drawImage(image, dstSize = pageSize, filterQuality = FilterQuality.Low)
                 }
@@ -122,15 +128,38 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
     }
 }
 
-/** The glow of the page showing below the status bar, for [StatusBarGlowBand] to continue. */
+/** The page showing below the status bar, for [StatusBarGlowBand] to continue. */
 internal object StatusBarGlow {
+    var owner: Any? = null
+    var color by mutableStateOf<Color?>(null)
     var image by mutableStateOf<ImageBitmap?>(null)
+
+    fun clear() {
+        owner = null
+        color = null
+        image = null
+    }
 }
 
-/** The strip behind the status bar: the top edge of the page's glow, carried up so there's no seam. */
+/**
+ * Lets a page whose picture should reach the top of the screen run behind the status bar: it's
+ * taller by the bar and starts above its slot, so whatever is laid out below stays where it was.
+ */
+@Composable
+internal fun Modifier.underStatusBar(): Modifier {
+    val inset = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current)
+    return layout { measurable, constraints ->
+        val height = constraints.maxHeight + inset
+        val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+        layout(placeable.width, constraints.maxHeight) { placeable.place(0, -inset) }
+    }
+}
+
+/** The strip behind the status bar: the page's colour and the top edge of its glow, so there's no seam. */
 @Composable
 internal fun StatusBarGlowBand(modifier: Modifier = Modifier) {
     Box(modifier.drawBehind {
+        StatusBarGlow.color?.let { drawRect(it) }
         val image = StatusBarGlow.image ?: return@drawBehind
         drawImage(
             image,

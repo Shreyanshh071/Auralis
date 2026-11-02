@@ -244,7 +244,7 @@ class LyricsClient(
             }
 
         internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
-            LyricsProvider.SPICY_LYRICS -> 5
+            LyricsProvider.SPICY_LYRICS -> 6
             LyricsProvider.BETTER_LYRICS -> 5
             LyricsProvider.AMLL -> 5
             LyricsProvider.PAXSENIX -> 4

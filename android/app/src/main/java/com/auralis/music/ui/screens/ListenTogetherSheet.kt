@@ -167,7 +167,7 @@ fun ListenTogetherSheet(
     val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val backgroundColor = MaterialTheme.dynamicBackground
 
-    OptionalGlassPage(background = backgroundColor, accent = primaryColor,
+    OptionalGlassPage(background = backgroundColor, accent = primaryColor, glowBehindStatusBar = !isPopup,
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
@@ -920,7 +920,7 @@ private fun GlassListenTogetherLobby(
     val card = foreground.copy(alpha=.07f)
     OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
         .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding()),
-        glowWithoutGlass = true) {
+        glowWithoutGlass = true, glowBehindStatusBar = !popup) {
         // Read inside the page, where its glass is known: glass needs light text, a solid button its own.
         val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
         val lobbyBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()

@@ -605,6 +605,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     requestAutoQueueExtension()
                 }
             } else {
+                continueAfterListEnded()
                 if (canExtendQueue()) {
                     _isBuffering.value = true
                     persistQueue()
@@ -1150,6 +1151,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     /** A lone song always gets a queue; with Persistent queue off, that queue then runs out and stops. */
     private fun canExtendQueue(): Boolean = runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue &&
         (runtimeSettings.persistentQueue || queueManager.state.queue.size <= 1)
+
+    /** A playlist or album that has played to its end carries on with songs related to its last one. */
+    private fun continueAfterListEnded() {
+        val state = queueManager.state
+        if (!state.isUserQueue || !runtimeSettings.autoLoadMore || isGuestListenTogether.value || state.queue.isEmpty()) return
+        _queueState.value = queueManager.setQueue(state.queue, state.currentIndex, preserveOrderIfSame = true, isUserQueue = false)
+    }
 
     fun requestAutoQueueExtension(advanceWhenLoaded: Boolean = false) {
         if (!canExtendQueue() || isGuestListenTogether.value) return
@@ -1921,6 +1929,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
         }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() reached the end of the queue")
+        continueAfterListEnded()
         if (canExtendQueue()) {
             requestAutoQueueExtension(advanceWhenLoaded = true)
         } else {

@@ -273,11 +273,11 @@ class PlayerViewModel(
                                     reportFailures = true)
                             } else {
                                 // Older outputs do not publish a provider. Prefer Spicy before exposing a fallback.
-                                val spicy = if (isSpicyLyricsMode()) kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                                val spicy = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
                                     lyricsRepository.upgradeSpicy(track.title, track.artist, duration / 1000L,
                                         track.id, track.album, track.channelTitle, duration, null,
                                         com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id))
-                                } else null
+                                }
                                 spicy ?: lyricsRepository.getLyrics(title = track.title, artist = track.artist,
                                     durationSec = duration / 1000L, videoId = track.id, album = track.album,
                                     channelTitle = track.channelTitle, durationMs = duration, forceRefresh = false)
@@ -1463,7 +1463,8 @@ class PlayerViewModel(
                 )
             }
             suspend fun upgradeSpicy(): Boolean {
-                if (!isActive() || !isSpicyLyricsMode()) return false
+                // The source and the animation are separate choices: Spicy leads whichever style is on.
+                if (!isActive()) return false
                 val upgraded = try {
                     withContext(Dispatchers.IO) {
                         lyricsRepository.upgradeSpicy(track.title, track.artist, effectiveDurationSec,
@@ -1622,17 +1623,6 @@ class PlayerViewModel(
                     _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 } ?: if (forceSourceRefresh) safeFallback else it.lyrics, isLoadingLyrics = false) }
                 }
             }
-        }
-    }
-
-    private suspend fun isSpicyLyricsMode(): Boolean {
-        val ctx = context ?: return false
-        return try {
-            val settings = com.auralis.music.data.datastore.AppearanceSettingsDataStore(ctx).settingsFlow.first()
-            LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation) == LyricsAnimationMode.SPICY_LYRICS
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            false
         }
     }
 
