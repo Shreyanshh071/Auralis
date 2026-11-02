@@ -395,6 +395,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         SettingToggle("Stage player", "Show cover and lyrics side by side in the main player",prefs.bool("stagePlayer",true)) {prefs.set("stagePlayer",it)}
         SettingToggle("Tabbed player", "Switch between lyrics and queue; turn off to show both",prefs.bool("tabbedPlayer",true)) {prefs.set("tabbedPlayer",it)}
     }
+    SettingsGroup("Immersive mode") {
+        com.auralis.music.windows.immersive.ImmersiveSettings()
+    }
     SettingsGroup("Typography") {
         val fonts by produceState(listOf("Default"), revision.optInt("fontRevision")) {
             value = withContext(Dispatchers.IO) {

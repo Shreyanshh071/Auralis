@@ -11,6 +11,7 @@ import androidx.compose.ui.input.key.type
 import java.awt.event.KeyEvent.VK_DOWN
 import java.awt.event.KeyEvent.VK_ESCAPE
 import java.awt.event.KeyEvent.VK_F
+import java.awt.event.KeyEvent.VK_I
 import java.awt.event.KeyEvent.VK_K
 import java.awt.event.KeyEvent.VK_L
 import java.awt.event.KeyEvent.VK_LEFT
@@ -35,6 +36,7 @@ interface ShortcutActions {
     fun showQueue()
     /** Closes the player, otherwise goes back through local pages and navigation history. */
     fun closePlayer(): Boolean
+    fun openImmersive() {}
 }
 
 /**
@@ -52,6 +54,7 @@ interface ShortcutActions {
  * | Ctrl+F or Ctrl+K | Search |
  * | Ctrl+P | Open / close the player |
  * | Ctrl+L / Ctrl+Q | Player with lyrics / queue |
+ * | I | Immersive mode |
  * | Esc | Close the player, otherwise return to the previous page |
  */
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
@@ -88,6 +91,7 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
         VK_RIGHT -> actions.seekBy(step)
         VK_LEFT -> actions.seekBy(-step)
         VK_M -> actions.toggleMute()
+        VK_I -> actions.openImmersive()
         else -> return false
     }
     return true

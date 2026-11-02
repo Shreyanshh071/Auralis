@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -99,7 +100,8 @@ fun PlayerScreen(
     panel: PlayerPanel,
     onPanelChange: (PlayerPanel) -> Unit,
     onClose: () -> Unit,
-    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette
+    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
+    onImmersive: () -> Unit = {}
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
@@ -184,6 +186,9 @@ fun PlayerScreen(
 
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+        IconButton(onClick = onImmersive, modifier = Modifier.padding(12.dp).align(Alignment.TopEnd)) {
+            Icon(Icons.Rounded.Fullscreen, contentDescription = desktopText("Immersive mode"), tint = Color.White, modifier = Modifier.size(28.dp))
         }
     }
 }

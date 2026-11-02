@@ -313,6 +313,8 @@ fun main(args: Array<String>) {
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
         var previousPlacement by remember { mutableStateOf(androidx.compose.ui.window.WindowPlacement.Floating) }
+        val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
+        var playerRequests by remember { mutableStateOf(0) }
         fun setPlayerFullscreen(enabled: Boolean) {
             if (playerFullscreen == enabled) return
             if (enabled) previousPlacement = windowState.placement
@@ -647,6 +649,8 @@ fun main(args: Array<String>) {
                     account = ready.account,
                     playerFullscreen = playerFullscreen,
                     onPlayerFullscreen = ::setPlayerFullscreen,
+                    onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
+                    playerRequests = playerRequests,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
                         val chrome: @Composable () -> Unit = {
@@ -708,6 +712,20 @@ fun main(args: Array<String>) {
                     if (nativeFrame == null) WindowDraggableArea { placeholderChrome() } else placeholderChrome()
                 }
             }
+        }
+
+        val immersivePlayback = components?.playback
+        val immersiveLyrics = components?.lyrics
+        val immersiveStores = components?.stores
+        if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
+            com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
+            com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
+                appBounds = { composeWindow?.takeIf { it.isVisible }?.bounds }, icon = icon,
+                onLeaveToPlayer = {
+                    immersive.close()
+                    openWindow()
+                    playerRequests++
+                })
         }
     }
 }
