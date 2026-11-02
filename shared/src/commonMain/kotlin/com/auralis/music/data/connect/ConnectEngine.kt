@@ -182,6 +182,11 @@ data class ConnectUi(
  * One client's side of Connect. Feed it server-confirmed snapshots, device lists and local player
  * changes; it keeps the single-output rule, applies remote controls when this client is the
  * output, runs handoffs, and publishes [ui]. All work is serialised on one lock.
+ *
+ * Connect follows playback; playback never follows Connect. [intercept] decides a control's route
+ * from what is already known, without waiting. A control for this device goes to the local player
+ * at once and the session catches up afterwards, however long Firestore takes or if it never answers.
+ * Only controls for another device and handoffs the user asked for need Firestore.
  */
 class ConnectEngine(
     private val scope: CoroutineScope,
@@ -221,10 +226,16 @@ class ConnectEngine(
         const val SETTLE_MS = 4_000L
         const val OPTIMISTIC_MS = 6_000L
         const val START_WATCH_MS = 20_000L
-        /** How long a tapped song waits on the session before it plays on this device regardless. */
+        /** How long a song sent to another device waits for the write before it plays here instead. */
         const val WRITE_PATIENCE_MS = 4_000L
-        /** Failed transactions still spend reads, so a device playing alone retries rarely. */
-        const val ALONE_CLAIM_RETRY_MS = 60_000L
+        /** No Firestore call may hold the engine's lock longer than this. */
+        const val WRITE_TIMEOUT_MS = 10_000L
+        /** Failed transactions still spend reads, so routine writes pause this long after a failure. */
+        const val WRITE_RETRY_MS = 30_000L
+        /** A control made here, before the player acts on it: it may not have a song yet. */
+        const val LOCAL_CONTROL_SETTLE_MS = 2_000L
+        /** The handoff reason of a device catching the session up with a control already made there. */
+        const val LOCAL_CONTROL = "local-control"
     }
 
     var me: ConnectDevice = device
@@ -256,9 +267,17 @@ class ConnectEngine(
     private data class StartWatch(val from: String?, val atLocal: Long)
     private var startWatch: StartWatch? = null
 
-    /** The session version this device played past because Connect couldn't write; null when it follows the session. */
-    @Volatile private var aloneSinceVersion: Long? = null
-    private var aloneClaimTried = Long.MIN_VALUE / 2
+    /**
+     * A control made on this device that the session hasn't heard about. While it is set the local
+     * player is in charge. [epoch] is the session's output epoch at the time, null if none was known.
+     */
+    private data class LocalControl(val epoch: Long?, val atLocal: Long)
+    @Volatile private var localControl: LocalControl? = null
+
+    /** The last session write failed; a control can't be expected to reach another device. */
+    @Volatile private var writesFailing = false
+    /** Routine writes wait until this local time after a failure. */
+    private var writeRetryAtLocal = 0L
 
     private var lastHeartbeatLocal = Long.MIN_VALUE / 2
     @Volatile private var deviceAvailable = true
@@ -336,7 +355,9 @@ class ConnectEngine(
     fun tick() {
         if (stopped) return
         // Hiding already wrote "offline", so a hidden idle client has nothing new to say.
-        if (deviceAvailable && localNow() - lastHeartbeatLocal >= HEARTBEAT_MS) scope.launch { heartbeatNow() }
+        // One heartbeat at a time: Android queues offline writes, and a pile would all land on reconnect.
+        if (deviceAvailable && !presenceLock.isLocked && localNow() - lastHeartbeatLocal >= HEARTBEAT_MS) scope.launch { heartbeatNow() }
+        if (lock.isLocked) return
         scope.launch {
             locked {
                 if (current == null) refetch()
@@ -358,72 +379,79 @@ class ConnectEngine(
                 devices = u.devices.map { if (it.device.id == deviceId) it.copy(state = ConnectRowState.CONNECTING) else it })
         }
         scope.launch {
-            try { locked { requestTransfer(deviceId) } }
+            var sent = false
+            try { locked { requestTransfer(deviceId); sent = true } }
             finally { if (requested?.first == deviceId) { requested = null; lock.withLock { refreshUi() } } }
+            if (sent || stopped) return@launch
+            // Asking for the audio here needs nothing from another device, so it still happens.
+            if (deviceId == me.id) playHereInstead(ConnectIntent.Play)
+            else {
+                failedRequest = deviceId to localNow()
+                lock.withLock { refreshUi() }
+            }
         }
     }
     /** A device picked here whose handoff request hasn't reached the server yet. */
     @Volatile private var requested: Pair<String, Long>? = null
+    /** A device picked here whose handoff request couldn't be written. */
+    @Volatile private var failedRequest: Pair<String, Long>? = null
 
     /**
-     * Called by the local player for a user control. Returns true when Connect handled it (sent it
-     * to the output on another device, or took the output over first); false lets the local player act.
+     * Called by the local player for a user control, on its way to acting. Never waits: true means
+     * the control went to the output on another device; false means the local player acts on it now.
      */
     fun intercept(intent: ConnectIntent): Boolean {
-        if (stopped || ownerEpoch != null) return false
-        val s = current?.session ?: return false
-        if (s.ownerId == me.id || playingAlone(s)) return false
+        if (stopped || ownerEpoch != null || localControl != null) return false
+        val p = player
+        val s = current?.session
         val now = clock.now()
-        if (s.ownerActive(now) && (s.playing || s.buffering || player?.canPlay != true)) {
-            if (s.track == null && intent !is ConnectIntent.Load) return false
-            optimisticFor(intent, s, now)
+        val elsewhere = s != null && s.ownerId != me.id && s.ownerActive(now) &&
+            (s.playing || s.buffering || p?.canPlay != true) && (s.track != null || intent is ConnectIntent.Load)
+        if (elsewhere && p?.snapshot()?.playing != true &&
+            ((connected && !writesFailing) || !intent.startsAudio || p?.canPlay != true)) {
+            optimisticFor(intent, s!!, now)
             val feedback = optimistic
-            if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
-            else if (intent is ConnectIntent.Load && player?.canPlay == true) orPlayHere(intent) { sendCommand(intent, feedback) }
-            else scope.launch { locked { sendCommand(intent, feedback) } }
+            if (intent is ConnectIntent.Seek) sendLatestSeek(intent) else sendToOutput(intent, feedback)
             return true
         }
-        if (s.track == null) return false
-        return when (intent) {
-            ConnectIntent.Pause -> false
-            else -> {
-                if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
-                else orPlayHere(intent) { takeOver(intent) }
-                true
-            }
+        if (intent != ConnectIntent.Pause && p?.canPlay == true) {
+            localControl = LocalControl(s?.epoch, localNow())
+            optimistic = null
+            // This device hasn't restored the session's song yet: the control acts on that song.
+            if (s?.track != null && intent !is ConnectIntent.Load && p.snapshot().track == null) current?.let { startLocal(it, play = false, from = null) }
+            refreshUi()
         }
+        return false
     }
 
-    /**
-     * Music never waits on Connect: when [write] fails or takes too long (no network, the project's
-     * daily Firestore quota used up), [intent] happens on this device and the session catches up later.
-     */
-    private fun orPlayHere(intent: ConnectIntent, write: suspend () -> Unit) {
+    private val ConnectIntent.startsAudio: Boolean get() = this == ConnectIntent.Play || this == ConnectIntent.Next ||
+        this == ConnectIntent.Previous || this is ConnectIntent.PlayIndex || this is ConnectIntent.Load
+
+    /** Sends a control to the output. A song that can't get there plays here, so the tap is never lost. */
+    private fun sendToOutput(intent: ConnectIntent, feedback: Optimistic?) {
         scope.launch {
-            var written = false
-            val attempt = launch { locked { write(); written = true } }
+            var delivered = false
+            val attempt = launch { locked { delivered = sendCommand(intent, feedback) } }
             withTimeoutOrNull(WRITE_PATIENCE_MS) { attempt.join() }
-            if (written) return@launch
+            if (delivered) return@launch
             attempt.cancel()
-            playHere(intent)
+            if (optimistic === feedback) optimistic = null
+            if (intent is ConnectIntent.Load || intent == ConnectIntent.Play) playHereInstead(intent)
         }
     }
 
-    private fun playHere(intent: ConnectIntent) {
+    private fun playHereInstead(intent: ConnectIntent) {
         val p = player ?: return
         val snapshot = current ?: return
         val s = snapshot.session ?: return
-        if (stopped || !p.canPlay) return
-        log("Connect couldn't write; playing on this device")
+        if (stopped || !p.canPlay || ownerEpoch != null) return
+        log("Couldn't reach ${s.ownerName}; playing on this device")
         optimistic = null
-        aloneSinceVersion = s.version
-        if (intent !is ConnectIntent.Load && p.snapshot().track == null) startLocal(snapshot, play = false, from = null)
+        localControl = LocalControl(s.epoch, localNow())
+        if (intent !is ConnectIntent.Load && s.track != null && p.snapshot().track?.id != s.track.id) startLocal(snapshot, play = false, from = null)
         executeLocalIntent(intent, s, p)
         refreshUi()
     }
-
-    /** True while this device plays past a session it couldn't write to and nothing newer has arrived. */
-    private fun playingAlone(s: ConnectSession?): Boolean = s != null && aloneSinceVersion == s.version
 
     /**
      * Leaves the session: gives up the output (paused, so no other client thinks it still plays) and
@@ -525,7 +553,7 @@ class ConnectEngine(
     }
 
     private suspend fun refetch() {
-        accept(backend.fetch())
+        accept(bounded { backend.fetch() })
         connected = true
         error = null
     }
@@ -533,11 +561,29 @@ class ConnectEngine(
     /** Captures the newest server state seen inside [backend.update], whatever the block decided. */
     private suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? {
         var seen: ConnectSnapshot? = null
-        val written = backend.update { cur -> seen = cur; block(cur) }
+        val written = try {
+            bounded { backend.update { cur -> seen = cur; block(cur) } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            writesFailing = true
+            writeRetryAtLocal = localNow() + WRITE_RETRY_MS
+            throw e
+        }
+        writesFailing = false
+        writeRetryAtLocal = 0L
         connected = true
         error = null
         if (written != null) accept(written) else seen?.let(::accept)
         return written
+    }
+
+    /** Runs a Firestore call that throws, rather than hangs, when no answer comes. */
+    private suspend fun <T> bounded(call: suspend () -> T): T {
+        var result: Result<T>? = null
+        withTimeoutOrNull(WRITE_TIMEOUT_MS) { result = Result.success(call()) }
+        val done = result ?: throw IllegalStateException("Firestore didn't answer")
+        return done.getOrThrow()
     }
 
     private suspend fun process() {
@@ -553,9 +599,6 @@ class ConnectEngine(
         val snap = current ?: return
         val s = snap.session
         val now = clock.now()
-        pendingLocalTransfer?.let { pending ->
-            if (s?.transfer?.id != pending.id || s.transfer.status == TransferStatus.FAILED) pendingLocalTransfer = null
-        }
 
         if (s != null) {
             val owned = ownerEpoch
@@ -569,19 +612,15 @@ class ConnectEngine(
             if (ownerEpoch == null && s.ownerId == me.id && (deviceAvailable || player?.snapshot()?.playing == true)) {
                 val t = s.transfer
                 ownerEpoch = s.epoch
-                if (t != null && t.status == TransferStatus.COMMITTED && t.to == me.id && t.epoch == s.epoch && startedTransfer != t.id) {
+                if (localControl != null) {
+                    // What plays here is newer than the session, so it is published, never replaced.
+                    localControl = null
+                    lastPublished = null
+                    t?.let { startedTransfer = it.id }
+                } else if (t != null && t.status == TransferStatus.COMMITTED && t.to == me.id && t.epoch == s.epoch && startedTransfer != t.id) {
                     startedTransfer = t.id
                     log("Output handed to this device by ${t.from}")
-                    val pending = pendingLocalTransfer?.takeIf { it.id == t.id }
-                    pendingLocalTransfer = null
-                    val startsWithPlay = pending?.intents?.firstOrNull() == ConnectIntent.Play
-                    startLocal(snap, s.playing || startsWithPlay, t.from)
-                    player?.let { p ->
-                        pending?.intents?.forEachIndexed { index, intent ->
-                            if (!(index == 0 && startsWithPlay)) executeLocalIntent(intent, s, p)
-                        }
-                        if (pending != null && p.snapshot().playing) startWatch = StartWatch(t.from, localNow())
-                    }
+                    startLocal(snap, s.playing, t.from)
                 } else if (s.track != null && player?.snapshot()?.playing != true) {
                     // Reopening the previous output restores the account's bookmark silently.
                     // Do this before publishing, or an empty/stale local queue overwrites it.
@@ -597,6 +636,8 @@ class ConnectEngine(
             val age = now - t.atMs
             val owner = ownerEpoch != null
             when {
+                // The local player is in charge: the session must not start anything here.
+                localControl != null && t.to == me.id -> Unit
                 owner && t.epoch != s.epoch + 1 -> fail(t, "stale")
                 t.to == me.id && t.status == TransferStatus.REQUESTED && t.id !in handledTransfers -> {
                     handledTransfers += t.id
@@ -633,18 +674,46 @@ class ConnectEngine(
             val p = player ?: return
             restoreLocalBookmark(current, p)
             warmRemoteSong(session, p)
+            localControl?.let { syncLocalControl(it, session, p); return }
             if (preparing?.isActive == true || !p.snapshot().playing) return
             if (session != null && session.ownerActive(clock.now()) && session.ownerId != me.id) {
-                if (playingAlone(session)) return
                 // Never two outputs: something started audio here while another device has it.
                 log("Local audio while ${session.ownerName} is the output; stopping it here")
-                aloneSinceVersion = null
                 p.silence()
-            } else if (aloneSinceVersion == null || localNow() - aloneClaimTried >= ALONE_CLAIM_RETRY_MS) {
-                aloneClaimTried = localNow()
+            } else if (localNow() >= writeRetryAtLocal) {
                 claim(useSessionState = false)
             }
         }
+    }
+
+    /**
+     * Tells the session about a control already carried out here. This is the only place local
+     * playback and the session are reconciled: a control whose output is unchanged is the newest
+     * thing the account did, so this device takes the output. It yields only to a device that
+     * took the output since, or when it is silent and another device is playing.
+     */
+    private suspend fun syncLocalControl(control: LocalControl, session: ConnectSession?, p: ConnectPlayer) {
+        val local = p.snapshot()
+        if (local.track == null) {
+            if (localNow() - control.atLocal > LOCAL_CONTROL_SETTLE_MS) localControl = null
+            return
+        }
+        val elsewhere = session != null && session.ownerId != me.id && session.ownerActive(clock.now())
+        val playingElsewhere = elsewhere && (session?.playing == true || session?.buffering == true)
+        val moved = control.epoch != null && session != null && session.epoch != control.epoch
+        if (playingElsewhere && (moved || !local.playing)) {
+            log("${session?.ownerName} is the output; leaving the session to it")
+            localControl = null
+            if (local.playing) p.silence()
+            return
+        }
+        if (localNow() < writeRetryAtLocal) return
+        // Firestore's rules only let an output with a live lease be replaced through a handoff.
+        if (elsewhere) {
+            requestTransfer(me.id, reason = LOCAL_CONTROL)
+            if (current?.session?.transfer?.let { it.to == me.id && it.status.active } != true) return
+        }
+        claim(useSessionState = false)
     }
 
     /** Paused hidden clients must not keep renewing a lease for an unavailable output. */
@@ -672,7 +741,7 @@ class ConnectEngine(
     private fun restoreLocalBookmark(snapshot: ConnectSnapshot?, p: ConnectPlayer) {
         val session = snapshot?.session ?: return
         val track = session.track ?: return
-        if (!deviceAvailable || !p.canPlay || session.ownerId == me.id || playingAlone(session) ||
+        if (!deviceAvailable || !p.canPlay || session.ownerId == me.id || localControl != null ||
             (session.ownerActive(clock.now()) && (session.playing || session.buffering)) ||
             session.transfer?.status?.active == true || preparing?.isActive == true || p.snapshot().playing) return
         val bookmark = RestoredBookmark(session.ownerId, session.epoch, track, session.positionMs,
@@ -735,6 +804,7 @@ class ConnectEngine(
     private var publishedAlone = false
 
     private suspend fun publish(force: Boolean) {
+        if (!force && localNow() < writeRetryAtLocal) return
         val p = player ?: return
         val epoch = ownerEpoch ?: return
         val local = p.snapshot()
@@ -889,18 +959,15 @@ class ConnectEngine(
                     locked {
                         val latest = pendingSeek ?: return@locked
                         pendingSeek = null
-                        val session = current?.session
-                        if (player?.canPlay == true && session != null &&
-                            (session.ownerId == me.id || !session.ownerActive(clock.now()) ||
-                                (!session.playing && !session.buffering))) takeOver(latest.first)
-                        else sendCommand(latest.first, latest.second)
+                        sendCommand(latest.first, latest.second)
                     }
                 }
             } finally { sendingSeek = false }
         }
     }
 
-    private suspend fun sendCommand(intent: ConnectIntent, feedback: Optimistic? = optimistic) {
+    /** False when the output changed before the control got there. */
+    private suspend fun sendCommand(intent: ConnectIntent, feedback: Optimistic? = optimistic): Boolean {
         val now = clock.now()
         var sent: ConnectCommand? = null
         val written = update { cur ->
@@ -921,6 +988,7 @@ class ConnectEngine(
             if (optimistic === feedback) optimistic = null
             log("Control not sent: the output changed")
         }
+        return written != null
     }
 
     /**
@@ -932,12 +1000,16 @@ class ConnectEngine(
         val now = clock.now()
         val written = update { cur ->
             val s = cur.session
-            if (s != null && s.ownerId != me.id && s.ownerActive(now)) return@update null
+            val handoff = s?.transfer?.takeIf { it.to == me.id && it.status.active && it.epoch == s.epoch + 1 }
+            if (s != null && s.ownerId != me.id && s.ownerActive(now) && handoff == null) return@update null
             val base = s ?: ConnectSession()
+            val kept = base.ownerId == me.id && s != null
             val claimed = base.copy(
                 ownerId = me.id, ownerName = myName(), ownerType = me.type,
-                epoch = if (base.ownerId == me.id && s != null) base.epoch else base.epoch + 1,
-                transfer = base.transfer?.takeIf { !it.status.active }
+                epoch = if (kept) base.epoch else base.epoch + 1,
+                // Controls meant for the old output are not for this one.
+                commands = if (kept) base.commands else emptyList(),
+                transfer = handoff?.copy(status = TransferStatus.COMMITTED, atMs = now) ?: base.transfer?.takeIf { !it.status.active }
             )
             if (useSessionState) {
                 ConnectWrite(claimed.copy(version = base.version + 1, leaseUntilMs = now + LEASE_MS, positionMs = sessionPosition(base),
@@ -946,40 +1018,12 @@ class ConnectEngine(
         }
         val session = written?.session ?: return null
         ownerEpoch = session.epoch
-        aloneSinceVersion = null
+        localControl = null
+        session.transfer?.takeIf { it.to == me.id && it.status == TransferStatus.COMMITTED }?.let { startedTransfer = it.id }
         lastPublished = if (useSessionState) null else Published(local, localNow())
         log("This device is now the output (epoch ${session.epoch})")
         return written
     }
-
-    private suspend fun takeOver(intent: ConnectIntent) {
-        val s = current?.session ?: return
-        if (s.ownerId == me.id && ownerEpoch != null) {
-            player?.let { executeLocalIntent(intent, s, it) }
-            return
-        }
-        if (s.ownerActive(clock.now()) && s.ownerId != me.id && (s.playing || s.buffering)) { sendCommand(intent); return }
-        val written = claim(useSessionState = true)
-        if (written == null) {
-            val latest = current?.session ?: return
-            if (latest.ownerActive(clock.now()) && (latest.playing || latest.buffering)) { sendCommand(intent); return }
-            // A paused device can still hold a valid lease. Use the existing fenced
-            // handoff, then apply this local action instead of restarting that device.
-            requestTransfer(me.id, reason = "local-control")
-            val transfer = current?.session?.transfer?.takeIf { it.to == me.id && it.status.active } ?: return
-            val previous = pendingLocalTransfer?.takeIf { it.id == transfer.id }?.intents.orEmpty()
-            val actions = if (intent is ConnectIntent.Seek && previous.lastOrNull() is ConnectIntent.Seek)
-                previous.dropLast(1) + intent else previous + intent
-            pendingLocalTransfer = PendingLocalTransfer(transfer.id, actions.takeLast(MAX_COMMANDS))
-            return
-        }
-        startLocal(written, play = intent == ConnectIntent.Play, from = null)
-        val p = player ?: return
-        if (intent != ConnectIntent.Play && intent != ConnectIntent.Pause) executeLocalIntent(intent, written.session ?: s, p)
-    }
-
-    private data class PendingLocalTransfer(val id: String, val intents: List<ConnectIntent>)
-    private var pendingLocalTransfer: PendingLocalTransfer? = null
 
     private fun executeLocalIntent(intent: ConnectIntent, session: ConnectSession, p: ConnectPlayer) {
         when (intent) {
@@ -1134,7 +1178,7 @@ class ConnectEngine(
         val label = labels()[target.id] ?: ConnectDeviceNames.base(target)
         // A pull has an extra request/commit round trip. Resolve in parallel with that request,
         // rather than waiting for its acknowledgement before starting the returning output.
-        if (target.id == me.id) {
+        if (target.id == me.id && reason != LOCAL_CONTROL) {
             val track = current?.session?.track?.toTrack()
             val p = player
             if (track != null && p != null) scope.launch { runCatching { p.prepare(track) } }
@@ -1239,9 +1283,11 @@ class ConnectEngine(
         lastHeartbeatLocal = localNow()
         try {
             backend.heartbeat(me.copy(canPlay = player?.canPlay == true, online = deviceAvailable))
+            writesFailing = false
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            writesFailing = true
             lastHeartbeatLocal = localNow() - HEARTBEAT_MS + 60_000L // retry in a minute
             onConnectionLost(e.message)
         }
@@ -1264,15 +1310,17 @@ class ConnectEngine(
         val labels = labels()
         val t = s?.transfer
         val asked = requested?.takeIf { localNowMs - it.second < REQUEST_TIMEOUT_MS }
+        val unsent = failedRequest?.takeIf { localNowMs - it.second < TRANSFER_KEEP_MS }
         val transferUi = when {
             t != null && t.status.active -> ConnectTransferUi(t.to, labels[t.to] ?: t.toName, failed = false)
             asked != null -> ConnectTransferUi(asked.first, labels[asked.first] ?: "", failed = false)
             t != null && t.status == TransferStatus.FAILED && now - t.atMs < TRANSFER_KEEP_MS && (t.by == me.id || t.to == me.id) ->
                 ConnectTransferUi(t.to, labels[t.to] ?: t.toName, failed = true, reason = t.reason)
+            unsent != null -> ConnectTransferUi(unsent.first, labels[unsent.first] ?: "", failed = true, reason = "unreachable")
             else -> null
         }
-        val localDefault = player?.canPlay == true && deviceAvailable &&
-            (s == null || !s.ownerActive(now) || (!s.playing && !s.buffering) || playingAlone(s)) && s?.transfer?.status?.active != true
+        val localDefault = player?.canPlay == true && (localControl != null || (deviceAvailable &&
+            (s == null || !s.ownerActive(now) || (!s.playing && !s.buffering)) && s?.transfer?.status?.active != true))
         val output = if (localDefault) ConnectOutput(me.id, myName(), me.type, true, true,
             player?.snapshot()?.playing == true) else s?.takeIf { it.ownerId.isNotEmpty() }?.let {
             val active = it.ownerActive(now) || (it.ownerId == me.id && ownerEpoch != null)

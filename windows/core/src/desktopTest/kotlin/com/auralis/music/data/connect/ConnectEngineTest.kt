@@ -657,80 +657,326 @@ class ConnectEngineTest {
         return w to phone
     }
 
+    /** Each control must have acted when [SimDevice.user] returns: no virtual time passes in here. */
+    private fun assertEveryLocalControlActsAtOnce(d: SimDevice) {
+        d.user(ConnectIntent.Load(songs(3, "new"), 0))
+        assertTrue(d.player.playing)
+        assertEquals("new1", d.player.track?.id)
+        d.user(ConnectIntent.Next)
+        assertEquals("new2", d.player.track?.id)
+        d.user(ConnectIntent.Previous)
+        assertEquals("new1", d.player.track?.id)
+        d.user(ConnectIntent.Seek(42_000))
+        assertEquals(42_000, d.player.positionMs)
+        d.user(ConnectIntent.Pause)
+        assertFalse(d.player.playing)
+        d.user(ConnectIntent.Play)
+        assertTrue(d.player.playing)
+        d.user(ConnectIntent.PlayIndex(2, "new3"))
+        assertEquals("new3", d.player.track?.id)
+    }
+
+    @Test
+    fun localControlsActAtOnceWhileFirestoreIsHealthy() = runTest {
+        val (_, phone) = phoneAfterAnotherDeviceClosed()
+        assertEveryLocalControlActsAtOnce(phone)
+    }
+
+    @Test
+    fun localControlsActAtOnceWithConnectDisabled() = runTest {
+        val w = World(this)
+        val neverStarted = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        assertEveryLocalControlActsAtOnce(neverStarted)
+        val signedOut = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        signedOut.start()
+        w.run(2_000)
+        signedOut.engine.stop(signOut = true)
+        assertEveryLocalControlActsAtOnce(signedOut)
+    }
+
+    @Test
+    fun everyLocalControlWorksWithAllFirestoreCallsFailingFromLaunch() = runTest {
+        val w = World(this)
+        val phone = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        phone.offline = true
+        phone.start()
+        w.run(2_000)
+        assertEveryLocalControlActsAtOnce(phone)
+        w.run(120_000)
+        assertTrue(phone.player.playing, "Failed calls must not disturb the music")
+        assertNull(w.server.snapshot().session)
+    }
+
+    @Test
+    fun everyLocalControlWorksWithFirestoreNeverAnsweringFromLaunch() = runTest {
+        val w = World(this)
+        val phone = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        phone.firestoreHangs = true
+        phone.start()
+        w.run(2_000)
+        assertEveryLocalControlActsAtOnce(phone)
+        w.run(120_000)
+        assertTrue(phone.player.playing)
+    }
+
+    @Test
+    fun everyLocalControlWorksOnAKnownSessionWhenFirestoreStopsAnswering() = runTest {
+        val (w, phone) = phoneAfterAnotherDeviceClosed()
+        phone.firestoreHangs = true
+        assertEveryLocalControlActsAtOnce(phone)
+        w.run(60_000)
+        assertTrue(phone.player.playing)
+        assertEquals("new3", phone.player.track?.id)
+    }
+
     @Test
     fun aTappedSongPlaysWhenTheQuotaIsUsedUpAndTheSessionCatchesUpLater() = runTest {
         val (w, phone) = phoneAfterAnotherDeviceClosed()
         phone.quotaUsedUp = true
         phone.user(ConnectIntent.Load(songs(2, "new"), 0))
-        w.run(1_000)
         assertTrue(phone.player.playing)
         assertEquals("new1", phone.player.track?.id)
         assertNull(phone.engine.ui.value.remote)
         assertEquals("phone-1", phone.engine.ui.value.output?.deviceId)
         phone.user(ConnectIntent.Next)
+        assertEquals("new2", phone.player.track?.id)
         w.run(1_000)
-        assertEquals("new2", phone.player.track?.id, "Later controls go straight to the local player")
         phone.quotaUsedUp = false
-        w.run(61_000)
+        w.run(35_000)
         assertTrue(phone.engine.isOutput)
         assertEquals("phone-1", w.server.snapshot().session?.ownerId)
         assertEquals("new2", w.server.snapshot().session?.track?.id)
+        assertEquals("new2", phone.player.track?.id, "Reconciling never replaces what plays here")
         assertTrue(w.server.violations.isEmpty(), w.server.violations.toString())
     }
 
     @Test
     fun playResumesTheBookmarkWhenTheQuotaIsUsedUp() = runTest {
-        val (w, phone) = phoneAfterAnotherDeviceClosed()
+        val (_, phone) = phoneAfterAnotherDeviceClosed()
         phone.quotaUsedUp = true
         phone.user(ConnectIntent.Play)
+        assertTrue(phone.player.playing)
+        assertEquals("song1", phone.player.track?.id)
+    }
+
+    @Test
+    fun aControlBeforeTheFirstReadActsHereAndIsNotSilencedByTheSessionThatArrives() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        val tablet = w.device("tablet-1", "Tablet", ConnectPlatform.ANDROID, ConnectDeviceType.TABLET)
+        tablet.user(ConnectIntent.Load(songs(2, "new"), 0)) // before it has read anything
+        tablet.start()
+        w.run(6_000)
+        assertTrue(tablet.player.playing, "The newest tap wins")
+        assertEquals("new1", tablet.player.track?.id)
+        assertFalse(phone.player.playing)
+        assertEquals("tablet-1", w.server.snapshot().session?.ownerId)
+        assertTrue(w.server.violations.isEmpty(), w.server.violations.toString())
+    }
+
+    @Test
+    fun aDeviceOwnSongSurvivesThePausedOutputsBookmarkArriving() = runTest {
+        val (w, phone) = phoneAfterAnotherDeviceClosed()
+        phone.quotaUsedUp = true
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        phone.user(ConnectIntent.Pause)
+        w.run(20_000)
+        assertEquals("new1", phone.player.track?.id, "A silent bookmark must not replace a song chosen here")
+    }
+
+    @Test
+    fun aTappedSongPlaysImmediatelyWhenTheOutputIsKnownToBeUnreachable() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        assertNotNull(phone.engine.ui.value.remote)
+        phone.engine.onConnectionLost("Offline")
+        w.run(100)
+        phone.offline = true
+        val commands = w.server.snapshot().session?.commands
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        assertTrue(phone.player.playing, "Must not wait on a device lease or a write")
+        assertEquals("new1", phone.player.track?.id)
+        assertNull(phone.engine.ui.value.remote)
+        assertEquals(commands, w.server.snapshot().session?.commands)
+    }
+
+    @Test
+    fun onReconnectTheNewestLocalControlTakesTheOutputThroughAHandoffOnce() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.offline = true
+        phone.engine.onConnectionLost("Offline")
+        w.run(100)
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        w.run(20_000)
+        assertTrue(phone.player.playing)
+        val beforeSong = phone.player.track?.id
+        val position = phone.player.positionMs
+        phone.reconnect()
+        w.run(35_000)
+        assertEquals("phone-1", w.server.snapshot().session?.ownerId)
+        assertEquals(beforeSong, phone.player.track?.id)
+        assertTrue(phone.player.positionMs > position, "Reconciling must not restart the song")
+        assertTrue(phone.player.playing)
+        assertFalse(laptop.player.playing, "Never two outputs once both are online")
+        assertTrue(w.server.violations.isEmpty(), w.server.violations.toString())
+    }
+
+    @Test
+    fun onReconnectADeviceThatTookTheOutputMeanwhileKeepsIt() = runTest {
+        val (w, phone, others) = threeDevices()
+        val (laptop, desktop) = others
+        laptop.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.offline = true
+        phone.engine.onConnectionLost("Offline")
+        w.run(100)
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        desktop.engine.transferTo("desktop-1")
+        w.run(12_000)
+        assertTrue(desktop.player.playing)
+        assertTrue(phone.player.playing, "Offline, nothing can interrupt it")
+        phone.reconnect()
+        w.run(35_000)
+        assertFalse(phone.player.playing)
+        assertTrue(desktop.player.playing)
+        assertEquals("desktop-1", w.server.snapshot().session?.ownerId)
+        assertNotNull(phone.engine.ui.value.remote)
+    }
+
+    @Test
+    fun onReconnectASilentDeviceLeavesThePlayingOutputAlone() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.offline = true
+        phone.engine.onConnectionLost("Offline")
+        w.run(100)
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        phone.user(ConnectIntent.Pause)
+        w.run(5_000)
+        phone.reconnect()
+        w.run(35_000)
+        assertTrue(laptop.player.playing, "A paused phone must not stop the laptop")
+        assertEquals("laptop-1", w.server.snapshot().session?.ownerId)
+        assertNotNull(phone.engine.ui.value.remote)
+    }
+
+    @Test
+    fun pausingAMirroredOutputThatCantBeReachedNeverStartsAudioHere() = runTest {
+        val (w, phone, others) = threeDevices()
+        others.first.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.quotaUsedUp = true
+        phone.engine.onConnectionLost("RESOURCE_EXHAUSTED")
+        w.run(100)
+        assertTrue(phone.engine.intercept(ConnectIntent.Pause), "Pause is for the device shown on screen")
+        assertTrue(phone.engine.intercept(ConnectIntent.Seek(10_000)))
+        w.run(5_000)
+        assertFalse(phone.player.playing)
+        assertNotNull(phone.engine.ui.value.remote)
+    }
+
+    @Test
+    fun aSongForAnOutputThatFailsPlaysHereAndTheTapIsNotLost() = runTest {
+        val (w, phone, others) = threeDevices()
+        others.first.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.quotaUsedUp = true
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        w.run(1_000)
+        assertTrue(phone.player.playing)
+        assertEquals("new1", phone.player.track?.id)
+        phone.user(ConnectIntent.Pause)
+        assertFalse(phone.player.playing, "Controls then belong to this device")
+    }
+
+    @Test
+    fun aSongForAnOutputThatNeverAnswersPlaysHereWithinThePatience() = runTest {
+        val (w, phone, others) = threeDevices()
+        others.first.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.firestoreHangs = true
+        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        w.run(3_000)
+        assertFalse(phone.player.playing, "A slow write to the other device gets its chance")
+        w.run(2_000)
+        assertTrue(phone.player.playing)
+    }
+
+    @Test
+    fun remoteControlsStillReachALiveOutputWithoutAudioHere() = runTest {
+        val (w, phone, others) = threeDevices()
+        val laptop = others.first
+        laptop.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.user(ConnectIntent.Load(songs(2, "picked"), 1))
+        w.run(3_000)
+        assertEquals("picked2", laptop.player.track?.id)
+        assertFalse(phone.player.playing)
+        assertTrue(w.server.snapshot().session?.commands.orEmpty().size <= 1, "One tap is one command")
+    }
+
+    @Test
+    fun aHandoffThatCantBeRequestedSaysSoAndChangesNothing() = runTest {
+        val (w, phone, others) = threeDevices()
+        val (laptop, desktop) = others
+        phone.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        desktop.quotaUsedUp = true
+        desktop.engine.transferTo("laptop-1")
+        w.run(1_000)
+        assertTrue(desktop.engine.ui.value.transfer?.failed == true)
+        assertTrue(phone.player.playing)
+        assertFalse(laptop.player.playing)
+    }
+
+    @Test
+    fun askingForTheAudioHerePlaysHereWhenTheHandoffCantBeWritten() = runTest {
+        val (w, phone, others) = threeDevices()
+        others.first.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        phone.quotaUsedUp = true
+        phone.engine.transferTo("phone-1")
         w.run(1_000)
         assertTrue(phone.player.playing)
         assertEquals("song1", phone.player.track?.id)
     }
 
     @Test
-    fun aTappedSongPlaysWhenAWriteNeverAnswers() = runTest {
-        val (w, phone) = phoneAfterAnotherDeviceClosed()
-        phone.writesHang = true
-        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
-        w.run(3_000)
-        assertFalse(phone.player.playing, "A slow write gets its chance first")
-        w.run(2_000)
-        assertTrue(phone.player.playing)
-        assertEquals("new1", phone.player.track?.id)
-    }
-
-    @Test
-    fun aSongTappedDuringAnotherDevicesLeaseKeepsPlayingWhenTheQuotaIsUsedUp() = runTest {
-        val (w, phone, others) = threeDevices()
-        val laptop = others.first
-        laptop.user(ConnectIntent.Load(songs(3), 0))
-        w.run(5_000)
-        w.devices.forEach { it.quotaUsedUp = true }
-        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
-        w.run(10_000)
-        assertTrue(phone.player.playing, "A lease nobody can renew must not silence the tapped song")
-        assertEquals("new1", phone.player.track?.id)
-        assertNull(phone.engine.ui.value.remote)
-        phone.user(ConnectIntent.Pause)
-        w.run(1_000)
-        assertFalse(phone.player.playing)
-    }
-
-    @Test
-    fun aDevicePlayingAloneStopsWhenARealOutputComesBack() = runTest {
-        val (w, phone, others) = threeDevices()
-        val laptop = others.first
-        laptop.user(ConnectIntent.Load(songs(3), 0))
+    fun failedWritesBackOffInsteadOfRetryingEverySecond() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 0))
         w.run(5_000)
         phone.quotaUsedUp = true
-        phone.user(ConnectIntent.Load(songs(2, "new"), 0))
+        phone.player.seekTo(30_000)
         w.run(1_000)
+        val before = phone.writeAttempts
+        w.run(120_000)
+        assertTrue(phone.writeAttempts - before <= 8, "${phone.writeAttempts - before} attempts in two minutes")
         assertTrue(phone.player.playing)
-        laptop.user(ConnectIntent.Seek(30_000)) // the laptop writes again: its session is newer
-        w.run(16_000)
-        assertFalse(phone.player.playing, "Never two outputs once a live one is seen")
-        assertEquals("laptop-1", w.server.snapshot().session?.ownerId)
+    }
+
+    @Test
+    fun anOutputThatLosesFirestoreKeepsPlayingAndRenewsWhenItReturns() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3), 0))
+        w.run(5_000)
+        val epoch = w.server.snapshot().session?.epoch
+        phone.quotaUsedUp = true
+        w.run(100_000)
+        assertTrue(phone.player.playing)
+        phone.quotaUsedUp = false
+        w.run(35_000)
+        assertTrue(phone.player.playing)
+        assertTrue(phone.engine.isOutput)
+        assertEquals(epoch, w.server.snapshot().session?.epoch)
     }
 
     @Test

@@ -113,10 +113,26 @@ between checkpoints, and keeps Firestore HTTP connections pooled to avoid repeat
   to take the session over. When the old output reconnects it reads the session first, sees it is
   no longer the output and stays silent — it never reclaims playback. If nobody took over, it is
   still the output and simply renews its lease.
-- Music never waits on Connect. When a song or Play can't reach the session within 4 s (no network,
-  the project's daily Firestore quota used up), it plays on the device it was tapped on, and later
-  controls stay local. The device claims the session once a write succeeds (retrying every minute),
-  and stops if a newer session shows another live output.
+- Firebase follows playback; playback never follows Firebase. Before acting, the player asks
+  `ConnectEngine.intercept`, which doesn't suspend and only looks at state it already has:
+  - A control for this device acts in the local player at once, whatever Firestore is doing, and the
+    engine records a pending local control. The session hears about it afterwards, from the engine's
+    usual sync (a changed player or the once-a-second tick).
+  - A control goes to another device only while that device is the live output and shows as playing
+    here. Its failures stay visible: a song or Play that can't be delivered (failure, or 4 s without
+    an answer) plays here instead, and a handoff that can't be requested shows as failed. Asking for
+    the audio on this device still plays here when the handoff can't be written.
+  - With the output unreachable (a failed write, or the listener offline), anything that starts audio
+    plays here at once. Pause, seek and queue edits stay aimed at the device on screen, so pausing a
+    mirrored device can never start audio here.
+- Reconciling a pending local control happens once, in `syncLocalControl`, and never restarts the
+  song. If the output hasn't changed since the control, it is the newest thing the account did, so
+  this device takes the output; a live lease needs a handoff (the rules refuse anything else), and
+  that takes two writes. It yields, and stops if playing, only when another device took the output
+  since. If it is silent while another device plays, it leaves the session alone.
+- Firestore calls are bounded (10 s), so none can hold the engine's lock. After a failed write,
+  routine writes pause for 30 s, because failed transactions still cost reads, and heartbeats run one
+  at a time, because Android queues offline writes.
 - Signing out / switching accounts: the client gives up the output (paused), deletes its device
   registration while still authorised, drops its listeners/polling, and stops intercepting
   controls. FirebaseAuth state changes (Android) / the account state (Windows) drive this, so an

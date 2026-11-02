@@ -155,18 +155,22 @@ class SimDevice(
     var rejectNextReady = false
     /** Reads still work but every write is refused, like a project out of its daily Firestore quota. */
     var quotaUsedUp = false
-    /** Writes never answer, like a transaction retrying on a dead connection. */
-    var writesHang = false
+    /** Nothing ever answers, like a call retrying on a dead connection. */
+    var firestoreHangs = false
+    var writeAttempts = 0
     val log = mutableListOf<String>()
     val clock = ServerClock(localNow)
     private val serverNow: () -> Long = { testScope.testScheduler.currentTime }
 
     val backend = object : ConnectBackend {
-        private fun check() { if (offline) throw IllegalStateException("offline") }
+        private suspend fun check() {
+            if (firestoreHangs) awaitCancellation()
+            if (offline) throw IllegalStateException("offline")
+        }
         private suspend fun checkWrite() {
+            writeAttempts++
             check()
             if (quotaUsedUp) throw IllegalStateException("RESOURCE_EXHAUSTED")
-            if (writesHang) awaitCancellation()
         }
         override suspend fun fetch(): ConnectSnapshot { check(); delay(roundTripMs); check(); return server.snapshot() }
         override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? {

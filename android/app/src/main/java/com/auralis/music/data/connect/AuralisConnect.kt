@@ -225,7 +225,8 @@ object AuralisConnect : ConnectHook {
         listeners = listOf(
             backend.sessionRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
                 if (error != null) { e.onConnectionLost(error.message); return@addSnapshotListener }
-                if (snap == null || snap.metadata.isFromCache || snap.metadata.hasPendingWrites()) return@addSnapshotListener
+                if (snap?.metadata?.isFromCache == true) { e.onConnectionLost("Offline"); return@addSnapshotListener }
+                if (snap == null || snap.metadata.hasPendingWrites()) return@addSnapshotListener
                 session = snap.data?.let { ConnectCodec.decodeSession(FirestoreConnectBackend.fromFirestore(it)) }
                 session?.let { backend.sawSession(it, deviceId) }
                 deliver()
