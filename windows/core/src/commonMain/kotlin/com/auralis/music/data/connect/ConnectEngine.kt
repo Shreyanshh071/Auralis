@@ -221,6 +221,10 @@ class ConnectEngine(
         const val SETTLE_MS = 4_000L
         const val OPTIMISTIC_MS = 6_000L
         const val START_WATCH_MS = 20_000L
+        /** How long a tapped song waits on the session before it plays on this device regardless. */
+        const val WRITE_PATIENCE_MS = 4_000L
+        /** Failed transactions still spend reads, so a device playing alone retries rarely. */
+        const val ALONE_CLAIM_RETRY_MS = 60_000L
     }
 
     var me: ConnectDevice = device
@@ -251,6 +255,10 @@ class ConnectEngine(
 
     private data class StartWatch(val from: String?, val atLocal: Long)
     private var startWatch: StartWatch? = null
+
+    /** The session version this device played past because Connect couldn't write; null when it follows the session. */
+    @Volatile private var aloneSinceVersion: Long? = null
+    private var aloneClaimTried = Long.MIN_VALUE / 2
 
     private var lastHeartbeatLocal = Long.MIN_VALUE / 2
     @Volatile private var deviceAvailable = true
@@ -364,13 +372,14 @@ class ConnectEngine(
     fun intercept(intent: ConnectIntent): Boolean {
         if (stopped || ownerEpoch != null) return false
         val s = current?.session ?: return false
-        if (s.ownerId == me.id) return false
+        if (s.ownerId == me.id || playingAlone(s)) return false
         val now = clock.now()
         if (s.ownerActive(now) && (s.playing || s.buffering || player?.canPlay != true)) {
             if (s.track == null && intent !is ConnectIntent.Load) return false
             optimisticFor(intent, s, now)
             val feedback = optimistic
             if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
+            else if (intent is ConnectIntent.Load && player?.canPlay == true) orPlayHere(intent) { sendCommand(intent, feedback) }
             else scope.launch { locked { sendCommand(intent, feedback) } }
             return true
         }
@@ -379,11 +388,42 @@ class ConnectEngine(
             ConnectIntent.Pause -> false
             else -> {
                 if (intent is ConnectIntent.Seek) sendLatestSeek(intent)
-                else scope.launch { locked { takeOver(intent) } }
+                else orPlayHere(intent) { takeOver(intent) }
                 true
             }
         }
     }
+
+    /**
+     * Music never waits on Connect: when [write] fails or takes too long (no network, the project's
+     * daily Firestore quota used up), [intent] happens on this device and the session catches up later.
+     */
+    private fun orPlayHere(intent: ConnectIntent, write: suspend () -> Unit) {
+        scope.launch {
+            var written = false
+            val attempt = launch { locked { write(); written = true } }
+            withTimeoutOrNull(WRITE_PATIENCE_MS) { attempt.join() }
+            if (written) return@launch
+            attempt.cancel()
+            playHere(intent)
+        }
+    }
+
+    private fun playHere(intent: ConnectIntent) {
+        val p = player ?: return
+        val snapshot = current ?: return
+        val s = snapshot.session ?: return
+        if (stopped || !p.canPlay) return
+        log("Connect couldn't write; playing on this device")
+        optimistic = null
+        aloneSinceVersion = s.version
+        if (intent !is ConnectIntent.Load && p.snapshot().track == null) startLocal(snapshot, play = false, from = null)
+        executeLocalIntent(intent, s, p)
+        refreshUi()
+    }
+
+    /** True while this device plays past a session it couldn't write to and nothing newer has arrived. */
+    private fun playingAlone(s: ConnectSession?): Boolean = s != null && aloneSinceVersion == s.version
 
     /**
      * Leaves the session: gives up the output (paused, so no other client thinks it still plays) and
@@ -595,10 +635,13 @@ class ConnectEngine(
             warmRemoteSong(session, p)
             if (preparing?.isActive == true || !p.snapshot().playing) return
             if (session != null && session.ownerActive(clock.now()) && session.ownerId != me.id) {
+                if (playingAlone(session)) return
                 // Never two outputs: something started audio here while another device has it.
                 log("Local audio while ${session.ownerName} is the output; stopping it here")
+                aloneSinceVersion = null
                 p.silence()
-            } else {
+            } else if (aloneSinceVersion == null || localNow() - aloneClaimTried >= ALONE_CLAIM_RETRY_MS) {
+                aloneClaimTried = localNow()
                 claim(useSessionState = false)
             }
         }
@@ -629,7 +672,7 @@ class ConnectEngine(
     private fun restoreLocalBookmark(snapshot: ConnectSnapshot?, p: ConnectPlayer) {
         val session = snapshot?.session ?: return
         val track = session.track ?: return
-        if (!deviceAvailable || !p.canPlay || session.ownerId == me.id ||
+        if (!deviceAvailable || !p.canPlay || session.ownerId == me.id || playingAlone(session) ||
             (session.ownerActive(clock.now()) && (session.playing || session.buffering)) ||
             session.transfer?.status?.active == true || preparing?.isActive == true || p.snapshot().playing) return
         val bookmark = RestoredBookmark(session.ownerId, session.epoch, track, session.positionMs,
@@ -903,6 +946,7 @@ class ConnectEngine(
         }
         val session = written?.session ?: return null
         ownerEpoch = session.epoch
+        aloneSinceVersion = null
         lastPublished = if (useSessionState) null else Published(local, localNow())
         log("This device is now the output (epoch ${session.epoch})")
         return written
@@ -1228,7 +1272,7 @@ class ConnectEngine(
             else -> null
         }
         val localDefault = player?.canPlay == true && deviceAvailable &&
-            (s == null || !s.ownerActive(now) || (!s.playing && !s.buffering)) && s?.transfer?.status?.active != true
+            (s == null || !s.ownerActive(now) || (!s.playing && !s.buffering) || playingAlone(s)) && s?.transfer?.status?.active != true
         val output = if (localDefault) ConnectOutput(me.id, myName(), me.type, true, true,
             player?.snapshot()?.playing == true) else s?.takeIf { it.ownerId.isNotEmpty() }?.let {
             val active = it.ownerActive(now) || (it.ownerId == me.id && ownerEpoch != null)

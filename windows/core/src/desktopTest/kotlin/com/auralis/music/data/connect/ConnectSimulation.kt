@@ -3,6 +3,7 @@ package com.auralis.music.data.connect
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -152,16 +153,25 @@ class SimDevice(
     val player = FakePlayer(localNow)
     var offline = false
     var rejectNextReady = false
+    /** Reads still work but every write is refused, like a project out of its daily Firestore quota. */
+    var quotaUsedUp = false
+    /** Writes never answer, like a transaction retrying on a dead connection. */
+    var writesHang = false
     val log = mutableListOf<String>()
     val clock = ServerClock(localNow)
     private val serverNow: () -> Long = { testScope.testScheduler.currentTime }
 
     val backend = object : ConnectBackend {
         private fun check() { if (offline) throw IllegalStateException("offline") }
+        private suspend fun checkWrite() {
+            check()
+            if (quotaUsedUp) throw IllegalStateException("RESOURCE_EXHAUSTED")
+            if (writesHang) awaitCancellation()
+        }
         override suspend fun fetch(): ConnectSnapshot { check(); delay(roundTripMs); check(); return server.snapshot() }
         override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? {
             while (true) {
-                check()
+                checkWrite()
                 val sent = localNow()
                 val cur = server.snapshot()
                 val base = server.version
@@ -183,7 +193,7 @@ class SimDevice(
             }
         }
         override suspend fun heartbeat(device: ConnectDevice) {
-            check(); val sent = localNow(); delay(roundTripMs / 2); server.heartbeat(device); val at = serverNow()
+            checkWrite(); val sent = localNow(); delay(roundTripMs / 2); server.heartbeat(device); val at = serverNow()
             server.listeners.forEach { it.deliverDevicesLater() }; delay(roundTripMs / 2); clock.sample(at, sent, localNow())
         }
         override suspend fun removeDevice(id: String) { check(); server.devices.remove(id); server.listeners.forEach { it.deliverDevicesLater() } }

@@ -113,6 +113,10 @@ between checkpoints, and keeps Firestore HTTP connections pooled to avoid repeat
   to take the session over. When the old output reconnects it reads the session first, sees it is
   no longer the output and stays silent — it never reclaims playback. If nobody took over, it is
   still the output and simply renews its lease.
+- Music never waits on Connect. When a song or Play can't reach the session within 4 s (no network,
+  the project's daily Firestore quota used up), it plays on the device it was tapped on, and later
+  controls stay local. The device claims the session once a write succeeds (retrying every minute),
+  and stops if a newer session shows another live output.
 - Signing out / switching accounts: the client gives up the output (paused), deletes its device
   registration while still authorised, drops its listeners/polling, and stops intercepting
   controls. FirebaseAuth state changes (Android) / the account state (Windows) drive this, so an
