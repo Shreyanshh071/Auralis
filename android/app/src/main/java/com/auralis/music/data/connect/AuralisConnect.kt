@@ -214,7 +214,7 @@ object AuralisConnect : ConnectHook {
         val backend = FirestoreConnectBackend(db, accountUid, clock)
         this.backend = backend
         val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis,
-            SystemClock::elapsedRealtime) { Log.d(TAG, it) }
+            SystemClock::elapsedRealtime, savedControls(prefs, accountUid)) { Log.d(TAG, it) }
         engine = e
         updatePresence()
         Log.d(TAG, "Joined the account session as ${device.name} ($deviceId)")
@@ -274,6 +274,12 @@ object AuralisConnect : ConnectHook {
             }
         )
         e.start()
+    }
+
+    private fun savedControls(prefs: android.content.SharedPreferences, accountUid: String) = object : ConnectControlStore {
+        private val key = "control_$accountUid"
+        override fun load() = ConnectSavedControl.decode(prefs.getString(key, null))
+        override fun save(control: ConnectSavedControl?) { prefs.edit().putString(key, control?.encode()).apply() }
     }
 
     private suspend fun stopEngine(signOut: Boolean) {

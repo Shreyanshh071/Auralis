@@ -671,6 +671,7 @@ class GoogleAccountSyncManager(
                 userDoc.collection("connectDevices").get().await().documents.forEach { connectBatch.delete(it.reference) }
                 connectBatch.delete(userDoc.collection("connect").document("session"))
                 connectBatch.delete(userDoc.collection("connect").document("queue"))
+                connectBatch.delete(userDoc.collection("connect").document("intent"))
                 connectBatch.commit().await()
             }
             userDoc.delete().await()

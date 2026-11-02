@@ -22,6 +22,7 @@ class FirestoreConnectBackend(
     val sessionRef = db.document("users/$uid/connect/session")
     val queueRef = db.document("users/$uid/connect/queue")
     val devicesRef = db.collection("users/$uid/connectDevices")
+    private val intentRef = db.document("users/$uid/connect/intent")
 
     /** Local send / acknowledge times of our latest writes, matched to the server time when it arrives. */
     private var sessionWrite: Triple<Long, Long, Long>? = null // version, sent, ack
@@ -76,6 +77,13 @@ class FirestoreConnectBackend(
         // otherwise swiping the task away can briefly re-register the closed phone.
         devicesRef.document(id).delete().await()
         Unit
+    }
+
+    override suspend fun readIntent(): ConnectPlayIntent? =
+        intentRef.get(Source.SERVER).await().data?.let { ConnectCodec.decodeIntent(fromFirestore(it)) }
+
+    override suspend fun writeIntent(intent: ConnectPlayIntent) {
+        intentRef.set(toFirestore(ConnectCodec.encodeIntent(intent))).await()
     }
 
     /** A server snapshot of the session: samples the server clock if it is our own write. */

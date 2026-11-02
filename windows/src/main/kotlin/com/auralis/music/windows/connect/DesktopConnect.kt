@@ -3,14 +3,17 @@ package com.auralis.music.windows.connect
 import com.auralis.music.data.connect.ConnectBackend
 import com.auralis.music.data.connect.ConnectCodec
 import com.auralis.music.data.connect.ConnectContext
+import com.auralis.music.data.connect.ConnectControlStore
 import com.auralis.music.data.connect.ConnectDevice
 import com.auralis.music.data.connect.ConnectDeviceNames
 import com.auralis.music.data.connect.ConnectDeviceType
 import com.auralis.music.data.connect.ConnectEngine
 import com.auralis.music.data.connect.ConnectIntent
 import com.auralis.music.data.connect.ConnectPlatform
+import com.auralis.music.data.connect.ConnectPlayIntent
 import com.auralis.music.data.connect.ConnectPlayer
 import com.auralis.music.data.connect.ConnectQueue
+import com.auralis.music.data.connect.ConnectSavedControl
 import com.auralis.music.data.connect.ConnectServerTime
 import com.auralis.music.data.connect.ConnectSnapshot
 import com.auralis.music.data.connect.ConnectTransferUi
@@ -58,6 +61,7 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
     private val sessionPath = "users/$uid/connect/session"
     private val queuePath = "users/$uid/connect/queue"
     private val devicesPath = "users/$uid/connectDevices"
+    private val intentPath = "users/$uid/connect/intent"
     @Volatile private var queueCache: ConnectQueue? = null
     private var loggedTransferPhase: String? = null
     @Volatile private var watchCurrent = false
@@ -176,6 +180,17 @@ class DesktopConnectBackend(private val api: FirestoreRest, val uid: String, pri
     override suspend fun removeDevice(id: String) = withContext(Dispatchers.IO) {
         checkAccount()
         api.accountDelete("$devicesPath/$id")
+    }
+
+    override suspend fun readIntent(): ConnectPlayIntent? = withContext(Dispatchers.IO) {
+        checkAccount()
+        api.accountGet(intentPath)?.first?.let { ConnectCodec.decodeIntent(toMap(it)) }
+    }
+
+    override suspend fun writeIntent(intent: ConnectPlayIntent) = withContext(Dispatchers.IO) {
+        checkAccount()
+        api.accountCommit(JSONArray().put(api.replaceWrite(intentPath, toJson(ConnectCodec.encodeIntent(intent)).first)))
+        Unit
     }
 
     suspend fun devices(): List<ConnectDevice> = withContext(Dispatchers.IO) {
@@ -381,7 +396,11 @@ class DesktopConnect(
         val clock = ServerClock(System::currentTimeMillis, elapsed)
         val b = DesktopConnectBackend(account.firestore, accountUid, clock)
         val player = controller?.let { DesktopConnectPlayer(it, scope) }
-        val e = ConnectEngine(scope, b, player, device, clock, System::currentTimeMillis, elapsed) { Log.i(TAG, it) }
+        val savedControls = object : ConnectControlStore {
+            override fun load() = ConnectSavedControl.decode(store.getString("control_$accountUid", ""))
+            override fun save(control: ConnectSavedControl?) = store.putStrings(mapOf("control_$accountUid" to control?.encode().orEmpty()))
+        }
+        val e = ConnectEngine(scope, b, player, device, clock, System::currentTimeMillis, elapsed, savedControls) { Log.i(TAG, it) }
         backend = b
         engine = e
         Log.i(TAG, "Joined the account session as ${device.name}")

@@ -126,22 +126,30 @@ between checkpoints, and keeps Firestore HTTP connections pooled to avoid repeat
     plays here at once. Pause, seek and queue edits stay aimed at the device on screen, so pausing a
     mirrored device can never start audio here.
 - Reconciling a pending local control happens in `syncLocalControl`, and never restarts the song.
-  The session's `intent` records the last thing a person did: `seq` counts actions (Play, Pause,
-  loading or skipping a song, sending one to another device, asking for a handoff), `at` estimates
-  server time, `by` names the device. Routine reports keep it unchanged, so they can't outrank an
-  action. With another device playing, `reconcileLocalControl` decides:
-  1. An intent this device had already seen when it acted is older, whatever any clock says.
-  2. An intent it hadn't seen is ordered by time. The action's time is the elapsed time since it
+  `connect/intent` records the last thing a person did (Play, Pause, loading or skipping a song,
+  sending one to another device, asking for a handoff): `version` is the session version it produced,
+  `epoch` the output epoch it leads to, `at` estimated server time, `by` the device. It is a document
+  of its own because every client replaces the whole session when it writes, so a session field
+  would be erased by releases that don't know it. It is written after the session, not with it, so
+  a refused write can't block sync, and read only for a conflict, so it costs no listener. Routine
+  reports record nothing, so they can't outrank an action. With another device playing, once this
+  device is back online, `reconcileLocalControl` decides:
+  1. An output that moved with nothing recording it (a released client, an automatic takeover) stays
+     there, since ownership is the only evidence.
+  2. An intent from a session version this device had already seen is older, whatever any clock says.
+  3. An intent it hadn't seen is ordered by time. The action's time is the elapsed time since it
      happened (a timer wall clock changes can't move) subtracted from a server clock sampled within
      90 s. Until there is such a sample the device keeps playing and waits.
-  3. Actions within 3 s (plus 0.1% of the time since) have no knowable order, so what the session
+  4. Actions within 3 s (plus 0.1% of the time since) have no knowable order, so what the session
      committed first stands, on every device.
-  A session from a client that doesn't record intents is judged by ownership. The winner takes the
-  output through a handoff (the rules refuse anything else over a live lease), two writes. A loser
+  The winner takes the output through a handoff (the rules refuse anything else over a live lease), two writes. A loser
   stops and offers the way back. A silent device always leaves a playing one alone. An output with
   an unreported control goes through the same decision when it finds the output moved, and drops
   commands older than that control.
-- `firestore.rules` must allow `intent` before any client writes it: deploy the rules first.
+- A pending control survives an engine restart in a small local record, for at most 6 hours. It only
+  applies if audio is still sounding here, so it can never start or move playback on its own. Its
+  time comes from the wall clock, so conflicts with it use a 30 s margin.
+- `docs/connect-rules-deploy.md` has the rules change, its deployment and rollback.
 - Firestore calls are bounded (10 s), so none can hold the engine's lock. After a failed write,
   routine writes pause for 30 s, because failed transactions still cost reads, and heartbeats run one
   at a time, because Android queues offline writes.

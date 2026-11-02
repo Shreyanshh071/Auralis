@@ -112,11 +112,26 @@ data class ConnectCommand(
 
 /**
  * The last thing a person did to playback anywhere on the account, as opposed to routine reports.
- * [seq] counts these actions, so a device can tell what it had already seen when it acted, without
- * reading any clock. [atMs] is the actor's estimate of server time; it only orders actions that
- * happened without knowledge of each other, and then only with a margin ([reconcileLocalControl]).
+ * It has its own document because every client replaces the whole session when it writes, so
+ * releases that don't know a session field erase it. [version] is the session version the action
+ * produced, so a device can tell what it had already seen when it acted, without reading any
+ * clock; [epoch] is the output epoch it leads to. [atMs] is the actor's estimate of server time; it
+ * only orders actions that happened unaware of each other, and with a margin ([reconcileLocalControl]).
  */
-data class ConnectPlayIntent(val seq: Long, val atMs: Long, val by: String)
+data class ConnectPlayIntent(val version: Long, val epoch: Long, val atMs: Long, val by: String)
+
+/** A local control the session hasn't heard about, kept across an engine restart. */
+data class ConnectSavedControl(val epoch: Long?, val version: Long?, val atServerMs: Long, val savedAtWallMs: Long) {
+    fun encode(): String = listOf(epoch ?: "", version ?: "", atServerMs, savedAtWallMs).joinToString(",")
+
+    companion object {
+        fun decode(text: String?): ConnectSavedControl? {
+            val parts = text?.split(",")?.takeIf { it.size == 4 } ?: return null
+            return ConnectSavedControl(parts[0].toLongOrNull(), parts[1].toLongOrNull(),
+                parts[2].toLongOrNull() ?: return null, parts[3].toLongOrNull() ?: return null)
+        }
+    }
+}
 
 /**
  * The account's single authoritative session. [version] grows by exactly one per write (the
@@ -148,9 +163,7 @@ data class ConnectSession(
     val commands: List<ConnectCommand> = emptyList(),
     val updatedBy: String = "",
     /** Server time of the last write (set by the server). */
-    val updatedAtMs: Long = 0L,
-    /** Null until a client that records it writes the session. */
-    val intent: ConnectPlayIntent? = null
+    val updatedAtMs: Long = 0L
 ) {
     fun ownerActive(serverNowMs: Long): Boolean = ownerId.isNotEmpty() && leaseUntilMs > serverNowMs
 
@@ -207,7 +220,7 @@ object ConnectCodec {
         "commands" to s.commands.takeLast(MAX_COMMANDS).associate { it.id to encodeCommand(it) },
         "updatedBy" to s.updatedBy,
         "updatedAt" to ConnectServerTime
-    ) + s.intent?.let { mapOf("intent" to mapOf("seq" to it.seq, "at" to it.atMs, "by" to it.by)) }.orEmpty()
+    )
 
     fun decodeSession(m: Map<String, Any?>): ConnectSession = ConnectSession(
         version = m.long("version"),
@@ -232,9 +245,12 @@ object ConnectCodec {
             @Suppress("UNCHECKED_CAST") (v as? Map<String, Any?>)?.let { decodeCommand(id, it) }
         }.orEmpty().sortedWith(compareBy({ it.atMs }, { it.id })),
         updatedBy = m.str("updatedBy"),
-        updatedAtMs = m.long("updatedAt"),
-        intent = m.map("intent")?.let { ConnectPlayIntent(it.long("seq"), it.long("at"), it.str("by")) }
+        updatedAtMs = m.long("updatedAt")
     )
+
+    fun encodeIntent(i: ConnectPlayIntent): Map<String, Any?> = mapOf("version" to i.version, "epoch" to i.epoch, "at" to i.atMs, "by" to i.by)
+
+    fun decodeIntent(m: Map<String, Any?>): ConnectPlayIntent = ConnectPlayIntent(m.long("version"), m.long("epoch"), m.long("at"), m.str("by"))
 
     fun encodeQueue(q: ConnectQueue): Map<String, Any?> = mapOf(
         "rev" to q.rev, "offset" to q.offset.toLong(), "tracks" to q.tracks.take(MAX_QUEUE).map(::encodeTrack)

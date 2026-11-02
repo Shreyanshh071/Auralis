@@ -5,6 +5,7 @@ import com.auralis.music.data.connect.ConnectDevice
 import com.auralis.music.data.connect.ConnectDeviceType
 import com.auralis.music.data.connect.ConnectEngine
 import com.auralis.music.data.connect.ConnectPlatform
+import com.auralis.music.data.connect.ConnectPlayIntent
 import com.auralis.music.data.connect.ConnectSession
 import com.auralis.music.data.connect.ConnectSnapshot
 import com.auralis.music.data.connect.ConnectTrack
@@ -47,6 +48,8 @@ private class DeadBackend(val hang: Boolean) : ConnectBackend {
     override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? = dead()
     override suspend fun heartbeat(device: ConnectDevice) = dead()
     override suspend fun removeDevice(id: String) = dead()
+    override suspend fun readIntent(): ConnectPlayIntent? = dead()
+    override suspend fun writeIntent(intent: ConnectPlayIntent) = dead()
 }
 
 private suspend fun probe(rawArgs: Array<String>) = coroutineScope {

@@ -12,56 +12,68 @@ import kotlin.test.assertTrue
 
 class ConnectReconcileTest {
     private val margin = 3_000L
-    private fun session(intent: ConnectPlayIntent?, epoch: Long = 5L) = ConnectSession(epoch = epoch, ownerId = "pc", intent = intent)
-    private fun decide(session: ConnectSession, baseEpoch: Long? = 5L, baseSeq: Long? = 10L, tap: Long? = 100_000L) =
-        reconcileLocalControl("phone", baseEpoch, baseSeq, tap, margin, session)
+    private val session = ConnectSession(version = 12, epoch = 5, ownerId = "pc")
+    private fun decide(intent: ConnectPlayIntent?, session: ConnectSession = this.session, baseEpoch: Long? = 5L, baseVersion: Long? = 10L, tap: Long? = 100_000L) =
+        reconcileLocalControl("phone", baseEpoch, baseVersion, tap, margin, session, intent)
 
     @Test fun anIntentAlreadySeenWhenActingIsOlderWhateverItsTimestampSays() {
         // A wrong clock on the other device must not let a known action outrank a newer one.
-        assertEquals(KEEP_LOCAL, decide(session(ConnectPlayIntent(10, 999_999_999L, "pc"))))
-        assertEquals(KEEP_LOCAL, decide(session(ConnectPlayIntent(9, 999_999_999L, "pc"))))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(10, 5, 999_999_999L, "pc")))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(9, 5, 999_999_999L, "pc")))
     }
 
-    @Test fun routineReportsCarryTheOldIntentSoTheyNeverOutrankAnAction() {
-        val checkpointed = session(ConnectPlayIntent(10, 1_000L, "pc")).copy(version = 900, updatedAtMs = 500_000L)
-        assertEquals(KEEP_LOCAL, decide(checkpointed))
+    @Test fun routineReportsRecordNothingSoTheyNeverOutrankAnAction() {
+        val checkpointed = session.copy(version = 900, updatedAtMs = 500_000L)
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(10, 5, 1_000L, "pc"), checkpointed))
     }
 
     @Test fun anUnseenIntentIsOrderedByTimeWithAMargin() {
-        assertEquals(KEEP_LOCAL, decide(session(ConnectPlayIntent(11, 90_000L, "pc"))))
-        assertEquals(KEEP_SESSION, decide(session(ConnectPlayIntent(11, 120_000L, "pc"))))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(11, 5, 90_000L, "pc")))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(11, 5, 120_000L, "pc")))
     }
 
     @Test fun actionsTooCloseToOrderLeaveWhatTheSessionCommitted() {
-        assertEquals(KEEP_SESSION, decide(session(ConnectPlayIntent(11, 100_000L, "pc"))))
-        assertEquals(KEEP_SESSION, decide(session(ConnectPlayIntent(11, 97_000L, "pc"))))
-        assertEquals(KEEP_SESSION, decide(session(ConnectPlayIntent(11, 102_999L, "pc"))))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(11, 5, 100_000L, "pc")))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(11, 5, 97_000L, "pc")))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(11, 5, 102_999L, "pc")))
     }
 
     @Test fun anUnseenIntentWaitsForATrustedClockInsteadOfGuessing() {
-        assertEquals(WAIT_FOR_CLOCK, decide(session(ConnectPlayIntent(11, 90_000L, "pc")), tap = null))
+        assertEquals(WAIT_FOR_CLOCK, decide(ConnectPlayIntent(11, 5, 90_000L, "pc"), tap = null))
     }
 
     @Test fun anActionBeforeAnyReadTreatsEveryIntentAsUnseen() {
-        assertEquals(KEEP_LOCAL, decide(session(ConnectPlayIntent(3, 1_000L, "pc")), baseEpoch = null, baseSeq = null))
-        assertEquals(KEEP_SESSION, decide(session(ConnectPlayIntent(3, 200_000L, "pc")), baseEpoch = null, baseSeq = null))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(3, 5, 1_000L, "pc"), baseEpoch = null, baseVersion = null))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(3, 5, 200_000L, "pc"), baseEpoch = null, baseVersion = null))
     }
 
     @Test fun ownIntentNeverCountsAgainstThisDevice() {
-        assertEquals(KEEP_LOCAL, decide(session(ConnectPlayIntent(11, 500_000L, "phone"))))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(11, 5, 500_000L, "phone")))
     }
 
-    @Test fun aSessionWithoutIntentsFallsBackToOwnership() {
-        assertEquals(KEEP_LOCAL, decide(session(null, epoch = 5L)))
-        assertEquals(KEEP_SESSION, decide(session(null, epoch = 6L)))
-        assertEquals(KEEP_LOCAL, decide(session(null, epoch = 6L), baseEpoch = null))
+    @Test fun anOutputMovedWithNothingRecordedStaysWhereItIs() {
+        val moved = session.copy(epoch = 6)
+        assertEquals(KEEP_SESSION, decide(null, moved))
+        assertEquals(KEEP_SESSION, decide(ConnectPlayIntent(11, 5, 1_000L, "laptop"), moved), "The intent predates the move")
+        assertEquals(KEEP_LOCAL, decide(null, session), "Nothing moved, nothing newer known")
+        assertEquals(KEEP_LOCAL, decide(null, moved, baseEpoch = null))
+        assertEquals(KEEP_LOCAL, decide(ConnectPlayIntent(11, 6, 1_000L, "laptop"), moved), "A recorded move is ordered like any action")
     }
 
-    @Test fun theIntentSurvivesFirestoreAndIsLeftOutUntilThereIsOne() {
-        val stamped = session(ConnectPlayIntent(4, 1234L, "pc"))
-        assertEquals(stamped.intent, ConnectCodec.decodeSession(ConnectCodec.encodeSession(stamped)).intent)
-        assertFalse("intent" in ConnectCodec.encodeSession(session(null)))
-        assertNull(ConnectCodec.decodeSession(ConnectCodec.encodeSession(session(null))).intent)
+    @Test fun theIntentAndSavedControlSurviveEncoding() {
+        val intent = ConnectPlayIntent(4, 2, 1234L, "pc")
+        assertEquals(intent, ConnectCodec.decodeIntent(ConnectCodec.encodeIntent(intent)))
+        for (saved in listOf(ConnectSavedControl(1, 2, 3, 4), ConnectSavedControl(null, null, 3, 4)))
+            assertEquals(saved, ConnectSavedControl.decode(saved.encode()))
+        assertNull(ConnectSavedControl.decode(null))
+        assertNull(ConnectSavedControl.decode(""))
+        assertNull(ConnectSavedControl.decode("1,2,not-a-number,4"))
+    }
+
+    @Test fun theSessionFormatIsExactlyWhatReleasedClientsWrite() {
+        val keys = setOf("version", "ownerId", "ownerName", "ownerType", "epoch", "leaseUntil", "track", "playing", "buffering", "positionMs",
+            "positionAt", "durationMs", "queueRev", "queueIndex", "shuffle", "repeat", "context", "transfer", "commands", "updatedBy", "updatedAt")
+        assertEquals(keys, ConnectCodec.encodeSession(session).keys)
     }
 
     @Test fun oneActionBringsTheAudioHereOnlyWhenAnotherDeviceHasIt() {

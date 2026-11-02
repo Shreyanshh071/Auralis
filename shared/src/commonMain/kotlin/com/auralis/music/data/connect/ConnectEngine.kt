@@ -31,6 +31,18 @@ interface ConnectBackend {
     suspend fun heartbeat(device: ConnectDevice)
 
     suspend fun removeDevice(id: String)
+
+    /** The last recorded playback intent. Read only to settle a conflict, so it needs no listener. */
+    suspend fun readIntent(): ConnectPlayIntent?
+
+    /** Records it beside the session. Failing changes nothing but how a later conflict is judged. */
+    suspend fun writeIntent(intent: ConnectPlayIntent)
+}
+
+/** Keeps a pending local control across an engine restart. Must not block. */
+interface ConnectControlStore {
+    fun load(): ConnectSavedControl?
+    fun save(control: ConnectSavedControl?)
 }
 
 /**
@@ -73,19 +85,20 @@ enum class ReconcileResult { KEEP_LOCAL, KEEP_SESSION, WAIT_FOR_CLOCK }
 /**
  * Whether a local action made without the session's knowledge beats the session's output, when
  * both devices are making sound. Never compares device clocks directly:
- * - What the action had already seen comes first: an intent it knew about is older, whatever any clock
- *   says. Routine reports don't count, so a stale session can't outrank a newer action.
+ * - An output that moved with no [intent] covering it was moved by something that records nothing
+ *   (an older release, an automatic takeover), so the only evidence is ownership: it stays there.
+ * - What the action had already seen comes next: an intent from a session version it knew is older,
+ *   whatever any clock says. Routine reports record nothing, so they can't outrank an action.
  * - Only actions unaware of each other are ordered by time: [tapServerMs] comes from the elapsed time
  *   since the tap and a fresh server clock, and null means that isn't available yet.
  * - Within [marginMs] the order can't be known, so what the session committed first stands, and
  *   every device reaches the same answer.
- * A session from a client that doesn't record intents is judged by ownership: a device that took
- * the output since the action keeps it.
  */
-fun reconcileLocalControl(me: String, baseEpoch: Long?, baseSeq: Long?, tapServerMs: Long?, marginMs: Long, session: ConnectSession): ReconcileResult {
-    val intent = session.intent
-        ?: return if (baseEpoch == null || session.epoch == baseEpoch) ReconcileResult.KEEP_LOCAL else ReconcileResult.KEEP_SESSION
-    if (intent.by == me || (baseSeq != null && intent.seq <= baseSeq)) return ReconcileResult.KEEP_LOCAL
+fun reconcileLocalControl(me: String, baseEpoch: Long?, baseVersion: Long?, tapServerMs: Long?, marginMs: Long,
+                          session: ConnectSession, intent: ConnectPlayIntent?): ReconcileResult {
+    val moved = baseEpoch != null && session.epoch != baseEpoch
+    if (moved && (intent == null || intent.epoch < session.epoch)) return ReconcileResult.KEEP_SESSION
+    if (intent == null || intent.by == me || (baseVersion != null && intent.version <= baseVersion)) return ReconcileResult.KEEP_LOCAL
     if (tapServerMs == null) return ReconcileResult.WAIT_FOR_CLOCK
     return if (tapServerMs - intent.atMs > marginMs) ReconcileResult.KEEP_LOCAL else ReconcileResult.KEEP_SESSION
 }
@@ -234,6 +247,7 @@ class ConnectEngine(
     private val localNow: () -> Long,
     /** A timer that wall clock changes can't move; it times local actions. */
     private val elapsedNow: () -> Long = localNow,
+    private val controlStore: ConnectControlStore? = null,
     private val log: (String) -> Unit = {}
 ) {
     companion object {
@@ -277,6 +291,14 @@ class ConnectEngine(
         const val RECONCILE_MARGIN_MS = 3_000L
         /** And timers drift, by far less than this share of the time since the action. */
         const val RECONCILE_DRIFT_DIVISOR = 1_000L
+        /** A control from before a restart was timed by the wall clock, so it is known less exactly. */
+        const val RESTORED_MARGIN_MS = 30_000L
+        /** A saved control older than this says nothing about what the person wants now. */
+        const val SAVED_CONTROL_KEEP_MS = 6L * 3_600_000L
+        /** An intent that keeps being refused is abandoned: the rules may not allow it yet. */
+        const val INTENT_WRITE_TRIES = 3
+        /** With nobody else online a burst of skips is one action, so it is reported once it settles. */
+        const val SOLO_CONTROL_SETTLE_MS = 5_000L
         private const val NEVER = Long.MIN_VALUE / 2
         /** The handoff reason of a device catching the session up with a control already made there. */
         const val LOCAL_CONTROL = "local-control"
@@ -313,13 +335,82 @@ class ConnectEngine(
 
     /**
      * A control made on this device that the session hasn't heard about. While it is set the local
-     * player is in charge. [epoch] and [seq] are what this device knew of the session at the time,
-     * null if it knew nothing. [atElapsed] is when, on the timer wall clock changes can't move.
+     * player is in charge. [epoch] and [version] are what this device knew of the session at the
+     * time, null if it knew nothing. [atElapsed] is when, on the timer wall clock changes can't
+     * move; a control from before a restart has [restoredAtMs] instead, in server time.
      */
-    private data class LocalControl(val epoch: Long?, val seq: Long?, val atElapsed: Long)
+    private data class LocalControl(val epoch: Long?, val version: Long?, val atElapsed: Long, val restoredAtMs: Long? = null)
     @Volatile private var localControl: LocalControl? = null
+        set(value) { field = value; saveControl() }
     /** The same for an output: its latest control, until a write has reported it. */
     @Volatile private var unreported: LocalControl? = null
+        set(value) { field = value; saveControl() }
+
+    private fun LocalControl.serverTime(): Long = restoredAtMs ?: serverTimeOf(atElapsed)
+
+    private fun saveControl() {
+        val store = controlStore ?: return
+        val saved = (localControl ?: unreported)?.let { ConnectSavedControl(it.epoch, it.version, it.serverTime(), localNow()) }
+        scope.launch { store.save(saved) }
+    }
+
+    /** Only what is still sounding can be owed anything: a saved control never starts or moves audio. */
+    private fun restoreControl() {
+        val saved = controlStore?.load() ?: return
+        if (player?.snapshot()?.playing == true && localNow() - saved.savedAtWallMs in 0..SAVED_CONTROL_KEEP_MS) {
+            localControl = LocalControl(saved.epoch, saved.version, elapsedNow(), saved.atServerMs)
+        } else saveControl()
+    }
+
+    /** The action waiting to be recorded in the intent document. */
+    @Volatile private var pendingIntent: ConnectPlayIntent? = null
+    private var intentRetryAt = NEVER
+    private var intentTries = 0
+    private var sendingIntent = false
+    private var readIntent: Pair<LocalControl, ConnectPlayIntent?>? = null
+
+    private fun recordIntent(session: ConnectSession, atServerMs: Long, epoch: Long = session.epoch) {
+        pendingIntent = ConnectPlayIntent(session.version, epoch, atServerMs, me.id)
+        intentTries = 0
+        intentRetryAt = NEVER
+        flushIntent()
+    }
+
+    private fun flushIntent() {
+        val intent = pendingIntent ?: return
+        if (sendingIntent || elapsedNow() < intentRetryAt) return
+        sendingIntent = true
+        scope.launch {
+            try {
+                bounded { backend.writeIntent(intent) }
+                if (pendingIntent === intent) pendingIntent = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("Couldn't record the playback intent: ${e.message}")
+                intentRetryAt = elapsedNow() + WRITE_RETRY_MS
+                if (++intentTries >= INTENT_WRITE_TRIES && pendingIntent === intent) pendingIntent = null
+            } finally {
+                sendingIntent = false
+            }
+        }
+    }
+
+    /**
+     * Read once per control, and only for a real conflict. With the session reachable, a failed read
+     * means the rules don't allow it, so nothing is recorded; it isn't remembered, in case it wasn't.
+     */
+    private suspend fun recordedIntent(control: LocalControl): ConnectPlayIntent? {
+        readIntent?.takeIf { it.first === control }?.let { return it.second }
+        return try {
+            bounded { backend.readIntent() }.also { readIntent = control to it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("Couldn't read the playback intent: ${e.message}")
+            null
+        }
+    }
 
     /** The last session write failed; a control can't be expected to reach another device. */
     @Volatile private var writesFailing = false
@@ -352,6 +443,7 @@ class ConnectEngine(
 
     /** Registers this client and reads the authoritative session before anything else happens. */
     fun start() {
+        restoreControl()
         scope.launch {
             heartbeatNow()
             locked { refetch() }
@@ -421,6 +513,7 @@ class ConnectEngine(
         // Hiding already wrote "offline", so a hidden idle client has nothing new to say.
         // One heartbeat at a time: Android queues offline writes, and a pile would all land on reconnect.
         if (deviceAvailable && !presenceLock.isLocked && elapsedNow() - lastHeartbeatLocal >= HEARTBEAT_MS) scope.launch { heartbeatNow() }
+        flushIntent()
         if (lock.isLocked) return
         scope.launch {
             locked {
@@ -467,13 +560,13 @@ class ConnectEngine(
     fun intercept(intent: ConnectIntent): Boolean {
         if (stopped) return false
         val s = current?.session
-        val made = LocalControl(s?.epoch, s?.let { it.intent?.seq ?: 0L }, elapsedNow())
+        val made = LocalControl(s?.epoch, s?.version, elapsedNow())
         if (ownerEpoch != null) {
             if (intent.isPlaybackIntent) unreported = made
             return false
         }
         localControl?.let { pending ->
-            if (intent.isPlaybackIntent) localControl = pending.copy(atElapsed = made.atElapsed)
+            if (intent.isPlaybackIntent) localControl = pending.copy(atElapsed = made.atElapsed, restoredAtMs = null)
             return false
         }
         val p = player
@@ -503,10 +596,6 @@ class ConnectEngine(
     /** What a person does to playback; queue edits and seeks don't decide which device should play. */
     private val ConnectIntent.isPlaybackIntent: Boolean get() = startsAudio || this == ConnectIntent.Pause
 
-    /** Records that a person acted at [atElapsed]: the next write says so. */
-    private fun ConnectSession.stamped(atElapsed: Long): ConnectSession = copy(intent = ConnectPlayIntent(
-        (intent?.seq ?: 0L) + 1, serverTimeOf(atElapsed), me.id))
-
     private fun serverTimeOf(atElapsed: Long): Long = clock.now() - (elapsedNow() - atElapsed)
 
     /** Sends a control to the output. A song that can't get there plays here, so the tap is never lost. */
@@ -529,7 +618,7 @@ class ConnectEngine(
         if (stopped || !p.canPlay || ownerEpoch != null) return
         log("Couldn't reach ${s.ownerName}; playing on this device")
         optimistic = null
-        localControl = LocalControl(s.epoch, s.intent?.seq ?: 0L, elapsedNow())
+        localControl = LocalControl(s.epoch, s.version, elapsedNow())
         if (intent !is ConnectIntent.Load && s.track != null && p.snapshot().track?.id != s.track.id) startLocal(snapshot, play = false, from = null)
         executeLocalIntent(intent, s, p)
         refreshUi()
@@ -790,9 +879,12 @@ class ConnectEngine(
         val elsewhere = session != null && session.ownerId != me.id && session.ownerActive(clock.now())
         val playingElsewhere = elsewhere && (session?.playing == true || session?.buffering == true)
         if (session != null && playingElsewhere) {
-            val age = elapsedNow() - control.atElapsed
-            val verdict = if (!local.playing) ReconcileResult.KEEP_SESSION else reconcileLocalControl(me.id, control.epoch, control.seq,
-                serverTimeOf(control.atElapsed).takeIf { clock.fresh() }, RECONCILE_MARGIN_MS + age / RECONCILE_DRIFT_DIVISOR, session)
+            // Offline, the session is only what this device last saw: nothing can be decided from it.
+            if (!connected || readsLost) return
+            val margin = (if (control.restoredAtMs != null) RESTORED_MARGIN_MS else RECONCILE_MARGIN_MS) +
+                (elapsedNow() - control.atElapsed) / RECONCILE_DRIFT_DIVISOR
+            val verdict = if (!local.playing) ReconcileResult.KEEP_SESSION else reconcileLocalControl(me.id, control.epoch, control.version,
+                control.serverTime().takeIf { clock.fresh() }, margin, session, recordedIntent(control))
             when (verdict) {
                 ReconcileResult.KEEP_LOCAL -> Unit
                 ReconcileResult.KEEP_SESSION -> {
@@ -925,6 +1017,7 @@ class ConnectEngine(
         // A device that just appeared needs the real state at once, not the last bookmark.
         val arrived = publishedAlone && !alone
         publishedAlone = alone
+        if (alone && !arrived && !force && control != null && elapsedNow() - control.atElapsed < SOLO_CONTROL_SETTLE_MS) return
         if (!arrived && alone && !force && control == null && !commandsDone && !transferOld && s != null && s.transfer?.status?.active != true && last != null) {
             // Most listeners have one device: these writes would be read by nobody.
             if (localNowMs - last.atLocal < SOLO_CHECKPOINT_MS || !(changed || local.playing)) return
@@ -934,12 +1027,12 @@ class ConnectEngine(
         if (!force && !commandsDone && localNowMs < settleUntilLocal && (local.buffering || local.track?.id != s?.track?.id)) return
         val written = update { cur ->
             val cs = cur.session ?: return@update null
-            if (cs.ownerId != me.id || cs.epoch != epoch) null
-            else stateWrite(cur, cs, local, now).let { w -> if (control == null) w else w.copy(session = w.session.stamped(control.atElapsed)) }
+            if (cs.ownerId != me.id || cs.epoch != epoch) null else stateWrite(cur, cs, local, now)
         }
         if (written != null) {
             lastPublished = Published(local, localNowMs)
             publishedSeekRevision = seekRevision
+            if (control != null) written.session?.let { recordIntent(it, control.serverTime()) }
             if (unreported === control) unreported = null
         }
     }
@@ -967,7 +1060,7 @@ class ConnectEngine(
         val p = player ?: return
         val pending = s.commands.filter { it.id !in applied }
         if (pending.isEmpty()) return
-        val newestHere = unreported?.let { serverTimeOf(it.atElapsed) }
+        val newestHere = unreported?.serverTime()
         for (c in pending) {
             applied += c.id
             if (realtimeSeeks.remove(c.id)) continue
@@ -1079,8 +1172,7 @@ class ConnectEngine(
             val s = cur.session ?: return@update null
             if (!s.ownerActive(now) || s.ownerId == me.id) return@update null
             val cmd = commandFor(intent, s, now).also { sent = it }
-            val sentNow = s.copy(version = s.version + 1, commands = (s.commands + cmd).takeLast(MAX_COMMANDS), updatedBy = me.id)
-            ConnectWrite(if (intent.isPlaybackIntent) sentNow.stamped(elapsedNow()) else sentNow)
+            ConnectWrite(s.copy(version = s.version + 1, commands = (s.commands + cmd).takeLast(MAX_COMMANDS), updatedBy = me.id))
         }
         if (written != null) {
             // A later tap may already be on screen while this write is in flight.
@@ -1090,6 +1182,7 @@ class ConnectEngine(
                 feedback?.commandId = sent?.id
             }
             log("Sent ${sent?.type} to ${written.session?.ownerName}")
+            if (intent.isPlaybackIntent) written.session?.let { recordIntent(it, now) }
         } else {
             if (optimistic === feedback) optimistic = null
             log("Control not sent: the output changed")
@@ -1121,14 +1214,13 @@ class ConnectEngine(
             if (useSessionState) {
                 ConnectWrite(claimed.copy(version = base.version + 1, leaseUntilMs = now + LEASE_MS, positionMs = sessionPosition(base),
                     positionAtMs = now, playing = false, buffering = false, updatedBy = me.id))
-            } else stateWrite(cur.copy(session = claimed), claimed, local, now).let { w ->
-                if (control == null) w else w.copy(session = w.session.stamped(control.atElapsed))
-            }
+            } else stateWrite(cur.copy(session = claimed), claimed, local, now)
         }
         val session = written?.session ?: return null
         ownerEpoch = session.epoch
         localControl = null
         session.transfer?.takeIf { it.to == me.id && it.status == TransferStatus.COMMITTED }?.let { startedTransfer = it.id }
+        control?.let { recordIntent(session, it.serverTime()) }
         lastPublished = if (useSessionState) null else Published(local, elapsedNow())
         log("This device is now the output (epoch ${session.epoch})")
         return written
@@ -1305,9 +1397,9 @@ class ConnectEngine(
             val ready = target.id == me.id && s.ownerActive(now) && s.ownerId != me.id
             val t = ConnectTransfer(newId(), s.ownerId, target.id, label, target.type, s.epoch + 1,
                 if (ready) TransferStatus.READY else TransferStatus.REQUESTED, now, me.id, reason)
-            val asked = s.copy(version = s.version + 1, transfer = t, updatedBy = me.id)
-            ConnectWrite(if (reason.isEmpty()) asked.stamped(elapsedNow()) else asked)
+            ConnectWrite(s.copy(version = s.version + 1, transfer = t, updatedBy = me.id))
         } ?: return
+        if (reason.isEmpty()) written.session?.let { s -> recordIntent(s, now, s.transfer?.epoch ?: s.epoch) }
         written.session?.transfer?.takeIf { it.to == me.id }?.let { t ->
             handledTransfers += t.id
             preparedTransfer = t.id
@@ -1330,10 +1422,9 @@ class ConnectEngine(
                 val t = ConnectTransfer(newId(), me.id, target.id, label, target.type, epoch + 1, TransferStatus.COMMITTED, now, me.id, reason)
                 // A short lease: the target renews it with its first write. If it never answers
                 // (closed, asleep, offline) the lease lapses and this device takes the audio back.
-                val moved = w.session.copy(ownerId = target.id, ownerName = label, ownerType = target.type,
+                w.copy(session = w.session.copy(ownerId = target.id, ownerName = label, ownerType = target.type,
                     epoch = epoch + 1, leaseUntilMs = now + DIRECT_LEASE_MS,
-                    buffering = w.session.playing, transfer = t)
-                w.copy(session = if (reason.isEmpty()) moved.stamped(elapsedNow()) else moved)
+                    buffering = w.session.playing, transfer = t))
             }
         } catch (e: Exception) {
             if (local.playing) p.play()
@@ -1343,6 +1434,7 @@ class ConnectEngine(
             ownerEpoch = null
             lastPublished = null
             handedOver = HandedOver(target.id, label, epoch + 1, local.playing)
+            if (reason.isEmpty()) written.session?.let { recordIntent(it, now) }
             log("Handed the output to $label")
         } else if (ownerEpoch != null && current?.session?.ownerId == me.id && local.playing) {
             p.play() // the handoff didn't happen: keep playing here
