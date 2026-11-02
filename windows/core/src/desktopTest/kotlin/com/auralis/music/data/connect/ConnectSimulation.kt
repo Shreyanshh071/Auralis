@@ -144,7 +144,7 @@ class SimDevice(
     name: String,
     platform: ConnectPlatform,
     type: ConnectDeviceType,
-    private val skewMs: Long = 0L,
+    var skewMs: Long = 0L,
     /** How long server changes take to reach this client (a listener, or polling on Windows). */
     val latencyMs: Long = 100L,
     private val roundTripMs: Long = 80L
@@ -159,7 +159,8 @@ class SimDevice(
     var firestoreHangs = false
     var writeAttempts = 0
     val log = mutableListOf<String>()
-    val clock = ServerClock(localNow)
+    private val elapsedNow: () -> Long = { testScope.testScheduler.currentTime }
+    val clock = ServerClock(localNow, elapsedNow)
     private val serverNow: () -> Long = { testScope.testScheduler.currentTime }
 
     val backend = object : ConnectBackend {
@@ -205,7 +206,7 @@ class SimDevice(
 
     val engine = ConnectEngine(scope, backend, player,
         ConnectDevice(id, name, platform = platform, type = type, createdMs = testScope.testScheduler.currentTime),
-        clock, localNow) { log += it }
+        clock, localNow, elapsedNow) { log += it }
 
     init {
         player.onChange = { engine.onLocalChanged() }

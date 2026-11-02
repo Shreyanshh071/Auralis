@@ -92,7 +92,7 @@ service cloud.firestore {
       let s = request.resource.data;
       return s.keys().hasOnly(['version', 'ownerId', 'ownerName', 'ownerType', 'epoch', 'leaseUntil', 'track', 'playing',
           'buffering', 'positionMs', 'positionAt', 'durationMs', 'queueRev', 'queueIndex', 'shuffle', 'repeat', 'context',
-          'transfer', 'commands', 'updatedBy', 'updatedAt'])
+          'transfer', 'commands', 'updatedBy', 'updatedAt', 'intent'])
         && s.version is int && s.epoch is int && s.queueRev is int
         && s.ownerId is string && s.ownerId.size() <= 64
         && s.ownerName is string && s.ownerName.size() <= 80
@@ -103,6 +103,8 @@ service cloud.firestore {
         && (s.track == null || s.track is map)
         && (s.transfer == null || (s.transfer is map && s.transfer.status in ['requested', 'ready', 'committed', 'failed']))
         && s.commands is map && s.commands.size() <= 20
+        && (!('intent' in s) || (s.intent is map && s.intent.keys().hasOnly(['seq', 'at', 'by'])
+          && s.intent.seq is int && s.intent.at is number && s.intent.by is string && s.intent.by.size() <= 64))
         && s.updatedBy is string && s.updatedBy.size() <= 64
         && s.updatedAt == request.time;
     }

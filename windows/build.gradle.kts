@@ -261,6 +261,13 @@ tasks.register<JavaExec>("probeStartup") {
     findProperty("relayCachingMs")?.let { systemProperty("auralis.relayCachingMs", it.toString()) }
 }
 
+// Development check: ./gradlew :windows:probeFirebaseDown -Pargs="vlcDir::videoId" (silent; real playback with Firestore failing)
+tasks.register<JavaExec>("probeFirebaseDown") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeFirebaseDownKt")
+    args = listOfNotNull(findProperty("args")?.toString())
+}
+
 // Development check: ./gradlew :windows:probeStall -Pargs="vlcDir::videoId" (silent; a stalled stream recovers by itself)
 tasks.register<JavaExec>("probeStall") {
     classpath = sourceSets["main"].runtimeClasspath

@@ -43,7 +43,7 @@ class DesktopConnectBackendTest {
                 else -> error("Unexpected request: $url")
             }
         }.apply { signInEmail("test@example.com", "test-password") }
-        val backend = DesktopConnectBackend(api, "account", ServerClock { 0L })
+        val backend = DesktopConnectBackend(api, "account", ServerClock({ 0L }))
     }
 
     @Test fun retriesRuleDenialOnlyWhenServerRevisionChanged() = runBlocking {

@@ -111,6 +111,22 @@ test('leases cannot be set far into the future, and documents stay small', async
   await assertSucceeds(setDoc(doc(db, `users/${ALICE}/connect/queue`), { rev: 1, offset: 0, tracks: tracks.slice(0, 100) }));
 });
 
+test('a session may record the last playback intent, and older clients may leave it out', async () => {
+  const db = account(ALICE);
+  await assertSucceeds(setDoc(sessionRef(db, ALICE), session()));
+  await env.clearFirestore();
+  await assertSucceeds(setDoc(sessionRef(db, ALICE), session({ intent: { seq: 1, at: Date.now(), by: 'phone' } })));
+  await assertSucceeds(setDoc(sessionRef(db, ALICE), session({ version: 2 })));
+});
+
+test('the playback intent has a fixed shape', async () => {
+  const db = account(ALICE);
+  await assertFails(setDoc(sessionRef(db, ALICE), session({ intent: 'pause' })));
+  await assertFails(setDoc(sessionRef(db, ALICE), session({ intent: { seq: 'one', at: 1, by: 'phone' } })));
+  await assertFails(setDoc(sessionRef(db, ALICE), session({ intent: { seq: 1, at: 1, by: 'x'.repeat(65) } })));
+  await assertFails(setDoc(sessionRef(db, ALICE), session({ intent: { seq: 1, at: 1, by: 'phone', extra: true } })));
+});
+
 test('signing out removes the registration', async () => {
   const db = account(ALICE);
   await assertSucceeds(setDoc(doc(db, `users/${ALICE}/connectDevices/phone`), device('phone')));

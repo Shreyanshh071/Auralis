@@ -377,10 +377,11 @@ class DesktopConnect(
             canPlay = controller != null,
             createdMs = created
         )
-        val clock = ServerClock(System::currentTimeMillis)
+        val elapsed = { System.nanoTime() / 1_000_000L }
+        val clock = ServerClock(System::currentTimeMillis, elapsed)
         val b = DesktopConnectBackend(account.firestore, accountUid, clock)
         val player = controller?.let { DesktopConnectPlayer(it, scope) }
-        val e = ConnectEngine(scope, b, player, device, clock, System::currentTimeMillis) { Log.i(TAG, it) }
+        val e = ConnectEngine(scope, b, player, device, clock, System::currentTimeMillis, elapsed) { Log.i(TAG, it) }
         backend = b
         engine = e
         Log.i(TAG, "Joined the account session as ${device.name}")

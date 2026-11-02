@@ -118,7 +118,23 @@ fun ConnectPlayerBar(accent: Color, onOpen: () -> Unit, modifier: Modifier = Mod
     ) {
         Icon(connectDeviceIcon(type), null, tint = tint, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
-        Text(text, color = tint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, color = tint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        val me = ui.me
+        if (ui.canPlayHere && me != null) {
+            Spacer(Modifier.width(10.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = .16f))
+                    .clickable(role = Role.Button) { AuralisConnect.transferTo(me.id) }
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
+            ) {
+                Icon(connectDeviceIcon(me.type), null, tint = tint, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(str(if (me.type == ConnectDeviceType.TABLET) R.string.connect_this_tablet else R.string.connect_this_phone),
+                    color = tint, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+        }
     }
 }
 

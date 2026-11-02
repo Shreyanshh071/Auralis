@@ -27,7 +27,7 @@ class ConnectPresenceWriteTest {
         val pendingHeartbeat = TaskCompletionSource<Void>()
         every { device.set(any<Any>()) } returns pendingHeartbeat.task
         every { device.delete() } returns Tasks.forResult<Void>(null)
-        val backend = FirestoreConnectBackend(db, "account", ServerClock { 1000L })
+        val backend = FirestoreConnectBackend(db, "account", ServerClock({ 1000L }))
         val heartbeat = launch { backend.heartbeat(ConnectDevice("phone")) }
         runCurrent()
         val close = launch { backend.removeDevice("phone") }

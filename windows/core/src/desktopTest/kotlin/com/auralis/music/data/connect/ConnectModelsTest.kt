@@ -65,7 +65,7 @@ class ConnectModelsTest {
     @Test
     fun serverClockUsesTheTightestRoundTrip() {
         var local = 1_000L
-        val clock = ServerClock { local }
+        val clock = ServerClock({ local })
         clock.sample(serverMs = 6_000, sentLocalMs = 900, ackLocalMs = 1_100) // offset 5000 +- 100
         clock.sample(serverMs = 9_000, sentLocalMs = 0, ackLocalMs = 1_000) // looser: ignored
         assertEquals(5_000, clock.offsetMs)

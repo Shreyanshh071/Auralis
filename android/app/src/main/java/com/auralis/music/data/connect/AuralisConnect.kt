@@ -2,6 +2,7 @@ package com.auralis.music.data.connect
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import com.auralis.music.data.service.AuralisAudioPlayer
@@ -208,11 +209,12 @@ object AuralisConnect : ConnectHook {
             appVersion = com.auralis.music.BuildConfig.VERSION_NAME,
             createdMs = created
         )
-        val clock = ServerClock(System::currentTimeMillis)
+        val clock = ServerClock(System::currentTimeMillis, SystemClock::elapsedRealtime)
         val db = FirebaseFirestore.getInstance()
         val backend = FirestoreConnectBackend(db, accountUid, clock)
         this.backend = backend
-        val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis) { Log.d(TAG, it) }
+        val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis,
+            SystemClock::elapsedRealtime) { Log.d(TAG, it) }
         engine = e
         updatePresence()
         Log.d(TAG, "Joined the account session as ${device.name} ($deviceId)")

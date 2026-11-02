@@ -111,6 +111,14 @@ data class ConnectCommand(
 )
 
 /**
+ * The last thing a person did to playback anywhere on the account, as opposed to routine reports.
+ * [seq] counts these actions, so a device can tell what it had already seen when it acted, without
+ * reading any clock. [atMs] is the actor's estimate of server time; it only orders actions that
+ * happened without knowledge of each other, and then only with a margin ([reconcileLocalControl]).
+ */
+data class ConnectPlayIntent(val seq: Long, val atMs: Long, val by: String)
+
+/**
  * The account's single authoritative session. [version] grows by exactly one per write (the
  * security rules enforce it), so a stale writer can never overwrite newer state. [ownerId] is the
  * one output that may make sound; [epoch] changes with every change of owner and fences writes
@@ -140,7 +148,9 @@ data class ConnectSession(
     val commands: List<ConnectCommand> = emptyList(),
     val updatedBy: String = "",
     /** Server time of the last write (set by the server). */
-    val updatedAtMs: Long = 0L
+    val updatedAtMs: Long = 0L,
+    /** Null until a client that records it writes the session. */
+    val intent: ConnectPlayIntent? = null
 ) {
     fun ownerActive(serverNowMs: Long): Boolean = ownerId.isNotEmpty() && leaseUntilMs > serverNowMs
 
@@ -197,7 +207,7 @@ object ConnectCodec {
         "commands" to s.commands.takeLast(MAX_COMMANDS).associate { it.id to encodeCommand(it) },
         "updatedBy" to s.updatedBy,
         "updatedAt" to ConnectServerTime
-    )
+    ) + s.intent?.let { mapOf("intent" to mapOf("seq" to it.seq, "at" to it.atMs, "by" to it.by)) }.orEmpty()
 
     fun decodeSession(m: Map<String, Any?>): ConnectSession = ConnectSession(
         version = m.long("version"),
@@ -222,7 +232,8 @@ object ConnectCodec {
             @Suppress("UNCHECKED_CAST") (v as? Map<String, Any?>)?.let { decodeCommand(id, it) }
         }.orEmpty().sortedWith(compareBy({ it.atMs }, { it.id })),
         updatedBy = m.str("updatedBy"),
-        updatedAtMs = m.long("updatedAt")
+        updatedAtMs = m.long("updatedAt"),
+        intent = m.map("intent")?.let { ConnectPlayIntent(it.long("seq"), it.long("at"), it.str("by")) }
     )
 
     fun encodeQueue(q: ConnectQueue): Map<String, Any?> = mapOf(
