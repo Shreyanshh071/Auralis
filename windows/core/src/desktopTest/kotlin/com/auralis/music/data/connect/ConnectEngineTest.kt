@@ -21,6 +21,27 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectEngineTest {
+    @Test fun aloneTheOutputBarelyWritesAndASecondDeviceGetsTheRealStateAtOnce() = runTest {
+        val w = World(this)
+        val pc = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        val phone = w.device("phone", "Phone", ConnectPlatform.ANDROID, ConnectDeviceType.PHONE)
+        pc.start()
+        pc.user(ConnectIntent.Load(songs(40), 0))
+        w.run(10_000)
+        val before = w.server.writes
+        w.run(600_000)
+        val written = w.server.writes - before
+        assertTrue(written <= 8, "Ten solo minutes must not cost a write every few seconds: $written")
+
+        phone.start()
+        w.run(3_000)
+        val mirror = assertNotNull(phone.engine.ui.value.remote)
+        assertEquals(pc.player.track?.id, mirror.track.id)
+        assertTrue(kotlin.math.abs(mirror.positionAt(phone.localNow()) - pc.player.positionMs) < 2_000)
+        assertFalse(phone.player.playing)
+        assertTrue(w.server.violations.isEmpty())
+    }
+
     @Test fun lyricsSelectionFollowsTheOutputAndClearsOnSongChange() = runTest {
         val w = World(this)
         val pc = w.device("pc", "PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
@@ -248,7 +269,7 @@ class ConnectEngineTest {
         phone.user(ConnectIntent.Load(songs(3), 0))
         w.run(3_000)
         val before = assertNotNull(w.server.snapshot().session).positionMs
-        w.run(7_000)
+        w.run(17_000)
         val after = assertNotNull(w.server.snapshot().session).positionMs
         assertTrue(after >= before + 4_000L, "Playback must checkpoint without a manual control: $before -> $after")
     }

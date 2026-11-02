@@ -198,6 +198,10 @@ class ConnectEngine(
         // Every client writes this all day, against a 20k-writes-a-day project quota: keep it rare.
         const val HEARTBEAT_MS = 120_000L
         const val ONLINE_WINDOW_MS = 300_000L
+        /** Position reports while another device is watching; between them it counts on by itself. */
+        const val CHECKPOINT_MS = 15_000L
+        /** With no other device online nobody reads the session: only keep the bookmark roughly current. */
+        const val SOLO_CHECKPOINT_MS = 300_000L
         const val RECENT_WINDOW_MS = 14L * 86_400_000L
         const val FORGET_AFTER_MS = 30L * 86_400_000L
         const val COMMAND_TTL_MS = 30_000L
@@ -398,9 +402,11 @@ class ConnectEngine(
                         val s = cur.session ?: return@update null
                         if (s.ownerId != me.id || s.epoch != epoch) return@update null
                         val now = clock.now()
-                        ConnectWrite(s.copy(version = s.version + 1, leaseUntilMs = 0L, playing = false, buffering = false,
+                        // Alone, the session can be minutes behind: leave the real song as the bookmark.
+                        val state = local?.takeIf { it.track != null }?.let { stateWrite(cur, s, it, now) }
+                        ConnectWrite((state?.session ?: s.copy(version = s.version + 1)).copy(leaseUntilMs = 0L, playing = false, buffering = false,
                             positionMs = local?.positionMs ?: s.positionAt(now), positionAtMs = now,
-                            transfer = s.transfer?.takeIf { !it.status.active }, updatedBy = me.id))
+                            transfer = s.transfer?.takeIf { !it.status.active }, updatedBy = me.id), state?.queue)
                     }
                 }
                 runCatching { if (signOut) backend.removeDevice(me.id) else backend.heartbeat(me.copy(online = false)) }
@@ -683,6 +689,8 @@ class ConnectEngine(
         return abs(b.positionMs - expected) > DRIFT_MS
     }
 
+    private var publishedAlone = false
+
     private suspend fun publish(force: Boolean) {
         val p = player ?: return
         val epoch = ownerEpoch ?: return
@@ -697,8 +705,16 @@ class ConnectEngine(
         val commandsDone = s?.commands?.any { it.id in applied } == true
         val transferOld = s?.transfer?.let { !it.status.active && now - it.atMs > TRANSFER_KEEP_MS } == true
         val changed = last == null || significant(last.local, local, localNowMs - last.atLocal)
-        val checkpointDue = local.playing && last != null && localNowMs - last.atLocal >= 5_000L
-        if (!force && !explicitSeek && !leaseDue && !commandsDone && !transferOld && !changed && !checkpointDue) return
+        val checkpointDue = local.playing && last != null && localNowMs - last.atLocal >= CHECKPOINT_MS
+        val alone = devices.none { it.id != me.id && available(it, now) }
+        // A device that just appeared needs the real state at once, not the last bookmark.
+        val arrived = publishedAlone && !alone
+        publishedAlone = alone
+        if (!arrived && alone && !force && !commandsDone && !transferOld && s != null && s.transfer?.status?.active != true && last != null) {
+            // Most listeners have one device: these writes would be read by nobody.
+            if (localNowMs - last.atLocal < SOLO_CHECKPOINT_MS || !(changed || local.playing)) return
+        }
+        if (!arrived && !force && !explicitSeek && !leaseDue && !commandsDone && !transferOld && !changed && !checkpointDue) return
         // Just after taking over, the song is still starting: don't publish its 0:00 as the position.
         if (!force && !commandsDone && localNowMs < settleUntilLocal && (local.buffering || local.track?.id != s?.track?.id)) return
         val written = update { cur ->

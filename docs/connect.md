@@ -69,7 +69,7 @@ every second while its picker is open. A sudden process kill or lost network sti
 | --- | --- |
 | `version` | +1 on every write; the rules refuse anything else, so a write based on old state always loses |
 | `ownerId` / `epoch` | the one output and its fencing token; `epoch` +1 on every change of owner |
-| `leaseUntil` | the output renews it every 30 s (90 s lease); when it lapses the output is "last played on" |
+| `leaseUntil` | the output renews it every 30 s (90 s lease) while another device is online; alone it writes a bookmark every 5 min; when it lapses the output is "last played on" |
 | `positionMs` + `positionAt` | position and the (estimated) server time it was true; clients extrapolate |
 | `transfer` | a handoff in progress: `requested` → `ready` → `committed` (or `failed`) |
 | `commands` | controls waiting for the output (max 20), applied once each and removed by the output |

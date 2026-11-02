@@ -442,7 +442,8 @@ class DesktopConnect(
                 while (isActive) {
                     refreshDevices(e, b)
                     var waited = 0L
-                    while (isActive && waited < 120_000L && !(pickerOpen && waited >= 3_000L) && !devicesWanted) { delay(500L); waited += 500L }
+                    // The output stays quiet until it sees another device, so it looks more often.
+                    while (isActive && waited < (if (e.isOutput) 30_000L else 120_000L) && !(pickerOpen && waited >= 3_000L) && !devicesWanted) { delay(500L); waited += 500L }
                     devicesWanted = false
                 }
             })
