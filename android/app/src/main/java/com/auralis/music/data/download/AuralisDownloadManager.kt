@@ -74,6 +74,13 @@ object AuralisDownloadManager {
     private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
 
+    private val _individualDownloadIds = MutableStateFlow<Set<String>>(emptySet())
+    val individualDownloadIds: StateFlow<Set<String>> = _individualDownloadIds.asStateFlow()
+    private val _downloadedLyricsChoices = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val downloadedLyricsChoices: StateFlow<Map<String, Boolean>> = _downloadedLyricsChoices.asStateFlow()
+    private val _downloadedCoverChoices = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val downloadedCoverChoices: StateFlow<Map<String, Boolean>> = _downloadedCoverChoices.asStateFlow()
+
     private val _activeDownloads = MutableStateFlow<Map<String, Float>>(emptyMap())
     val activeDownloads: StateFlow<Map<String, Float>> = _activeDownloads.asStateFlow()
 
@@ -117,18 +124,44 @@ object AuralisDownloadManager {
     }
 
     private fun publishDownloads(tracks: List<Track>) {
-        _downloadedTracks.value = tracks
+        _individualDownloadIds.value = store?.individualTrackIds().orEmpty()
+        _downloadedLyricsChoices.value = store?.downloadLyricsChoices().orEmpty()
+        val covers = store?.downloadCoverChoices().orEmpty()
+        _downloadedCoverChoices.value = covers
+        _downloadedTracks.value = tracks.map { DownloadArtworkPolicy.display(it, covers[it.id]) }
         _downloadedTrackIds.value = tracks.map { it.id }.toSet()
     }
 
     fun getDownloadedFile(trackId: String): File? = store?.downloadedFile(trackId)
 
+    internal fun recordDownloadLyricsChoice(trackId: String, requested: Boolean) {
+        val downloadStore = store ?: return
+        synchronized(downloadStore) {
+            publishDownloads(downloadStore.recordLyricsChoice(trackId, requested))
+        }
+    }
+
+    fun useCachedLyricsOnly(trackId: String): Boolean =
+        _downloadedLyricsChoices.value[trackId] == false && isDownloaded(trackId)
+
     fun getDownloadedArtworkFile(trackId: String): File? =
-        store?.artworkFile(trackId)?.takeIf { it.exists() && it.length() > 500 }
+        if (isDownloadedCoverHidden(trackId)) null else store?.artworkFile(trackId)?.takeIf { it.exists() && it.length() > 500 }
+
+    fun isDownloadedCoverHidden(trackId: String?): Boolean =
+        trackId != null && _downloadedCoverChoices.value[trackId] == false
+
+    internal fun recordDownloadCoverChoice(trackId: String, requested: Boolean) {
+        val downloadStore = store ?: return
+        synchronized(downloadStore) { publishDownloads(downloadStore.recordCoverChoice(trackId, requested)) }
+    }
+
+    fun artworkForPlayback(trackId: String?, remoteArtwork: String?): String? =
+        if (isDownloadedCoverHidden(trackId) || remoteArtwork == DownloadArtworkPolicy.HIDDEN) null
+        else trackId?.let(::getDownloadedArtworkFile)?.toURI()?.toString() ?: remoteArtwork
 
     /** Keep an existing offline song's metadata and artwork aligned with a verified library repair. */
     suspend fun applyVerifiedTrackMetadata(track: Track, context: Context) {
-        if (track.thumbnail.isBlank()) return
+        if (track.thumbnail.isBlank() || track.thumbnail == DownloadArtworkPolicy.HIDDEN) return
         awaitInitialized(context)
         val downloadStore = store ?: return
         val saved = _downloadedTracks.value.firstOrNull { it.id == track.id } ?: return
@@ -156,18 +189,24 @@ object AuralisDownloadManager {
     }
 
     /** The public copy of a song downloaded on its own: Downloads/Auralis/Individual Songs. */
-    private fun publishIndividualSong(track: Track) {
+    private suspend fun publishIndividualSong(track: Track, metadata: DownloadMetadataChoice) {
         val ctx = appContext ?: return
         try {
             val file = checkNotNull(store?.downloadedFile(track.id)) { "Saved file is missing" }
-            PlaylistDownloadFiles(ctx).publish(file, PlaylistDownloadPaths.INDIVIDUAL_SONGS, PlaylistDownloadPaths.individualFileName(track))
+            DownloadMetadataExport.publish(
+                ctx, PlaylistDownloadFiles(ctx), file, PlaylistDownloadPaths.INDIVIDUAL_SONGS,
+                PlaylistDownloadPaths.individualFileName(track), track, metadata
+            )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // The song is already saved in the app; only the shared copy is missing.
             Log.w(TAG, "Couldn't copy '${track.title}' to Individual Songs: ${e.message}")
         }
     }
 
-    private fun requestTrack(track: Track, individualSong: Boolean = false): Deferred<TrackDownloadResult> = synchronized(jobsLock) {
+    /** [individualMetadata] marks a song downloaded on its own, which gets a public copy with those tags. */
+    private fun requestTrack(track: Track, individualMetadata: DownloadMetadataChoice? = null): Deferred<TrackDownloadResult> = synchronized(jobsLock) {
         activeDownloadJobs[track.id]?.let { return@synchronized it }
         if (clearingDownloads || track.id in blockedIds) {
             return@synchronized CompletableDeferred(TrackDownloadResult(
@@ -180,7 +219,12 @@ object AuralisDownloadManager {
                 transferSlots.withPermit {
                     if (isDownloaded(track.id)) TrackDownloadResult(track.id, DownloadOutcome.ALREADY_DOWNLOADED)
                     else downloadWithRetries(track)
-                }.also { if (individualSong && it.outcome == DownloadOutcome.SUCCESS) publishIndividualSong(track) }
+                }.also {
+                    if (individualMetadata != null && it.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES) {
+                        markIndividualDownload(track.id)
+                        publishIndividualSong(track, individualMetadata)
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -207,17 +251,39 @@ object AuralisDownloadManager {
             init(context)
         }
         if (isDownloaded(track.id)) {
+            scope.launch { markIndividualDownload(track.id) }
             showToast("Download already completed")
             return
         }
         if (isDownloading(track.id)) {
+            scope.launch {
+                val active = synchronized(jobsLock) { activeDownloadJobs[track.id] }
+                if (active?.await()?.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES) {
+                    markIndividualDownload(track.id)
+                }
+            }
             showToast("Download already in progress")
             return
         }
 
-        showToast("Downloading '${track.title}'...")
+        val start: (DownloadMetadataChoice) -> Unit = { metadata ->
+            showToast("Downloading '${track.title}'...")
+            val transfer = requestTrack(track, individualMetadata = metadata)
+            // A playlist may have started the same transfer while the metadata prompt
+            // was open. Keep the individual request even when its transfer is shared.
+            scope.launch {
+                if (transfer.await().outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES) {
+                    markIndividualDownload(track.id)
+                }
+            }
+        }
+        val ctx = appContext
+        if (ctx != null) DownloadMetadataPrompt.ask(ctx, start) else start(DownloadMetadataChoice.BASIC)
+    }
 
-        requestTrack(track, individualSong = true)
+    private fun markIndividualDownload(trackId: String) {
+        val downloadStore = store ?: return
+        synchronized(downloadStore) { publishDownloads(downloadStore.markIndividual(trackId)) }
     }
 
     private class StreamSource(val name: String, val timeoutMs: Long, val resolve: suspend () -> String?)

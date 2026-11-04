@@ -7,9 +7,6 @@ import android.provider.Settings
 import android.util.Log
 import com.auralis.music.data.service.AuralisAudioPlayer
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.MetadataChanges
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,12 +21,13 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Auralis Connect on the phone: while signed in (not as an anonymous Listen Together guest), this
  * phone is one device of the account's listening session. It follows the account through
- * FirebaseAuth, so signing out or switching accounts drops the old account's session, listeners,
+ * FirebaseAuth, so signing out or switching accounts drops the old account's session, socket,
  * device list and controls at once.
  */
 object AuralisConnect : ConnectHook {
@@ -53,9 +51,29 @@ object AuralisConnect : ConnectHook {
     private lateinit var appContext: Context
     private lateinit var player: AuralisAudioPlayer
     @Volatile private var engine: ConnectEngine? = null
-    private var backend: FirestoreConnectBackend? = null
+    private var realtime: ConnectRealtimeBackend? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
+    val deviceSyncAvailable: Boolean get() = com.auralis.music.BuildConfig.CONNECT_REALTIME_URL.isNotBlank()
+    private val _deviceSyncEnabled = MutableStateFlow(false)
+    val deviceSyncEnabled: StateFlow<Boolean> = _deviceSyncEnabled.asStateFlow()
+
+    fun setDeviceSyncEnabled(enabled: Boolean) {
+        if (enabled && !deviceSyncAvailable) return
+        scope.launch {
+            followLock.withLock {
+                if (_deviceSyncEnabled.value == enabled) return@withLock
+                appContext.getSharedPreferences("auralis_connect", Context.MODE_PRIVATE)
+                    .edit().putBoolean("realtime_transport", enabled).apply()
+                _deviceSyncEnabled.value = enabled
+                if (enabled) uid?.takeIf { presence.taskPresent }?.let(::startEngine)
+                else stopEngine(signOut = false)
+                syncPresenceService()
+            }
+        }
+    }
+
     private var uid: String? = null
-    private var listeners: List<ListenerRegistration> = emptyList()
     private var jobs: List<Job> = emptyList()
     private var started = false
     private val presence = ConnectTaskPresence()
@@ -113,6 +131,8 @@ object AuralisConnect : ConnectHook {
         if (started) return
         started = true
         appContext = context.applicationContext
+        _deviceSyncEnabled.value = appContext.getSharedPreferences("auralis_connect", Context.MODE_PRIVATE)
+            .getBoolean("realtime_transport", false)
         player = AuralisAudioPlayer.getInstance(appContext)
         player.connectHook = this
         try {
@@ -141,14 +161,14 @@ object AuralisConnect : ConnectHook {
     /** Detach now; best-effort server cleanup belongs to the captured old engine. */
     fun disconnectLocally() {
         val oldEngine = engine
+        val oldRealtime = realtime
         engine = null
-        backend = null
+        realtime = null
+        stopNetworkWatch()
         uid = null
         syncPresenceService()
         _ui.value = ConnectUi()
         _remote.value = null
-        listeners.forEach { it.remove() }
-        listeners = emptyList()
         jobs.forEach { it.cancel() }
         jobs = emptyList()
         if (oldEngine?.isOutput == true && ::player.isInitialized) {
@@ -161,6 +181,8 @@ object AuralisConnect : ConnectHook {
                 throw e
             } catch (e: Exception) {
                 Log.d(TAG, "Signed out locally; server cleanup unavailable: ${e.message}")
+            } finally {
+                oldRealtime?.stop()
             }
         }
     }
@@ -168,15 +190,7 @@ object AuralisConnect : ConnectHook {
     fun transferTo(deviceId: String) { engine?.transferTo(deviceId) }
 
     /** Reconcile immediately when returning from Android background suspension. */
-    fun refresh() {
-        val e = engine ?: return
-        val b = backend ?: return
-        scope.launch {
-            try { e.onSnapshot(b.fetch()) }
-            catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
-            catch (ex: Exception) { e.onConnectionLost(ex.message) }
-        }
-    }
+    fun refresh() { realtime?.nudge() }
 
     override fun intercept(intent: ConnectIntent): Boolean {
         val e = engine ?: return false
@@ -191,9 +205,12 @@ object AuralisConnect : ConnectHook {
         return e.intercept(intent)
     }
 
-    override fun remote(): ConnectRemoteView? = if (engine != null) _remote.value else null
+    override fun remote(): ConnectRemoteView? = engine?.ui?.value?.remote
+        ?.takeUnless { player.isGuestListenTogether.value }
+        ?.let(remotePresentation::present)
 
     private fun startEngine(accountUid: String) {
+        if (!_deviceSyncEnabled.value || !deviceSyncAvailable) return
         val prefs = appContext.getSharedPreferences("auralis_connect", Context.MODE_PRIVATE)
         // A separate random id per account on this install; never derived from hardware.
         val idKey = "device_$accountUid"
@@ -210,45 +227,28 @@ object AuralisConnect : ConnectHook {
             createdMs = created
         )
         val clock = ServerClock(System::currentTimeMillis, SystemClock::elapsedRealtime)
-        val db = FirebaseFirestore.getInstance()
-        val backend = FirestoreConnectBackend(db, accountUid, clock)
-        this.backend = backend
-        val e = ConnectEngine(scope, backend, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis,
+        val realtimeUrl = com.auralis.music.BuildConfig.CONNECT_REALTIME_URL.takeIf { it.isNotBlank() } ?: return
+        val sink = object : ConnectRealtimeSink {
+            @Volatile var engine: ConnectEngine? = null
+            override fun onSnapshot(snapshot: ConnectSnapshot) { engine?.onSnapshot(snapshot) }
+            override fun onDevices(devices: List<ConnectDevice>) { engine?.onDevices(devices) }
+            override fun onConnectionLost(message: String?) { engine?.onConnectionLost(message) }
+        }
+        val realtime = realtimeUrl.let { url ->
+            ConnectRealtimeBackend(url, deviceId, clock, scope, sink, okhttp3.OkHttpClient(), log = { Log.d(TAG, it) }) { refresh ->
+                // Only the signed-in account's own token: never an anonymous Listen Together guest's.
+                FirebaseAuth.getInstance().currentUser?.takeIf { !it.isAnonymous && it.uid == accountUid }
+                    ?.getIdToken(refresh)?.await()?.token
+            }
+        }
+        this.realtime = realtime
+        val e = ConnectEngine(scope, realtime, AndroidConnectPlayer(appContext, player), device, clock, System::currentTimeMillis,
             SystemClock::elapsedRealtime, savedControls(prefs, accountUid)) { Log.d(TAG, it) }
+        sink.engine = e
         engine = e
         updatePresence()
-        Log.d(TAG, "Joined the account session as ${device.name} ($deviceId)")
+        Log.d(TAG, "Joined the account session as ${device.name} ($deviceId) over WebSocket")
 
-        var session: ConnectSession? = null
-        var queue: ConnectQueue? = null
-        fun deliver() { e.onSnapshot(ConnectSnapshot(session, queue)) }
-        // Only server-confirmed snapshots: a reconnecting phone acts on the authoritative state,
-        // never on its offline cache.
-        listeners = listOf(
-            backend.sessionRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
-                if (error != null) { e.onConnectionLost(error.message); return@addSnapshotListener }
-                if (snap?.metadata?.isFromCache == true) { e.onConnectionLost("Offline"); return@addSnapshotListener }
-                if (snap == null || snap.metadata.hasPendingWrites()) return@addSnapshotListener
-                session = snap.data?.let { ConnectCodec.decodeSession(FirestoreConnectBackend.fromFirestore(it)) }
-                session?.let { backend.sawSession(it, deviceId) }
-                deliver()
-            },
-            backend.queueRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
-                if (error != null || snap == null || snap.metadata.isFromCache || snap.metadata.hasPendingWrites()) return@addSnapshotListener
-                queue = snap.data?.let { ConnectCodec.decodeQueue(FirestoreConnectBackend.fromFirestore(it)) }
-                backend.sawQueue(queue)
-                if (session != null) deliver()
-            },
-            backend.devicesRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
-                if (error != null) { e.onConnectionLost(error.message); return@addSnapshotListener }
-                if (snap == null || snap.metadata.isFromCache) return@addSnapshotListener
-                val devices = snap.documents.filter { !it.metadata.hasPendingWrites() }.mapNotNull { d ->
-                    d.data?.let { ConnectCodec.decodeDevice(FirestoreConnectBackend.fromFirestore(it)) }
-                }
-                devices.firstOrNull { it.id == deviceId }?.let(backend::sawOwnDevice)
-                e.onDevices(devices)
-            }
-        )
         jobs = listOf(
             // A Listen Together guest shows the room, not the account's session.
             scope.launch {
@@ -274,25 +274,43 @@ object AuralisConnect : ConnectHook {
             }
         )
         e.start()
+        realtime.start()
+        watchNetwork(realtime)
+    }
+
+    /** A new network (Wi-Fi to mobile data, or back) reconnects now instead of after a backoff. */
+    private fun watchNetwork(realtime: ConnectRealtimeBackend) {
+        val manager = appContext.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) { realtime.nudge() }
+        }
+        runCatching { manager.registerDefaultNetworkCallback(callback) }.onSuccess { networkCallback = callback }
+    }
+
+    private fun stopNetworkWatch() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        runCatching { appContext.getSystemService(android.net.ConnectivityManager::class.java)?.unregisterNetworkCallback(callback) }
     }
 
     private fun savedControls(prefs: android.content.SharedPreferences, accountUid: String) = object : ConnectControlStore {
-        private val key = "control_$accountUid"
+        private val key = "ws_control_$accountUid"
         override fun load() = ConnectSavedControl.decode(prefs.getString(key, null))
         override fun save(control: ConnectSavedControl?) { prefs.edit().putString(key, control?.encode()).apply() }
     }
 
     private suspend fun stopEngine(signOut: Boolean) {
         val e = engine ?: return
+        val oldRealtime = realtime
         engine = null
-        backend = null
+        realtime = null
+        stopNetworkWatch()
         _ui.value = ConnectUi()
         _remote.value = null
-        listeners.forEach { it.remove() }
-        listeners = emptyList()
         jobs.forEach { it.cancel() }
         jobs = emptyList()
-        e.stop(signOut)
+        // The old transport gives up the output first, then closes.
+        try { e.stop(signOut) } finally { oldRealtime?.stop() }
     }
 
     /**

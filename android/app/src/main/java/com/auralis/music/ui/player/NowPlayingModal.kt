@@ -296,7 +296,7 @@ private fun NowPlayingDynamicBackground(
 ) {
     PlayerBackground(
         style = style,
-        artworkUrl = activeTrack.thumbnail,
+        artworkUrl = com.auralis.music.data.download.AuralisDownloadManager.artworkForPlayback(activeTrack.id, activeTrack.thumbnail),
         extractedColors = committedPalette,
         modifier = modifier,
         isMiniPlayer = false,
@@ -389,7 +389,10 @@ fun NowPlayingModal(
             lastValidTrack = uiState.currentTrack
         }
     }
-    val track = uiState.currentTrack ?: lastValidTrack ?: return
+    val downloadCoverChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.collectAsState()
+    val track = (uiState.currentTrack ?: lastValidTrack ?: return).let {
+        com.auralis.music.data.download.DownloadArtworkPolicy.display(it, downloadCoverChoices[it.id])
+    }
     val demoControls = LocalPlayerDemoControls.current
     val dynamicPalette = MaterialTheme.dynamicPalette
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -408,7 +411,9 @@ fun NowPlayingModal(
     }
 
     val coroutineScope = rememberCoroutineScope()
-    val queue = uiState.queue
+    val queue = remember(uiState.queue, downloadCoverChoices) {
+        uiState.queue.map { com.auralis.music.data.download.DownloadArtworkPolicy.display(it, downloadCoverChoices[it.id]) }
+    }
     val currentTrackIndex = remember(uiState.currentIndex, queue, track.id) {
         if (uiState.currentIndex in queue.indices && queue[uiState.currentIndex].id == track.id) {
             return@remember uiState.currentIndex
@@ -423,6 +428,21 @@ fun NowPlayingModal(
     ) { pageCount }
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
+
+    val downloadLyricsChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedLyricsChoices.collectAsState()
+    val downloadedIdsForLyrics by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
+    val hasDisplayedLyrics = uiState.lyrics?.let { it.lines.isNotEmpty() || !it.plainLyrics.isNullOrBlank() } == true
+    val cachedDownloadLyricsNotice = str(R.string.download_cached_lyrics_notice)
+    var cachedLyricsNoticeShown by remember(track.id) { mutableStateOf(false) }
+    LaunchedEffect(currentTab, track.id, hasDisplayedLyrics, downloadLyricsChoices[track.id], track.id in downloadedIdsForLyrics) {
+        if (currentTab != NowPlayingTab.LYRICS) {
+            cachedLyricsNoticeShown = false
+        } else if (!cachedLyricsNoticeShown && hasDisplayedLyrics &&
+            track.id in downloadedIdsForLyrics && downloadLyricsChoices[track.id] == false) {
+            cachedLyricsNoticeShown = true
+            com.auralis.music.ui.components.AppPillManager.showPill(cachedDownloadLyricsNotice, durationMs = 4_000L)
+        }
+    }
 
     // Every player design has an inline lyric preview, including Immersive. The menu
     // toggles that preview; the lyrics tab remains a separate full-screen action.
@@ -690,8 +710,8 @@ fun NowPlayingModal(
     // Auralis Connect: signed in, the output button picks the device; this phone's own sound
     // output (Bluetooth, speaker, quality) stays one tap further in that sheet.
     var showConnectSheet by remember { mutableStateOf(false) }
-    val connectEnabled by com.auralis.music.data.connect.AuralisConnect.ui.collectAsState()
-    fun openOutputPicker() { if (connectEnabled.enabled) showConnectSheet = true else showAudioOutputSheet = true }
+    // The output button is only for this phone's audio route; Connect lives in the mini player and the ⋮ menu.
+    fun openOutputPicker() { showAudioOutputSheet = true }
     var showTrackOptions by remember { mutableStateOf(false) }
     // Lyrics source picker for the new and old player designs (immersive has its own).
     var showLyricsProviders by remember { mutableStateOf(false) }
@@ -2222,6 +2242,7 @@ fun NowPlayingModal(
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
             },
+            onConnectDevices = { showConnectSheet = true },
             onDismiss = { showTrackOptions = false }
         )
         }

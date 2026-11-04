@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
         val searchRepository = com.auralis.music.data.repository.CatalogSearchRepository(SearchRepositoryImpl(innerTubeClient, suggestionsClient, com.auralis.music.data.repository.RoomSearchHistoryStore(searchHistoryDao)))
         com.auralis.music.data.local.ImportedLyricsStore.init(applicationContext)
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
+        com.auralis.music.data.download.DownloadMetadataExport.attachLyrics(lyricsRepository)
 
         Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")
 

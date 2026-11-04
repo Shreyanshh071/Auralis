@@ -104,6 +104,21 @@ fun AlbumScreen(
     val context = LocalContext.current
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var showAlbumOptionsMenu by remember { mutableStateOf(false) }
+    // Search may call every release an album. Prefer the type on its actual release page.
+    var verifiedReleaseType by remember(album.id) {
+        mutableStateOf(com.auralis.music.data.network.InnerTubeClient.cachedReleaseType(album.id))
+    }
+    LaunchedEffect(album.id) {
+        verifiedReleaseType = com.auralis.music.data.network.InnerTubeClient().getReleaseType(album.id)
+    }
+    // A generic search "album" tag is not enough to assert an album when lookup fails.
+    val releaseType = verifiedReleaseType ?: album.releaseType?.takeUnless { it.equals("album", ignoreCase = true) }
+    val releaseLabel = when (releaseType?.lowercase()) {
+        "album" -> str(R.string.album)
+        "single" -> str(R.string.no_album)
+        "ep" -> str(R.string.release_ep)
+        else -> str(R.string.no_album_information)
+    }
 
     BackHandler {
         onBack()
@@ -180,7 +195,7 @@ fun AlbumScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = buildList {
-                            add(str(R.string.album))
+                            add(releaseLabel)
                             if (tracks.isNotEmpty()) add(str(R.string.x_songs, tracks.size))
                             if (durationText.isNotBlank()) add(durationText)
                         }.joinToString(" • "),

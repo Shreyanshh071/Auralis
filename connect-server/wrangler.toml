@@ -1,0 +1,43 @@
+name = "auralis-connect"
+main = "src/index.js"
+compatibility_date = "2026-04-07"
+workers_dev = true
+preview_urls = false
+
+# Never deploy from here without an explicit go-ahead: see docs/connect-websocket-plan.md.
+[vars]
+FIREBASE_PROJECT_ID = "auralis-70cf8"
+
+[[ratelimits]]
+name = "CONNECT_UPGRADES"
+namespace_id = "10401"
+simple = { limit = 300, period = 60 }
+
+[[durable_objects.bindings]]
+name = "CONNECT"
+class_name = "ConnectAccount"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConnectAccount"]
+
+# Throwaway measurement target: see docs/connect-staging-plan.md. STAGING_SECRET is set with
+# `wrangler secret put` for this environment only, and production never has it.
+[env.staging]
+workers_dev = true
+
+[env.staging.vars]
+FIREBASE_PROJECT_ID = "auralis-70cf8"
+
+[[env.staging.ratelimits]]
+name = "CONNECT_UPGRADES"
+namespace_id = "10402"
+simple = { limit = 300, period = 60 }
+
+[[env.staging.durable_objects.bindings]]
+name = "CONNECT"
+class_name = "ConnectAccount"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConnectAccount"]

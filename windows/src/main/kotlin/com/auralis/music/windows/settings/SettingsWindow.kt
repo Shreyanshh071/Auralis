@@ -358,6 +358,10 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         }
     }
     SettingsGroup("Activity") {
+        com.auralis.music.windows.connect.DesktopConnect.current?.takeIf { it.deviceSyncAvailable }?.let { connect ->
+            val enabled = connect.deviceSyncEnabled.collectAsState().value
+            SettingToggle("Device Sync", "Control playback across your devices", checked = enabled, onChecked = connect::setDeviceSyncEnabled)
+        }
         SettingToggle("Play history", "Record songs played on this PC", !privacy.pauseListenHistory) { scope.launch { stores.privacy.setPauseListenHistory(!it) } }
     }
     SettingsGroup("System") {

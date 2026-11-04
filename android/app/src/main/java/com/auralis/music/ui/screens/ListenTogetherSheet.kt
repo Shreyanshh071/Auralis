@@ -171,11 +171,11 @@ fun ListenTogetherSheet(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
-            .then(if (isPopup) Modifier else Modifier.statusBarsPadding())
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (isPopup) Modifier else Modifier.statusBarsPadding())
                 .padding(horizontal = 18.dp)
                 .verticalScroll(rememberScrollState())
         ) {
@@ -919,12 +919,13 @@ private fun GlassListenTogetherLobby(
     val muted = foreground.copy(alpha=.62f)
     val card = foreground.copy(alpha=.07f)
     OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
-        .background(MaterialTheme.dynamicBackground).then(if(popup) Modifier else Modifier.statusBarsPadding()),
+        .background(MaterialTheme.dynamicBackground),
         glowWithoutGlass = true, glowBehindStatusBar = !popup) {
         // Read inside the page, where its glass is known: glass needs light text, a solid button its own.
         val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
         val lobbyBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
-        Column(Modifier.fillMaxSize().layerBackdrop(lobbyBackdrop).verticalScroll(rememberScrollState())
+        Column(Modifier.fillMaxSize().then(if (popup) Modifier else Modifier.statusBarsPadding())
+            .layerBackdrop(lobbyBackdrop).verticalScroll(rememberScrollState())
             .padding(start=16.dp,end=16.dp,top=70.dp,bottom=20.dp),
             verticalArrangement=Arrangement.spacedBy(22.dp)) {
             Text(str(R.string.listen_together),fontSize=30.sp,fontWeight=FontWeight.ExtraBold,
@@ -1003,7 +1004,9 @@ private fun GlassListenTogetherLobby(
         }
         com.auralis.music.ui.glass.FloatingPageButton(
             Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), lobbyBackdrop,
-            Modifier.align(Alignment.TopStart).padding(start=14.dp,top=12.dp), onClick = onClose
+            Modifier.align(Alignment.TopStart)
+                .then(if (popup) Modifier else Modifier.statusBarsPadding())
+                .padding(start=14.dp,top=12.dp), onClick = onClose
         )
     }
 }

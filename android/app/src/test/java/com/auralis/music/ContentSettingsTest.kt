@@ -38,10 +38,9 @@ class ContentSettingsTest {
     }
 
     @Test
-    fun japaneseKanaRomanizesAndKanjiOnlyLineIsSkipped() {
+    fun japaneseKanaAndKanjiRomanize() {
         assertEquals("arigatou", LyricsRomanizer.romanize("ありがとう", all))
-        // Kanji have no reading without a dictionary: an all-kanji line yields no second line.
-        assertNull(LyricsRomanizer.romanize("東京", setOf(RomanizationScript.JAPANESE)))
+        assertEquals("toukyou", LyricsRomanizer.romanize("東京", setOf(RomanizationScript.JAPANESE)))
     }
 
     @Test

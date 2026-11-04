@@ -19,9 +19,9 @@ import androidx.compose.material.icons.rounded.TabletAndroid
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -69,14 +69,19 @@ private fun rowLabel(row: ConnectDeviceRow) = if (row.isThis) desktopText("This 
 @Composable
 fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
     val connect = DesktopConnect.current
-    DisposableEffect(expanded, connect) {
-        connect?.pickerOpen = expanded
-        onDispose { connect?.pickerOpen = false }
-    }
     // Opens on top of the device button it belongs to, not off to one side over the title.
     com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, aboveAnchor = true) {
         com.auralis.music.windows.GlassDropdownMenuHeader(desktopText("Connect to a device"))
+        val syncEnabled = connect?.deviceSyncEnabled?.collectAsState()?.value == true
+        val syncAvailable = connect?.deviceSyncAvailable == true
+        com.auralis.music.windows.GlassDropdownMenuItem(
+            text = { Text(desktopText("Device Sync")) },
+            trailingIcon = { Switch(checked = syncAvailable && syncEnabled, enabled = syncAvailable, onCheckedChange = null) },
+            enabled = syncAvailable,
+            onClick = { connect?.setDeviceSyncEnabled(!syncEnabled) }
+        )
         val ui = connect?.ui?.collectAsState()?.value
+        if (!syncAvailable || !syncEnabled) return@GlassDropdownMenu
         if (ui == null || !ui.enabled) {
             com.auralis.music.windows.GlassDropdownMenuItem(text = { Text(desktopText("Sign in to listen across your devices.")) }, onClick = onDismiss, enabled = false)
             return@GlassDropdownMenu

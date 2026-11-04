@@ -118,10 +118,14 @@ object ArtworkPaletteCache {
      * Returns in <1ms without hitting disk or network, enabling zero-frame-delay background updates.
      */
     fun getCachedOrFastExtract(context: Context, trackId: String?, thumbnailUrl: String?): ArtworkPalette? {
+        if (com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(trackId) ||
+            thumbnailUrl == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN) return null
         if (!trackId.isNullOrBlank()) {
             getCached(trackId)?.takeIf { !it.isDefault && !it.isPlaceholder }?.let { return it }
         }
+        val savedArtwork = trackId?.let { com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(it) }
         val effectiveThumb = when {
+            savedArtwork != null -> Uri.fromFile(savedArtwork).toString()
             !thumbnailUrl.isNullOrBlank() -> thumbnailUrl
             !trackId.isNullOrBlank() -> {
                 val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(trackId)
@@ -477,7 +481,8 @@ object ArtworkPaletteCache {
      * Checks memory cache first for 0ms response time, or initiates async extraction off the main thread.
      */
     fun updateForTrack(context: Context, track: Track?) {
-        if (track == null) {
+        if (track == null || com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(track.id) ||
+            track.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN) {
             currentTrackId = null
             extractionJob?.cancel()
             _currentPalette.value = defaultPalette
@@ -486,8 +491,8 @@ object ArtworkPaletteCache {
 
         val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
         val effectiveThumbnail = when {
-            !track.thumbnail.isNullOrBlank() -> track.thumbnail
             localArt != null && localArt.exists() && localArt.length() > 500 -> Uri.fromFile(localArt).toString()
+            !track.thumbnail.isNullOrBlank() -> track.thumbnail
             else -> com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: ""
         }
 
@@ -558,7 +563,7 @@ object ArtworkPaletteCache {
      * Extracts dynamic colors from artwork asynchronously with multi-candidate image loading.
      */
     suspend fun extractPalette(context: Context, key: String, artworkUrl: String): ArtworkPalette {
-        if (artworkUrl.isBlank()) return defaultPalette
+        if (artworkUrl.isBlank() || artworkUrl == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN) return defaultPalette
 
         // 1. Check memory cache first
         getCached(key)?.takeIf { !it.isPlaceholder }?.let { return it }

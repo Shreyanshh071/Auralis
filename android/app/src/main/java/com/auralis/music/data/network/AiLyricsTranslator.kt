@@ -4,6 +4,9 @@ import android.util.Log
 import com.auralis.music.domain.model.AiTranslationSettings
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricsData
+import com.auralis.music.domain.lyrics.LyricsRomanizer
+import com.auralis.music.domain.model.RomanizationScript
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -34,16 +37,19 @@ object AiLyricsTranslator {
         lyrics: LyricsData,
         settings: AiTranslationSettings
     ): LyricsData? = withContext(Dispatchers.IO) {
-        if (lyrics.lines.isEmpty()) return@withContext null
+        val source = if (lyrics.lines.isNotEmpty()) lyrics else lyrics.copy(
+            lines = lyrics.plainLyrics?.lines().orEmpty().map { LyricLine(time = 0L, text = it) }
+        )
+        if (source.lines.isEmpty()) return@withContext null
 
         val cacheKey = "${trackId}::${settings.targetLanguage}::${settings.translationMode}::${settings.provider}"
         // A track's lyrics can change within a session (cached copy first, then a network
         // upgrade). Reuse the cached translation only for the same line texts, and always put
         // it onto the lyrics being translated now, never return the earlier lyrics themselves.
         translationCache[cacheKey]?.let { cached ->
-            if (cached.lines.size == lyrics.lines.size && cached.lines.indices.all { cached.lines[it].text == lyrics.lines[it].text }) {
-                return@withContext lyrics.copy(
-                    lines = lyrics.lines.mapIndexed { i, line -> line.copy(translatedText = cached.lines[i].translatedText) },
+            if (cached.lines.size == source.lines.size && cached.lines.indices.all { cached.lines[it].text == source.lines[it].text }) {
+                return@withContext source.copy(
+                    lines = source.lines.mapIndexed { i, line -> line.copy(translatedText = cached.lines[i].translatedText) },
                     translatedPlainLyrics = cached.translatedPlainLyrics,
                     translatedLanguage = cached.translatedLanguage
                 )
@@ -51,15 +57,21 @@ object AiLyricsTranslator {
         }
 
         try {
-            val originalLines = lyrics.lines
+            val originalLines = source.lines
             val linesText = originalLines.joinToString("\n") { it.text }
 
-            val effectivePrompt = "You are an expert music phonetic transcription and romanization engine. Transliterate and transcribe the following song lyrics line-by-line into clean, natural Latin phonetic script (e.g. Hinglish for Hindi/Bhojpuri/Punjabi, Romaji for Japanese, Pinyin for Chinese, Revised Romanization for Korean). DO NOT translate the meaning into English words. Output ONLY the phonetic singing lyrics written in English letters so users can easily sing along. Maintain the exact same line count and line-by-line correspondence. Do not include markdown, explanations, or notes."
+            val transcription = isTranscriptionMode(settings.translationMode)
+            val effectivePrompt = if (transcription) "You are an expert music phonetic transcription and romanization engine. Transliterate and transcribe the following song lyrics line-by-line into clean, natural Latin phonetic script (e.g. Hinglish for Hindi/Bhojpuri/Punjabi, Romaji for Japanese, Pinyin for Chinese, Revised Romanization for Korean). DO NOT translate the meaning into English words. Output ONLY the phonetic singing lyrics written in English letters so users can easily sing along. Maintain the exact same line count and line-by-line correspondence. Do not include markdown, explanations, or notes." else {
+                val prompt = settings.systemPrompt.takeUnless {
+                    it.isBlank() || it == AiTranslationSettings.DEFAULT_SYSTEM_PROMPT
+                } ?: AiTranslationSettings.STANDARD_SYSTEM_PROMPT
+                "$prompt\nTarget language: ${settings.targetLanguage}"
+            }
 
             var translatedText: String? = null
 
             if (settings.apiKey.isNotBlank()) {
-                translatedText = when (settings.provider) {
+                translatedText = try { when (settings.provider) {
                     "OpenRouter" -> callOpenAiCompatible(
                         baseUrl = if (settings.customBaseUrl.isNotBlank()) settings.customBaseUrl.trimEnd('/') else "https://openrouter.ai/api/v1",
                         model = settings.model.ifBlank { "google/gemini-2.5-flash-lite" },
@@ -101,7 +113,7 @@ object AiLyricsTranslator {
                         systemPrompt = effectivePrompt,
                         apiKey = settings.apiKey
                     )
-                    "DeepL" -> callDeepLApi(originalLines.map { it.text }, settings)
+                    "DeepL" -> if (transcription) null else callDeepLApi(originalLines.map { it.text }, settings)
                     "Custom" -> callOpenAiCompatible(
                         baseUrl = if (settings.customBaseUrl.isNotBlank()) settings.customBaseUrl.trimEnd('/') else "http://localhost:11434/v1",
                         model = settings.model.ifBlank { "default" },
@@ -116,25 +128,30 @@ object AiLyricsTranslator {
                         systemPrompt = effectivePrompt,
                         apiKey = settings.apiKey
                     )
+                } } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Lyrics provider unavailable: ${e.message}")
+                    null
                 }
             }
 
-            // Fallback: Instant Native Phonetic Romanization (Hinglish/Romaji)
-            if (translatedText.isNullOrBlank()) {
-                val transliterated = originalLines.map { line ->
-                    if (com.auralis.music.data.parser.IndicScriptNormalizer.containsIndicScript(line.text)) {
-                        com.auralis.music.data.parser.IndicScriptNormalizer.transliterateToReadableHinglish(line.text)
-                    } else {
-                        line.text
+            // Reject shifted AI responses rather than attaching their text to the wrong timestamps.
+            if (translatedText?.lines()?.size != originalLines.size) translatedText = null
+            if (translatedText.isNullOrBlank() && transcription) {
+                translatedText = withContext(Dispatchers.Default) {
+                    val scripts = RomanizationScript.entries.toSet()
+                    val japanese = originalLines.any { LyricsRomanizer.hasJapaneseKana(it.text) }
+                    originalLines.joinToString("\n") { line ->
+                        LyricsRomanizer.romanize(line.text, scripts, japanese) ?: line.text
                     }
                 }
-                translatedText = transliterated.joinToString("\n")
             }
 
             if (translatedText.isNullOrBlank()) return@withContext null
 
             val translatedLines = translatedText.lines().map { it.trim() }
-            if (translatedLines.isEmpty()) return@withContext null
+            if (translatedLines.size != originalLines.size) return@withContext null
 
             val resultLines = mutableListOf<LyricLine>()
             for (i in originalLines.indices) {
@@ -146,19 +163,26 @@ object AiLyricsTranslator {
                 resultLines.add(orig.copy(translatedText = if (isDifferent) transText else null))
             }
 
-            val translatedLyrics = lyrics.copy(
+            if (resultLines.none { it.translatedText != null }) return@withContext null
+            val translatedLyrics = source.copy(
                 lines = resultLines,
-                translatedPlainLyrics = resultLines.mapNotNull { it.translatedText }.joinToString("\n"),
-                translatedLanguage = settings.targetLanguage
+                translatedPlainLyrics = resultLines.joinToString("\n") { it.translatedText.orEmpty() },
+                translatedLanguage = if (transcription) "Romanized" else settings.targetLanguage
             )
 
             translationCache[cacheKey] = translatedLyrics
             translatedLyrics
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Translation error for provider ${settings.provider}: ${e.message}", e)
             null
         }
     }
+
+    internal fun isTranscriptionMode(mode: String): Boolean =
+        mode.equals("Transcription", ignoreCase = true) || mode.contains("romaniz", ignoreCase = true) ||
+            mode.contains("romanis", ignoreCase = true) || mode.contains("transliter", ignoreCase = true)
 
     private fun callFreeGoogleTranslate(linesText: String, targetLanguage: String): String? {
         try {

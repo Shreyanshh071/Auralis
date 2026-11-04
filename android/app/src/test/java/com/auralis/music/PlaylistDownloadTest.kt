@@ -13,6 +13,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlaylistDownloadTest {
+    @Test fun individualDownloadOwnershipSurvivesReloadAndPlaylistReuse() {
+        val directory = java.nio.file.Files.createTempDirectory("auralis-download-origin-").toFile()
+        try {
+            val store = DownloadStore(directory)
+            store.load()
+            val track = Track(id = "individual", title = "Individual")
+            store.audioFile(track.id).apply { parentFile!!.mkdirs(); writeBytes(ByteArray(2048) { 7 }) }
+            store.add(track)
+            store.markIndividual(track.id)
+            // Reusing/updating the cached audio for a playlist must retain its original owner.
+            store.add(track.copy(title = "Updated title"))
+            val restored = DownloadStore(directory)
+            restored.load()
+            assertEquals(setOf(track.id), restored.individualTrackIds())
+            restored.remove(track.id)
+            restored.add(track)
+            assertTrue(restored.individualTrackIds().isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private val tracks = listOf(Track(id = "one"), Track(id = "two"))
 
     private fun durableJob(

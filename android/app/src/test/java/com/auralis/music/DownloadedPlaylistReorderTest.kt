@@ -16,10 +16,32 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DownloadedPlaylistReorderTest {
+    @Test fun `back from a downloaded folder returns to hub before the library root`() {
+        Dispatchers.setMain(StandardTestDispatcher())
+        val models = ViewModelStore()
+        try {
+            val model = LibraryViewModel(mockk<LibraryRepository>(relaxed = true),
+                mockk<CompleteYouTubePlaylistImporter>(), mockk<SpotifyPlaylistImporter>())
+            models.put("navigation", model)
+            val folder = Playlist("smart_downloaded_folder_job", "Offline")
+            model.selectPlaylist(folder.id, folder)
+            model.selectPlaylist(null)
+            assertNull(model.uiState.value.selectedPlaylist)
+            assertEquals(com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED,
+                model.uiState.value.selectedSmartCollection)
+            model.closeSmartCollection()
+            assertNull(model.uiState.value.selectedSmartCollection)
+        } finally {
+            models.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun `reorder persists through view model recreation without writing source playlist`() {
         Dispatchers.setMain(StandardTestDispatcher())
         val models = ViewModelStore()

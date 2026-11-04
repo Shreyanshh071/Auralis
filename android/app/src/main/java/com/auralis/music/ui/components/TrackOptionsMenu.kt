@@ -84,6 +84,7 @@ fun TrackOptionsMenu(
     onCreatePlaylistAndAdd: (String) -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    onConnectDevices: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     queueReferenceStyle: Boolean = false,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
@@ -130,26 +131,20 @@ fun TrackOptionsMenu(
         }
     }
     if (showArtistPicker) {
-        com.auralis.music.ui.components.AuralisAlertDialog(
-            onDismissRequest = { showArtistPicker = false },
-            title = { Text(str(R.string.choose_artist)) },
-            text = {
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    creditedArtists.forEach { artistName ->
-                        TextButton(
-                            onClick = {
-                                showArtistPicker = false
-                                onGoToArtist?.invoke(artistName)
-                                onDismiss()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text(artistName, modifier = Modifier.fillMaxWidth()) }
-                    }
-                }
+        ArtistPickerSheet(
+            artists = remember(creditedArtists) {
+                creditedArtists.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
             },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showArtistPicker = false }) { Text(str(R.string.cancel)) } }
+            subtitle = track.title,
+            onPick = { artist ->
+                showArtistPicker = false
+                onGoToArtist?.invoke(artist.name)
+                onDismiss()
+            },
+            onDismiss = { showArtistPicker = false }
         )
+        // Replace the source menu while choosing; two modal surfaces must not stack.
+        return
     }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
@@ -304,7 +299,13 @@ fun TrackOptionsMenu(
             ) {
                 if (isDownloaded) AuralisDownloadManager.removeDownload(track.id) else AuralisDownloadManager.downloadTrack(track)
             })
-            add(GlassMenuItem(str(R.string.view_album), Icons.Default.Album, enabled = displayAlbum != null) { openAlbum() })
+            add(GlassMenuItem(
+                when {
+                    displayAlbum != null -> str(R.string.view_album)
+                    !albumLookupDone -> str(R.string.finding_album)
+                    else -> str(R.string.no_album)
+                }, Icons.Default.Album, enabled = displayAlbum != null
+            ) { openAlbum() })
             add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person,
                 enabled = onGoToArtist != null, dismisses = false) { viewArtist() })
             if (!queueReferenceStyle) {
@@ -644,6 +645,10 @@ fun TrackOptionsMenu(
                                 TrackOptionRow(icon = Icons.Default.Groups, title = str(R.string.listen_together), subtitle = null,
                                     onClick = { onDismiss(); open(track) })
                             }
+                            onConnectDevices?.let { open ->
+                                TrackOptionRow(icon = Icons.Default.Devices, title = str(R.string.connect_to_a_device), subtitle = null,
+                                    onClick = { onDismiss(); open() })
+                            }
                             TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
                                 onClick = { onDismiss(); actions.openAmbient(track) })
                             val lyricsShown = actions.isLyricsShown(track)
@@ -705,7 +710,7 @@ fun TrackOptionsMenu(
                             title = str(R.string.view_album),
                             subtitle = displayAlbum ?: when {
                                 !albumLookupDone -> str(R.string.finding_album)
-                                isKnownSingle -> str(R.string.single_not_part_of_an_album)
+                                isKnownSingle -> str(R.string.no_album)
                                 else -> str(R.string.no_album_for_this_song)
                             },
                             enabled = displayAlbum != null,

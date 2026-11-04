@@ -93,7 +93,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         tracks: List<Track>,
         startIndex: Int = 0,
         preserveOrderIfSame: Boolean = false,
-        isUserQueue: Boolean = false
+        isUserQueue: Boolean = false,
+        keepShuffle: Boolean = true
     ): QueueState {
         if (!preserveOrderIfSame || originalQueue.isEmpty() || originalQueue.map { it.id } != tracks.map { it.id }) {
             originalQueue = tracks.toList()
@@ -107,7 +108,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         // rest of the new list is shuffled behind it. originalQueue (set above) still holds the
         // in-order list, so turning shuffle off restores it. Previously every new list silently
         // turned shuffle off.
-        if (!preserveOrderIfSame && state.isShuffled && tracks.size > 1) {
+        if (!preserveOrderIfSame && keepShuffle && state.isShuffled && tracks.size > 1) {
             val start = tracks[index]
             val rest = tracks.filterIndexed { i, _ -> i != index }.shuffled()
             state = QueueState(
@@ -124,7 +125,7 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         state = QueueState(
             queue = tracks.toList(),
             currentIndex = if (tracks.isNotEmpty()) index else -1,
-            isShuffled = if (preserveOrderIfSame) state.isShuffled else false,
+            isShuffled = if (preserveOrderIfSame || keepShuffle) state.isShuffled else false,
             repeatMode = state.repeatMode,
             isUserQueue = isUserQueue
         )
@@ -167,6 +168,8 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         if (uniqueNew.isEmpty()) return state
 
         val updatedQueue = state.queue + uniqueNew
+        val originalIds = originalQueue.mapTo(mutableSetOf()) { it.id }
+        originalQueue = originalQueue + uniqueNew.filter { it.id !in originalIds }
         state = state.copy(queue = updatedQueue)
         return state
     }
@@ -180,8 +183,11 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
      * The track to preload for a gapless handover. Repeat-one has none: a preloaded neighbour
      * plays on when the song ends, while the queue stays on the repeating track.
      */
-    fun gaplessNextTrack(): Track? =
-        if (state.repeatMode == RepeatMode.ONE) null else state.queue.getOrNull(state.currentIndex + 1)
+    fun gaplessNextTrack(): Track? {
+        if (state.repeatMode == RepeatMode.ONE) return null
+        val next = nextIndex() ?: return null
+        return if (next == state.currentIndex) null else state.queue.getOrNull(next)
+    }
 
     fun nextIndex(isUserSkip: Boolean = false): Int? {
         val q = state.queue

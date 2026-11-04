@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PersistableBundle
 import androidx.work.*
+import com.auralis.music.data.datastore.DownloadMetadataDataStore
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -45,8 +46,43 @@ object PlaylistDownloadCoordinator {
         }
     }
 
-    fun enqueue(context: Context, playlistId: String, playlistName: String, tracks: List<Track>) {
+    /**
+     * [askFirst] is false for downloads the app starts by itself, which never interrupt with the popup.
+     * [onStarted] runs once the download is really going, so a cancelled popup announces nothing.
+     */
+    fun enqueue(
+        context: Context,
+        playlistId: String,
+        playlistName: String,
+        tracks: List<Track>,
+        askFirst: Boolean = true,
+        onStarted: () -> Unit = {}
+    ) {
         init(context)
+        val existing = _jobs.value[playlistId]
+        val inProgress = existing?.status == PlaylistDownloadStatus.DOWNLOADING.name && !existing.cancelRequested
+        val alreadyDone = existing?.status == PlaylistDownloadStatus.COMPLETE.name && matchesTrackSnapshot(existing, tracks.map { it.id })
+        when {
+            inProgress || alreadyDone -> {
+                onStarted()
+                startEnqueue(context, playlistId, playlistName, tracks)
+            }
+            askFirst -> DownloadMetadataPrompt.ask(context) { metadata ->
+                PlaylistDownloadMetadata.save(context, playlistId, metadata)
+                onStarted()
+                startEnqueue(context, playlistId, playlistName, tracks)
+            }
+            else -> scope.launch {
+                if (!PlaylistDownloadMetadata.contains(context, playlistId)) {
+                    PlaylistDownloadMetadata.save(context, playlistId, DownloadMetadataDataStore(context).settingsFlow.first().choice)
+                }
+                startEnqueue(context, playlistId, playlistName, tracks)
+                withContext(Dispatchers.Main) { onStarted() }
+            }
+        }
+    }
+
+    private fun startEnqueue(context: Context, playlistId: String, playlistName: String, tracks: List<Track>) {
         if (!hasLegacyStoragePermission(context)) {
             pendingLegacyEnqueue = PendingEnqueue(playlistId, playlistName, tracks)
             requestLegacyStoragePermission(context)
@@ -252,11 +288,12 @@ object PlaylistDownloadCoordinator {
             }.toSet()
             val trackIds = tracks(job).map { it.id }
             trackIds.forEach { trackId ->
-                if (trackId !in otherTrackIds) {
+                if (canRemovePlaylistDownload(trackId, otherTrackIds, AuralisDownloadManager.individualDownloadIds.value)) {
                     AuralisDownloadManager.removeDownload(trackId)
                 }
             }
             repository.delete(jobId)
+            PlaylistDownloadMetadata.remove(context, job.playlistId)
             _jobs.update { removePlaylistJobFromState(it, jobId) }
             context.getSystemService(android.app.NotificationManager::class.java)
                 .cancel(PlaylistDownloadNotifications.id(jobId))

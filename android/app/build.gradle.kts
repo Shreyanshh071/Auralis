@@ -61,6 +61,11 @@ android {
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"$spotifyClientSecret\"")
+        val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
+        require(realtimeUrl.isEmpty() || (realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !realtimeUrl.contains("staging", ignoreCase = true))) {
+            "Connect requires a production WSS endpoint."
+        }
+        buildConfigField("String", "CONNECT_REALTIME_URL", "\"$realtimeUrl\"")
     }
 
     testOptions {
@@ -130,6 +135,8 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/LICENSE-notice.md"
+            // Both Kuromoji modules include this file; retain their contributor notices.
+            merges += "META-INF/CONTRIBUTORS.md"
         }
         // Compress native libraries in the APK (Android unpacks them at install). The Discord Social
         // SDK is ~33 MB across the four ABIs and was stored uncompressed, making the APK ~45 MB;

@@ -1163,6 +1163,7 @@ class ListenTogetherViewModel(
      */
     fun bindHostPlayer(player: AuralisAudioPlayer) {
         hostPlayer = player
+        player.synchronizedPlaybackActive = { _uiState.value.activeRoom != null }
         player.roomActionObserver = { command ->
             val state = _uiState.value
             if (state.isHost && state.activeRoom != null) {

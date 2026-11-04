@@ -168,11 +168,13 @@ class SpeakerDataFlowRegressionTest {
     }
 
     @Test
-    fun `translation is still reused for identical lyrics`() = runBlocking {
+    fun `offline transcription is still reused for identical lyrics`() = runBlocking {
         val song = songs.first { it.slug == "tere_liye" }
         val data = tagged(song)
-        val a = AiLyricsTranslator.translateLyrics("reuse_tere", data, AiTranslationSettings())!!
-        val b = AiLyricsTranslator.translateLyrics("reuse_tere", data, AiTranslationSettings())!!
+        // Meaning translation needs an API key; offline romanisation is the deterministic cache fixture.
+        val settings = AiTranslationSettings(translationMode = "Transcription", apiKey = "")
+        val a = AiLyricsTranslator.translateLyrics("reuse_tere", data, settings)!!
+        val b = AiLyricsTranslator.translateLyrics("reuse_tere", data, settings)!!
         assertEquals(a.lines.map { it.translatedText }, b.lines.map { it.translatedText })
         assertEquals(data.lines.map { it.agent }, b.lines.map { it.agent })
     }

@@ -1,6 +1,7 @@
 package com.auralis.music.ui.library
 
 import com.auralis.music.data.download.DownloadTrackOrder
+import com.auralis.music.data.download.downloadedFolderMembership
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -85,11 +86,11 @@ fun DownloadedHubView(
     // were never fetched and its folder read as complete, 2 songs short.
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     androidx.compose.runtime.LaunchedEffect(downloadedJobs, userPlaylists) {
-        downloadedJobs.filter { it.status == "COMPLETE" || it.status == "PARTIAL_FAILURE" }.forEach { job ->
+        downloadedJobs.filter { it.status == "COMPLETE" && it.offlineEnabled }.forEach { job ->
             val playlist = userPlaylists.firstOrNull { it.id == job.playlistId } ?: return@forEach
             val saved = PlaylistDownloadCoordinator.tracks(job).mapTo(mutableSetOf()) { it.id }
             if (playlist.tracks.any { it.id !in saved && !it.id.startsWith("unavailable:") }) {
-                PlaylistDownloadCoordinator.enqueue(appContext, job.playlistId, playlist.title, playlist.tracks)
+                PlaylistDownloadCoordinator.enqueue(appContext, job.playlistId, playlist.title, playlist.tracks, askFirst = false)
             }
         }
     }
@@ -98,36 +99,40 @@ fun DownloadedHubView(
         DownloadTrackOrder.apply(downloadedTracks, downloadTrackOrders["smart_downloaded_all"])
     }
 
-    // Build the list of folders
-    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists, downloadTrackOrders) {
+    val individualIds by AuralisDownloadManager.individualDownloadIds.collectAsState()
+    // Build the list of folders from verified live downloads, not historical job counts.
+    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists, downloadTrackOrders, individualIds) {
         val list = mutableListOf<DownloadFolderItem>()
         val accountedTrackIds = mutableSetOf<String>()
+        val downloadedIds = downloadedTracks.mapTo(mutableSetOf()) { it.id }
+        val downloadedById = downloadedTracks.associateBy { it.id }
 
         // 1. Jobs from PlaylistDownloadCoordinator, newest first by when they started. Jobs arrive
         // by last update, which made folders swap places every time one finished a song.
         for (job in downloadedJobs.sortedWith(compareByDescending<PlaylistDownloadJobEntity> { it.createdAt }.thenBy { it.jobId })) {
             val allTracks = PlaylistDownloadCoordinator.tracks(job)
-            val successfulResults = PlaylistDownloadCoordinator.results(job)
-                .filter { it.outcome in com.auralis.music.data.download.PlaylistDownloadRepository.SUCCESS_OUTCOMES }
-                .associateBy { it.trackId }
+            val membership = downloadedFolderMembership(
+                allTracks.map { it.id }, PlaylistDownloadCoordinator.results(job),
+                downloadedIds, individualIds, job.status == "DOWNLOADING"
+            )
             val downloadedForJob = allTracks.filter { track ->
-                successfulResults.containsKey(track.id) && AuralisDownloadManager.isDownloaded(track.id)
-            }
+                track.id in membership.downloadedIds
+            }.map { downloadedById[it.id] ?: it }
 
             val notOnYouTube = PlaylistDownloadCoordinator.results(job).count { AuralisDownloadManager.isNotOnYouTubeError(it.error) }
-            val isJobActive = job.status == "DOWNLOADING"
-            val hasDownloadedTracks = downloadedForJob.isNotEmpty() || (job.completedCount > 0 && job.status != "FAILED" && job.status != "CANCELLED")
-
-            if (isJobActive || hasDownloadedTracks) {
+            if (membership.visible) {
                 // Every downloaded song of this playlist belongs to it, even before the job has
                 // recorded its result: a song is saved a moment before the job copies it to the
                 // public folder and records it, and in that gap it showed up as a one-song
                 // "Individual Songs" folder that flashed in and out for every track.
-                allTracks.forEach { if (AuralisDownloadManager.isDownloaded(it.id)) accountedTrackIds.add(it.id) }
+                accountedTrackIds.addAll(membership.accountedIds)
                 val originalPlaylist = userPlaylists.firstOrNull {
                     it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true)
                 }
-                val resolvedCoverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
+                val resolvedCoverUrl = if (downloadedForJob.any { it.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }) {
+                    downloadedForJob.firstOrNull { it.thumbnail.isNotBlank() && it.thumbnail != com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }?.thumbnail
+                        ?: com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN
+                } else originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
 
                 list.add(
                     DownloadFolderItem(
@@ -594,7 +599,7 @@ private fun FolderCardItem(
                         contentAlignment = Alignment.Center
                     ) {
                         val displayArt = folder.coverUrl
-                            ?: folder.downloadedTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                            ?: folder.downloadedTracks.firstOrNull { it.thumbnail.isNotBlank() && it.thumbnail != com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }?.thumbnail
                         if (!displayArt.isNullOrBlank()) {
                             ArtworkCard(
                                 url = displayArt,

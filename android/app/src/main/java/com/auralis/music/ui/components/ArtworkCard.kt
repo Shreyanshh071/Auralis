@@ -174,17 +174,20 @@ fun ArtworkCard(
     sizeToConstraints: Boolean = false
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val artworkHidden = url == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN ||
+        fallbackTrack?.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN
 
     // Resolve the best primary URL instantly with LRU cache lookup
-    val resolvedUrl = remember(url, highRes) {
-        if (!url.isNullOrBlank()) {
+    val resolvedUrl = remember(url, highRes, artworkHidden) {
+        if (!artworkHidden && !url.isNullOrBlank()) {
             if (highRes) getHighResArtworkUrl(url) ?: url else getOptimizedThumbnailUrl(url) ?: url
         } else null
     }
 
     var isPrimaryError by remember(resolvedUrl) { mutableStateOf(false) }
 
-    val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail, highRes, isPrimaryError) {
+    val fallbackUrl = remember(fallbackTrack?.id, fallbackTrack?.thumbnail, highRes, isPrimaryError, artworkHidden) {
+        if (artworkHidden) return@remember null
         val fallbackRaw = fallbackTrack?.thumbnail
         // Composition runs on the main thread: only touch the disk once the primary has failed,
         // or every tile scrolling into a list stats a file.
@@ -219,7 +222,8 @@ fun ArtworkCard(
 
     var asyncResolvedUrl by remember(fallbackTrack?.id) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(fallbackTrack?.id, resolvedUrl, fallbackUrl) {
+    LaunchedEffect(fallbackTrack?.id, resolvedUrl, fallbackUrl, artworkHidden) {
+        if (artworkHidden) { asyncResolvedUrl = null; return@LaunchedEffect }
         if (resolvedUrl.isNullOrBlank() && fallbackUrl.isNullOrBlank() && fallbackTrack != null) {
             val art = com.auralis.music.data.network.ArtworkResolver.resolveArtwork(fallbackTrack)
             if (!art.isNullOrBlank()) {
@@ -228,7 +232,7 @@ fun ArtworkCard(
         }
     }
 
-    val activeUrl = if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
+    val activeUrl = if (artworkHidden) null else if (!resolvedUrl.isNullOrBlank() && !isPrimaryError) {
         resolvedUrl
     } else if (!fallbackUrl.isNullOrBlank()) {
         fallbackUrl

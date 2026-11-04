@@ -110,6 +110,9 @@ fun SettingsScreen(
                     SettingsTile(Icons.Default.Storage, str(R.string.storage), str(R.string.settings_hint_storage), Modifier.weight(1f)) { activeDialog = SettingsDialogType.STORAGE }
                 }
             }
+            item(key = "tile_downloads", contentType = "tiles") {
+                SettingsTile(Icons.Default.Download, str(R.string.downloads), str(R.string.settings_hint_downloads), Modifier.fillMaxWidth()) { activeDialog = SettingsDialogType.DOWNLOADS }
+            }
             item(key = "group_system", contentType = "group") {
                 SettingsGroup(str(R.string.system_about)) {
                     SettingsNavRow(Icons.Default.SystemUpdate, str(R.string.updater), str(R.string.settings_hint_updater)) { activeDialog = SettingsDialogType.UPDATER }
@@ -190,15 +193,52 @@ fun SettingsScreen(
                                             }
                                         }
                                     }
+                                    val deviceSync = com.auralis.music.data.connect.AuralisConnect
+                                    val syncEnabled = deviceSync.deviceSyncEnabled.collectAsState().value
+                                    if (deviceSync.deviceSyncAvailable) {
+                                        SettingsSwitchRow(Icons.Default.Settings, "Device Sync", "Control playback across your devices", syncEnabled, deviceSync::setDeviceSyncEnabled)
+                                    } else {
+                                        SettingsRow(Icons.Default.Settings, "Device Sync", "Connect is unavailable in this build", onClick = {}) {
+                                            Switch(checked = false, onCheckedChange = null, enabled = false)
+                                        }
+                                    }
                                     SettingsSwitchRow(Icons.Default.SurroundSound, str(R.string.t_3d_spatial_soundstage), str(R.string.android_audio_virtualization_when_suppor), settings.spatialAudio, onToggleSpatialAudio)
                                     SettingsSwitchRow(Icons.Default.GraphicEq, str(R.string.gapless_playback), str(R.string.preload_the_next_track_for_smoother_tran), settings.gaplessPlayback, onToggleGaplessPlayback)
-                                    SettingsSwitchRow(Icons.Default.FastForward, str(R.string.remove_silence), str(R.string.skip_quiet_passages_during_playback), settings.skipSilence, onToggleSkipSilence)
+                                    SettingsSwitchRow(Icons.Default.FastForward, str(R.string.skip_silence), str(R.string.skip_quiet_passages_during_playback), settings.skipSilence, onToggleSkipSilence)
+                                }
+                            }
+                            item(key = "group_audio_transitions") {
+                                SettingsGroup(str(R.string.audio_transitions)) {
+                                    SettingsSwitchRow(Icons.Default.BlurOn, str(R.string.audio_crossfade), str(R.string.audio_crossfade_description), settings.crossfadeEnabled && !settings.automixEnabled, { enabled ->
+                                        settingsScope.launch { settingsStore.setCrossfadeEnabled(enabled) }
+                                    })
+                                    SettingsSwitchRow(Icons.Default.AutoAwesome, str(R.string.audio_automix), str(R.string.audio_automix_description), settings.automixEnabled, { enabled ->
+                                        settingsScope.launch { settingsStore.setAutomixEnabled(enabled) }
+                                    })
+                                    if (settings.crossfadeEnabled && !settings.automixEnabled) {
+                                        var seconds by remember(settings.crossfadeSeconds) { mutableFloatStateOf(settings.crossfadeSeconds) }
+                                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                                            Text(str(R.string.audio_crossfade_duration, seconds.toInt()), fontWeight = FontWeight.SemiBold)
+                                            Slider(value = seconds, onValueChange = { seconds = it }, valueRange = 1f..12f, steps = 10,
+                                                onValueChangeFinished = { settingsScope.launch { settingsStore.setCrossfadeSeconds(seconds) } })
+                                        }
+                                    }
+                                    if (settings.crossfadeEnabled || settings.automixEnabled) {
+                                        SettingsSwitchRow(Icons.Default.Album, str(R.string.skip_gapless_albums), str(R.string.skip_gapless_albums_description), settings.skipGaplessAlbums, { enabled ->
+                                            settingsScope.launch { settingsStore.setSkipGaplessAlbums(enabled) }
+                                        })
+                                        Text(str(R.string.audio_transitions_availability), modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                                            color = onSurfaceVariant, fontSize = 12.sp)
+                                    }
                                 }
                             }
                             item(key = "group_queue") {
                                 SettingsGroup(str(R.string.queue)) {
                                     SettingsSwitchRow(Icons.Default.Restore, str(R.string.persistent_queue), str(R.string.restore_your_queue_and_position_after_re), settings.persistentQueue, { value ->
                                         settingsScope.launch { settingsStore.setPersistentQueue(value) }
+                                    })
+                                    SettingsSwitchRow(Icons.Default.Shuffle, str(R.string.permanent_shuffle), str(R.string.permanent_shuffle_description), settings.permanentShuffle, { value ->
+                                        settingsScope.launch { settingsStore.setPermanentShuffle(value) }
                                     })
                                     SettingsSwitchRow(Icons.Default.AllInclusive, str(R.string.auto_load_more_songs), str(R.string.add_recommendations_as_your_radio_queue), settings.autoLoadMore, { value ->
                                         settingsScope.launch { settingsStore.setAutoLoadMore(value) }
@@ -225,6 +265,8 @@ fun SettingsScreen(
                     }
 
                     SettingsDialogType.STORAGE -> StorageSettingsScreen(onDismiss = { activeDialog = null })
+
+                    SettingsDialogType.DOWNLOADS -> DownloadSettingsScreen(onDismiss = { activeDialog = null })
 
                     SettingsDialogType.LYRICS_TRANSLATION -> AiLyricsTranslationScreen(onDismiss = { activeDialog = null })
 
@@ -256,6 +298,7 @@ private enum class SettingsDialogType {
     LYRICS_TRANSLATION,
     PRIVACY,
     STORAGE,
+    DOWNLOADS,
     UPDATER,
     ABOUT
 }
@@ -268,6 +311,7 @@ private fun sectionStyle(section: SettingsDialogType): SettingsSection = when (s
     SettingsDialogType.LYRICS_TRANSLATION -> SettingsSection(Icons.Default.Translate, str(R.string.settings_hint_ai_lyrics))
     SettingsDialogType.PRIVACY -> SettingsSection(Icons.Default.Security, str(R.string.settings_hint_privacy))
     SettingsDialogType.STORAGE -> SettingsSection(Icons.Default.Storage, str(R.string.settings_hint_storage))
+    SettingsDialogType.DOWNLOADS -> SettingsSection(Icons.Default.Download, str(R.string.settings_hint_downloads))
     SettingsDialogType.UPDATER -> SettingsSection(Icons.Default.SystemUpdate, str(R.string.settings_hint_updater))
     // About leads with the app's own logo.
     SettingsDialogType.ABOUT -> SettingsSection(null, null)

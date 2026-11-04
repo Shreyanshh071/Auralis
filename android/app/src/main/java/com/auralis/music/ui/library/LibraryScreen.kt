@@ -434,6 +434,7 @@ fun LibraryScreen(
     val librarySaveableStateHolder = rememberSaveableStateHolder()
 
     AnimatedContent(
+        modifier = Modifier.fillMaxSize(),
         targetState = when {
             uiState.selectedPlaylist != null -> "playlist_${uiState.selectedPlaylist.id}"
             uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED -> "downloaded_hub"
@@ -448,9 +449,9 @@ fun LibraryScreen(
                 else -> 2
             }
             if (depth(targetState) < depth(initialState)) {
-                detailBackwardEnter togetherWith detailBackwardExit
+                (detailBackwardEnter togetherWith detailBackwardExit).using(null)
             } else {
-                detailForwardEnter togetherWith detailForwardExit
+                (detailForwardEnter togetherWith detailForwardExit).using(null)
             }
         },
         label = "PlaylistDetailTransition"
@@ -458,8 +459,7 @@ fun LibraryScreen(
         librarySaveableStateHolder.SaveableStateProvider(screenKey ?: "library_root") {
         if (screenKey != null && screenKey.startsWith("playlist_")) {
             val targetPlaylistId = screenKey.removePrefix("playlist_")
-            val selectedPl = uiState.selectedPlaylist?.takeIf { it.id == targetPlaylistId }
-                ?: uiState.playlists.firstOrNull { it.id == targetPlaylistId }
+            val selectedPl = rememberPlaylistForExit(targetPlaylistId, uiState.selectedPlaylist, uiState.playlists)
             if (selectedPl != null) {
 com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.tracks.firstOrNull()?.thumbnail) {
                 PlaylistDetailView(

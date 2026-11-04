@@ -26,6 +26,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okhttp)
             implementation("com.github.promeg:tinypinyin:2.0.3")
+            // Offline Japanese readings, including kanji (also used by Vivi's romanizer).
+            implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
             // Android ships org.json in the framework, so the app keeps using that copy; only
             // the desktop app bundles one.
             compileOnly(libs.org.json)

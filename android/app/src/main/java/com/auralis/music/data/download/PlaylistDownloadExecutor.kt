@@ -20,6 +20,7 @@ class PlaylistDownloadExecutor(private val context: Context) {
             AuralisDownloadManager.awaitInitialized(context)
             var job = requireNotNull(repository.get(jobId)) { "Playlist download job not found: $jobId" }
             val tracks = repository.tracks(job)
+            val metadata = PlaylistDownloadMetadata.choice(context, job.playlistId)
             val results = repository.results(job)
                 .filter { previous ->
                     previous.outcome in PlaylistDownloadRepository.SUCCESS_OUTCOMES &&
@@ -28,27 +29,6 @@ class PlaylistDownloadExecutor(private val context: Context) {
                 }
                 .associateBy { it.trackId }
                 .toMutableMap()
-
-            // Pre-resolve any tracks that are already downloaded globally on device (e.g. from another playlist)
-            for ((index, track) in tracks.withIndex()) {
-                if (results.containsKey(track.id)) continue
-                if (AuralisDownloadManager.isDownloaded(track.id)) {
-                    val source = AuralisDownloadManager.getDownloadedFile(track.id)
-                    if (source != null && source.isFile && source.length() > 1024) {
-                        try {
-                            val published = publicFiles.publish(source, job.folderName, PlaylistDownloadPaths.trackFileName(index, track))
-                            results[track.id] = TrackDownloadResult(
-                                trackId = track.id,
-                                outcome = DownloadOutcome.ALREADY_DOWNLOADED,
-                                contentUri = published.first,
-                                bytes = published.second
-                            )
-                        } catch (e: Exception) {
-                            android.util.Log.w("PlaylistDownload", "Pre-resolve publish failed for ${track.title}: ${e.message}")
-                        }
-                    }
-                }
-            }
 
             job = repository.update(job, tracks.mapNotNull { results[it.id] }, PlaylistDownloadStatus.DOWNLOADING, null, false)
             onProgress(job)
@@ -92,7 +72,10 @@ class PlaylistDownloadExecutor(private val context: Context) {
                                 finalResult = TrackDownloadResult(track.id, DownloadOutcome.FAILURE, "verification", "Private source download missing")
                             } else {
                                 try {
-                                    val published = publicFiles.publish(source, folderName, PlaylistDownloadPaths.trackFileName(index, track))
+                                    val published = DownloadMetadataExport.publish(
+                                        context, publicFiles, source, folderName,
+                                        PlaylistDownloadPaths.trackFileName(index, track), track, metadata
+                                    )
                                     finalResult = TrackDownloadResult(track.id, base.outcome, contentUri = published.first, bytes = published.second)
                                     break
                                 } catch (e: CancellationException) {

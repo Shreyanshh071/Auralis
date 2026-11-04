@@ -1,5 +1,18 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="permanent_shuffle">Permanent shuffle</string>
+    <string name="permanent_shuffle_description">Keep your shuffle choice when starting another song, album or playlist</string>
+    <string name="download_cached_lyrics_notice">Showing cached lyrics. Lyrics were not included in this download.</string>
+    <string name="audio_transitions">Song transitions</string>
+    <string name="audio_crossfade">Crossfade</string>
+    <string name="audio_crossfade_description">Fade into the next song as the current song fades out</string>
+    <string name="audio_crossfade_duration">Crossfade duration · %1$d s</string>
+    <string name="audio_automix">Automix</string>
+    <string name="audio_automix_description">Analyse beats and energy to choose the mix timing. Uses more processing and may use extra data.</string>
+    <string name="skip_gapless_albums">Skip gapless albums</string>
+    <string name="skip_gapless_albums_description">Keep consecutive songs from the same album together without overlapping them</string>
+    <string name="audio_transitions_availability">Applies to automatic song changes on this phone. Unavailable during Listen Together, remote playback, or an end-of-song sleep timer.</string>
+    <string name="skip_silence">Skip silence</string>
     <string name="app_name">Auralis</string>
     <string name="title_activity_main">Auralis</string>
     <string name="package_name">com.auralis.music</string>
@@ -182,6 +195,7 @@
     <string name="search_unavailable">Could not load search results</string>
     <string name="artist_load_failed">Could not load this artist. Please try again.</string>
     <string name="choose_artist">Choose artist</string>
+    <string name="artist_picker_hint">Open an artist page</string>
     <string name="search_unavailable_detail">The search service is taking too long or could not be reached. Please try again.</string>
     <string name="folder_options">Folder options</string>
     <string name="retry_download">Retry download</string>
@@ -822,7 +836,7 @@
     <string name="persistent_queue">Persistent queue</string>
     <string name="restore_your_queue_and_position_after_re">Restore your queue and position after restarting</string>
     <string name="auto_load_more_songs">Auto load more songs</string>
-    <string name="add_recommendations_as_your_radio_queue">Add recommendations as your radio queue runs low</string>
+    <string name="add_recommendations_as_your_radio_queue">Keep adding songs related to the current song as any queue runs low</string>
     <string name="stop_music_on_task_clear">Stop music on task clear</string>
     <string name="stop_playback_when_auralis_is_swiped_awa">Stop playback when Auralis is swiped away from recent apps</string>
     <string name="pause_music_when_media_is_muted">Pause music when media is muted</string>
@@ -1157,6 +1171,9 @@
     <string name="finding_album">Finding album…</string>
     <string name="single_not_part_of_an_album">Single · not part of an album</string>
     <string name="no_album_for_this_song">No album for this song</string>
+    <string name="no_album">No album</string>
+    <string name="no_album_information">No album information</string>
+    <string name="release_ep">EP</string>
     <string name="album_x">Album • %1$s</string>
     <string name="song_x">Song • %1$s</string>
     <string name="share_album">Share Album</string>
@@ -1307,6 +1324,10 @@
 
     <!-- Auralis Connect: one listening session across the devices signed in to an account -->
     <string name="connect_to_a_device">Connect to a device</string>
+    <string name="connect_device_sync">Device Sync</string>
+    <string name="connect_build_unavailable">Connect is unavailable in this build.</string>
+    <string name="connect_disconnected">Disconnected</string>
+    <string name="connect_reconnecting">Reconnecting…</string>
     <string name="connect_this_phone">This phone</string>
     <string name="connect_this_tablet">This tablet</string>
     <string name="connect_playing_on">Playing on %1$s</string>
@@ -1387,4 +1408,19 @@
     <string name="settings_hint_system">Permissions and app info</string>
     <string name="settings_hint_about">Version and credits</string>
     <string name="liquid_glass_dark_only">Only available on dark themes.</string>
+    <string name="downloads">Downloads</string>
+    <string name="metadata">Metadata</string>
+    <string name="settings_hint_downloads">Metadata saved in your downloads</string>
+    <string name="download_metadata_title">Add to the audio file</string>
+    <string name="download_metadata_message">Song title, artist and available album information are always embedded. Choose whether to also embed cover artwork and lyrics.</string>
+    <string name="metadata_song_details">Song details</string>
+    <string name="metadata_song_details_hint">Song name, artist name and album name</string>
+    <string name="metadata_cover_artwork">Cover artwork</string>
+    <string name="metadata_cover_artwork_hint">Include the cover image in the file and show it for the download. When off, use a placeholder.</string>
+    <string name="metadata_lyrics">Lyrics</string>
+    <string name="metadata_lyrics_hint">Include available lyrics in the file. When off, downloaded songs use only stored lyrics, with a cache notice.</string>
+    <string name="metadata_dont_ask_again">Don\'t ask again – Remember my choices</string>
+    <string name="metadata_ask_every_download">Ask before every download</string>
+    <string name="metadata_ask_every_download_hint">Show the popup for songs and playlists. When off, the choices above are used.</string>
+    <string name="metadata_settings_note">Song details are always embedded. When Cover artwork is off, the download shows a placeholder. When Lyrics is off, only stored lyrics can appear, with a brief cache notice. These choices apply to new downloads.</string>
 </resources>

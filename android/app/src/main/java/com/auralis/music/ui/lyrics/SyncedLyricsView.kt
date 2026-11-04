@@ -143,6 +143,55 @@ fun SyncedLyricsView(
     standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
     loadingAlignment: Alignment = Alignment.Center
 ) {
+    val japaneseContext = remember(lyrics?.lines, lyrics?.plainLyrics) {
+        com.auralis.music.domain.lyrics.LyricsRomanizationContext.isJapanese(lyrics)
+    }
+    CompositionLocalProvider(LocalJapaneseRomanizationContext provides japaneseContext) {
+        SyncedLyricsContent(
+            lyrics = lyrics,
+            positionState = positionState,
+            onSeekTo = onSeekTo,
+            modifier = modifier,
+            isLoading = isLoading,
+            lyricsMode = lyricsMode,
+            offsetMs = offsetMs,
+            onOffsetChange = onOffsetChange,
+            onSearchManually = onSearchManually,
+            track = track,
+            lyricsClockSource = lyricsClockSource,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            audioLeadingSilenceMs = audioLeadingSilenceMs,
+            readingFocusFraction = readingFocusFraction,
+            listState = listState,
+            standardLyricsBlur = standardLyricsBlur,
+            loadingAlignment = loadingAlignment
+        )
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SyncedLyricsContent(
+    lyrics: LyricsData?,
+    positionState: State<Long>,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
+    lyricsMode: LyricsMode = LyricsMode.CINEMA,
+    offsetMs: Long = 0,
+    onOffsetChange: ((Long) -> Unit)? = null,
+    onSearchManually: (() -> Unit)? = null,
+    track: com.auralis.music.domain.model.Track? = null,
+    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
+    isPlaying: Boolean = true,
+    isBuffering: Boolean = false,
+    audioLeadingSilenceMs: Long? = null,
+    readingFocusFraction: Float = LYRICS_ANCHOR_RATIO,
+    listState: LazyListState = rememberLazyListState(),
+    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
+    loadingAlignment: Alignment = Alignment.Center
+) {
     val animationsActive = com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive != false
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {

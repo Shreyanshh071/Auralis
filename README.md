@@ -264,6 +264,9 @@ Auralis is built on the work of many people. Thank you to all of them.
 - **[Media3 / ExoPlayer](https://github.com/androidx/media)** — audio and animated cover playback.
 - **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
 - **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the JioSaavn 320kbps audio in High Quality (GPL-3.0).
+- **[Vivi Music’s LyricsUtils](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/lyrics/LyricsUtils.kt)** — reference for offline dictionary-based Japanese romanisation and background conversion (GPL-3.0).
+- **[Kuromoji](https://github.com/atilika/kuromoji)** — offline Japanese tokenisation and kanji readings (Apache-2.0).
+- **[ArchiveTune and its Automix fork](https://github.com/4nx3b/ArchiveTune/tree/main/app/src/main/kotlin/moe/rukamori/archivetune/playback/automix)** — Automix audio analysis, beat and energy planning, FFT helpers, and transition filtering adapted under GPL-3.0. The original notices are retained in the adapted files.
 - **shazam_identifier** by Shashwat and **Shazam** — music recognition.
 
 **Design & interface**

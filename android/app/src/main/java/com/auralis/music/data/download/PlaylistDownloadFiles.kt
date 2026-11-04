@@ -43,6 +43,14 @@ object PlaylistDownloadPaths {
     fun individualFileName(track: Track): String =
         "${sanitize(track.title, "Track")} - ${sanitize(track.artist, "Unknown Artist")}.m4a"
 
+    /** The same name with another extension, kept short enough that sanitizing can't cut the extension off. */
+    fun withExtension(fileName: String, extension: String): String =
+        "${sanitize(fileName.substringBeforeLast('.'), "Track").take(75).trimEnd('.', ' ')}.$extension"
+
+    /** Every name [fileName] can have been saved under, depending on what the stream turned out to be. */
+    fun exportedNames(fileName: String): List<String> =
+        AudioContainer.values().map { withExtension(fileName, it.extension) } + fileName
+
     fun relativePath(folderName: String): String {
         val base = Environment.DIRECTORY_DOWNLOADS ?: "Download"
         return "$base/Auralis/${sanitize(folderName)}/"
@@ -59,10 +67,23 @@ object PlaylistDownloadPaths {
 }
 
 class PlaylistDownloadFiles(private val context: Context) {
-    fun publish(source: File, folderName: String, fileName: String): Pair<String, Long> {
+    /** The public file already holding exactly [source]'s bytes under [fileName], if there is one. */
+    fun existingCopy(source: File, folderName: String, fileName: String): Pair<String, Long>? {
+        val displayName = PlaylistDownloadPaths.sanitize(fileName, "Track.m4a")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val (uri, bytes) = findPublished(PlaylistDownloadPaths.relativePath(folderName), displayName) ?: return null
+            return if (bytes == source.length() && verify(uri.toString())) uri.toString() to bytes else null
+        }
+        @Suppress("DEPRECATION")
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val target = PlaylistDownloadPaths.legacyFile(root, folderName, fileName)
+        return if (target.isFile && target.length() == source.length()) target.toURI().toString() to target.length() else null
+    }
+
+    fun publish(source: File, folderName: String, fileName: String, mimeType: String = "audio/mp4"): Pair<String, Long> {
         require(source.isFile && source.length() > 1024) { "Source download is missing or incomplete" }
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            publishMediaStore(source, folderName, fileName)
+            publishMediaStore(source, folderName, fileName, mimeType)
         } else {
             @Suppress("DEPRECATION")
             val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -79,7 +100,7 @@ class PlaylistDownloadFiles(private val context: Context) {
         }
     }
 
-    private fun publishMediaStore(source: File, folderName: String, fileName: String): Pair<String, Long> {
+    private fun publishMediaStore(source: File, folderName: String, fileName: String, mimeType: String): Pair<String, Long> {
         val resolver = context.contentResolver
         val relativePath = PlaylistDownloadPaths.relativePath(folderName)
         val displayName = PlaylistDownloadPaths.sanitize(fileName, "Track.m4a")
@@ -89,7 +110,7 @@ class PlaylistDownloadFiles(private val context: Context) {
         }
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -148,13 +169,15 @@ class PlaylistDownloadFiles(private val context: Context) {
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val path = PlaylistDownloadPaths.relativePath(folderName)
-                findPublished(path, PlaylistDownloadPaths.sanitize(fileName, "Track.m4a"))?.let { (uri, _) ->
-                    context.contentResolver.delete(uri, null, null)
+                PlaylistDownloadPaths.exportedNames(fileName).distinct().forEach { name ->
+                    findPublished(path, PlaylistDownloadPaths.sanitize(name, "Track.m4a"))?.let { (uri, _) ->
+                        context.contentResolver.delete(uri, null, null)
+                    }
                 }
             } else {
                 @Suppress("DEPRECATION")
                 val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                PlaylistDownloadPaths.legacyFile(root, folderName, fileName).delete()
+                PlaylistDownloadPaths.exportedNames(fileName).forEach { PlaylistDownloadPaths.legacyFile(root, folderName, it).delete() }
                 deleteFolderIfEmpty(folderName)
             }
         }

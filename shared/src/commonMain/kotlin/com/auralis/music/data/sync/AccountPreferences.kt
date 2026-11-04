@@ -41,7 +41,10 @@ object AccountPreferenceSchema {
         "a.show_cached_playlist" to a.showCachedPlaylist, "a.show_uploaded_playlist" to a.showUploadedPlaylist,
         "p.theme_mode" to p.themeMode.name, "p.audio_quality" to p.audioQuality.name,
         "p.gapless_playback" to p.gaplessPlayback, "p.skip_silence" to p.skipSilence,
+        "p.crossfade_enabled" to p.crossfadeEnabled, "p.crossfade_seconds" to p.crossfadeSeconds,
+        "p.automix_enabled" to p.automixEnabled, "p.skip_gapless_albums" to p.skipGaplessAlbums,
         "p.persistent_queue" to p.persistentQueue, "p.auto_load_more" to p.autoLoadMore,
+        "p.permanent_shuffle" to p.permanentShuffle,
         "p.lyrics_font_size" to p.lyricsFontSize.name, "p.lyrics_mode" to p.lyricsMode.name,
         "p.lyrics_alignment" to p.lyricsAlignment.name, "p.lyrics_depth_blur" to p.lyricsDepthBlur,
         "p.playback_rate" to p.playbackRate)
@@ -56,6 +59,7 @@ object AccountPreferenceSchema {
             "a.lyrics_text_size" -> it in 8f..100f
             "a.lyrics_line_spacing" -> it in .6f..4f
             "p.playback_rate" -> it in .25f..4f
+            "p.crossfade_seconds" -> it in 1f..12f
             else -> false
         } } == true
         is String -> value.isNotBlank() && value.length <= 120 && value.none { it.code < 32 }

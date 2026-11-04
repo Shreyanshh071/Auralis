@@ -347,18 +347,7 @@ fun ArtistScreen(
             }
         }
 
-        // The list passes behind the status bar too, so the page's colour closes over it on the way up.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(statusBarHeight)
-                .graphicsLayer {
-                    alpha = if (listState.firstVisibleItemIndex > 0) 1f
-                    else (listState.firstVisibleItemScrollOffset / 300.dp.toPx()).coerceIn(0f, 1f)
-                }
-                .background(pageBackground)
-        )
-
+        // The scrolling page continues behind the system icons without a separate tint strip.
         ArtistFloatingButtons(
             topInset = statusBarHeight,
             backdrop = contentBackdrop,

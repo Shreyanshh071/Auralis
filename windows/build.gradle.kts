@@ -27,16 +27,12 @@ java {
 // incompatible duplicate well-known types (e.g. Timestamp) when Firestore starts its stream.
 configurations.configureEach { exclude(group = "com.google.protobuf", module = "protobuf-javalite") }
 
-// Keep Compose's compile API, but use the matching patched JVM/native renderer at runtime.
-// Both artifacts must move together; mixing the DLL with another Skiko JAR is unsafe.
-configurations.matching { it.name in setOf("runtimeClasspath", "testRuntimeClasspath") }.configureEach {
-    resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25",
-        "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.25")
-}
-
 dependencies {
+    // NewPipe needs protobuf at runtime. The old Firestore transport supplied it transitively.
+    implementation("com.google.protobuf:protobuf-java:3.25.8")
     testImplementation(kotlin("test"))
     implementation(project(":windows-core"))
+    implementation(libs.okhttp)
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
@@ -46,9 +42,6 @@ dependencies {
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
     implementation(libs.org.json)
-    implementation("com.google.api.grpc:grpc-google-cloud-firestore-v1:3.33.0")
-    implementation("io.grpc:grpc-netty-shaded:1.71.0")
-    testImplementation("io.grpc:grpc-inprocess:1.71.0")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
     implementation("net.java.dev.jna:jna-jpms:5.14.0")
@@ -111,6 +104,7 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
 }
 
+
 // One class-data archive per build (see the jvmArgs below).
 val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
 
@@ -132,6 +126,12 @@ compose.desktop {
             "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
             "-Dauralis.cdsArchive=$cdsArchive"
         )
+        providers.gradleProperty("connect.realtime.url").orNull?.takeIf { it.isNotBlank() }?.let { url ->
+            require(url.startsWith("wss://") && url.none { it.isWhitespace() } && !url.contains("staging", ignoreCase = true)) {
+                "Connect requires a production WSS endpoint."
+            }
+            jvmArgs("-Dauralis.connectRealtimeUrl=$url")
+        }
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 

@@ -684,7 +684,11 @@ open class InnerTubeClient(
         // Fallback: If radio / related returned very few tracks, supplement with artist songs & basic next
         if (candidatesPool.size < 5 && !primaryArtist.isNullOrBlank()) {
             try {
-                val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs
+                val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs.filter { candidate ->
+                    com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(candidate.artist).any {
+                        com.auralis.music.domain.recommendations.SimilarSeedPlanner.isSameArtist(it, primaryArtist)
+                    }
+                }
                 candidatesPool.addAll(artistSongs)
             } catch (_: Exception) {}
         }
