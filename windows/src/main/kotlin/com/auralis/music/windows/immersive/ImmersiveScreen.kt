@@ -53,9 +53,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -77,8 +80,10 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.components.getHighResArtworkUrl
 import com.auralis.music.ui.i18n.desktopText
 import com.auralis.music.ui.theme.ArtworkPalette
+import com.auralis.music.windows.player.AnimatedCover
 import com.auralis.music.windows.player.LyricsPanel
 import com.auralis.music.windows.player.PlayerBackdrop
+import com.auralis.music.windows.player.rememberMotionAura
 import com.auralis.music.windows.player.rememberShownPosition
 import com.auralis.music.windows.search.DesktopArtwork
 import kotlinx.coroutines.delay
@@ -159,12 +164,38 @@ internal fun ImmersiveScreen(
         val shortSidePx = minOf(maxWidth.value, maxHeight.value) * window.density
         CompositionLocalProvider(LocalDensity provides Density(shortSidePx / DESIGN_SHORT_SIDE, window.fontScale)) {
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }) {
-                PlayerBackdrop(backgroundStyle, highRes, palette)
+                val canvasTrack = track?.takeIf {
+                    shown == ImmersiveView.LYRICS && shape != ImmersiveShape.PORTRAIT
+                }
+                val motionAura = if (canvasTrack != null) rememberMotionAura(canvasTrack.id) else null
+                val canvasReady by remember(motionAura) {
+                    derivedStateOf { motionAura?.texture?.value != null }
+                }
+                PlayerBackdrop(if (canvasReady) "Dynamic" else backgroundStyle, highRes, palette, motionAura)
+                if (canvasTrack != null && motionAura != null) {
+                    AnimatedCover(
+                        canvasTrack,
+                        Modifier.fillMaxWidth(.54f).fillMaxHeight()
+                            .graphicsLayer {
+                                alpha = if (canvasReady) 1f else 0f
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            }
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    Brush.horizontalGradient(.62f to Color.Black, 1f to Color.Transparent),
+                                    blendMode = BlendMode.DstIn
+                                )
+                            },
+                        motionAura = motionAura
+                    ) {}
+                }
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .28f), .55f to Color.Black.copy(alpha = .12f), 1f to Color.Black.copy(alpha = .5f))))
                 when {
                     shown == ImmersiveView.CLOCK -> ClockView(shape, track, highRes, playback, lyrics, inlineLyric, queue.tracks.getOrNull(queue.index + 1))
-                    shown == ImmersiveView.LYRICS && track != null -> LyricsView(track, highRes, playback, lyrics)
+                    shown == ImmersiveView.LYRICS && track != null ->
+                        LyricsView(track, highRes, playback, lyrics, canvasReady)
                     track != null -> ArtworkView(shape, track, highRes, playback)
                 }
                 AnimatedVisibility(controlsVisible, enter = fadeIn(tween(160)), exit = fadeOut(tween(300)),
@@ -326,9 +357,17 @@ private fun NothingPlaying() {
 
 /** Big synced lyrics: the same word-by-word view as the full player, on a screen of its own. */
 @Composable
-private fun LyricsView(track: Track, artwork: String?, playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
+private fun LyricsView(
+    track: Track,
+    artwork: String?,
+    playback: DesktopPlaybackController,
+    lyrics: DesktopLyricsController,
+    canvasReady: Boolean
+) {
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp, bottom = 96.dp)) {
+        val lyricsWidth = if (canvasReady) .55f else 1f
+        Box(Modifier.align(Alignment.TopEnd).fillMaxWidth(lyricsWidth).fillMaxHeight()
+            .padding(start = if (canvasReady) 24.dp else 64.dp, end = 64.dp, top = 40.dp, bottom = 96.dp)) {
             LyricsPanel(playback, lyrics)
         }
         CornerClock()
