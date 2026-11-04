@@ -7,7 +7,6 @@ import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.clickable
@@ -482,7 +481,7 @@ private fun CanvasPlayerDock(
                 color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
             Box(Modifier.fillMaxWidth().height(32.dp)) {
-                AnimatedVisibility(visible = hovered || focused) {
+                androidx.compose.animation.AnimatedVisibility(visible = hovered || focused) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         PlayerTransport(playback, Modifier.weight(1f), compact = true)
                         IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
