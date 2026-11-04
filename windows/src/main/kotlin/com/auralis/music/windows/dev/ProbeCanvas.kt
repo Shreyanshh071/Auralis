@@ -31,13 +31,23 @@ fun main(rawArgs: Array<String>) = runBlocking {
         if (url == null) url = found
     }
     val video = url ?: return@runBlocking
-    var frames = 0; var size = ""
-    val stop = CanvasVideoEngine.play(video) { frames++; size = "${it.width}x${it.height}" }
+    val frames = java.util.concurrent.atomic.AtomicInteger()
+    val firstFrame = java.util.concurrent.CountDownLatch(1)
+    val size = java.util.concurrent.atomic.AtomicReference("")
+    val stop = CanvasVideoEngine.play(video, frameShortSide = if (spotifyId != null) 1440 else 960) {
+        frames.incrementAndGet()
+        size.set("${it.width}x${it.height}")
+        firstFrame.countDown()
+    }
     println("ENGINE available=${CanvasVideoEngine.available} started=${stop != null}")
-    Thread.sleep(8000)
-    stop?.invoke()
-    println("FRAMES $frames in 8s, size $size")
-    check(frames > 30) { "Video did not decode" }
+    try {
+        check(firstFrame.await(20, java.util.concurrent.TimeUnit.SECONDS)) { "No first video frame" }
+        Thread.sleep(4000)
+        println("FRAMES ${frames.get()} in 4s after first frame, size ${size.get()}")
+        check(frames.get() > 30) { "Video did not decode smoothly" }
+    } finally {
+        stop?.invoke()
+    }
     Thread.sleep(500)
     kotlin.system.exitProcess(0)
 }

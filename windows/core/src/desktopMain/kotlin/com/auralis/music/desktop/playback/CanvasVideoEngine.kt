@@ -26,7 +26,13 @@ object CanvasVideoEngine {
     private const val FRAME_SHORT_SIDE = 960
 
     /** Starts [url] looping; frames (at most ~30 a second) go to [onFrame]. Returns a stop function. */
-    fun play(url: String, clock: com.auralis.music.data.service.PlaybackClockSource? = null, onFrame: (ImageBitmap) -> Unit): (() -> Unit)? {
+    fun play(
+        url: String,
+        clock: com.auralis.music.data.service.PlaybackClockSource? = null,
+        frameShortSide: Int = FRAME_SHORT_SIDE,
+        onFrame: (ImageBitmap) -> Unit
+    ): (() -> Unit)? {
+        require(frameShortSide in 1..2160)
         val factory = factory ?: return null
         val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
         var width = 0; var height = 0; var lastFrame = 0L
@@ -35,7 +41,7 @@ object CanvasVideoEngine {
         val surface = factory.videoSurfaces().newVideoSurface(
             object : uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback {
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat {
-                    val scale = minOf(1f, FRAME_SHORT_SIDE.toFloat() / minOf(sourceWidth, sourceHeight).coerceAtLeast(1))
+                    val scale = minOf(1f, frameShortSide.toFloat() / minOf(sourceWidth, sourceHeight).coerceAtLeast(1))
                     width = (sourceWidth * scale).toInt().coerceAtLeast(1); height = (sourceHeight * scale).toInt().coerceAtLeast(1)
                     return uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat(width, height)
                 }

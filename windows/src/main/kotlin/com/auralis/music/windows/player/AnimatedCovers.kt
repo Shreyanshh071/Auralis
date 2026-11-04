@@ -6,8 +6,15 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.auralis.music.domain.model.Track
@@ -233,9 +240,11 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
         val video = url
         if (video != null) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-            DisposableEffect(video, motionAura) {
+            DisposableEffect(video, motionAura, canvasOnly) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(video) {
+                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
+                    video, frameShortSide = if (canvasOnly) 1440 else 960
+                ) {
                     synchronized(active) { if (active.get()) { frame = it; motionAura?.offer(it) } }
                 }
                 onDispose {
@@ -244,8 +253,21 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
-            frame?.let { Image(it, null, Modifier.matchParentSize().alpha(shown), contentScale = ContentScale.Crop,
-                filterQuality = androidx.compose.ui.graphics.FilterQuality.High) }
+            frame?.let { bitmap ->
+                val presentation = if (canvasOnly) Modifier
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        // Fit the portrait clip to the screen height, and fade its actual edge.
+                        val videoWidth = minOf(size.width, size.height * bitmap.width / bitmap.height)
+                        drawRect(Brush.horizontalGradient(.68f to Color.Black, 1f to Color.Transparent,
+                            endX = videoWidth), blendMode = BlendMode.DstIn)
+                    } else Modifier
+                Image(bitmap, null, Modifier.matchParentSize().alpha(shown).then(presentation),
+                    contentScale = if (canvasOnly) ContentScale.Fit else ContentScale.Crop,
+                    alignment = if (canvasOnly) Alignment.CenterStart else Alignment.Center,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
+            }
         }
     }
 }

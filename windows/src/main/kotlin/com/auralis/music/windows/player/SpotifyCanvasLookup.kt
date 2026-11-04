@@ -67,7 +67,7 @@ internal object SpotifyCanvasLookup {
     private fun download(trackId: String, fileId: String): String {
         check(Regex("[a-fA-F0-9]{32}").matches(fileId))
         val folder = File(desktopAppDataDir(), "cache/spotify-canvas").apply { mkdirs() }
-        val target = File(folder, "$fileId.ts")
+        val target = File(folder, "$fileId-hq.ts")
         if (target.isFile && target.length() > 0) return target.absolutePath
         // A short-lived anonymous embed token is sent only to Spotify's manifest endpoint.
         val embed = http.newCall(Request.Builder()
@@ -83,8 +83,10 @@ internal object SpotifyCanvasLookup {
         check(content.optJSONArray("encryption_infos")?.length() == 0)
         val profiles = content.getJSONArray("profiles")
         val profile = (0 until profiles.length()).map { profiles.getJSONObject(it) }
-            .filter { it.optString("file_type") == "ts" && it.optInt("video_width") in 1..720 }
-            .maxByOrNull { it.optInt("video_width") * it.optInt("video_height") }
+            .filter { it.optString("file_type") == "ts" && it.optInt("video_width") in 1..2160 &&
+                it.optInt("video_height") in 1..3840 }
+            .maxWithOrNull(compareBy<JSONObject> { it.optLong("video_width") * it.optLong("video_height") }
+                .thenBy { it.optLong("video_bitrate") })
         checkNotNull(profile)
         val base = manifest.getJSONArray("base_urls").getString(0)
         val start = content.getLong("start_time_millis")
@@ -113,7 +115,7 @@ internal object SpotifyCanvasLookup {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 bytes += count
-                                check(bytes <= 16 * 1024 * 1024)
+                                check(bytes <= 64 * 1024 * 1024)
                                 output.write(buffer, 0, count)
                             }
                         }

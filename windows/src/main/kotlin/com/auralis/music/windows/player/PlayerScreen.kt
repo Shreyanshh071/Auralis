@@ -64,14 +64,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -139,15 +136,7 @@ fun PlayerScreen(
                 artworkUrl, palette, if (canvasStage) motionAura else null)
             if (canvasStage) {
                 AnimatedCover(track, Modifier.fillMaxWidth(.54f).fillMaxHeight()
-                    .graphicsLayer {
-                        alpha = if (canvasReady) 1f else 0f
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(Brush.horizontalGradient(.62f to Color.Black, 1f to Color.Transparent),
-                            blendMode = BlendMode.DstIn)
-                    }, motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true) {}
+                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f }, motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .18f),
                     .6f to Color.Transparent,
