@@ -230,7 +230,6 @@ internal object CanvasLookup {
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
     playbackClock: PlaybackClockSource? = null,
-    onCanvasUnavailable: () -> Unit = {},
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
@@ -241,7 +240,6 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
             url = if (canvasOnly) SpotifyCanvasLookup.find(spotifyCanvasId) else CanvasLookup.find(track, prefs.source)
         }
-        if (canvasOnly && url == null) onCanvasUnavailable()
     }
     Box(modifier) {
         artwork()
@@ -277,7 +275,6 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 if (withTimeoutOrNull(12_000L) { firstFrame.await() } != true) {
                     firstFrame.complete(false)
                     url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
-                    if (url == null) onCanvasUnavailable()
                 }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
