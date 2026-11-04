@@ -135,7 +135,7 @@ fun PlayerScreen(
             PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
                 artworkUrl, palette, if (canvasStage) motionAura else null)
             if (canvasStage) {
-                AnimatedCover(track, Modifier.fillMaxWidth(.54f).fillMaxHeight()
+                AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
                     .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
                     motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
                     playbackClock = playback.clock) {}

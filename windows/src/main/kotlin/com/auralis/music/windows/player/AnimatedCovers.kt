@@ -6,10 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -18,7 +16,6 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
@@ -281,48 +278,24 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
             frame?.let { bitmap ->
-                if (canvasOnly) {
-                    Box(Modifier.matchParentSize().alpha(shown)
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
-                            drawRect(
-                                Brush.horizontalGradient(
-                                    .48f to Color.Black,
-                                    .72f to Color.Black.copy(alpha = .6f),
-                                    .88f to Color.Black.copy(alpha = .18f),
-                                    1f to Color.Transparent
-                                ),
-                                blendMode = BlendMode.DstIn
-                            )
-                        }) {
-                        // Carry the current frame's colors past the portrait edge before
-                        // blending into the lyrics backdrop.
-                        Image(bitmap, null, Modifier.matchParentSize().blur(52.dp),
-                            contentScale = ContentScale.FillBounds,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.Low)
-                        Image(bitmap, null, Modifier.matchParentSize()
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                            .drawWithContent {
-                                drawContent()
-                                val videoWidth = minOf(size.width, size.height * bitmap.width / bitmap.height)
-                                drawRect(
-                                    Brush.horizontalGradient(
-                                        .60f to Color.Black,
-                                        .78f to Color.Black.copy(alpha = .55f),
-                                        .96f to Color.Transparent,
-                                        endX = videoWidth
-                                    ),
-                                    blendMode = BlendMode.DstIn
-                                )
-                            }, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
-                    }
-                } else {
-                    Image(bitmap, null, Modifier.matchParentSize().alpha(shown),
-                        contentScale = ContentScale.Crop,
-                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
-                }
+                val edgeBlend = if (canvasOnly) Modifier
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            Brush.horizontalGradient(
+                                .48f to Color.Black,
+                                .63f to Color.Black.copy(alpha = .86f),
+                                .76f to Color.Black.copy(alpha = .5f),
+                                .89f to Color.Black.copy(alpha = .14f),
+                                1f to Color.Transparent
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    } else Modifier
+                Image(bitmap, null, Modifier.matchParentSize().alpha(shown).then(edgeBlend),
+                    contentScale = ContentScale.Crop,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
             }
         }
     }
