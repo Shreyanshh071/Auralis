@@ -51,6 +51,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -61,9 +62,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -110,15 +115,38 @@ fun PlayerScreen(
     val preferenceRevision by prefs.changes.collectAsState()
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
+    val motionAura = rememberMotionAura(track?.id)
+    val canvasReady by remember(motionAura) {
+        derivedStateOf { motionAura.texture.value != null }
+    }
     val glassBackdrop = rememberLayerBackdrop()
     val lyricsBackdrop = rememberLayerBackdrop()
     val combinedBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
     val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
-    Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
+        val canvasStage = maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
+            prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
         Box(Modifier.fillMaxSize().then(if (resyncSource.users.intValue > 0) Modifier.layerBackdrop(glassBackdrop) else Modifier)) {
-            PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
+            PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
+                artworkUrl, palette, if (canvasStage) motionAura else null)
+            if (canvasStage) {
+                AnimatedCover(track, Modifier.fillMaxWidth(.54f).fillMaxHeight()
+                    .graphicsLayer {
+                        alpha = if (canvasReady) 1f else 0f
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(Brush.horizontalGradient(.62f to Color.Black, 1f to Color.Transparent),
+                            blendMode = BlendMode.DstIn)
+                    }, motionAura = motionAura) {}
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = .18f),
+                    .6f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = .55f))))
+            }
         }
 
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
@@ -136,7 +164,7 @@ fun PlayerScreen(
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
                     Box(Modifier.offset(y = 12.dp)) {
-                        CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                        CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop, canvasStage, canvasReady)
                     }
                     Spacer(Modifier.height(22.dp))
                     PlayerSeekBar(playback, Modifier.width(coverSize))
@@ -385,7 +413,10 @@ private val BlankCursor: PointerIcon by lazy {
 /** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp, scale: ContentScale) {
+private fun CoverWithControls(
+    playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp,
+    scale: ContentScale, canvasStage: Boolean = false, canvasReady: Boolean = false
+) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
@@ -405,7 +436,9 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
     val remote by playback.connectRemote.collectAsState()
-    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)
+    Box(Modifier.size(size)
+        .then(if (canvasStage && canvasReady) Modifier else Modifier.shadow(24.dp, RoundedCornerShape(16.dp)))
+        .clip(RoundedCornerShape(16.dp)).hoverable(hover)
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { event ->
             event.changes.firstOrNull()?.let { if (pointerActivity.moved(it.position)) lastMove = System.nanoTime() }
         }
@@ -413,9 +446,15 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        AnimatedCover(queue.current, Modifier.fillMaxSize()) {
-            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+        if (canvasStage) {
+            if (!canvasReady) DesktopArtwork(highRes = true, url = artworkUrl,
+                modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
                 contentDescription = title, contentScale = scale)
+        } else {
+            AnimatedCover(queue.current, Modifier.fillMaxSize()) {
+                DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+                    contentDescription = title, contentScale = scale)
+            }
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
