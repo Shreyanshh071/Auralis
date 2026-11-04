@@ -167,7 +167,7 @@ internal fun ConnectOutputRow(ui: ConnectUi, showIcon: Boolean, interactive: Boo
             Icon(connectIcon(type), null, Modifier.size(14.dp), tint = ConnectAccent)
             Spacer(Modifier.width(5.dp))
         }
-        Text(text, style = if (compact) MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp, lineHeight = 11.sp)
+        Text(text, style = if (compact) MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp)
             else MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         val me = ui.me

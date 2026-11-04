@@ -244,7 +244,7 @@ private fun PlayerConnectRow(compact: Boolean = false) {
                 .clickable { menu = true }
                 .padding(horizontal = if (compact) 2.dp else 12.dp, vertical = if (compact) 2.dp else 10.dp)) {
                 Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
-                    desktopText("Connect to a device"), modifier = Modifier.size(if (compact) 12.dp else 24.dp),
+                    desktopText("Connect to a device"), modifier = Modifier.size(if (compact) 16.dp else 24.dp),
                     tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
             if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
             com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false, compact = compact) { menu = true }
@@ -358,24 +358,27 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     )
     val queue by playback.queue.collectAsState()
     val duration = remote?.durationMs?.takeIf { it > 0 } ?: length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    var dragFraction by remember(queue.current?.id) { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
     if (compact) {
         Column(modifier) {
-            HoverSlider(
+            com.auralis.music.ui.components.AuralisPlayerSlider(
                 value = fraction,
                 onValueChange = { if (duration > 0) dragFraction = it },
                 onValueChangeFinished = {
                     dragFraction?.let { playback.seekTo((it * duration).toLong()) }
                     dragFraction = null
                 },
-                enabled = duration > 0,
-                thin = 2.dp, thick = 3.dp, hitSize = 12.dp
+                isPlaying = playing,
+                currentPosMs = shown, totalDurationMs = duration,
+                sliderStyle = "Slim", showTimestamps = false,
+                slimThicknessRest = 3.dp, slimThicknessHover = 5.dp,
+                modifier = Modifier.fillMaxWidth()
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                PlayerTime(shown, 8)
-                PlayerTime(duration, 8)
+                PlayerTime(shown, 10)
+                PlayerTime(duration, 10)
             }
         }
     } else {
@@ -470,7 +473,7 @@ private fun CanvasPlayerDock(
     val hovered by interaction.collectIsHoveredAsState()
     var focused by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.Bottom) {
-        Column(Modifier.widthIn(max = 240.dp).fillMaxWidth()
+        Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()
             .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
             .focusable(interactionSource = interaction)) {
             AnimatedVisibility(visible = hovered || focused) {
@@ -485,9 +488,9 @@ private fun CanvasPlayerDock(
                         thin = 2.dp, thick = 3.dp, hitSize = 20.dp, modifier = Modifier.width(36.dp))
                 }
             }
-            Text(track.title, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold,
+            Text(track.title, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
                 color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(track.artist, fontSize = 9.sp, lineHeight = 11.sp,
+            Text(track.artist, fontSize = 11.sp, lineHeight = 14.sp,
                 color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
             PlayerConnectRow(compact = true)
