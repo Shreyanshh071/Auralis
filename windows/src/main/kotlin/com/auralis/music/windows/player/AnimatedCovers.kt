@@ -217,13 +217,16 @@ internal object CanvasLookup {
  */
 @Composable
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
-    motionAura: MotionAura? = null, artwork: @Composable BoxScope.() -> Unit) {
+    motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
+    artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     var url by remember(track?.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track?.id, prefs) {
+    LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
         url = null
-        url = if (track != null && prefs.enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
-            com.auralis.music.desktop.playback.CanvasVideoEngine.available) CanvasLookup.find(track, prefs.source) else null
+        if (track != null && prefs.enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+            com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
+            url = if (canvasOnly) SpotifyCanvasLookup.find(spotifyCanvasId) else CanvasLookup.find(track, prefs.source)
+        }
     }
     Box(modifier) {
         artwork()

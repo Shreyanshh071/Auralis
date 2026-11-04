@@ -115,6 +115,9 @@ fun PlayerScreen(
     val preferenceRevision by prefs.changes.collectAsState()
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
+    val lyricsState by lyrics.state.collectAsState()
+    val spotifyCanvasId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
+        ?: lyricsState.takeIf { it.trackId == track?.id }?.lyrics?.spotifyTrackId
     val motionAura = rememberMotionAura(track?.id)
     val canvasReady by remember(motionAura) {
         derivedStateOf { motionAura.texture.value != null }
@@ -141,7 +144,7 @@ fun PlayerScreen(
                         drawContent()
                         drawRect(Brush.horizontalGradient(.62f to Color.Black, 1f to Color.Transparent),
                             blendMode = BlendMode.DstIn)
-                    }, motionAura = motionAura) {}
+                    }, motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .18f),
                     .6f to Color.Transparent,
