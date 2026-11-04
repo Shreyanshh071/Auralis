@@ -428,7 +428,7 @@ private fun PlayerTransport(
     modifier: Modifier = Modifier,
     compact: Boolean = false
 ) {
-    val scale = if (compact) .6f else 1f
+    val scale = if (compact) .45f else 1f
     val state by playback.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val repeat by playback.repeatMode.collectAsState()
@@ -476,23 +476,25 @@ private fun CanvasPlayerDock(
         Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()
             .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
             .focusable(interactionSource = interaction)) {
-            AnimatedVisibility(visible = hovered || focused) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PlayerTransport(playback, Modifier.weight(1f), compact = true)
-                    IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
-                        Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                            desktopText(if (volume > 0f) "Mute" else "Unmute"),
-                            tint = Color.White, modifier = Modifier.size(12.dp))
-                    }
-                    HoverSlider(value = volume, onValueChange = playback::setVolume,
-                        thin = 2.dp, thick = 3.dp, hitSize = 20.dp, modifier = Modifier.width(36.dp))
-                }
-            }
             Text(track.title, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
                 color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(track.artist, fontSize = 11.sp, lineHeight = 14.sp,
                 color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
+            Box(Modifier.fillMaxWidth().height(32.dp)) {
+                AnimatedVisibility(visible = hovered || focused) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PlayerTransport(playback, Modifier.weight(1f), compact = true)
+                        IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
+                            Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                                desktopText(if (volume > 0f) "Mute" else "Unmute"),
+                                tint = Color.White, modifier = Modifier.size(12.dp))
+                        }
+                        HoverSlider(value = volume, onValueChange = playback::setVolume,
+                            thin = 2.dp, thick = 3.dp, hitSize = 20.dp, modifier = Modifier.width(36.dp))
+                    }
+                }
+            }
             PlayerConnectRow(compact = true)
         }
     }
