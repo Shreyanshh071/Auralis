@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -71,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.AppearanceSettings
+import com.auralis.music.ui.components.bottomChromePadding
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.ArtworkPaletteCache
 import com.auralis.music.ui.theme.CuratedPalette
@@ -269,7 +269,6 @@ fun ThemeAndColorsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -783,7 +782,7 @@ fun ThemeAndColorsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 24.dp)))
             }
         }
     }
