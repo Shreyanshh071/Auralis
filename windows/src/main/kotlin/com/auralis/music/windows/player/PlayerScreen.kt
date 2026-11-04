@@ -158,7 +158,7 @@ fun PlayerScreen(
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
                     if (canvasStage && canvasReady) {
-                        CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 4.dp))
+                        CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
                     } else {
                         Box(Modifier.offset(y = 12.dp)) {
                             CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop, canvasStage)
@@ -223,7 +223,7 @@ fun PlayerScreen(
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
-private fun PlayerConnectRow(compact: Boolean = false) {
+private fun PlayerConnectRow(compact: Boolean = false, iconOnly: Boolean = false) {
     val connect = com.auralis.music.windows.connect.DesktopConnect.current ?: return
     val ui by connect.ui.collectAsState()
     if (!ui.enabled) return
@@ -245,8 +245,10 @@ private fun PlayerConnectRow(compact: Boolean = false) {
                 Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
                     desktopText("Connect to a device"), modifier = Modifier.size(if (compact) 16.dp else 24.dp),
                     tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
-            if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
-            com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false, compact = compact) { menu = true }
+            if (!iconOnly) {
+                if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
+                com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false, compact = compact) { menu = true }
+            }
         }
         com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
     }
@@ -475,14 +477,20 @@ private fun CanvasPlayerDock(
         Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()
             .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
             .focusable(interactionSource = interaction)) {
-            Text(track.title, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
-                color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(track.title, modifier = Modifier.weight(1f, fill = false),
+                    fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
+                    color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(4.dp))
+                PlayerPlaylistButton(track)
+            }
             Text(track.artist, fontSize = 11.sp, lineHeight = 14.sp,
                 color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
-            Box(Modifier.fillMaxWidth().height(32.dp)) {
-                androidx.compose.animation.AnimatedVisibility(visible = hovered || focused) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlayerConnectRow(compact = true, iconOnly = true)
+                androidx.compose.animation.AnimatedVisibility(visible = hovered || focused, modifier = Modifier.weight(1f)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         PlayerTransport(playback, Modifier.weight(1f), compact = true)
                         IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
                             Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
@@ -494,7 +502,6 @@ private fun CanvasPlayerDock(
                     }
                 }
             }
-            PlayerConnectRow(compact = true)
         }
     }
 }
