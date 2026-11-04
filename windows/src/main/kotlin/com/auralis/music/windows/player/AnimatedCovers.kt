@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -225,6 +226,7 @@ internal object CanvasLookup {
 @Composable
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
+    playbackClock: PlaybackClockSource? = null,
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     var url by remember(track?.id) { mutableStateOf<String?>(null) }
@@ -240,10 +242,10 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
         val video = url
         if (video != null) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-            DisposableEffect(video, motionAura, canvasOnly) {
+            DisposableEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
                 val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
-                    video, frameShortSide = if (canvasOnly) 1440 else 960
+                    video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
                 ) {
                     synchronized(active) { if (active.get()) { frame = it; motionAura?.offer(it) } }
                 }

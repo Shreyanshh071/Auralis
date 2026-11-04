@@ -135,7 +135,9 @@ fun PlayerScreen(
                 artworkUrl, palette, if (canvasStage) motionAura else null)
             if (canvasStage) {
                 AnimatedCover(track, Modifier.fillMaxWidth(.54f).fillMaxHeight()
-                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f }, motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true) {}
+                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
+                    motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
+                    playbackClock = playback.clock) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .18f),
                     .6f to Color.Transparent,
