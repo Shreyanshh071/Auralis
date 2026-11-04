@@ -34,14 +34,26 @@ class SpicySwellClippingTest {
         assertTrue(reproducedClipping, "The regression scene must reproduce clipping with the old offscreen layer")
     }
 
-    private fun render(time: Long, backing: Boolean, layer: Int): IntArray {
-        val word = LyricWord("Oh", 1000, 1800, backing)
-        val line = LyricLine(1000, "Oh", words = listOf(word), isBackground = backing)
+    @Test fun backingGlyphsRetainTheirInkInsideExpandedBlurBounds() {
+        var reproduced = false
+        for (time in listOf(1200L, 1500L, 1900L)) {
+            val expected = render(time, backing = true, layer = 0, text = "Know")
+            val expanded = render(time, backing = true, layer = 3, text = "Know")
+            val original = render(time, backing = true, layer = 2, text = "Know")
+            assertContentEquals(expected, expanded, "Backing glyphs were clipped at $time")
+            if (!expected.contentEquals(original)) reproduced = true
+        }
+        assertTrue(reproduced, "The original blur layer must reproduce the backing-row clipping")
+    }
+
+    private fun render(time: Long, backing: Boolean, layer: Int, text: String = "Oh"): IntArray {
+        val word = LyricWord(text, 1000, 1800, backing)
+        val line = LyricLine(1000, text, words = listOf(word), isBackground = backing)
         val position = mutableLongStateOf(time)
         val scene = ImageComposeScene(320, 180, coroutineContext = Dispatchers.Unconfined) {
             MaterialTheme {
                 Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
-                    val modifier = if (layer == 0) Modifier else Modifier.lyricsBlurLayer(true, layer == 1) { 0f }
+                    val modifier = if (layer == 0) Modifier else Modifier.lyricsBlurLayer(true, layer == 1, overflow = if (layer == 3) 40.dp else 0.dp) { 0f }
                     Column(modifier) {
                         SpicyLyricsLine(line, line.words, position,
                             TextStyle(fontSize = 70.sp, lineHeight = 70.sp, fontWeight = FontWeight.Bold,
@@ -54,7 +66,7 @@ class SpicySwellClippingTest {
             repeat(10) { scene.render(it * 16_666_667L).close() }
             scene.render(11 * 16_666_667L).use { image ->
                 val folder = java.io.File("build/screens/spicy-swell-clipping").apply { mkdirs() }
-                java.io.File(folder, "$time-$backing-$layer.png").writeBytes(
+                java.io.File(folder, "$text-$time-$backing-$layer.png").writeBytes(
                     image.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes })
                 Bitmap.makeFromImage(image).use { bitmap ->
                     IntArray(bitmap.width * bitmap.height) { bitmap.getColor(it % bitmap.width, it / bitmap.width) }

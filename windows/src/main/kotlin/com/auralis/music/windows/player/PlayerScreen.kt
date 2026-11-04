@@ -131,6 +131,9 @@ fun PlayerScreen(
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
         val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
             prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
+        if (canvasStage && canvasReady) {
+            CanvasIntro(playback)
+        }
         Box(Modifier.fillMaxSize().then(if (resyncSource.users.intValue > 0) Modifier.layerBackdrop(glassBackdrop) else Modifier)) {
             PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
                 artworkUrl, palette, if (canvasStage) motionAura else null)
@@ -306,8 +309,52 @@ internal fun rememberPlayerLyricsAppearance(): AppearanceSettings {
 }
 
 @Composable
-internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
-    val appearance = rememberPlayerLyricsAppearance()
+private fun CanvasIntro(playback: DesktopPlaybackController) {
+    val session by playback.session.collectAsState()
+    val state by playback.state.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    val playing = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING)
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(session, playing) {
+        if (playing) show = CanvasSettings.shouldOfferIntro(session)
+    }
+    if (show) {
+        val keepLoops = {
+            CanvasSettings.finishIntro(useCovers = false)
+            show = false
+        }
+        com.auralis.music.ui.components.GlassAlertDialog(
+            onDismissRequest = keepLoops,
+            title = { Text(desktopText("Keep video loops in Lyrics?")) },
+            text = {
+                Text(desktopText("You can keep video loops or switch to cover art. The sidebar shows an animated cover when available."))
+            },
+            confirmButton = {
+                com.auralis.music.ui.components.TextButton(onClick = keepLoops) {
+                    Text(desktopText("Keep video loops"))
+                }
+            },
+            dismissButton = {
+                com.auralis.music.ui.components.TextButton(onClick = {
+                    CanvasSettings.finishIntro(useCovers = true)
+                    show = false
+                }) {
+                    Text(desktopText("Use cover art"))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+internal fun LyricsPanel(
+    playback: DesktopPlaybackController,
+    lyrics: DesktopLyricsController,
+    showCredits: Boolean = true,
+    textScale: Float = 1f
+) {
+    val playerAppearance = rememberPlayerLyricsAppearance()
+    val appearance = playerAppearance.copy(lyricsTextSize = playerAppearance.lyricsTextSize * textScale)
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
@@ -340,7 +387,8 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
                 isBuffering = remote?.buffering ?: (playerState == VlcAudioPlayer.State.BUFFERING),
                 lyricsClockSource = playback.clock,
                 track = queue.current,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                showCredits = showCredits
             )
         }
     }

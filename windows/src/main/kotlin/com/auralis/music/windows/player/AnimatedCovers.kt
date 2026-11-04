@@ -53,6 +53,36 @@ internal object CanvasSettings {
     private val mutable = MutableStateFlow(load())
     val prefs: StateFlow<CanvasPrefs> = mutable
 
+    private var introPlays = -1
+    private var lastIntroSession: Long? = null
+
+    fun initializeIntro(newProfile: Boolean) {
+        introPlays = runCatching {
+            val stored = store.getString("loopIntroPlays", "")?.toIntOrNull()
+            stored ?: if (newProfile) 0 else -1
+        }.getOrDefault(-1)
+        saveIntroProgress()
+    }
+
+    fun shouldOfferIntro(session: Long): Boolean {
+        if (introPlays < 0) return false
+        if (introPlays < 3 && session != lastIntroSession) {
+            lastIntroSession = session
+            introPlays++
+            saveIntroProgress()
+        }
+        return introPlays >= 3
+    }
+
+    fun finishIntro(useCovers: Boolean) {
+        introPlays = -1
+        if (useCovers) update(prefs.value.copy(spotifyCanvas = false, enabled = true)) else saveIntroProgress()
+    }
+
+    private fun saveIntroProgress() {
+        runCatching { store.putStrings(mapOf("loopIntroPlays" to introPlays.toString())) }
+    }
+
     private fun load() = runCatching {
         CanvasPrefs(store.getString("enabled", "true") != "false",
             CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO,
@@ -61,7 +91,7 @@ internal object CanvasSettings {
 
     fun update(prefs: CanvasPrefs) {
         mutable.value = prefs
-        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString())) }
+        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString(), "loopIntroPlays" to introPlays.toString())) }
     }
 }
 
@@ -284,10 +314,10 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                         drawContent()
                         drawRect(
                             Brush.horizontalGradient(
-                                .48f to Color.Black,
-                                .63f to Color.Black.copy(alpha = .86f),
-                                .76f to Color.Black.copy(alpha = .5f),
-                                .89f to Color.Black.copy(alpha = .14f),
+                                .76f to Color.Black,
+                                .82f to Color.Black.copy(alpha = .86f),
+                                .88f to Color.Black.copy(alpha = .5f),
+                                .94f to Color.Black.copy(alpha = .14f),
                                 1f to Color.Transparent
                             ),
                             blendMode = BlendMode.DstIn

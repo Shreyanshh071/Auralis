@@ -21,6 +21,8 @@ import java.nio.file.StandardCopyOption
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
     private const val MAX_BYTES = 64L * 1024 * 1024
+    // Small direct MP4s are typically mobile previews. Prefer the manifest for those clips.
+    private const val MIN_DIRECT_BYTES = 1_500_000L
     private const val MIN_CACHE_BYTES = 64L * 1024
     private const val DAY_MS = 86_400_000L
     private val trackPattern = Regex("[A-Za-z0-9]{22}")
@@ -99,8 +101,11 @@ internal object SpotifyCanvasLookup {
     private fun indexedFileId(trackId: String): String? =
         diskIndex.getString(trackId, "")?.takeIf(filePattern::matches)
 
-    private fun usable(file: File): Boolean = file.isFile && file.length() >= MIN_CACHE_BYTES &&
-        diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
+    private fun usable(file: File): Boolean {
+        val minimum = if (file.extension == "mp4") MIN_DIRECT_BYTES else MIN_CACHE_BYTES
+        return file.isFile && file.length() in minimum..MAX_BYTES &&
+            diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
+    }
 
     private fun cachedFile(fileId: String): File? =
         listOf(File(folder, "$fileId-hq.mp4"), File(folder, "$fileId-hq.ts")).firstOrNull(::usable)
@@ -116,7 +121,7 @@ internal object SpotifyCanvasLookup {
                 if (response.code != 200) return null
                 val body = response.body ?: return null
                 val length = body.contentLength()
-                if (length >= 0 && length !in 100_000..MAX_BYTES) return null
+                if (length >= 0 && length !in MIN_DIRECT_BYTES..MAX_BYTES) return null
                 var bytes = 0L
                 temporary.outputStream().use { output ->
                     body.byteStream().use { input ->
@@ -130,7 +135,7 @@ internal object SpotifyCanvasLookup {
                         }
                     }
                 }
-                if (bytes < 100_000 || length >= 0 && bytes != length) return null
+                if (bytes < MIN_DIRECT_BYTES || length >= 0 && bytes != length) return null
             }
             publish(temporary, target)
             return target.absolutePath

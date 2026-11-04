@@ -36,16 +36,10 @@ import com.auralis.music.util.Log
 import com.auralis.music.windows.settings.DesktopThemeOverrides
 import com.auralis.music.windows.settings.rememberArtworkPalette
 import kotlinx.coroutines.delay
-import java.awt.KeyboardFocusManager
-import java.awt.event.WindowEvent
-import java.awt.event.WindowFocusListener
-import javax.swing.Timer
 
 private const val TAG = "Immersive"
 private const val DISPLAY_CHECK_MS = 2_000L
 private const val KEEP_AWAKE_MS = 20_000L
-/** Focus has landed somewhere by then, so a loss can be told from moving between our own windows. */
-private const val FOCUS_SETTLE_MS = 250
 
 private fun DesktopPlaybackController.isPlayingNow(): Boolean =
     connectRemote.value?.playing ?: (state.value == VlcAudioPlayer.State.PLAYING)
@@ -149,6 +143,7 @@ internal fun ImmersiveWindows(
                 title = "Auralis Immersive",
                 icon = icon,
                 undecorated = true,
+                transparent = false,
                 resizable = false,
                 focusable = trigger == ImmersiveTrigger.MANUAL,
                 alwaysOnTop = true,
@@ -156,9 +151,10 @@ internal fun ImmersiveWindows(
             ) {
                 DisposableEffect(window) {
                     java.awt.Color.BLACK.let { window.background = it; window.contentPane.background = it }
-                    val listener = LeaveWhenAppLosesFocus(session)
-                    window.addWindowFocusListener(listener)
-                    onDispose { window.removeWindowFocusListener(listener) }
+                    val inputRestore = com.auralis.music.windows.installWindowInputRestore(window)
+                    onDispose {
+                        inputRestore.close()
+                    }
                 }
                 LaunchedEffect(trigger, firstShown) {
                     if (trigger == ImmersiveTrigger.MANUAL && display == firstShown) {
@@ -203,19 +199,8 @@ internal fun ImmersiveWindows(
     }
 }
 
-private fun onImmersiveKey(event: KeyEvent, actions: ImmersiveKeyActions): Boolean {
+internal fun onImmersiveKey(event: KeyEvent, actions: ImmersiveKeyActions): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val code = runCatching { event.key.nativeKeyCode }.getOrDefault(0)
     return handleImmersiveKey(code, event.isCtrlPressed, event.isShiftPressed, actions)
-}
-
-/** A manual session ends when the user switches to another app; focus moving between Auralis windows is fine. */
-private class LeaveWhenAppLosesFocus(private val session: ImmersiveSession) : WindowFocusListener {
-    override fun windowGainedFocus(e: WindowEvent) = Unit
-    override fun windowLostFocus(e: WindowEvent) {
-        Timer(FOCUS_SETTLE_MS) {
-            val appActive = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow != null
-            if (session.trigger == ImmersiveTrigger.MANUAL && !appActive) session.close()
-        }.apply { isRepeats = false; start() }
-    }
 }

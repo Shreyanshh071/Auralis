@@ -115,7 +115,7 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(showPlayer) {
         playerCoversHome = false
         if (showPlayer) {
-            kotlinx.coroutines.delay(400L)
+            kotlinx.coroutines.delay(180L)
             playerCoversHome = true
         }
     }
@@ -1008,10 +1008,8 @@ fun AuralisDesktopApp(
             androidx.compose.animation.AnimatedVisibility(
                 modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT),
                 visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
-                enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(380)) { it } +
-                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240)),
-                exit = androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(320)) { it } +
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240))
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
             ) {
                 if (playback != null && lyrics != null) {
                     com.auralis.music.windows.player.PlayerScreen(
