@@ -109,7 +109,7 @@ private fun SidebarLyricsContent(lyrics: LyricsData?, position: State<Long>, onS
         // Fullscreen keeps the current phrase lit through ordinary breaths, without
         // extending any word timestamps. Preserve its paired lead/background display too.
         val sung: Set<Int> = if (synced && mode == LyricsAnimationMode.SPICY_LYRICS) {
-            spicyVocalTimeline.activeIndices(position.value)
+            spicyVocalTimeline.highlightedIndices(position.value)
         } else if (synced) {
             val visual = com.auralis.music.ui.lyrics.findExperimentalActiveLineIndices(lines, position.value)
             visual.toMutableSet().apply {

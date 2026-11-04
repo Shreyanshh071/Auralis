@@ -2042,7 +2042,8 @@ fun NowPlayingModal(
             PlayerDesign.OLD -> {
             CompositionLocalProvider(
                 LocalClassicLyricsHazeState provides classicLyricsHazeState,
-                LocalLyricsSourcePicker provides { showLyricsProviders = true }
+                LocalLyricsSourcePicker provides { showLyricsProviders = true },
+                LocalConnectDevicesAction provides { showConnectSheet = true }
             ) {
                 ClassicPlayerContainer(
                     track = shownTrack,
@@ -2157,8 +2158,7 @@ fun NowPlayingModal(
         if (currentTab != NowPlayingTab.LYRICS) com.auralis.music.ui.connect.ConnectPlayerBar(
             accent = animatedPrimaryColor,
             onOpen = { showConnectSheet = true },
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 64.dp),
-            hazeState = classicLyricsHazeState
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 64.dp)
         )
     }
 

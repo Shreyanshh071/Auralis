@@ -103,6 +103,7 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -951,6 +952,9 @@ private fun PlayerVolumeControls(
 /** Opens the lyrics source picker from the old player's lyrics panel; null hides its caption. */
 internal val LocalLyricsSourcePicker = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
 
+/** Opens Auralis Connect's device picker; null while Connect is off, which hides its button. */
+internal val LocalConnectDevicesAction = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 fun ClassicCompactPlaybackControls(
     track: Track,
@@ -1217,6 +1221,23 @@ fun ClassicBottomBar(
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(20.dp)
                     )
+                }
+
+                LocalConnectDevicesAction.current?.let { openDevices ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { openDevices() }
+                            .padding(horizontal = 9.dp, vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Devices,
+                            contentDescription = str(R.string.connect_to_a_device),
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
 
             }

@@ -701,7 +701,7 @@ fun ExperimentalLyricsView(
                     activeLineIndices = forcedActive
                 }
             } else {
-                val initialActiveIndices = if (spicyStyle) spicyVocalTimeline.activeIndices(currentPos)
+                val initialActiveIndices = if (spicyStyle) spicyVocalTimeline.highlightedIndices(currentPos)
                     else findExperimentalActiveLineIndices(effectiveLines, currentPos)
 
                 // Expand to include paired lead/background lines
