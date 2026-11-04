@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.auralis.music.data.connect.ConnectDeviceRow
 import com.auralis.music.data.connect.ConnectDeviceType
 import com.auralis.music.data.connect.ConnectOutput
@@ -145,14 +146,15 @@ private fun Modifier.padding16() = this.padding(horizontal = 16.dp, vertical = 4
 
 /** The bar's "Playing on …" line (opens the picker), shown while another device has the audio. */
 @Composable
-fun ConnectOutputLabel(showIcon: Boolean = true, interactive: Boolean = true, onOpen: () -> Unit) {
+fun ConnectOutputLabel(showIcon: Boolean = true, interactive: Boolean = true, compact: Boolean = false, onOpen: () -> Unit) {
     val connect = DesktopConnect.current ?: return
-    ConnectOutputRow(connect.ui.collectAsState().value, showIcon, interactive, onOpen) { connect.transferTo(it) }
+    ConnectOutputRow(connect.ui.collectAsState().value, showIcon, interactive, onOpen,
+        onPlayHere = { connect.transferTo(it) }, compact = compact)
 }
 
 /** "Playing on …" and, beside it, the one click that brings the audio back to this PC. */
 @Composable
-internal fun ConnectOutputRow(ui: ConnectUi, showIcon: Boolean, interactive: Boolean, onOpen: () -> Unit, onPlayHere: (String) -> Unit) {
+internal fun ConnectOutputRow(ui: ConnectUi, showIcon: Boolean, interactive: Boolean, onOpen: () -> Unit, onPlayHere: (String) -> Unit, compact: Boolean = false) {
     val t = ui.transfer
     val text = when {
         t != null && !t.failed -> desktopText("Connecting to %1\$s…", t.label)
@@ -165,7 +167,8 @@ internal fun ConnectOutputRow(ui: ConnectUi, showIcon: Boolean, interactive: Boo
             Icon(connectIcon(type), null, Modifier.size(14.dp), tint = ConnectAccent)
             Spacer(Modifier.width(5.dp))
         }
-        Text(text, style = MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1,
+        Text(text, style = if (compact) MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp, lineHeight = 11.sp)
+            else MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         val me = ui.me
         if (interactive && ui.canPlayHere && me != null) {

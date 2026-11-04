@@ -7,6 +7,8 @@ import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.clickable
 import androidx.compose.ui.draw.clip
@@ -66,6 +68,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -232,7 +235,7 @@ fun PlayerScreen(
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
-private fun PlayerConnectRow() {
+private fun PlayerConnectRow(compact: Boolean = false) {
     val connect = com.auralis.music.windows.connect.DesktopConnect.current ?: return
     val ui by connect.ui.collectAsState()
     if (!ui.enabled) return
@@ -243,19 +246,19 @@ private fun PlayerConnectRow() {
     val focused by interaction.collectIsFocusedAsState()
     val highlight by androidx.compose.animation.core.animateFloatAsState(
         if (hovered || focused || menu) .12f else 0f, tween(140), label = "connectRowHover")
-    Spacer(Modifier.height(10.dp))
+    if (!compact) Spacer(Modifier.height(10.dp))
     Box {
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clip(RoundedCornerShape(12.dp))
                 .background(Color.White.copy(alpha = highlight))
                 .hoverable(interaction)
                 .clickable { menu = true }
-                .padding(horizontal = 12.dp, vertical = 10.dp)) {
+                .padding(horizontal = if (compact) 2.dp else 12.dp, vertical = if (compact) 2.dp else 10.dp)) {
                 Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
-                    desktopText("Connect to a device"), modifier = Modifier.size(24.dp),
+                    desktopText("Connect to a device"), modifier = Modifier.size(if (compact) 12.dp else 24.dp),
                     tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
             if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
-            com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false) { menu = true }
+            com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false, compact = compact) { menu = true }
         }
         com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
     }
@@ -369,21 +372,40 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        PlayerTime(shown, if (compact) 12 else 17)
-        com.auralis.music.ui.components.AuralisPlayerSlider(
-            value = fraction,
-            onValueChange = { if (duration > 0) dragFraction = it },
-            onValueChangeFinished = {
-                dragFraction?.let { playback.seekTo((it * duration).toLong()) }
-                dragFraction = null
-            },
-            isPlaying = playing,
-            currentPosMs = shown, totalDurationMs = duration,
-            sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-        )
-        PlayerTime(duration, if (compact) 12 else 17)
+    if (compact) {
+        Column(modifier) {
+            HoverSlider(
+                value = fraction,
+                onValueChange = { if (duration > 0) dragFraction = it },
+                onValueChangeFinished = {
+                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+                    dragFraction = null
+                },
+                enabled = duration > 0,
+                thin = 2.dp, thick = 3.dp, hitSize = 12.dp
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                PlayerTime(shown, 8)
+                PlayerTime(duration, 8)
+            }
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+            PlayerTime(shown)
+            com.auralis.music.ui.components.AuralisPlayerSlider(
+                value = fraction,
+                onValueChange = { if (duration > 0) dragFraction = it },
+                onValueChangeFinished = {
+                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+                    dragFraction = null
+                },
+                isPlaying = playing,
+                currentPosMs = shown, totalDurationMs = duration,
+                sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+            )
+            PlayerTime(duration)
+        }
     }
 }
 
@@ -423,7 +445,8 @@ private fun PlayerTransport(
     Row(modifier, horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
         val shuffleOn by playback.shuffleEnabled.collectAsState()
-        IconButton(onClick = playback::toggleShuffle, enabled = queue.current != null && !roomActive) {
+        IconButton(onClick = playback::toggleShuffle, enabled = queue.current != null && !roomActive,
+            modifier = if (compact) Modifier.size(28.dp) else Modifier) {
             Icon(Icons.Rounded.Shuffle, desktopText(if (remote?.shuffle ?: shuffleOn) "Turn shuffle off" else "Turn shuffle on"), tint = if (remote?.shuffle ?: shuffleOn) MaterialTheme.colorScheme.primary else Color.White, modifier = Modifier.size(28.dp * scale))
         }
         IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp * scale)) {
@@ -438,7 +461,8 @@ private fun PlayerTransport(
             ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
                 modifier = Modifier.size(width = 46.dp * scale, height = 28.dp * scale))
         }
-        IconButton(onClick = playback::cycleRepeatMode, enabled = !roomActive) {
+        IconButton(onClick = playback::cycleRepeatMode, enabled = !roomActive,
+            modifier = if (compact) Modifier.size(28.dp) else Modifier) {
             Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                 "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
                 modifier = Modifier.size(28.dp * scale))
@@ -453,25 +477,31 @@ private fun CanvasPlayerDock(
     modifier: Modifier = Modifier
 ) {
     val volume by playback.volume.collectAsState()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.Bottom) {
-        Column(Modifier.widthIn(max = 360.dp).fillMaxWidth()) {
-            Text(track.title, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Text(track.artist, fontSize = 13.sp, color = Color.White.copy(alpha = .75f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PlayerTransport(playback, Modifier.weight(1f), compact = true)
-                IconButton(onClick = playback::toggleMute, modifier = Modifier.size(30.dp)) {
-                    Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                        desktopText(if (volume > 0f) "Mute" else "Unmute"),
-                        tint = Color.White, modifier = Modifier.size(16.dp))
+        Column(Modifier.widthIn(max = 240.dp).fillMaxWidth()
+            .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
+            .focusable(interactionSource = interaction)) {
+            AnimatedVisibility(visible = hovered || focused) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PlayerTransport(playback, Modifier.weight(1f), compact = true)
+                    IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
+                        Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                            desktopText(if (volume > 0f) "Mute" else "Unmute"),
+                            tint = Color.White, modifier = Modifier.size(12.dp))
+                    }
+                    HoverSlider(value = volume, onValueChange = playback::setVolume,
+                        thin = 2.dp, thick = 3.dp, hitSize = 20.dp, modifier = Modifier.width(36.dp))
                 }
-                HoverSlider(value = volume, onValueChange = playback::setVolume,
-                    thin = 6.dp, thick = 8.dp, hitSize = 24.dp, modifier = Modifier.width(64.dp))
             }
-            PlayerConnectRow()
+            Text(track.title, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold,
+                color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.artist, fontSize = 9.sp, lineHeight = 11.sp,
+                color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
+            PlayerConnectRow(compact = true)
         }
     }
 }
