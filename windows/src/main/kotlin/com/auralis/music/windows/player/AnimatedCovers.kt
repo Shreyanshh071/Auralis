@@ -20,7 +20,9 @@ import androidx.compose.ui.layout.ContentScale
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -42,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** Where animated covers come from. Auto tries Apple Music, then Tidal, then the curated library. */
 internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), CURATED("Curated library") }
 
-internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO)
+internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO, val spotifyCanvas: Boolean = true)
 
 /** Appearance > Animated covers, kept in its own small file. */
 internal object CanvasSettings {
@@ -54,12 +56,13 @@ internal object CanvasSettings {
 
     private fun load() = runCatching {
         CanvasPrefs(store.getString("enabled", "true") != "false",
-            CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO)
+            CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO,
+            store.getString("spotifyCanvas", "true") != "false")
     }.getOrDefault(CanvasPrefs())
 
     fun update(prefs: CanvasPrefs) {
         mutable.value = prefs
-        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name)) }
+        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString())) }
     }
 }
 
@@ -227,31 +230,54 @@ internal object CanvasLookup {
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
     playbackClock: PlaybackClockSource? = null,
+    onCanvasUnavailable: () -> Unit = {},
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
-    var url by remember(track?.id) { mutableStateOf<String?>(null) }
+    var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
     LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
         url = null
-        if (track != null && prefs.enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+        val enabled = if (canvasOnly) prefs.spotifyCanvas else prefs.enabled
+        if (track != null && enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
             com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
             url = if (canvasOnly) SpotifyCanvasLookup.find(spotifyCanvasId) else CanvasLookup.find(track, prefs.source)
         }
+        if (canvasOnly && url == null) onCanvasUnavailable()
     }
     Box(modifier) {
         artwork()
         val video = url
         if (video != null) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+            val firstFrame = remember { CompletableDeferred<Boolean>() }
             DisposableEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
                 val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
                     video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
                 ) {
-                    synchronized(active) { if (active.get()) { frame = it; motionAura?.offer(it) } }
+                    synchronized(active) {
+                        if (active.get()) {
+                            // VLC can pad a portrait frame by a few pixels.
+                            val portrait = kotlin.math.abs(it.width.toDouble() / it.height - 9.0 / 16) < .02
+                            if (!canvasOnly || portrait) {
+                                if (!canvasOnly || firstFrame.complete(true) || frame != null) {
+                                    frame = it
+                                    motionAura?.offer(it)
+                                }
+                            } else firstFrame.complete(false)
+                        }
+                    }
                 }
+                if (stop == null) firstFrame.complete(false)
                 onDispose {
                     synchronized(active) { active.set(false); motionAura?.offer(null) }
                     stop?.invoke()
+                }
+            }
+            if (canvasOnly && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
+                if (withTimeoutOrNull(12_000L) { firstFrame.await() } != true) {
+                    firstFrame.complete(false)
+                    url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
+                    if (url == null) onCanvasUnavailable()
                 }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")

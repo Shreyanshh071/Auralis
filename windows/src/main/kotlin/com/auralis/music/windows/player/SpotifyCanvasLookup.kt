@@ -2,6 +2,7 @@ package com.auralis.music.windows.player
 
 import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.SpotifyPlaylistImporter
+import com.auralis.music.util.PropertiesFileKeyValueStore
 import com.auralis.music.util.desktopAppDataDir
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -12,24 +13,34 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.util.concurrent.TimeUnit
 import java.nio.file.StandardCopyOption
 
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
-    private data class Entry(val path: String?, val expiresAt: Long)
-    private val cache = mutableMapOf<String, Entry>()
+    private const val MAX_BYTES = 64L * 1024 * 1024
+    private const val MIN_CACHE_BYTES = 64L * 1024
+    private const val DAY_MS = 86_400_000L
+    private val trackPattern = Regex("[A-Za-z0-9]{22}")
+    private val filePattern = Regex("[a-fA-F0-9]{32}")
+    private val folder by lazy { File(desktopAppDataDir(), "cache/spotify-canvas") }
+    private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
+    private val misses = mutableMapOf<String, Long>()
     private val lock = Mutex()
     private var retryAt = 0L
     private val http get() = NetworkClientProvider.okHttpClient
+    private val directHttp by lazy {
+        http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
+    }
 
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
-        if (trackId == null || !Regex("[A-Za-z0-9]{22}").matches(trackId)) return@withContext null
+        if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
+            indexedFileId(trackId)?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = System.currentTimeMillis()
-            cache[trackId]?.takeIf { now < it.expiresAt &&
-                (it.path == null || File(it.path).isFile) }?.let { return@withLock it.path }
-            if (now < retryAt) return@withLock null
+            if (now < retryAt || now < (misses[trackId] ?: 0L)) return@withLock null
             try {
                 val request = Request.Builder()
                     .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
@@ -45,11 +56,16 @@ internal object SpotifyCanvasLookup {
                     data.optJSONObject(trackId)
                 }
                 check(item?.has("error") != true)
-                val path = if (item != null && item.optString("type").startsWith("VIDEO")) {
-                    download(trackId, item.getString("fileId"))
-                } else null
-                cache[trackId] = Entry(path, now + 86_400_000L)
-                path
+                if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+                    misses[trackId] = now + DAY_MS
+                    return@withLock null
+                }
+                val fileId = item.getString("fileId")
+                check(filePattern.matches(fileId))
+                diskIndex.putStrings(mapOf(trackId to fileId))
+                cachedFile(fileId)?.absolutePath
+                    ?: downloadDirect(item.optString("url"), fileId)
+                    ?: downloadViaManifest(trackId, fileId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -59,16 +75,88 @@ internal object SpotifyCanvasLookup {
         }
     }
 
+    /** Reject the exact candidate used by VLC, then bypass the MP4 on the retry. */
+    suspend fun fallback(trackId: String, failedPath: String): String? = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val fileId = indexedFileId(trackId) ?: return@withLock null
+            val mp4 = File(folder, "$fileId-hq.mp4")
+            val manifest = File(folder, "$fileId-hq.ts")
+            val failed = listOf(mp4, manifest).firstOrNull { it.absolutePath == failedPath } ?: return@withLock null
+            // A Windows decoder can still have the file open while it shuts down.
+            runCatching { diskIndex.putStrings(mapOf("rejected.${failed.name}" to failed.lastModified().toString())) }
+            runCatching { failed.delete() }
+            if (failed == manifest) return@withLock null
+            try {
+                downloadViaManifest(trackId, fileId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun indexedFileId(trackId: String): String? =
+        diskIndex.getString(trackId, "")?.takeIf(filePattern::matches)
+
+    private fun usable(file: File): Boolean = file.isFile && file.length() >= MIN_CACHE_BYTES &&
+        diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
+
+    private fun cachedFile(fileId: String): File? =
+        listOf(File(folder, "$fileId-hq.mp4"), File(folder, "$fileId-hq.ts")).firstOrNull(::usable)
+
+    private fun downloadDirect(url: String, fileId: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        if (uri.scheme != "https" || uri.host != "canvaz.scdn.co" || uri.userInfo != null ||
+            (uri.port != -1 && uri.port != 443) || uri.path?.endsWith(".cnvs.mp4", ignoreCase = true) != true) return null
+        val target = File(folder, "$fileId-hq.mp4")
+        val temporary = File.createTempFile(fileId, ".mp4.partial", folder)
+        try {
+            directHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (response.code != 200) return null
+                val body = response.body ?: return null
+                val length = body.contentLength()
+                if (length >= 0 && length !in 100_000..MAX_BYTES) return null
+                var bytes = 0L
+                temporary.outputStream().use { output ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            bytes += count
+                            if (bytes > MAX_BYTES) return null
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                if (bytes < 100_000 || length >= 0 && bytes != length) return null
+            }
+            publish(temporary, target)
+            return target.absolutePath
+        } catch (_: java.io.IOException) {
+            return null
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun publish(temporary: File, target: File) {
+        try {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
     private fun readJson(request: Request): JSONObject = http.newCall(request).execute().use { response ->
         check(response.isSuccessful)
         JSONObject(response.body?.string().orEmpty())
     }
 
-    private fun download(trackId: String, fileId: String): String {
-        check(Regex("[a-fA-F0-9]{32}").matches(fileId))
-        val folder = File(desktopAppDataDir(), "cache/spotify-canvas").apply { mkdirs() }
+    private fun downloadViaManifest(trackId: String, fileId: String): String {
         val target = File(folder, "$fileId-hq.ts")
-        if (target.isFile && target.length() > 0) return target.absolutePath
+        if (usable(target)) return target.absolutePath
         // A short-lived anonymous embed token is sent only to Spotify's manifest endpoint.
         val embed = http.newCall(Request.Builder()
             .url("https://open.spotify.com/embed/track/$trackId").build()).execute().use { response ->
@@ -115,15 +203,15 @@ internal object SpotifyCanvasLookup {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 bytes += count
-                                check(bytes <= 64 * 1024 * 1024)
+                                check(bytes <= MAX_BYTES)
                                 output.write(buffer, 0, count)
                             }
                         }
                     }
                 }
-                check(bytes > 0)
+                check(bytes >= MIN_CACHE_BYTES)
             }
-            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            publish(temporary, target)
             return target.absolutePath
         } finally {
             temporary.delete()
