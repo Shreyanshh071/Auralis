@@ -107,6 +107,15 @@ service cloud.firestore {
         && s.updatedAt == request.time;
     }
 
+    // The last playback action, beside the session so older clients can't erase it.
+    function validConnectIntent() {
+      let i = request.resource.data;
+      return i.keys().hasOnly(['version', 'epoch', 'at', 'by']) && i.keys().hasAll(['version', 'epoch', 'at', 'by'])
+        && i.version is int && i.epoch is int && i.at is number
+        && i.at <= request.time.toMillis() + 120000
+        && i.by is string && i.by.size() <= 64;
+    }
+
     function validConnectQueue() {
       let q = request.resource.data;
       return q.keys().hasOnly(['rev', 'offset', 'tracks']) && q.rev is int && q.offset is int
@@ -172,17 +181,20 @@ service cloud.firestore {
 
       // `session`: the one authoritative session. `queue`: its queue window.
       match /connect/{docId} {
-        allow get: if isAccount(uid) && docId in ['session', 'queue'];
+        allow get: if isAccount(uid) && docId in ['session', 'queue', 'intent'];
         allow list: if false;
         allow create: if isAccount(uid) && (
           (docId == 'session' && validConnectSession() && request.resource.data.version == 1
             && request.resource.data.epoch in [0, 1])
-          || (docId == 'queue' && validConnectQueue()));
+          || (docId == 'queue' && validConnectQueue())
+          || (docId == 'intent' && validConnectIntent()));
         allow update: if isAccount(uid) && (
           (docId == 'session' && validConnectSession()
             && request.resource.data.version == resource.data.version + 1
             && (connectOwnerUnchanged() || connectOwnerChangeAllowed()))
-          || (docId == 'queue' && validConnectQueue()));
+          || (docId == 'queue' && validConnectQueue())
+          || (docId == 'intent' && validConnectIntent()
+            && request.resource.data.version >= resource.data.version));
         allow delete: if isAccount(uid);
       }
 

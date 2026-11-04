@@ -105,8 +105,11 @@ internal val CoverSheetFloor = Color(0xFF121212)
 @Composable
 internal fun CoverSheetBackground(artworkUrl: String?) {
     val context = LocalContext.current
+    // The same image and size as the song's row, so it's already in memory and shows at once.
     val request = remember(context, artworkUrl) {
-        ImageRequest.Builder(context).data(artworkUrl).size(512).crossfade(true).build()
+        val thumbnail = getOptimizedThumbnailUrl(artworkUrl)
+        ImageRequest.Builder(context).data(thumbnail).size(384, 384)
+            .placeholderMemoryCacheKey(thumbnail).crossfade(true).build()
     }
     Box(Modifier.fillMaxSize().clipToBounds().background(CoverSheetFloor)) {
         AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop,

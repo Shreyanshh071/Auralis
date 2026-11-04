@@ -37,28 +37,7 @@ class PlaylistDownloadRepository(private val context: Context) {
                 files.verify(old.contentUri)
         }.associateBy { it.trackId }.toMutableMap()
 
-        // Pre-resolve any tracks that are already downloaded globally on device (e.g. from another playlist)
-        for ((index, track) in snapshot.withIndex()) {
-            if (existingResultsMap.containsKey(track.id)) continue
-            if (AuralisDownloadManager.isDownloaded(track.id)) {
-                val source = AuralisDownloadManager.getDownloadedFile(track.id)
-                if (source != null && source.isFile && source.length() > 1024) {
-                    try {
-                        val fileName = PlaylistDownloadPaths.trackFileName(index, track)
-                        val published = files.publish(source, folderName, fileName)
-                        existingResultsMap[track.id] = TrackDownloadResult(
-                            trackId = track.id,
-                            outcome = DownloadOutcome.ALREADY_DOWNLOADED,
-                            contentUri = published.first,
-                            bytes = published.second
-                        )
-                    } catch (e: Exception) {
-                        android.util.Log.w("PlaylistDownload", "Pre-resolve publish failed for ${track.title}: ${e.message}")
-                    }
-                }
-            }
-        }
-
+        // Cached audio is reused by the executor, which embeds mandatory song details.
         val resultsList = snapshot.mapNotNull { existingResultsMap[it.id] }
         val completedCount = resultsList.count { it.outcome in SUCCESS_OUTCOMES }
         val isAllCompleted = snapshot.isNotEmpty() && completedCount == snapshot.size

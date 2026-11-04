@@ -11,7 +11,8 @@ import javax.imageio.ImageIO
 internal class DesktopSystemTray(
     private val onOpen: () -> Unit,
     private val onQuit: () -> Unit,
-    private val pointerLocation: () -> Point? = { MouseInfo.getPointerInfo()?.location }
+    private val pointerLocation: () -> Point? = { MouseInfo.getPointerInfo()?.location },
+    private val onRestart: () -> Unit = {}
 ) : AutoCloseable {
     private var icon: TrayIcon? = null
     private var menu: DesktopTrayMenu? = null
@@ -46,7 +47,7 @@ internal class DesktopSystemTray(
                 icon = tray
                 Log.i("AuralisTray", "macOS native status menu installed")
             } else {
-                val popup = DesktopTrayMenu(onOpen, onQuit)
+                val popup = DesktopTrayMenu(onOpen, onQuit, onRestart)
                 menu = popup
                 fun showMenu(e: MouseEvent) {
                     if (!e.isPopupTrigger) return

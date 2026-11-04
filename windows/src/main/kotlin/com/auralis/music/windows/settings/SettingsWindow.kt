@@ -361,6 +361,10 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         }
     }
     SettingsGroup("Activity") {
+        com.auralis.music.windows.connect.DesktopConnect.current?.takeIf { it.deviceSyncAvailable }?.let { connect ->
+            val enabled = connect.deviceSyncEnabled.collectAsState().value
+            SettingToggle("Device Sync", "Control playback across your devices", checked = enabled, onChecked = connect::setDeviceSyncEnabled)
+        }
         SettingToggle("Play history", if (isMac) "Record songs played on this Mac" else "Record songs played on this PC", !privacy.pauseListenHistory) { scope.launch { stores.privacy.setPauseListenHistory(!it) } }
     }
     SettingsGroup("System") {
@@ -399,6 +403,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         SettingSlider("Background tint",prefs.number("backgroundTint",0.0).toFloat(),0f..0.4f,{"${(it*100).toInt()}%"}) {prefs.set("backgroundTint",it.toDouble())}
         SettingToggle("Stage player", "Show cover and lyrics side by side in the main player",prefs.bool("stagePlayer",true)) {prefs.set("stagePlayer",it)}
         SettingToggle("Tabbed player", "Switch between lyrics and queue; turn off to show both",prefs.bool("tabbedPlayer",true)) {prefs.set("tabbedPlayer",it)}
+    }
+    SettingsGroup("Immersive mode") {
+        com.auralis.music.windows.immersive.ImmersiveSettings()
     }
     SettingsGroup("Typography") {
         val fonts by produceState(listOf("Default"), revision.optInt("fontRevision")) {

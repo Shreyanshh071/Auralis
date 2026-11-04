@@ -63,6 +63,7 @@ private data class ReadyComponents(
 )
 
 fun main(args: Array<String>) {
+    awaitRestartParent(args)
     if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
         if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
             System.setProperty("skiko.renderApi", "METAL")
@@ -326,6 +327,8 @@ fun main(args: Array<String>) {
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
         var previousPlacement by remember { mutableStateOf(androidx.compose.ui.window.WindowPlacement.Floating) }
+        val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
+        var playerRequests by remember { mutableStateOf(0) }
         fun setPlayerFullscreen(enabled: Boolean) {
             if (playerFullscreen == enabled) return
             if (enabled) previousPlacement = windowState.placement
@@ -450,6 +453,16 @@ fun main(args: Array<String>) {
                 windowVisible = false
             } else closeApp()
         }
+        val restartApp: () -> Unit = {
+            runCatching { launchDesktopRestart(args) }
+                .onSuccess { closeApp() }
+                .onFailure {
+                    Log.e(TAG, "Could not restart Auralis", it)
+                    javax.swing.JOptionPane.showMessageDialog(composeWindow,
+                        "Auralis could not restart. Please try again or reopen the app.",
+                        "Restart Auralis", javax.swing.JOptionPane.ERROR_MESSAGE)
+                }
+        }
 
         // macOS Dock click (reopen) and Application Menu (Preferences, About, Quit) handling
         DisposableEffect(Unit) {
@@ -499,7 +512,7 @@ fun main(args: Array<String>) {
         // Install system tray at application scope so it stays present even when the window is hidden/minimized to tray
         DisposableEffect(systemSettings.closeToTray || systemSettings.songNotifications) {
             val tray = if (systemSettings.closeToTray || systemSettings.songNotifications)
-                com.auralis.music.windows.media.DesktopSystemTray(openWindow, closeApp).also { it.install() } else null
+                com.auralis.music.windows.media.DesktopSystemTray(openWindow, closeApp, onRestart = restartApp).also { it.install() } else null
             systemTray = tray
             onDispose { tray?.close(); if (systemTray === tray) systemTray = null }
         }
@@ -730,6 +743,8 @@ fun main(args: Array<String>) {
                     onCloseWindow = requestClose,
                     onMinimizeWindow = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
                     openSettingsTrigger = settingsRequestTrigger,
+                    onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
+                    playerRequests = playerRequests,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
                         val chrome: @Composable () -> Unit = {
@@ -791,6 +806,20 @@ fun main(args: Array<String>) {
                     if (nativeFrame == null) WindowDraggableArea { placeholderChrome() } else placeholderChrome()
                 }
             }
+        }
+
+        val immersivePlayback = components?.playback
+        val immersiveLyrics = components?.lyrics
+        val immersiveStores = components?.stores
+        if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
+            com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
+            com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
+                appBounds = { composeWindow?.takeIf { it.isVisible }?.bounds }, icon = icon,
+                onLeaveToPlayer = {
+                    immersive.close()
+                    openWindow()
+                    playerRequests++
+                })
         }
     }
 }

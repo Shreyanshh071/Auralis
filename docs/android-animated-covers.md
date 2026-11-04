@@ -1,8 +1,8 @@
 # Android animated covers
 
 Settings → Appearance → Player contains Animated covers, source selection
-(Auto, Apple Music, Tidal, Vivi Music library), and a Wi-Fi-only switch.
-Defaults follow Vivi Music: enabled, automatic source, all networks.
+(Auto, Apple Music, Tidal, Curated library), and a Wi-Fi-only switch.
+Defaults: enabled, automatic source, all networks.
 
 The classic, new, and immersive players keep their static cover visible while
 looking up and loading motion artwork. Media3 plays HLS or MP4 silently on a

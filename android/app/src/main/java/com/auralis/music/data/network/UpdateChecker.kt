@@ -30,6 +30,9 @@ data class UpdateInfo(
     val error: String? = null
 )
 
+/** One published version, for the changelog. */
+data class AppRelease(val version: String, val publishedAt: String, val notes: String)
+
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_REPO = "Shreyanshh071/Auralis"
@@ -131,6 +134,50 @@ object UpdateChecker {
                 error = e.localizedMessage ?: "Network connection failed"
             )
         }
+    }
+
+    /** Published Android releases, newest first. Keeps the last answer for offline and rate limits. */
+    suspend fun fetchReleases(context: Context): List<AppRelease> = withContext(Dispatchers.IO) {
+        val cache = File(context.filesDir, "changelog_releases.json")
+        val fresh = runCatching {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/$GITHUB_REPO/releases?per_page=30")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Auralis-Android-App")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) response.body?.string() else null
+            }
+        }.getOrNull()
+        val parsed = fresh?.let { runCatching { parseReleases(it) }.getOrNull() }.orEmpty()
+        if (parsed.isNotEmpty()) {
+            runCatching { cache.writeText(fresh!!) }
+            parsed
+        } else {
+            runCatching { parseReleases(cache.readText()) }.getOrDefault(emptyList())
+        }
+    }
+
+    internal fun parseReleases(json: String): List<AppRelease> {
+        val releases = org.json.JSONArray(json)
+        return (0 until releases.length()).mapNotNull { i ->
+            val release = releases.optJSONObject(i) ?: return@mapNotNull null
+            val tag = release.optString("tag_name")
+            if (release.optBoolean("draft") || release.optBoolean("prerelease") || tag.contains("macos", ignoreCase = true)) {
+                return@mapNotNull null
+            }
+            // "v1.1.1-rebuilt" is version 1.1.1.
+            val version = tag.removePrefix("v").takeWhile { it.isDigit() || it == '.' }.trimEnd('.')
+            if (version.isEmpty()) return@mapNotNull null
+            AppRelease(
+                version = version,
+                publishedAt = release.optString("published_at").take(10),
+                // The download line only makes sense on the GitHub page.
+                notes = release.optString("body").lines()
+                    .filterNot { it.trimStart().startsWith("Download **") }
+                    .joinToString("\n").trim()
+            )
+        }.distinctBy { it.version }
     }
 
     private fun isVersionNewer(latest: String, current: String): Boolean {
@@ -314,6 +361,40 @@ object UpdateChecker {
     }
 
     const val UPDATE_CHANNEL_ID = "auralis_app_updates"
+
+    private val _updateOffer = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
+    /** The update to offer inside the app. Needs no permission, so it reaches everyone who opens it. */
+    val updateOffer: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateOffer
+
+    internal fun shouldOffer(latestVersion: String, skippedVersion: String?): Boolean = latestVersion != skippedVersion
+
+    fun offerUpdate(context: Context, updateInfo: UpdateInfo) {
+        val prefs = context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE)
+        if (shouldOffer(updateInfo.latestVersion, prefs.getString("skipped_version", null))) _updateOffer.value = updateInfo
+    }
+
+    /** "Later": this version isn't offered again, and the next one is. */
+    fun skipOffer(context: Context, updateInfo: UpdateInfo) {
+        context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE).edit()
+            .putString("skipped_version", updateInfo.latestVersion).apply()
+        _updateOffer.value = null
+    }
+
+    fun clearOffer() {
+        _updateOffer.value = null
+    }
+
+    /**
+     * One notification per version, however often the check runs. Nothing is recorded while
+     * notifications are off, so turning them on later still announces the waiting update.
+     */
+    fun notifyOnce(context: Context, updateInfo: UpdateInfo) {
+        if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        val prefs = context.getSharedPreferences("auralis_update_notice", Context.MODE_PRIVATE)
+        if (prefs.getString("notified_version", null) == updateInfo.latestVersion) return
+        showUpdateNotification(context, updateInfo)
+        prefs.edit().putString("notified_version", updateInfo.latestVersion).apply()
+    }
 
     fun showUpdateNotification(context: Context, updateInfo: UpdateInfo) {
         try {

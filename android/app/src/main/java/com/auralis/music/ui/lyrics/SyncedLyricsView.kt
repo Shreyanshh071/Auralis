@@ -1,5 +1,6 @@
 package com.auralis.music.ui.lyrics
 
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -142,11 +143,56 @@ fun SyncedLyricsView(
     standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
     loadingAlignment: Alignment = Alignment.Center
 ) {
+    val japaneseContext = remember(lyrics?.lines, lyrics?.plainLyrics) {
+        com.auralis.music.domain.lyrics.LyricsRomanizationContext.isJapanese(lyrics)
+    }
+    CompositionLocalProvider(LocalJapaneseRomanizationContext provides japaneseContext) {
+        SyncedLyricsContent(
+            lyrics = lyrics,
+            positionState = positionState,
+            onSeekTo = onSeekTo,
+            modifier = modifier,
+            isLoading = isLoading,
+            lyricsMode = lyricsMode,
+            offsetMs = offsetMs,
+            onOffsetChange = onOffsetChange,
+            onSearchManually = onSearchManually,
+            track = track,
+            lyricsClockSource = lyricsClockSource,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            audioLeadingSilenceMs = audioLeadingSilenceMs,
+            readingFocusFraction = readingFocusFraction,
+            listState = listState,
+            standardLyricsBlur = standardLyricsBlur,
+            loadingAlignment = loadingAlignment
+        )
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SyncedLyricsContent(
+    lyrics: LyricsData?,
+    positionState: State<Long>,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
+    lyricsMode: LyricsMode = LyricsMode.CINEMA,
+    offsetMs: Long = 0,
+    onOffsetChange: ((Long) -> Unit)? = null,
+    onSearchManually: (() -> Unit)? = null,
+    track: com.auralis.music.domain.model.Track? = null,
+    lyricsClockSource: com.auralis.music.data.service.PlaybackClockSource? = null,
+    isPlaying: Boolean = true,
+    isBuffering: Boolean = false,
+    audioLeadingSilenceMs: Long? = null,
+    readingFocusFraction: Float = LYRICS_ANCHOR_RATIO,
+    listState: LazyListState = rememberLazyListState(),
+    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
+    loadingAlignment: Alignment = Alignment.Center
+) {
     val animationsActive = com.auralis.music.ui.player.LocalPlayerModalVisualState.current?.animationsActive != false
-    val frozenPosition = remember(track?.id, animationsActive) { mutableStateOf(positionState.value) }
-    val positionState = if (animationsActive) positionState else frozenPosition
-    val isPlaying = isPlaying && animationsActive
-    val lyricsClockSource = lyricsClockSource.takeIf { animationsActive }
     // ── DIAGNOSTIC REQUIREMENT 1: Log EXACT lyrics candidate reaching the UI ──
     LaunchedEffect(lyrics, track?.duration) {
         if (lyrics != null) {
@@ -623,6 +669,19 @@ fun SyncedLyricsView(
             }
         }
 
+        // Glass needs something to bend: the list, recorded only while the button shows.
+        val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+        val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
+        val lyricsGlide = remember { LyricsScrollGlide() }
+        val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+        // Read when a scroll runs: the follow-the-song effect keeps the scroll it started with, and that
+        // one can be from while this tab was still hidden, which made every line jump.
+        val lyricsOnScreenNow = androidx.compose.runtime.rememberUpdatedState(lyricsOnScreen)
+        // The tab stays composed while hidden, so leaving it has to end a selection itself.
+        LaunchedEffect(lyricsOnScreen) {
+            if (!lyricsOnScreen) selectedIndices = emptySet()
+        }
+
         // Suspend function to accurately and smoothly center any lyric line or interval in the viewport
         val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
             if (targetIndex in mergedLyricsItems.indices) {
@@ -686,14 +745,8 @@ fun SyncedLyricsView(
                             val scrollDelta = itemCenterY - targetCenterY
                             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                                 try {
-                                    if (animate) {
-                                        listState.animateScrollBy(
-                                            value = scrollDelta,
-                                            animationSpec = tween(
-                                                durationMillis = 260,
-                                                easing = FastOutSlowInEasing
-                                            )
-                                        )
+                                    if (animate && lyricsOnScreenNow.value) {
+                                        lyricsGlide.glide(listState, scrollDelta)
                                     } else {
                                         listState.scrollBy(scrollDelta)
                                     }
@@ -805,6 +858,7 @@ fun SyncedLyricsView(
         LazyColumn(
             state = listState,
             modifier = Modifier
+                .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                 .fillMaxSize()
                 .nestedScroll(lyricsNestedScrollConnection)
                 .stationaryLyricsBlur(
@@ -973,7 +1027,6 @@ fun SyncedLyricsView(
                                             }
                                         },
                                         onLongClick = {
-                                            if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS) {
                                             isUserInteracting = true
                                             selectedIndices = if (isSelected) {
                                                 selectedIndices - index
@@ -984,7 +1037,6 @@ fun SyncedLyricsView(
                                                     android.widget.Toast.makeText(context, str(R.string.select_up_to_5_lines_for_showoff), android.widget.Toast.LENGTH_SHORT).show()
                                                     selectedIndices
                                                 }
-                                            }
                                             }
                                         }
                                     )
@@ -1050,29 +1102,7 @@ fun SyncedLyricsView(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF1E1B18).copy(alpha = 0.92f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(32.dp))
-                    .clickable(onClick = resyncLyrics)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = str(R.string.re_sync),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.re_sync),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            LyricsResyncButton(resyncGlass, resyncLyrics)
         }
 
 

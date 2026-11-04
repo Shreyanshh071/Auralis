@@ -138,6 +138,21 @@ object SearchQueryMatcher {
         return false
     }
 
+    private val SMALL_WORDS = setOf("the", "a", "an", "of", "to", "in", "on", "and", "for", "my", "your", "at", "is")
+
+    /** Every query word is in [title] in order, and all the title adds is small words. */
+    private fun titleMissingOnlySmallWords(title: String, queryTokens: List<String>): Boolean {
+        if (queryTokens.size < 2) return false
+        var matched = 0
+        var added = 0
+        for (word in title.split(" ").filter { it.isNotBlank() }) {
+            if (matched < queryTokens.size && word == queryTokens[matched]) matched++
+            else if (word in SMALL_WORDS) added++
+            else return false
+        }
+        return matched == queryTokens.size && added > 0
+    }
+
     /**
      * Matches a candidate track against the query.
      * Returns the best MatchTier and relevance score, or null if track is not a match.
@@ -219,6 +234,12 @@ object SearchQueryMatcher {
                     if (normQuery.startsWith("$normTitle ")) normTitle.length else 0
                 )
                 ScoredTrack(track, MatchTier.CLOSE_TITLE, 70.0 + 20.0 * covered / normQuery.length.coerceAtLeast(1))
+            }
+
+            // 3c. The title with its small words left out, as people type it from memory:
+            // "less i know better" for "The Less I Know The Better".
+            titleMissingOnlySmallWords(cleanTitle, queryTokens) || titleMissingOnlySmallWords(normTitle, queryTokens) -> {
+                ScoredTrack(track, MatchTier.CLOSE_TITLE, 75.0)
             }
 
             // 4. Typo / Levenshtein distance <= 2 for short typo tolerance (e.g. "Dragula" for "dracula")
@@ -484,7 +505,9 @@ object SearchQueryMatcher {
             MatchTier.EXACT_TITLE -> 1
             MatchTier.PREFIX_TITLE, MatchTier.CLOSE_TITLE ->
                 if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 100L) 1 else 2
-            MatchTier.TYPO_MATCH -> 3
+            // A near-spelling with 10x the plays of every exact-spelling match is the song the
+            // user means ("imposter syndrome" -> Sidney Gish's "Impostor Syndrome").
+            MatchTier.TYPO_MATCH -> if (parsePlayCount(st.track.views) >= maxOf(exactPlays, 1L) * 10L) 1 else 3
             MatchTier.ARTIST_MATCH -> 4
             MatchTier.METADATA_PARTIAL -> 5
         }
@@ -831,7 +854,8 @@ object SearchQueryMatcher {
             val rest = EDITION_WORDS.replace(m.groupValues[1], " ").replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
             if (rest.isEmpty()) " " else m.value
         }
-        return normalize(a)
+        // Initials are one word: Spotify's "Big Baby D.R.A.M." is YouTube Music's "Big Baby DRAM".
+        return normalize(a.replace(Regex("""(?<=\p{L})\.(?=\p{L})"""), ""))
     }
 
     /**
@@ -847,7 +871,14 @@ object SearchQueryMatcher {
 
         val targetMarkers = recordingVersionMarkers(target)
         val candidateMarkers = recordingVersionMarkers(candidate)
-        if (targetMarkers != candidateMarkers) return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
+        val targetAlbumId = albumIdentity(target.album)
+        val onSameAlbum = targetAlbumId.isNotBlank() && targetAlbumId == albumIdentity(candidate.album)
+        // A bare "Version" label on the same album and length names no other cut: YouTube Music
+        // lists GNX's "tv off" as "tv off (Taylor's Version)". Remix, live and the like still clash.
+        val onlyVersionLabel = (targetMarkers - candidateMarkers) + (candidateMarkers - targetMarkers) == setOf("version")
+        if (targetMarkers != candidateMarkers && !(onSameAlbum && onlyVersionLabel)) {
+            return "version tag ${candidateMarkers.joinToString()} vs ${targetMarkers.joinToString()}"
+        }
 
         // Someone the source never credits, named anywhere on the candidate: "(feat. X)" in its
         // title, its artist list ("Tame Impala & JENNIE"), or its release ("Dracula (with JENNIE)").
@@ -860,9 +891,11 @@ object SearchQueryMatcher {
         }
         // Equal duration does not prove the same recording. A requested feature must
         // also be credited somewhere on the candidate, even if its title is shortened.
+        // Exception: when both target and candidate share the exact album release identity,
+        // it is the official album cut (e.g. tracks where features are not repeated in YTM titles).
         val candidateCredits = normalize("${candidate.artist} ${candidate.title} ${candidate.album.orEmpty()}")
         if (featuredArtists(target).any { hasUncreditedArtist(candidateCredits, it) }) {
-            return "missing requested featured artist"
+            if (!onSameAlbum) return "missing requested featured artist"
         }
         return null
     }

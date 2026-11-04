@@ -20,6 +20,49 @@ import javax.imageio.ImageIO
 import kotlin.test.*
 
 class GlassDialogRenderTest {
+    @Test fun sidebarPlaylistCreationFormRendersInsideTheScrollingGlassHost() {
+        val folder=java.nio.file.Files.createTempDirectory("auralis-new-playlist-render").toFile()
+        val library=com.auralis.music.desktop.library.DesktopLibraryRepository(File(folder,"library.json"))
+        val memory=object: com.auralis.music.util.KeyValueStore {
+            private val values=mutableMapOf<String,String>()
+            override fun getString(key:String,default:String)=values[key] ?: default
+            override fun putStrings(values:Map<String,String>) { this.values.putAll(values) }
+            override fun clear() { values.clear() }
+        }
+        val engine=com.auralis.music.data.playlistsync.PlaylistSyncEngine(library,
+            com.auralis.music.data.playlistsync.PlaylistSyncStore(memory),emptyMap())
+        for ((width,height) in listOf(900 to 650,560 to 400)) {
+            val opened=mutableStateOf(true)
+            lateinit var source: PopupGlassSource
+            val scene=ImageComposeScene(width,height,coroutineContext=Dispatchers.Unconfined) {
+                source=rememberPopupGlassSource()
+                MaterialTheme(colorScheme=darkColorScheme()) {
+                    CompositionLocalProvider(LocalPopupGlassSource provides source,
+                        LocalGlassDialogHost provides { dismiss,content -> GlassDialog(dismiss,content) }) {
+                        Canvas(Modifier.fillMaxSize().recordPopupGlass(source)) { drawRect(Color(0xFF25304C)) }
+                        if(opened.value) com.auralis.music.ui.library.PlaylistCreationDialog(library,engine,
+                            com.auralis.music.ui.library.PlaylistCreationRequest(),onCreated={},onDismiss={opened.value=false})
+                    }
+                }
+            }
+            try {
+                var frame=0L
+                repeat(3) {
+                    opened.value=true
+                    repeat(5) { scene.render(frame++ * 16_666_667L).close() }
+                    scene.render(frame++ * 16_666_667L).use { image ->
+                        val output=File("build/screens/glass-dialogs").apply { mkdirs() }
+                        File(output,"sidebar-new-playlist-$width.png").writeBytes(
+                            image.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes })
+                    }
+                    opened.value=false
+                    repeat(3) { scene.render(frame++ * 16_666_667L).close() }
+                    assertEquals(0,source.users.intValue,"Closing the form releases its backdrop")
+                }
+            } finally { scene.close() }
+        }
+        folder.deleteRecursively()
+    }
     @Test fun centeredDialogBlursPageWithoutBlurringControls() {
         val opened = mutableStateOf(true)
         lateinit var source: PopupGlassSource

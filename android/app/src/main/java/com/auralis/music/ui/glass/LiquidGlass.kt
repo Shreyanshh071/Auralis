@@ -104,7 +104,11 @@ fun Modifier.liquidGlass(
     // Large modal surfaces need more frosting than a small dock or button.
     blurRadius: androidx.compose.ui.unit.Dp = 8.dp,
     lensDepth: androidx.compose.ui.unit.Dp = 24.dp,
-    edgeHighlight: Highlight? = Highlight.Default
+    edgeHighlight: Highlight? = Highlight.Default,
+    /** Bends only the rim. On a tall card a wide lens's inner edge shows as a faint rectangle. */
+    rimLens: Boolean = false,
+    /** Off over artwork: on a small button it pushes the blurred picture into one vivid colour. */
+    vibrant: Boolean = true
 ): Modifier {
     // Held, the glass swells on a bouncy spring; the scale goes through the backdrop's layer
     // block so the library inverts it and the glass keeps showing what is really behind it.
@@ -126,7 +130,7 @@ fun Modifier.liquidGlass(
             .border(0.75.dp, rimBrush(glass.isDark), shape)
     }
     val density = LocalDensity.current
-    // Match BitChord's 8dp blur / 24dp lens at one-third capture resolution.
+    // 8dp blur / 24dp lens at one-third capture resolution.
     // Effects stay constant during presses; only the surface transform animates.
     val blurPx = with(density) { blurRadius.toPx() } * GLASS_RESOLUTION_SCALE
     val lensHeightPx = with(density) { lensDepth.toPx() } * GLASS_RESOLUTION_SCALE
@@ -141,14 +145,14 @@ fun Modifier.liquidGlass(
         // RenderEffect every frame, and the first rebuild on touch-down froze the screen ~190ms
         // (measured on device), so the swell started late. The press only scales and glows.
         effects = {
-            vibrancy()
+            if (vibrant) vibrancy()
             blur(blurPx)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 lens(
-                    // Keep refraction visible on tall dialogs as well as pills.
-                    // The fixed 24dp band left almost the whole modal unwarped.
-                    refractionHeight = if (size.isSpecified && !size.isEmpty())
-                        maxOf(lensHeightPx, size.minDimension * .45f) else lensHeightPx,
+                    // Keep refraction visible on tall dialogs as well as pills. It stops well short
+                    // of the middle: bands from both sides meeting there drew a seam down the glass.
+                    refractionHeight = if (!rimLens && size.isSpecified && !size.isEmpty())
+                        maxOf(lensHeightPx, size.minDimension * .3f) else lensHeightPx,
                     refractionAmount = lensAmountPx,
                     depthEffect = true,
                     // The dispersion shader samples seven times per pixel. Keep

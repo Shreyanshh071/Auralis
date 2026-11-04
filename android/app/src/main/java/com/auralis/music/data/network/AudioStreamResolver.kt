@@ -203,6 +203,21 @@ object AudioStreamResolver {
     var isPlaybackResolving: Boolean = false
         private set
 
+    /**
+     * The YouTube recording for a Spotify track, matched from the whole track and remembered.
+     * Downloads need the album too: it is how an album cut that YouTube Music lists without the
+     * song's featured artist is told from a different version.
+     */
+    suspend fun matchSpotifyRecording(
+        track: com.auralis.music.domain.model.Track,
+        importer: SpotifyPlaylistImporter = SpotifyPlaylistImporter()
+    ): String? {
+        getMatchedVideoId(track.id)?.let { return it }
+        val recording = importer.matchToYouTube(track) ?: return null
+        rememberMatchedVideoId(track.id, recording.id, recording.duration)
+        return recording.id
+    }
+
     suspend fun resolvePlaybackVideoId(track: com.auralis.music.domain.model.Track): String? {
         if (track.id.startsWith("unavailable:")) return null
         getMatchedVideoId(track.id)?.let { return it }
@@ -223,7 +238,9 @@ object AudioStreamResolver {
         artist: String = "",
         quality: com.auralis.music.domain.model.AudioQuality = com.auralis.music.domain.model.AudioQuality.AUTO,
         context: android.content.Context? = null,
-        duration: Long = 0L
+        duration: Long = 0L,
+        // Playback skips a recent failure because its web engine can take over; downloads have no such fallback.
+        retryFailedExtraction: Boolean = false
     ): String? = withContext(Dispatchers.IO) {
         if (videoId.startsWith("unavailable:")) return@withContext null
         val effectiveTargetId = KNOWN_STUDIO_REPLACEMENTS[videoId] ?: videoId
@@ -259,9 +276,27 @@ object AudioStreamResolver {
             val actualTargetId = if (!mappedId.isNullOrBlank() && !mappedId.startsWith("sp_") && !mappedId.startsWith("spotify:")) mappedId else effectiveTargetId
             val isSpotifyId = actualTargetId.startsWith("sp_") || actualTargetId.startsWith("spotify:")
 
+            // 0. High quality means JioSaavn's 320kbps copy of the same recording; any miss carries on to YouTube.
+            if (title.isNotBlank() &&
+                (quality == com.auralis.music.domain.model.AudioQuality.HIGH || quality == com.auralis.music.domain.model.AudioQuality.AUTO)) {
+                val saavn = try {
+                    JioSaavnAudio.find320(com.auralis.music.domain.model.Track(id = videoId, title = title, artist = artist, duration = duration))
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.w(TAG, "[Resolver] JioSaavn notice: ${e.message}")
+                    null
+                }
+                if (!saavn.isNullOrBlank()) {
+                    diagLog("[Diag-Resolver] WINNER: JioSaavn 320kbps for '$title' in ${System.currentTimeMillis() - t0Resolve}ms")
+                    // Under this quality only: a lower setting must not pick up the 320kbps copy.
+                    cacheStream(cacheKey, saavn)
+                    return@withContext saavn
+                }
+            }
+
             // 1. Tier 1: Native Stream Extractor for exact YouTube ID
             if (!isSpotifyId) {
-                if (nativeExtractionRecentlyFailed(actualTargetId)) {
+                if (!retryFailedExtraction && nativeExtractionRecentlyFailed(actualTargetId)) {
                     diagLog("[Diag-Resolver] Recent native extraction failure for $actualTargetId; using YouTubeEngine without retry delay")
                     return@withContext null
                 }
@@ -289,7 +324,8 @@ object AudioStreamResolver {
                         diagLog("[Diag-Resolver] Native Extractor returned no stream for $actualTargetId ('$title') in ${npMs}ms; returning null for YouTubeEngine fallback")
                         return@withContext null
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // Throwable: a missing platform API in the extractor is an Error, and the web engine can still play.
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     rememberNativeExtractionFailure(actualTargetId)
                     diagLog("[Diag-Resolver] Native Extractor exception for $actualTargetId ('$title'): ${e.javaClass.simpleName} - ${e.message}; returning null for YouTubeEngine fallback")
@@ -357,7 +393,7 @@ object AudioStreamResolver {
             )
 
             fun ranked(candidates: List<com.auralis.music.domain.model.Track>) = candidates
-                .filter { it.id != originalVideoId }
+                .filter { it.id != originalVideoId && isSameSongTitle(title, it.title) }
                 .mapNotNull { cand ->
                     val score = com.auralis.music.domain.search.SearchQueryMatcher.scoreTrackCandidate(dummyTarget, cand)
                     if (score >= 40.0) cand to score else null
@@ -390,8 +426,12 @@ object AudioStreamResolver {
             }
 
             // Register the selected source so the web player can use it if extraction fails.
-            matchedVideoIdCache[originalVideoId] = bestCandidate.id
-            rememberMatchedVideoId(originalVideoId, bestCandidate.id, bestCandidate.duration)
+            // A YouTube id plays as itself: mapping it to a stand-in would reroute its playback
+            // and lyrics after a single failed download.
+            if (isSpotifyImport) {
+                matchedVideoIdCache[originalVideoId] = bestCandidate.id
+                rememberMatchedVideoId(originalVideoId, bestCandidate.id, bestCandidate.duration)
+            }
             if (nativeExtractionRecentlyFailed(bestCandidate.id)) return null
             ensureNewPipeInitialized()
             val candidatesToTry = (listOf(bestCandidate) + scoredCandidates.filter { it.id != bestCandidate.id }).take(2)
@@ -406,15 +446,17 @@ object AudioStreamResolver {
                     }
                     if (!streamUrl.isNullOrBlank()) {
                         diagLog("[Diag-Resolver] Resolved alternative via NewPipe for '$title' by '$artist' -> ${candidate.id} ('${candidate.title}' by '${candidate.artist}') [$quality]")
-                        matchedVideoIdCache[originalVideoId] = candidate.id
-                        rememberMatchedVideoId(originalVideoId, candidate.id, candidate.duration)
                         val cacheKey = "${candidate.id}_${quality.name}"
                         cacheStream(cacheKey, streamUrl)
                         cacheStream(candidate.id, streamUrl)
-                        cacheStream(originalVideoId, streamUrl)
+                        if (isSpotifyImport) {
+                            matchedVideoIdCache[originalVideoId] = candidate.id
+                            rememberMatchedVideoId(originalVideoId, candidate.id, candidate.duration)
+                            cacheStream(originalVideoId, streamUrl)
+                        }
                         return streamUrl
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     rememberNativeExtractionFailure(candidate.id)
                     diagLog("[Diag-Resolver] Candidate ${candidate.id} ('${candidate.title}') failed: ${e.message}; trying next candidate...")
@@ -429,6 +471,16 @@ object AudioStreamResolver {
         }
     }
 
+
+    /** Film tags don't name the song: `Piya Milenge (From "Raanjhanaa")` is not `Raanjhanaa`. */
+    internal fun isSameSongTitle(target: String, candidate: String): Boolean {
+        fun core(title: String): String {
+            val full = com.auralis.music.domain.search.SearchQueryMatcher.normalize(title)
+            val bare = TitleCleaner.cleanTitle(title).replace(Regex("""\(.*\)|\[.*\]|(?i)\s-\s.*"""), "")
+            return com.auralis.music.domain.search.SearchQueryMatcher.normalize(bare).ifBlank { full }
+        }
+        return core(target) == core(candidate)
+    }
 
     /**
      * Selects optimal AudioStream according to the user's AudioQuality preference.

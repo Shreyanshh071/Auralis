@@ -33,10 +33,11 @@ object SpicyLyricsPresentation {
         return lines.asSequence().drop(index + 1).firstOrNull { it.time > line.time }?.time ?: Long.MAX_VALUE
     }
 
+    /** Lines being sung, plus the last line held across a short rest until the next one starts. */
     fun activeIndices(lines: List<LyricLine>, positionMs: Long): Set<Int> = lines.indices.filterTo(linkedSetOf()) {
         val end = presentationEnd(lines, it)
         positionMs >= lines[it].time && end != null && positionMs < end
-    }
+    } + com.auralis.music.ui.screens.lyrics.LyricsEngine.findVisualActiveLineIndices(lines, positionMs)
 
     fun scrollAnchor(lines: List<LyricLine>, positionMs: Long, fallback: Int): Int {
         val active = activeIndices(lines, positionMs).toList()

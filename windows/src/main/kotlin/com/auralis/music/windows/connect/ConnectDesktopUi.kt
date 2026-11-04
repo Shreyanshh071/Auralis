@@ -1,5 +1,6 @@
 package com.auralis.music.windows.connect
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Computer
@@ -17,13 +19,14 @@ import androidx.compose.material.icons.rounded.TabletAndroid
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +35,7 @@ import com.auralis.music.data.connect.ConnectDeviceRow
 import com.auralis.music.data.connect.ConnectDeviceType
 import com.auralis.music.data.connect.ConnectOutput
 import com.auralis.music.data.connect.ConnectRowState
+import com.auralis.music.data.connect.ConnectUi
 import com.auralis.music.ui.components.clickable
 import com.auralis.music.ui.i18n.desktopText
 
@@ -65,14 +69,19 @@ private fun rowLabel(row: ConnectDeviceRow) = if (row.isThis) desktopText("This 
 @Composable
 fun ConnectDeviceMenu(expanded: Boolean, onDismiss: () -> Unit) {
     val connect = DesktopConnect.current
-    DisposableEffect(expanded, connect) {
-        connect?.pickerOpen = expanded
-        onDispose { connect?.pickerOpen = false }
-    }
     // Opens on top of the device button it belongs to, not off to one side over the title.
     com.auralis.music.windows.GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, aboveAnchor = true) {
         com.auralis.music.windows.GlassDropdownMenuHeader(desktopText("Connect to a device"))
+        val syncEnabled = connect?.deviceSyncEnabled?.collectAsState()?.value == true
+        val syncAvailable = connect?.deviceSyncAvailable == true
+        com.auralis.music.windows.GlassDropdownMenuItem(
+            text = { Text(desktopText("Device Sync")) },
+            trailingIcon = { Switch(checked = syncAvailable && syncEnabled, enabled = syncAvailable, onCheckedChange = null) },
+            enabled = syncAvailable,
+            onClick = { connect?.setDeviceSyncEnabled(!syncEnabled) }
+        )
         val ui = connect?.ui?.collectAsState()?.value
+        if (!syncAvailable || !syncEnabled) return@GlassDropdownMenu
         if (ui == null || !ui.enabled) {
             com.auralis.music.windows.GlassDropdownMenuItem(text = { Text(desktopText("Sign in to listen across your devices.")) }, onClick = onDismiss, enabled = false)
             return@GlassDropdownMenu
@@ -137,7 +146,13 @@ private fun Modifier.padding16() = this.padding(horizontal = 16.dp, vertical = 4
 /** The bar's "Playing on …" line (opens the picker), shown while another device has the audio. */
 @Composable
 fun ConnectOutputLabel(showIcon: Boolean = true, interactive: Boolean = true, onOpen: () -> Unit) {
-    val ui = DesktopConnect.current?.ui?.collectAsState()?.value ?: return
+    val connect = DesktopConnect.current ?: return
+    ConnectOutputRow(connect.ui.collectAsState().value, showIcon, interactive, onOpen) { connect.transferTo(it) }
+}
+
+/** "Playing on …" and, beside it, the one click that brings the audio back to this PC. */
+@Composable
+internal fun ConnectOutputRow(ui: ConnectUi, showIcon: Boolean, interactive: Boolean, onOpen: () -> Unit, onPlayHere: (String) -> Unit) {
     val t = ui.transfer
     val text = when {
         t != null && !t.failed -> desktopText("Connecting to %1\$s…", t.label)
@@ -150,6 +165,18 @@ fun ConnectOutputLabel(showIcon: Boolean = true, interactive: Boolean = true, on
             Icon(connectIcon(type), null, Modifier.size(14.dp), tint = ConnectAccent)
             Spacer(Modifier.width(5.dp))
         }
-        Text(text, style = MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = ConnectAccent, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        val me = ui.me
+        if (interactive && ui.canPlayHere && me != null) {
+            Spacer(Modifier.width(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.1f))
+                    .clickable { onPlayHere(me.id) }.padding(horizontal = 7.dp, vertical = 2.dp)) {
+                Icon(connectIcon(me.type), null, Modifier.size(13.dp), tint = Color.White.copy(alpha = 0.9f))
+                Spacer(Modifier.width(4.dp))
+                Text(desktopText("This computer"), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
+            }
+        }
     }
 }

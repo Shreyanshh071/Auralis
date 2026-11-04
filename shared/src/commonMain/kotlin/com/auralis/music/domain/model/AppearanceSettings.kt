@@ -26,6 +26,10 @@ data class AppearanceSettings(
     val animatedCovers: Boolean = true,
     val animatedCoverSource: String = "AUTO",
     val animatedCoversWifiOnly: Boolean = false,
+    /** Lyrics under the cover, chosen from the song menu for each player design. */
+    val inlineLyricsNewPlayer: Boolean = false,
+    val inlineLyricsOldPlayer: Boolean = true,
+    val inlineLyricsImmersive: Boolean = true,
     val playerButtonColors: String = "Default",
     val playerSliderStyle: String = "Wavy",
     val showDownloadButton: Boolean = true,
@@ -81,6 +85,7 @@ enum class LyricsAnimationMode(val displayName: String) {
     companion object {
         fun fromDisplayName(name: String?): LyricsAnimationMode {
             if (name == null) return AURALIS
+            if (name.equals("Beautiful Lyrics", ignoreCase = true) || name.equals("BEAUTIFUL_LYRICS", ignoreCase = true)) return SPICY_LYRICS
             return entries.firstOrNull { it.displayName.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
                 ?: when {
                     name.contains("auralis", ignoreCase = true) || name.contains("default", ignoreCase = true) -> AURALIS
@@ -137,4 +142,16 @@ enum class PlayerDesign(val displayName: String) {
                 }
         }
     }
+}
+
+fun AppearanceSettings.inlineLyricsFor(design: PlayerDesign): Boolean = when (design) {
+    PlayerDesign.NEW -> inlineLyricsNewPlayer
+    PlayerDesign.OLD -> inlineLyricsOldPlayer
+    PlayerDesign.IMMERSIVE -> inlineLyricsImmersive
+}
+
+fun AppearanceSettings.withInlineLyrics(design: PlayerDesign, shown: Boolean): AppearanceSettings = when (design) {
+    PlayerDesign.NEW -> copy(inlineLyricsNewPlayer = shown)
+    PlayerDesign.OLD -> copy(inlineLyricsOldPlayer = shown)
+    PlayerDesign.IMMERSIVE -> copy(inlineLyricsImmersive = shown)
 }

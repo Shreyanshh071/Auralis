@@ -6,7 +6,6 @@ import com.auralis.music.ui.i18n.str
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,7 +36,6 @@ import com.auralis.music.ui.theme.dynamicOnSurface
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import kotlinx.coroutines.launch
-import com.auralis.music.ui.components.bottomChromePadding
 
 private enum class AiTranslationDialog {
     PROVIDER,
@@ -69,169 +66,60 @@ fun AiLyricsTranslationScreen(
     val onBackground = MaterialTheme.dynamicOnBackground
     val backgroundColor = MaterialTheme.dynamicBackground
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = backgroundColor
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
-                        tint = onBackground
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = str(R.string.ai_lyrics_translation),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = onBackground,
-                    fontSize = 21.sp
+    SettingsPage(title = str(R.string.ai_lyrics_translation), onBack = onDismiss) {
+        // ════ 1. PROVIDER ════
+        item {
+            SettingsGroup(str(R.string.provider)) {
+                AiSettingRow(
+                    icon = Icons.Default.Explore,
+                    title = str(R.string.provider),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.provider),
+                    onInfoClick = { activeDialog = AiTranslationDialog.PROVIDER_INFO },
+                    onClick = { activeDialog = AiTranslationDialog.PROVIDER }
                 )
             }
+        }
 
-            // ── SECTIONS LIST ──
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = bottomChromePadding(includeNavigationBar = false),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // ════ 1. PROVIDER ════
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.provider),
-                            color = primaryColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
+        // ════ 2. API CREDENTIALS ════
+        item {
+            SettingsGroup(str(R.string.api_credentials)) {
+                AiSettingRow(
+                    icon = Icons.Default.VpnKey,
+                    title = str(R.string.api_key),
+                    subtitle = if (settings.apiKey.isBlank()) str(R.string.not_set) else "••••••••••••••••",
+                    onClick = { activeDialog = AiTranslationDialog.API_KEY }
+                )
+                AiSettingRow(
+                    icon = Icons.Default.Tune,
+                    title = str(R.string.model),
+                    subtitle = settings.model,
+                    onClick = { activeDialog = AiTranslationDialog.MODEL }
+                )
+            }
+        }
 
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = surfaceColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            AiSettingRow(
-                                icon = Icons.Default.Explore,
-                                title = str(R.string.provider),
-                                subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.provider),
-                                onInfoClick = { activeDialog = AiTranslationDialog.PROVIDER_INFO },
-                                onClick = { activeDialog = AiTranslationDialog.PROVIDER }
-                            )
-                        }
-                    }
-                }
-
-                // ════ 2. API CREDENTIALS ════
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.api_credentials),
-                            color = primaryColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = surfaceColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                AiSettingRow(
-                                    icon = Icons.Default.VpnKey,
-                                    title = str(R.string.api_key),
-                                    subtitle = if (settings.apiKey.isBlank()) str(R.string.not_set) else "••••••••••••••••",
-                                    onClick = { activeDialog = AiTranslationDialog.API_KEY }
-                                )
-
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                )
-
-                                AiSettingRow(
-                                    icon = Icons.Default.Tune,
-                                    title = str(R.string.model),
-                                    subtitle = settings.model,
-                                    onClick = { activeDialog = AiTranslationDialog.MODEL }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ════ 3. TRANSLATION MODE ════
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = str(R.string.translation_mode),
-                            color = primaryColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = surfaceColor,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                AiSettingRow(
-                                    icon = Icons.Default.Translate,
-                                    title = str(R.string.translation_mode),
-                                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.translationMode),
-                                    onInfoClick = { activeDialog = AiTranslationDialog.MODE_INFO },
-                                    onClick = { activeDialog = AiTranslationDialog.MODE }
-                                )
-
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                )
-
-                                AiSettingRow(
-                                    icon = Icons.Default.Edit,
-                                    title = str(R.string.system_prompt),
-                                    subtitle = if (settings.systemPrompt.equals(AiTranslationSettings.DEFAULT_SYSTEM_PROMPT, ignoreCase = true) || settings.systemPrompt.isBlank()) str(R.string.text_default) else str(R.string.custom),
-                                    onClick = { activeDialog = AiTranslationDialog.PROMPT }
-                                )
-
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                )
-
-                                AiSettingRow(
-                                    icon = Icons.Default.Language,
-                                    title = str(R.string.target_language),
-                                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.targetLanguage),
-                                    onClick = { activeDialog = AiTranslationDialog.LANGUAGE }
-                                )
-                            }
-                        }
-                    }
-                }
+        // ════ 3. TRANSLATION MODE ════
+        item {
+            SettingsGroup(str(R.string.translation_mode)) {
+                AiSettingRow(
+                    icon = Icons.Default.Translate,
+                    title = str(R.string.translation_mode),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.translationMode),
+                    onInfoClick = { activeDialog = AiTranslationDialog.MODE_INFO },
+                    onClick = { activeDialog = AiTranslationDialog.MODE }
+                )
+                AiSettingRow(
+                    icon = Icons.Default.Edit,
+                    title = str(R.string.system_prompt),
+                    subtitle = if (settings.systemPrompt.equals(AiTranslationSettings.DEFAULT_SYSTEM_PROMPT, ignoreCase = true) || settings.systemPrompt.isBlank()) str(R.string.text_default) else str(R.string.custom),
+                    onClick = { activeDialog = AiTranslationDialog.PROMPT }
+                )
+                AiSettingRow(
+                    icon = Icons.Default.Language,
+                    title = str(R.string.target_language),
+                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.targetLanguage),
+                    onClick = { activeDialog = AiTranslationDialog.LANGUAGE }
+                )
             }
         }
     }
@@ -253,10 +141,8 @@ fun AiLyricsTranslationScreen(
             var showCustomUrl by remember { mutableStateOf(settings.provider == "Custom") }
             var customUrlText by remember { mutableStateOf(settings.customBaseUrl) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
-                shape = RoundedCornerShape(24.dp),
                 text = {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
@@ -317,7 +203,6 @@ fun AiLyricsTranslationScreen(
                                 )
                             }
                         }
-
                         if (showCustomUrl || settings.provider == "Custom") {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -368,9 +253,8 @@ fun AiLyricsTranslationScreen(
             var keyInput by remember { mutableStateOf(settings.apiKey) }
             var isPasswordVisible by remember { mutableStateOf(false) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.api_key_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -445,10 +329,8 @@ fun AiLyricsTranslationScreen(
             var showCustomInput by remember { mutableStateOf(settings.model !in presets) }
             var customModelText by remember { mutableStateOf(if (settings.model !in presets) settings.model else "") }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
-                shape = RoundedCornerShape(24.dp),
                 text = {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
@@ -486,7 +368,6 @@ fun AiLyricsTranslationScreen(
                                 )
                             }
                         }
-
                         item {
                             val isCustomSel = showCustomInput || settings.model !in presets
                             Column {
@@ -516,7 +397,6 @@ fun AiLyricsTranslationScreen(
                                         fontWeight = if (isCustomSel) FontWeight.SemiBold else FontWeight.Normal
                                     )
                                 }
-
                                 if (showCustomInput) {
                                     Spacer(modifier = Modifier.height(6.dp))
                                     OutlinedTextField(
@@ -562,9 +442,8 @@ fun AiLyricsTranslationScreen(
                 "Translation" to "Translate meaning into target language",
                 "Transcription" to "Phonetic script / Romanization (Romaji/Pinyin/Hinglish)"
             )
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.translation_mode_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -602,9 +481,8 @@ fun AiLyricsTranslationScreen(
         AiTranslationDialog.PROMPT -> {
             var promptInput by remember { mutableStateOf(if (settings.systemPrompt == "Default") AiTranslationSettings.STANDARD_SYSTEM_PROMPT else settings.systemPrompt) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.system_prompt_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -652,9 +530,8 @@ fun AiLyricsTranslationScreen(
             var query by remember { mutableStateOf("") }
             val filtered = languages.filter { it.contains(query, ignoreCase = true) }
 
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.target_language_2), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -701,9 +578,8 @@ fun AiLyricsTranslationScreen(
         }
 
         AiTranslationDialog.PROVIDER_INFO -> {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.about_providers), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Text(
@@ -720,9 +596,8 @@ fun AiLyricsTranslationScreen(
         }
 
         AiTranslationDialog.MODE_INFO -> {
-            AlertDialog(
+            com.auralis.music.ui.components.AuralisSheetDialog(
                 onDismissRequest = { activeDialog = null },
-                containerColor = surfaceColor,
                 title = { Text(str(R.string.translation_modes), fontWeight = FontWeight.Bold, color = onBackground) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -748,58 +623,13 @@ private fun AiSettingRow(
     onInfoClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(primaryColor.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = primaryColor,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = onSurface,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                color = onSurfaceVariant,
-                fontSize = 12.5.sp
-            )
-        }
-
+    SettingsRow(icon, title, subtitle, onClick = onClick) {
         if (onInfoClick != null) {
-            IconButton(
-                onClick = onInfoClick,
-                modifier = Modifier.size(32.dp)
-            ) {
+            IconButton(onClick = onInfoClick, modifier = Modifier.size(32.dp)) {
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = str(R.string.info),
-                    tint = onSurfaceVariant.copy(alpha = 0.7f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
                 )
             }

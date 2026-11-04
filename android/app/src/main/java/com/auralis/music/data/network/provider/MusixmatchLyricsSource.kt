@@ -37,7 +37,7 @@ class MusixmatchLyricsSource(
         // Requests are signed the way musixmatch.com's own web player signs them (HMAC-SHA256 of
         // the URL plus the UTC date, keyed by a secret shipped in the site's JavaScript). Unsigned
         // calls get an all-zero token and decoy results ("Casual" by Doja Cat for every search)
-        // or a "captcha" refusal; signed ones get real results. Same approach as Vivi Music.
+        // or a "captcha" refusal; signed ones get real results.
         private const val API_BASE = "https://apic.musixmatch.com/ws/1.1"
         private const val APP_ID = "mobile-app-v1.0"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"

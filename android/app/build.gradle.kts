@@ -39,8 +39,8 @@ android {
         applicationId = "com.auralis.music"
         minSdk = 24
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 7
+        versionName = "1.1.3.2"
         testInstrumentationRunner = if (providers.gradleProperty("motionArtworkTests").isPresent)
             "com.auralis.music.MotionArtworkTestRunner" else "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -61,6 +61,11 @@ android {
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"$spotifyClientSecret\"")
+        val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
+        require(realtimeUrl.isEmpty() || (realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !realtimeUrl.contains("staging", ignoreCase = true))) {
+            "Connect requires a production WSS endpoint."
+        }
+        buildConfigField("String", "CONNECT_REALTIME_URL", "\"$realtimeUrl\"")
     }
 
     testOptions {
@@ -98,6 +103,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipeExtractor calls Java APIs that Android only has from API 33 (URLDecoder with a
+        // Charset, and others). Without this, extraction throws NoSuchMethodError below Android 13.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -127,6 +135,8 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/LICENSE-notice.md"
+            // Both Kuromoji modules include this file; retain their contributor notices.
+            merges += "META-INF/CONTRIBUTORS.md"
         }
         // Compress native libraries in the APK (Android unpacks them at install). The Discord Social
         // SDK is ~33 MB across the four ABIs and was stored uncompressed, making the APK ~45 MB;
@@ -138,6 +148,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
     // AndroidX Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -245,7 +257,36 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
+// Keeps every release on the Desktop, with the mapping file that makes its crash traces readable.
+val desktopDir = file("${System.getProperty("user.home")}/Desktop")
+val exportReleaseToDesktop = tasks.register<Copy>("exportReleaseToDesktop") {
+    val version = android.defaultConfig.versionName
+    onlyIf { desktopDir.isDirectory }
+    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk")) {
+        rename { "Auralis-$version.apk" }
+    }
+    from(layout.buildDirectory.file("outputs/mapping/release/mapping.txt")) {
+        rename { "Auralis-$version-mapping.txt" }
+    }
+    into(desktopDir.resolve("Auralis Release"))
+}
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(exportReleaseToDesktop)
+}
+
 val servicesJson = file("google-services.json")
 if (servicesJson.exists() && servicesJson.length() > 0) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+val verifyReleaseFirebaseConfiguration by tasks.registering {
+    doLast {
+        check(servicesJson.isFile && servicesJson.length() > 0) {
+            "Release APK requires android/app/google-services.json from the Auralis Firebase project. " +
+                "Restore this local configuration before building a release; account sign-in and sync require it."
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyReleaseFirebaseConfiguration)
 }

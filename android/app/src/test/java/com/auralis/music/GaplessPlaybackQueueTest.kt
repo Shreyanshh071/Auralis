@@ -9,6 +9,18 @@ import org.junit.Test
 
 class GaplessPlaybackQueueTest {
 
+    @Test fun upcomingAudioFollowsRepeatAllAndNeverOverlapsRepeatOne() {
+        val manager = AudioQueueManager()
+        val tracks = listOf(sampleTrack("a", "A"), sampleTrack("b", "B"))
+        manager.setQueue(tracks, startIndex = 1)
+        assertNull(manager.gaplessNextTrack())
+        manager.setRepeatMode(com.auralis.music.domain.model.RepeatMode.ALL)
+        assertEquals("a", manager.gaplessNextTrack()?.id)
+        assertEquals("a", manager.advanceNext()?.id)
+        manager.setRepeatMode(com.auralis.music.domain.model.RepeatMode.ONE)
+        assertNull(manager.gaplessNextTrack())
+    }
+
     private fun sampleTrack(id: String, title: String) = Track(
         id = id,
         title = title,
@@ -60,7 +72,7 @@ class GaplessPlaybackQueueTest {
         assertTrue(defaultSettings.gaplessPlayback)
         assertFalse(defaultSettings.skipSilence)
         assertFalse(defaultSettings.spatialAudio)
-        assertEquals(AudioQuality.AUTO, defaultSettings.audioQuality)
+        assertEquals(AudioQuality.HIGH, defaultSettings.audioQuality)
 
         val updatedSettings = defaultSettings.copy(
             gaplessPlayback = false,

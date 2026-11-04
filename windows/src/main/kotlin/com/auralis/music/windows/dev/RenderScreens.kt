@@ -102,7 +102,7 @@ fun main(args: Array<String>) {
             val pins = listOf(
                 com.auralis.music.domain.model.SpeedDialItem(id = "album-local:preview", name = "gili gili",
                     type = com.auralis.music.domain.model.SpeedDialType.ALBUM, image = previewSongs.firstOrNull()?.thumbnail,
-                    album = com.auralis.music.domain.model.PlaylistResult("local:preview", "gili gili", author = "Playlist · 97 songs"), isPinned = true),
+                    album = com.auralis.music.domain.model.PlaylistResult("local:preview", "gili gili", author = "Playlist Â· 97 songs"), isPinned = true),
                 com.auralis.music.domain.model.SpeedDialItem(id = "artist-preview", name = "Billy Idol",
                     type = com.auralis.music.domain.model.SpeedDialType.ARTIST, image = previewSongs.getOrNull(1)?.thumbnail, isPinned = true))
             Box(Modifier.fillMaxSize().padding(16.dp)) { com.auralis.music.windows.home.HomeShortcuts(pins, pins, {}, {}, {}) }
@@ -115,6 +115,19 @@ fun main(args: Array<String>) {
                     com.auralis.music.domain.model.Playlist("sp_preview", "gili gili", tracks = previewSongs.take(16), coverUrl = previewSongs.firstOrNull()?.thumbnail)),
                 onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
                 onTrackClick = { _, _ -> }, onFavoriteToggle = {})
+            }
+        },
+        "library-desktop" to {
+            val fixtures = listOf("puchuk", "SONGS", "Nuh uh", "gili gili(old)", "Currents", "wan pisiuu", "Zup", "gili gili", "Angrezi", "acha", "bhenkar gaane", "game").mapIndexed { i, name ->
+                com.auralis.music.domain.model.Playlist("preview-$i", name, tracks = previewSongs.drop(i % 5).take(14), coverUrl = previewSongs.getOrNull(i)?.thumbnail)
+            }
+            com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail, coverPalette) {
+                com.auralis.music.ui.library.LibraryScreen(
+                    currentTrackId = previewSongs.getOrNull(2)?.id, isPlaying = true, desktopBrowser = true,
+                    uiState = com.auralis.music.ui.viewmodel.LibraryUiState(favorites = previewSongs.take(6), playlists = fixtures, selectedPlaylist = fixtures.first(),
+                        savedArtists = listOf(com.auralis.music.domain.model.SavedArtist("artist-preview", "Billy Idol", previewSongs.getOrNull(1)?.thumbnail, "1.23M subscribers"))),
+                    onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
+                    onTrackClick = { _, _ -> }, onFavoriteToggle = {})
             }
         },
         "library-artists" to {
@@ -274,7 +287,7 @@ fun main(args: Array<String>) {
         },
         "home" to { homePreview(true) },
         "home-service" to {
-            val albums = previewSongs.take(12).mapIndexed { i, song -> com.auralis.music.domain.model.PlaylistResult("preview-album-$i", song.title, song.thumbnail, "Album · ${song.artist}") }
+            val albums = previewSongs.take(12).mapIndexed { i, song -> com.auralis.music.domain.model.PlaylistResult("preview-album-$i", song.title, song.thumbnail, "Album Â· ${song.artist}") }
             com.auralis.music.windows.home.DesktopHomeScreen(personalHome,
                 serviceRecents = (previewSongs + previewSongs).mapIndexed { i, track -> track.copy(id = "recent-$i") },
                 quickPicks = previewSongs.take(12), favoriteIds = setOfNotNull(previewSongs.getOrNull(1)?.id),
@@ -428,7 +441,7 @@ fun main(args: Array<String>) {
     for ((name, content) in screens) {
         if (only.isNotEmpty() && name !in only) continue
         val result = runCatching {
-            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
+            val scene = ImageComposeScene(width = when (name) { "titlebar" -> 1280; "titlebar-narrow" -> 900; "home-service", "album" -> 1700; "library-desktop" -> 1160; "library-compact" -> 700; "home-wide" -> 1440; "home-narrow" -> 660; else -> 1040 },
                 height = when (name) { "titlebar", "titlebar-narrow" -> 44; "seekbar" -> 80; "up-next" -> 100; "menu-playlist", "menu-song" -> 860; "dock" -> 140; "sidebar-expanded", "sidebar-collapsed" -> 520; "familiar" -> 980; "home-service", "home-wide", "album" -> 1000; else -> 760 }, density = Density(1f)) {
                 com.auralis.music.ui.theme.AuralisDesktopTheme(platformActions = actions) {
                     CompositionLocalProvider(
@@ -482,9 +495,9 @@ private fun LyricRendererPreview(fluid: Boolean) {
 }
 
 private fun previewLibraryEntries(songs: List<com.auralis.music.domain.model.Track>) = listOf(
-    com.auralis.music.windows.LibraryEntry("liked", "Liked Songs", "Playlist · 214 songs", null, liked = true) {}) +
+    com.auralis.music.windows.LibraryEntry("liked", "Liked Songs", "Playlist Â· 214 songs", null, liked = true) {}) +
     listOf("Late night drive", "Gym", "Hindi hits", "Indie mix", "Lo-fi").mapIndexed { i, name ->
-        com.auralis.music.windows.LibraryEntry("local:$i", name, "Playlist · ${12 + i * 7} songs", songs.getOrNull(i)?.thumbnail) {}
+        com.auralis.music.windows.LibraryEntry("local:$i", name, "Playlist Â· ${12 + i * 7} songs", songs.getOrNull(i)?.thumbnail) {}
     }
 
 /** An options sheet as the Windows menu shows it, over a busy page so the glass shows. */

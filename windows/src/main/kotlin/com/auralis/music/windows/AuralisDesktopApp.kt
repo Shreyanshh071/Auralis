@@ -106,8 +106,14 @@ fun AuralisDesktopApp(
     onCloseWindow: () -> Unit = {},
     onMinimizeWindow: () -> Unit = {},
     openSettingsTrigger: Int = 0,
+    onOpenImmersive: () -> Unit = {},
+    /** Bumped when immersive mode steps back to the player. */
+    playerRequests: Int = 0,
 ) {
     var showPlayer by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(playerRequests) {
+        if (playerRequests > 0 && playback?.queue?.value?.current != null) showPlayer = true
+    }
     var playerCoversHome by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(showPlayer) {
         playerCoversHome = false
@@ -436,6 +442,7 @@ fun AuralisDesktopApp(
             override fun closePlayer(): Boolean {
                 return handleEscapeBack(showPlayer) { showPlayer = false }
             }
+            override fun openImmersive() = onOpenImmersive()
         }
     }
     if (selfTest != null) {
@@ -1021,7 +1028,8 @@ fun AuralisDesktopApp(
                         panel = playerPanel,
                         onPanelChange = { playerPanel = it },
                         onClose = { showPlayer = false },
-                        palette = artworkPalette
+                        palette = artworkPalette,
+                        onImmersive = onOpenImmersive
                     )
                 }
             }

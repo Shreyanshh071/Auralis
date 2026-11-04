@@ -317,7 +317,7 @@ fun auralisDetailForwardEnter(durationMillis: Int = 200, gradualFade: Boolean = 
 
 /**
  * Pages opened from the floating header (Profile, History, Listen Together, Stats). A near-cut,
- * as in BitChord: a long fade had both pages showing through each other while the header's
+ * on purpose: a long fade had both pages showing through each other while the header's
  * capsule closed, so the swap is over in a few frames and the capsule carries the motion.
  */
 @Composable

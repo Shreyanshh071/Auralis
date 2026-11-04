@@ -1,5 +1,10 @@
 package com.auralis.music.ui.player
 
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import kotlinx.coroutines.launch
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -103,6 +108,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -209,6 +215,9 @@ private val COMPACT_ART_CORNER = 12.dp
 @Composable
 fun ImmersivePlayerContainer(
     track: Track,
+    /** The name under the finger. Read only by the title, so a swipe never rebuilds the rest of the player. */
+    titleTrack: () -> Track = { track },
+    onHeroSwipeStart: () -> Unit = {},
     uiState: PlayerUiState,
     currentTab: NowPlayingTab,
     onTabChange: (NowPlayingTab) -> Unit,
@@ -353,6 +362,27 @@ fun ImmersivePlayerContainer(
     // Hoisted so the queue keeps its scroll position across tab switches.
     val queueListState = rememberLazyListState()
 
+    // The backdrop is ready before the song changes, so it arrives with the cover, not after it.
+    LaunchedEffect(pagerState, queue) {
+        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }.collectLatest { page ->
+            delay(250)
+            listOf(page, page + 1, page - 1).forEach { index ->
+                queue.getOrNull(index)?.thumbnail?.takeIf { it.isNotBlank() }?.let { loadColorField(context, it) }
+            }
+        }
+    }
+
+    // The whole player above the seek bar swipes songs, not just the cover. The name, artist, lyric
+    // line and grab strip sit over or beside the cover and would otherwise swallow a thumb.
+    val heroSwipeEnabled by rememberUpdatedState(
+        enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER && heroAtRest && !hidePlayerThumbnail
+    )
+    val heroSwipeBottomPx by rememberUpdatedState(
+        containerHeightPx - controlsHeightPx + with(density) { previewHeight.roundToPx() }
+    )
+    val onHeroSwipeStartNow by rememberUpdatedState(onHeroSwipeStart)
+    val heroSwipeScope = androidx.compose.runtime.rememberCoroutineScope()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -361,24 +391,85 @@ fun ImmersivePlayerContainer(
                 containerWidthPx = it.size.width
                 containerHeightPx = it.size.height
             }
+            // Runs before the children and the sheet, so one place decides what a drag is. Left to
+            // race, the sheet's pull-down won any swipe that curved, and the swipe was lost.
+            .pointerInput(pagerState) {
+                val slop = viewConfiguration.touchSlop
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    if (!heroSwipeEnabled || down.position.y > heroSwipeBottomPx) return@awaitEachGesture
+                    var moved = Offset.Zero
+                    while (moved.getDistance() < slop) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id }
+                            ?: return@awaitEachGesture
+                        if (!change.pressed || change.isConsumed) return@awaitEachGesture
+                        moved += change.positionChange()
+                        if (moved.getDistance() >= slop) {
+                            if (kotlin.math.abs(moved.x) < kotlin.math.abs(moved.y)) return@awaitEachGesture
+                            change.consume()
+                        }
+                    }
+                    onHeroSwipeStartNow()
+                    val velocity = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                    val released = kotlinx.coroutines.CompletableDeferred<Unit>()
+                    val dragging = heroSwipeScope.launch {
+                        pagerState.scroll(MutatePriority.UserInput) { released.await() }
+                    }
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                        velocity.addPointerInputChange(change)
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        val dx = change.positionChange().x
+                        change.consume()
+                        if (dx != 0f) pagerState.dispatchRawDelta(-dx)
+                    }
+                    released.complete(Unit)
+                    val speed = velocity.calculateVelocity().x
+                    val fastPx = 300.dp.toPx()
+                    heroSwipeScope.launch {
+                        dragging.join()
+                        val offset = pagerState.currentPageOffsetFraction
+                        val target = pagerState.currentPage + when {
+                            speed < -fastPx && offset >= 0f -> 1
+                            speed > fastPx && offset <= 0f -> -1
+                            offset > .25f -> 1
+                            offset < -.25f -> -1
+                            else -> 0
+                        }
+                        // Starts at full speed, so letting go carries on from the finger.
+                        pagerState.animateScrollToPage(
+                            target.coerceIn(0, (pagerState.pageCount - 1).coerceAtLeast(0)),
+                            animationSpec = tween(260, easing = androidx.compose.animation.core.LinearOutSlowInEasing)
+                        )
+                    }
+                }
+            }
     ) {
-        // The cover's colours carried on below it; the seam rides the cover's bottom edge.
+        // The whole cover, blurred behind the player; the sleeve feathers its foot into it.
+        val foliaStyle = PlayerBackgroundStyle.fromKey(com.auralis.music.ui.theme.LocalAppearanceSettings.current.playerBackgroundStyle)
+        if (foliaStyle.isFolia) {
+            val palette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
+            FoliaBackground(foliaStyle, track.thumbnail, palette, uiState.isPlaying,
+                sheetProgress() > .001f, Modifier.fillMaxSize().graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) })
+        } else {
         ImmersiveColorField(
             artworkUrl = track.thumbnail,
-            cropArtwork = cropAlbumArt,
-            seamPx = {
-                if (hidePlayerThumbnail) 0f
-                else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
-            },
             modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) }
         )
+        }
 
         // ── FULL-BLEED SLEEVE AT REST (runs up behind the status bar, swipes between songs) ──
         if (heroAtRest && !hidePlayerThumbnail) {
+            val coverMoves by remember(sheetProgress) {
+                derivedStateOf { sheetProgress() >= .999f && !pagerState.isScrollInProgress }
+            }
             HorizontalPager(
                 state = pagerState,
                 key = { page -> "${queue.getOrNull(page)?.id.orEmpty()}_$page" },
-                userScrollEnabled = enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER,
+                userScrollEnabled = false,
                 beyondViewportPageCount = 1,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -402,17 +493,39 @@ fun ImmersivePlayerContainer(
                     .heroFadeMask { 1f - sheetProgress().coerceIn(0f, 1f) }
             ) { page ->
                 val pageTrack = queue.getOrNull(page)?.let { if (it.id == track.id) track else it } ?: track
-                ArtworkCard(
-                    url = pageTrack.thumbnail,
-                    fallbackTrack = pageTrack,
-                    modifier = Modifier.fillMaxSize(),
-                    cornerRadius = 0.dp,
-                    elevation = 0.dp,
-                    contentDescription = pageTrack.title,
-                    contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
-                    highRes = true,
-                    crossfade = true
-                )
+                // The same depth as the other players: a card shrinks and dims as it leaves.
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val pageOffset = kotlin.math.abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                                .coerceIn(0f, 1f)
+                            val scale = 1f - (pageOffset * 0.15f)
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            val pageOffset = kotlin.math.abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                                .coerceIn(0f, 1f)
+                            if (pageOffset > 0.001f) drawRect(Color.Black, alpha = (pageOffset * 0.70f).coerceIn(0f, 0.70f))
+                        }
+                ) {
+                    ArtworkCard(
+                        url = pageTrack.thumbnail,
+                        fallbackTrack = pageTrack,
+                        modifier = Modifier.fillMaxSize(),
+                        cornerRadius = 0.dp,
+                        elevation = 0.dp,
+                        contentDescription = pageTrack.title,
+                        contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
+                        highRes = true,
+                        crossfade = true
+                    )
+                    if (pageTrack.id == uiState.currentTrack?.id) {
+                        AnimatedCover(pageTrack, uiState.isPlaying && coverMoves, Modifier.fillMaxSize(), visible = coverMoves)
+                    }
+                }
             }
         }
 
@@ -466,7 +579,8 @@ fun ImmersivePlayerContainer(
                     ) {
                         Spacer(Modifier.weight(1f))
                         ImmersiveTitleBlock(
-                            track = track,
+                            track = titleTrack,
+                            queue = queue,
                             fit = playerFit,
                             onShowTrackOptions = onShowTrackOptions,
                             onArtistClick = onArtistClick,
@@ -538,6 +652,8 @@ fun ImmersivePlayerContainer(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .zIndex(if (currentTab == NowPlayingTab.LYRICS) 1f else 0f)
+                                        // Parked while hidden: alpha 0 alone still takes touches.
+                                        .offset { IntOffset(0, if (motion.lyricsLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
                                         .graphicsLayer {
                                             alpha = motion.lyricsAlpha.value
                                             translationY = motion.lyricsTranslationYDp.value.dp.toPx()
@@ -578,6 +694,9 @@ fun ImmersivePlayerContainer(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .zIndex(if (currentTab == NowPlayingTab.QUEUE) 1f else 0f)
+                                        // Parked while hidden: an invisible row's options button
+                                        // otherwise sits over the title's and opens the wrong song.
+                                        .offset { IntOffset(0, if (motion.queueLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
                                         .graphicsLayer {
                                             alpha = motion.queueAlpha.value
                                             translationY = motion.queueTranslationYDp.value.dp.toPx()
@@ -896,7 +1015,8 @@ private fun ImmersiveHandleStrip(
 
 @Composable
 private fun ImmersiveTitleBlock(
-    track: Track,
+    track: () -> Track,
+    queue: List<Track>,
     fit: PlayerFit,
     onShowTrackOptions: () -> Unit,
     onArtistClick: ((Artist) -> Unit)?,
@@ -906,28 +1026,46 @@ private fun ImmersiveTitleBlock(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                color = Color.White,
-                fontSize = 20.sp * fit.titleScale,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = track.artist,
-                color = Color.White.copy(alpha = 0.62f),
-                fontSize = 18.sp * fit.artistScale,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    onArtistClick?.invoke(Artist(id = "", name = track.artist, thumbnail = track.thumbnail))
-                }
-            )
+        // The title slides with the card, in the direction of the swipe.
+        androidx.compose.animation.AnimatedContent(
+            targetState = track(),
+            contentKey = { it.id },
+            transitionSpec = {
+                val forward = queue.indexOfFirst { it.id == targetState.id } >= queue.indexOfFirst { it.id == initialState.id }
+                val spec = tween<androidx.compose.ui.unit.IntOffset>(300, easing = FastOutSlowInEasing)
+                val fade = tween<Float>(300, easing = FastOutSlowInEasing)
+                (androidx.compose.animation.slideInHorizontally(spec) { if (forward) 180 else -180 } +
+                    androidx.compose.animation.fadeIn(fade)) togetherWith
+                    (androidx.compose.animation.slideOutHorizontally(spec) { if (forward) -180 else 180 } +
+                        androidx.compose.animation.fadeOut(fade))
+            },
+            contentAlignment = Alignment.CenterStart,
+            label = "immersiveTitle",
+            modifier = Modifier.weight(1f).clipToBounds()
+        ) { shown ->
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = shown.title,
+                    color = Color.White,
+                    fontSize = 20.sp * fit.titleScale,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = shown.artist,
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 18.sp * fit.artistScale,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        onArtistClick?.invoke(Artist(id = "", name = shown.artist, thumbnail = shown.thumbnail))
+                    }
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         ImmersiveCircleGlyph(

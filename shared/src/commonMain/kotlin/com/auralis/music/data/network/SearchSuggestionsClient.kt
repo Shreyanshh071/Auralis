@@ -19,11 +19,39 @@ class SearchSuggestionsClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
+    /** One YouTube Music answer holds both the typed suggestions and the songs that fit them. */
+    private suspend fun youTubeMusicAnswer(query: String): String = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("input", query)
+            put("context", JSONObject().apply {
+                put("client", JSONObject().apply {
+                    put("clientName", "WEB_REMIX")
+                    put("clientVersion", "1.20260213.01.00")
+                    put("hl", ContentLocale.hl())
+                    put("gl", ContentLocale.gl())
+                })
+            })
+        }
+        val request = Request.Builder()
+            .url(YT_MUSIC_SUGGEST_API)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Referer", "https://music.youtube.com/")
+            .header("Origin", "https://music.youtube.com")
+            .build()
+        client.searchBody(request, 30_000L)
+    }
+
     suspend fun getSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
 
-        // 1. Google text suggestions, cancelled when the query changes
+        // 1. YouTube Music's own suggestions: music, where the web list offers "lesson plan".
+        try {
+            val parsed = parseYtMusicSuggestionsJson(youTubeMusicAnswer(trimmed))
+            if (parsed.isNotEmpty()) return@withContext parsed
+        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
+
+        // 2. Fallback: Google text suggestions
         try {
             val encoded = URLEncoder.encode(trimmed, "UTF-8")
             val url = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=$encoded"
@@ -36,32 +64,32 @@ class SearchSuggestionsClient(
             if (parsed.isNotEmpty()) return@withContext parsed
         } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
 
-        // 2. Fallback: YouTube Music InnerTube Suggestion Engine
-        try {
-            val payload = JSONObject().apply {
-                put("input", trimmed)
-                put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20241201.01.00")
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
-                })
-            }
-
-            val request = Request.Builder()
-                .url(YT_MUSIC_SUGGEST_API)
-                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .header("Referer", "https://music.youtube.com/")
-                .header("Origin", "https://music.youtube.com")
-                .build()
-
-            val parsed = parseYtMusicSuggestionsJson(client.searchBody(request, 30_000L))
-            if (parsed.isNotEmpty()) return@withContext parsed
-        } catch (_: Exception) { kotlin.coroutines.coroutineContext.ensureActive() }
-
         emptyList()
+    }
+
+    /** The result rows YouTube Music suggests for [query], best first; empty when it has none. */
+    suspend fun getSuggestedRows(query: String): List<JSONObject> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@withContext emptyList()
+        try {
+            parseYtMusicSuggestedRows(youTubeMusicAnswer(trimmed))
+        } catch (_: Exception) {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            emptyList()
+        }
+    }
+
+    fun parseYtMusicSuggestedRows(jsonString: String): List<JSONObject> {
+        val rows = mutableListOf<JSONObject>()
+        val sections = JSONObject(jsonString).optJSONArray("contents") ?: return rows
+        for (s in 0 until sections.length()) {
+            val contents = sections.optJSONObject(s)?.optJSONObject("searchSuggestionsSectionRenderer")
+                ?.optJSONArray("contents") ?: continue
+            for (i in 0 until contents.length()) {
+                contents.optJSONObject(i)?.optJSONObject("musicResponsiveListItemRenderer")?.let(rows::add)
+            }
+        }
+        return rows
     }
 
     fun parseYtMusicSuggestionsJson(jsonString: String): List<String> {

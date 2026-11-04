@@ -46,6 +46,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -262,11 +264,12 @@ fun ExploreScreen(
             val targetDepth = depthMap[targetState] ?: 0
             val isNavigatingBack = targetDepth < initialDepth || (targetState == null && initialState != null)
 
-            if (isNavigatingBack) {
+            // Unclipped: the artist page runs up behind the status bar.
+            (if (isNavigatingBack) {
                 detailBackwardEnter togetherWith detailBackwardExit
             } else {
                 detailForwardEnter togetherWith detailForwardExit
-            }
+            }).using(androidx.compose.animation.SizeTransform(clip = false))
         },
         label = "SearchDetailTransition"
     ) { targetKey ->
@@ -279,6 +282,8 @@ fun ExploreScreen(
             com.auralis.music.ui.components.AuralisRefreshBox(refresh = onRefresh) {
                 when (renderedDetail) {
                     is com.auralis.music.ui.viewmodel.ExploreDetail.Artist -> {
+// The photo on the card that was tapped: the banner only arrives with the page.
+com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.artistPage.artist.thumbnail?.takeIf(String::isNotBlank) ?: renderedDetail.artistPage.bannerUrl) {
                         ArtistScreen(
                             artistPage = renderedDetail.artistPage,
                             isLoading = renderedDetail.isLoading,
@@ -317,8 +322,10 @@ fun ExploreScreen(
                             onRecommendToRoom = onRecommendToRoom,
                             modifier = modifier
                         )
+}
                     }
                     is com.auralis.music.ui.viewmodel.ExploreDetail.Album -> {
+com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                         com.auralis.music.ui.screens.AlbumScreen(
                             album = renderedDetail.album,
                             tracks = renderedDetail.tracks,
@@ -353,6 +360,7 @@ fun ExploreScreen(
                             onRecommendToRoom = onRecommendToRoom,
                             modifier = modifier
                         )
+}
                     }
                     else -> {
                 val hasResults = uiState.query.isNotBlank() && (
@@ -373,7 +381,10 @@ fun ExploreScreen(
                     }
                 }
 
-                Box(
+                com.auralis.music.ui.glass.OptionalGlassPage(
+                    background = themeBackground,
+                    accent = MaterialTheme.dynamicPrimary,
+                    glowBehindStatusBar = true,
                     modifier = modifier
                         .fillMaxSize()
                         .background(themeBackground)
@@ -396,7 +407,7 @@ fun ExploreScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                        .padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Back Arrow Button
@@ -422,11 +433,30 @@ fun ExploreScreen(
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    com.auralis.music.ui.glass.OptionalGlassCard(
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = null,
+                        modifier = Modifier.weight(1f).height(52.dp)
+                    ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        modifier = Modifier.size(22.dp)
+                    )
+
                     // Search Input Field
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 10.dp)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
@@ -509,6 +539,8 @@ fun ExploreScreen(
                             }
                         }
                     }
+                    }
+                    }
                 }
 
                 val catalogStatus by com.auralis.music.data.datastore.CatalogSettingsStore.status.collectAsState()
@@ -590,32 +622,28 @@ fun ExploreScreen(
                                 contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // 1. Live Autocomplete Text Suggestions (Top 3 text recommendations)
+                                // 1. Live Autocomplete Text Suggestions
                                 if (uiState.query.isNotBlank() && uiState.suggestions.isNotEmpty()) {
                                     items(
-                                        items = uiState.suggestions.take(3),
+                                        items = uiState.suggestions.take(6),
                                         key = { "sug_$it" }
                                     ) { suggestion ->
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clip(RoundedCornerShape(16.dp))
                                                 .clickable {
                                                     focusManager.clearFocus(force = true)
                                                     keyboardController?.hide()
                                                     onSearch(suggestion)
                                                 }
-                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                                .padding(vertical = 6.dp, horizontal = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Search,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
-                                                modifier = Modifier.size(22.dp)
-                                            )
+                                            SearchRowIcon(Icons.Default.Search, null)
 
-                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Spacer(modifier = Modifier.width(14.dp))
 
                                             Text(
                                                 text = suggestion,
@@ -638,15 +666,7 @@ fun ExploreScreen(
                                 // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
                                 if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
                                     item(key = "header_top_songs") {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = str(R.string.top_songs),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontSize = 17.sp,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
-                                        )
+                                        SearchSectionTitle(str(R.string.top_result))
                                     }
 
                                     items(
@@ -669,6 +689,9 @@ fun ExploreScreen(
 
                                 // 2. Recent Searches History Items (when input is empty)
                                 if (uiState.query.isBlank()) {
+                                    if (uiState.recentQueries.isNotEmpty()) {
+                                        item(key = "header_recent") { SearchSectionTitle(str(R.string.search_history)) }
+                                    }
                                     items(
                                         items = uiState.recentQueries,
                                         key = { "recent_$it" }
@@ -677,22 +700,18 @@ fun ExploreScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                .clip(RoundedCornerShape(16.dp))
                                                 .clickable {
                                                     focusManager.clearFocus(force = true)
                                                     keyboardController?.hide()
                                                     onSearch(query)
                                                 }
-                                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                                                .padding(vertical = 6.dp, horizontal = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.History,
-                                                contentDescription = str(R.string.history),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(22.dp)
-                                            )
+                                            SearchRowIcon(Icons.Default.History, str(R.string.history))
 
-                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Spacer(modifier = Modifier.width(14.dp))
 
                                             Text(
                                                 text = query,
@@ -851,8 +870,8 @@ private fun SearchResultsView(
     Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp, top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // A real failure stays visible; still-loading details don't get a row of their own.
         if (searchFailed && results.isNotEmpty()) {
@@ -865,13 +884,7 @@ private fun SearchResultsView(
         // ====================================================================
         if (results.topResult != null) {
             item(key = "header_top_result") {
-                Text(
-                    text = "Top result",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                )
+                SearchSectionTitle("Top result")
             }
 
             val topResultKey = when (val tr = results.topResult) {
@@ -902,13 +915,7 @@ private fun SearchResultsView(
         // ====================================================================
         results.runnerUp?.let { runnerUp ->
             item(key = "header_also_matching") {
-                Text(
-                    text = "Also matching",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                )
+                SearchSectionTitle("Also matching")
             }
             item(key = "card_also_matching") {
                 SearchHeroCard(
@@ -937,252 +944,35 @@ private fun SearchResultsView(
                     primaryAlbum != null -> if (isSingleRelease) "Single" else "Album"
                     else -> "Artist"
                 }
-                Text(
-                    text = headerTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                )
+                SearchSectionTitle(headerTitle)
             }
 
             item(key = "row_artist_album") {
-                if (primaryArtist != null && primaryAlbum != null) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Artist Card (Left)
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onArtistClick(primaryArtist) },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
-                                    ArtworkCard(
-                                        sizeToConstraints = true,
-                                        url = primaryArtist.thumbnail,
-                                        modifier = Modifier.size(46.dp).clip(CircleShape),
-                                        cornerRadius = 23.dp,
-                                        contentDescription = primaryArtist.name
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(46.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "ARTIST",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = primaryArtist.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "Top songs & info",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-
-                        // Album Card (Right)
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    sizeToConstraints = true,
-                                    url = primaryAlbum.thumbnail,
-                                    modifier = Modifier.size(46.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = primaryAlbum.title
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (isSingleRelease) "SINGLE" else "ALBUM",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        text = primaryAlbum.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = primaryAlbum.author ?: "Album",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    primaryArtist?.let { artist ->
+                        SearchMiniCard(
+                            label = "ARTIST",
+                            title = artist.name,
+                            subtitle = if (primaryAlbum != null) "Top songs & info" else "Top songs & albums",
+                            artworkUrl = artist.thumbnail?.takeUnless { it.contains("i.ytimg.com/vi/") },
+                            round = true,
+                            onClick = { onArtistClick(artist) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                } else if (primaryArtist != null) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { onArtistClick(primaryArtist) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (!primaryArtist.thumbnail.isNullOrBlank() && !primaryArtist.thumbnail!!.contains("i.ytimg.com/vi/")) {
-                                ArtworkCard(
-                                    sizeToConstraints = true,
-                                    url = primaryArtist.thumbnail,
-                                    modifier = Modifier.size(50.dp).clip(CircleShape),
-                                    cornerRadius = 25.dp,
-                                    contentDescription = primaryArtist.name
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(50.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "ARTIST",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 10.sp
-                                )
-                                Text(
-                                    text = primaryArtist.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "Top songs & albums",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                } else if (primaryAlbum != null) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .then(if (isSingleRelease) Modifier else Modifier.clickable { onPlaylistClick(primaryAlbum) }),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ArtworkCard(
-                                sizeToConstraints = true,
-                                url = primaryAlbum.thumbnail,
-                                modifier = Modifier.size(50.dp),
-                                cornerRadius = 8.dp,
-                                contentDescription = primaryAlbum.title
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = if (isSingleRelease) "SINGLE" else "ALBUM",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 10.sp
-                                )
-                                Text(
-                                    text = primaryAlbum.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = primaryAlbum.author ?: "Album",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
+                    primaryAlbum?.let { album ->
+                        SearchMiniCard(
+                            label = if (isSingleRelease) "SINGLE" else "ALBUM",
+                            title = album.title,
+                            subtitle = album.author ?: "Album",
+                            artworkUrl = album.thumbnail,
+                            round = false,
+                            onClick = if (isSingleRelease) null else ({ onPlaylistClick(album) }),
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -1192,13 +982,7 @@ private fun SearchResultsView(
         // STEP 3 — ACTUAL SEARCH RESULTS (REAL QUERY-MATCHED SONGS)
         // ====================================================================
         item(key = "header_matching_songs") {
-            Text(
-                text = if (isArtistSearch) "Top Songs" else "Songs",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-            )
+            SearchSectionTitle(if (isArtistSearch) "Top Songs" else "Songs")
         }
 
         if (songsBelowFeatured.isNotEmpty()) {
@@ -1252,25 +1036,7 @@ private fun SearchResultsView(
         val recommendations = results.recommendations.take(3)
         if (recommendations.isNotEmpty()) {
             item(key = "header_recommendations") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Recommendations",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "${recommendations.size} suggested",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                SearchSectionTitle("Recommendations")
             }
 
             items(
@@ -1364,23 +1130,23 @@ private fun TrackRowItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .clickable { onTrackClick(track, playlist) }
-                .padding(6.dp),
+                .padding(horizontal = 4.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ArtworkCard(
                 sizeToConstraints = true,
                 url = track.thumbnail,
-                modifier = Modifier.size(50.dp),
-                cornerRadius = 8.dp,
+                modifier = Modifier.size(56.dp),
+                cornerRadius = 12.dp,
                 contentDescription = track.title
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
                     color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
@@ -1436,6 +1202,165 @@ private fun TrackRowItem(
     }
 }
 
+private val SearchCardShape = RoundedCornerShape(24.dp)
+
+@Composable
+private fun SearchSectionTitle(text: String) {
+    Text(
+        text = text,
+        fontSize = 20.sp,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp)
+    )
+}
+
+/** The round tile that starts a suggestion or history row. */
+@Composable
+private fun SearchRowIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String?) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, description, tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+    }
+}
+
+/** Real glass on liquid glass, a raised card otherwise. */
+@Composable
+private fun SearchCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)?,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
+) {
+    com.auralis.music.ui.glass.OptionalGlassCard(
+        shape = SearchCardShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = null,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SearchArtwork(url: String?, description: String, size: androidx.compose.ui.unit.Dp, round: Boolean) {
+    if (url.isNullOrBlank()) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(if (round) CircleShape else RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(size / 2))
+        }
+    } else {
+        ArtworkCard(
+            sizeToConstraints = true,
+            url = url,
+            modifier = Modifier.size(size).then(if (round) Modifier.clip(CircleShape) else Modifier),
+            cornerRadius = if (round) size / 2 else 14.dp,
+            contentDescription = description
+        )
+    }
+}
+
+/** The smaller card under the Top result. Fills the row alone, or shares it with its pair. */
+@Composable
+private fun SearchMiniCard(
+    label: String,
+    title: String,
+    subtitle: String,
+    artworkUrl: String?,
+    round: Boolean,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    SearchCard(modifier = modifier, onClick = onClick) {
+        SearchArtwork(artworkUrl, title, 52.dp, round)
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** The large card's layout: big artwork, up to two lines of title, and what a tap will do. */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.SearchHeroContent(
+    artworkUrl: String?,
+    round: Boolean,
+    title: String,
+    titleColor: Color,
+    subtitle: String,
+    playable: Boolean
+) {
+    SearchArtwork(artworkUrl, title, 88.dp, round)
+    Spacer(modifier = Modifier.width(14.dp))
+    Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = title,
+            fontSize = 20.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = titleColor,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    Spacer(modifier = Modifier.width(10.dp))
+    if (playable) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, str(R.string.play), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(26.dp))
+        }
+    } else {
+        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+    }
+}
+
 /** The large card used for the Top result and for the "Also matching" runner-up. */
 @Composable
 private fun SearchHeroCard(
@@ -1449,143 +1374,51 @@ private fun SearchHeroCard(
     when (val tr = result) {
         is SearchTopResult.SongResult -> {
             val track = tr.track
-            val isCurrent = track.id == currentTrackId
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { onTrackClick(track, listOf(track)) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ArtworkCard(
-                        sizeToConstraints = true,
-                        url = track.thumbnail,
-                        modifier = Modifier.size(72.dp),
-                        cornerRadius = 12.dp,
-                        contentDescription = track.title
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        val subDetail = buildString {
-                            append(str(R.string.song_x, track.artist))
-                            if (!track.views.isNullOrBlank()) {
-                                append(" • ${track.views}")
-                            }
-                        }
-                        Text(
-                            text = subDetail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+            val subDetail = buildString {
+                append(str(R.string.song_x, track.artist))
+                if (!track.views.isNullOrBlank()) {
+                    append(" • ${track.views}")
                 }
+            }
+            SearchCard(modifier = Modifier.fillMaxWidth(), onClick = { onTrackClick(track, listOf(track)) }) {
+                SearchHeroContent(
+                    artworkUrl = track.thumbnail,
+                    round = false,
+                    title = track.title,
+                    titleColor = if (track.id == currentTrackId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                    subtitle = subDetail,
+                    playable = true
+                )
             }
         }
         is SearchTopResult.ArtistResult -> {
             val artist = tr.artist
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { onArtistClick(artist) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ArtworkCard(
-                        sizeToConstraints = true,
-                        url = artist.thumbnail ?: "",
-                        modifier = Modifier.size(72.dp).clip(CircleShape),
-                        cornerRadius = 36.dp,
-                        contentDescription = artist.name
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = artist.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = str(R.string.artist),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+            SearchCard(modifier = Modifier.fillMaxWidth(), onClick = { onArtistClick(artist) }) {
+                SearchHeroContent(
+                    artworkUrl = artist.thumbnail,
+                    round = true,
+                    title = artist.name,
+                    titleColor = MaterialTheme.colorScheme.onBackground,
+                    subtitle = str(R.string.artist),
+                    playable = false
+                )
             }
         }
         is SearchTopResult.AlbumResult -> {
             val album = tr.album
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { onPlaylistClick(album) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ArtworkCard(
-                        sizeToConstraints = true,
-                        url = album.thumbnail,
-                        modifier = Modifier.size(72.dp),
-                        cornerRadius = 12.dp,
-                        contentDescription = album.title
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = album.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = buildString {
-                            append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
-                            if (albumPlays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(albumPlays)}")
-                        },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+            val subDetail = buildString {
+                append(str(R.string.album_x, album.author ?: str(R.string.various_artists)))
+                if (albumPlays > 0L) append(" • ${com.auralis.music.domain.search.SearchQueryMatcher.formatPlayCount(albumPlays)}")
+            }
+            SearchCard(modifier = Modifier.fillMaxWidth(), onClick = { onPlaylistClick(album) }) {
+                SearchHeroContent(
+                    artworkUrl = album.thumbnail,
+                    round = false,
+                    title = album.title,
+                    titleColor = MaterialTheme.colorScheme.onBackground,
+                    subtitle = subDetail,
+                    playable = false
+                )
             }
         }
         else -> Unit

@@ -427,7 +427,7 @@ class MainPlayerBackgroundTransitionTest {
     @Test
     fun testCrossModeAll5ModesIntegrity() {
         // Confirm the 5 selectable modes from Appearance settings
-        val activeModes = PlayerBackgroundStyle.entries.filter { it != PlayerBackgroundStyle.APPLE_MUSIC }
+        val activeModes = PlayerBackgroundStyle.entries.filter { it != PlayerBackgroundStyle.APPLE_MUSIC && !it.isFolia }
         assertEquals(5, activeModes.size)
         assertTrue(activeModes.contains(PlayerBackgroundStyle.FOLLOW_THEME))
         assertTrue(activeModes.contains(PlayerBackgroundStyle.GRADIENT))

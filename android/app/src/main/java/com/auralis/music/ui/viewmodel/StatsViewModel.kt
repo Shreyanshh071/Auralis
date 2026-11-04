@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -115,7 +114,8 @@ class StatsViewModel(
         kotlinx.coroutines.delay(600)
     }
 
-    // Null means the selected period has not loaded; zero is only a real database result.
+    // Null only until the first load: a period change keeps the last values up until the new ones
+    // arrive, so the page can move to them instead of blanking. Zero is a real database result.
     val statsContent: StateFlow<StatsContent?> = combine(selectedOption, selectedChipIndex, refreshTick) { option, idx, _ ->
         Triple(option, idx, getTimeRange(option, idx))
     }.flatMapLatest { (option, idx, range) ->
@@ -126,7 +126,7 @@ class StatsViewModel(
             statsRepository.observeTopArtists(from, to, limit = 15)
         ) { overview, songs, artists ->
             StatsContent(option, idx, overview, songs, artists) as StatsContent?
-        }.onStart { emit(null) }
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val topSongs: StateFlow<List<SongStat>> = statsContent.map { it?.songs.orEmpty() }

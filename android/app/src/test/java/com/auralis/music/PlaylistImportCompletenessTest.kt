@@ -67,11 +67,112 @@ class PlaylistImportCompletenessTest {
         for (check in listOf<() -> Unit>(
             { PlaylistImportIntegrity.requireComplete("Spotify", 93, 100) },
             { PlaylistImportIntegrity.requireComplete("Spotify", 100, 100, hasMore = true) },
-            { PlaylistImportIntegrity.requirePage("Spotify", 100, 93) }
+            { PlaylistImportIntegrity.requireComplete("YouTube", 40, 100, allowMissing = true) },
+            { PlaylistImportIntegrity.requireReadable("Spotify", 100, 0) }
         )) {
             try { check(); fail("Expected incomplete import") } catch (_: IncompletePlaylistImport) { }
         }
         PlaylistImportIntegrity.requireComplete("Spotify", 100, 100)
+    }
+
+    @Test fun `a renamed shelf still yields the song rows`() {
+        val song = CompleteYouTubePlaylistImporter().page(JSONObject(fixture()))!!.rows.getJSONObject(0)
+        val root = JSONObject().put("shelf", JSONObject().put("somethingNewRenderer", JSONObject().put("contents", JSONArray().put(song))))
+        assertEquals(1, CompleteYouTubePlaylistImporter().page(root)!!.rows.length())
+    }
+
+    @Test fun `the regular YouTube route takes over when YouTube Music shows no songs`() = runBlocking {
+        val hosts = mutableListOf<String>()
+        val importer = CompleteYouTubePlaylistImporter(client { request ->
+            hosts += request.url.host
+            if (request.url.host == "www.youtube.com") fixture() else """{"responseContext":{}}"""
+        })
+        assertEquals(100, importer.importPlaylistById("PLprivate").tracks.size)
+        assertEquals(listOf("music.youtube.com", "www.youtube.com"), hosts)
+    }
+
+    @Test fun `regular YouTube rows and their next page marker are read`() {
+        val lockup = """{"lockupViewModel":{"contentId":"abc12345678","contentType":"LOCKUP_CONTENT_TYPE_VIDEO",
+            "contentImage":{"thumbnailViewModel":{"image":{"sources":[{"url":"https://i.ytimg.com/a.jpg","width":168,"height":94}]},
+            "overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[{"thumbnailBadgeViewModel":{"text":"3:55"}}]}}]}},
+            "metadata":{"lockupMetadataViewModel":{"title":{"content":"Song"},"metadata":{"contentMetadataViewModel":{
+            "metadataRows":[{"metadataParts":[{"text":{"content":"Artist - Topic"}}]}]}}}}}}"""
+        val marker = """{"continuationItemViewModel":{"continuationCommand":{"innertubeCommand":{"continuationCommand":{"token":"next"}}}}}"""
+        val root = JSONObject("""{"contents":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[$lockup]}},$marker]}}}""")
+        val importer = CompleteYouTubePlaylistImporter()
+        val page = importer.page(root)!!
+        assertEquals("next", page.continuation)
+        val track = importer.parseRows(page.rows, "playlist", 0).single()
+        assertEquals(listOf("abc12345678", "Song", "Artist"), listOf(track.id, track.title, track.artist))
+        assertEquals(235L, track.duration)
+    }
+
+    @Test fun `appended rows win over the stale page in a later response`() {
+        val row = CompleteYouTubePlaylistImporter().page(JSONObject(fixture()))!!.rows.getJSONObject(0)
+        val root = JSONObject("""{"contents":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[$row,$row,$row]}}]}},
+            "onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[$row]}}]}""")
+        assertEquals(1, CompleteYouTubePlaylistImporter().page(root)!!.rows.length())
+    }
+
+    @Test fun `an empty playlist imports as empty instead of failing`() = runBlocking {
+        val importer = CompleteYouTubePlaylistImporter(client {
+            """{"header":{"musicResponsiveHeaderRenderer":{"title":{"simpleText":"aaaaa"},"secondSubtitle":{"simpleText":"0 tracks"}}}}"""
+        })
+        val playlist = importer.importPlaylistById("PLempty")
+        assertEquals("aaaaa", playlist.title)
+        assertTrue(playlist.tracks.isEmpty())
+    }
+
+    @Test fun `a playlist no route can show fails without replacing anything`() = runBlocking {
+        val importer = CompleteYouTubePlaylistImporter(client { """{"responseContext":{}}""" })
+        try { importer.importPlaylistById("PLgone"); fail("Expected failure") }
+        catch (e: IncompletePlaylistImport) { assertTrue(e.message!!.contains("Nothing was replaced")) }
+    }
+
+    @Test fun `hidden or unplayable entries no longer fail the whole playlist`() {
+        PlaylistImportIntegrity.requireComplete("YouTube", 288, 295, allowMissing = true)
+        PlaylistImportIntegrity.requireReadable("Spotify", 100, 93)
+    }
+
+    @Test fun `an unknown YouTube row is skipped and the rest of the page survives`() {
+        val song = CompleteYouTubePlaylistImporter().page(JSONObject(fixture()))!!.rows.getJSONObject(0)
+        val rows = JSONArray().put(song).put(JSONObject("""{"somethingNewRenderer":{}}""")).put(song)
+        assertEquals(2, CompleteYouTubePlaylistImporter().parseRows(rows, "playlist", 0).size)
+    }
+
+    @Test fun `Spotify local files and podcasts are skipped while songs import`() {
+        val rows = JSONArray("""[
+            {"itemV2":{"data":{"uri":"spotify:track:real","name":"Real Song","artists":{"items":[{"profile":{"name":"Artist"}}]}}}},
+            {"itemV2":{"data":{"uri":"spotify:local:a:b:c:200","name":"Local File"}}},
+            {"itemV2":{"data":{"uri":"spotify:episode:show","name":"Podcast"}}},
+            {"itemV2":{"data":{"__typename":"NotFound"}}}
+        ]""")
+        val parsed = mutableListOf<com.auralis.music.domain.model.Track>()
+        SpotifyLibrary.parseGqlTracks(rows, likedSongs = false, parsed)
+        assertEquals(listOf("sp_real"), parsed.map { it.id })
+    }
+
+    private fun song(id: String, title: String = id, artist: String = "Artist") =
+        com.auralis.music.domain.model.Track(id = id, title = title, artist = artist)
+
+    @Test fun `reimport brings only songs that are new to the playlist`() {
+        val remote = listOf(song("sp_old"), song("sp_new"))
+        val added = SpotifyIncrementalImport.newTracks(remote, listOf(song("sp_old")), setOf("sp_old"))
+        assertEquals(listOf("sp_new"), added.map { it.id })
+    }
+
+    @Test fun `a song removed in Auralis is not brought back by reimport`() {
+        val added = SpotifyIncrementalImport.newTracks(listOf(song("sp_removed")), emptyList(), setOf("sp_removed"))
+        assertTrue(added.isEmpty())
+    }
+
+    @Test fun `songs already matched to YouTube are not imported twice`() {
+        val local = listOf(song("yt_matched", "Other Name"), song("yt_same", "Same Song", "Artist"))
+        val remote = listOf(song("sp_matched", "Matched"), song("sp_same", "Same Song", "Artist, Guest"))
+        val added = SpotifyIncrementalImport.newTracks(remote, local, emptySet()) { id ->
+            "yt_matched".takeIf { id == "sp_matched" }
+        }
+        assertTrue(added.isEmpty())
     }
 
     @Test fun `Spotify API pagination failure rejects partial data and repeats keep their positions`() = runBlocking {

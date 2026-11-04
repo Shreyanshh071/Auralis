@@ -31,7 +31,7 @@ internal class ResyncBackdrop(val backdrop: Backdrop,
     val lyrics: com.kyant.backdrop.backdrops.LayerBackdrop? = null) { val users = mutableIntStateOf(0) }
 internal val LocalResyncBackdrop = staticCompositionLocalOf<ResyncBackdrop?> { null }
 
-/** BitChord-style 8dp blur, 24dp edge lens, 1.5x vibrancy and translucent white bar tint. */
+/** 8dp blur, 24dp edge lens, 1.5x vibrancy and translucent white bar tint. */
 @Composable
 internal fun GlassResyncButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val source = LocalResyncBackdrop.current

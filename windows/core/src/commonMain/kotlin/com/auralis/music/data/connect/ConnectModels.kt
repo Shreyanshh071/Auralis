@@ -41,7 +41,10 @@ data class ConnectTrack(
     val albumId: String? = null,
     val thumbnail: String = "",
     val durationSec: Long = 0L,
-    val local: Boolean = false
+    val local: Boolean = false,
+    val lyricsProvider: String? = null,
+    val lyricsSpotifyId: String? = null,
+    val lyricsTitle: String? = null, val lyricsArtist: String? = null, val lyricsDurationMs: Long? = null
 ) {
     fun toTrack(): Track = Track(
         id = id, title = title, artist = artist, album = album, albumId = albumId, duration = durationSec,
@@ -106,6 +109,29 @@ data class ConnectCommand(
     val tracks: List<ConnectTrack> = emptyList(),
     val context: ConnectContext? = null
 )
+
+/**
+ * The last thing a person did to playback anywhere on the account, as opposed to routine reports.
+ * It has its own document because every client replaces the whole session when it writes, so
+ * releases that don't know a session field erase it. [version] is the session version the action
+ * produced, so a device can tell what it had already seen when it acted, without reading any
+ * clock; [epoch] is the output epoch it leads to. [atMs] is the actor's estimate of server time; it
+ * only orders actions that happened unaware of each other, and with a margin ([reconcileLocalControl]).
+ */
+data class ConnectPlayIntent(val version: Long, val epoch: Long, val atMs: Long, val by: String)
+
+/** A local control the session hasn't heard about, kept across an engine restart. */
+data class ConnectSavedControl(val epoch: Long?, val version: Long?, val atServerMs: Long, val savedAtWallMs: Long) {
+    fun encode(): String = listOf(epoch ?: "", version ?: "", atServerMs, savedAtWallMs).joinToString(",")
+
+    companion object {
+        fun decode(text: String?): ConnectSavedControl? {
+            val parts = text?.split(",")?.takeIf { it.size == 4 } ?: return null
+            return ConnectSavedControl(parts[0].toLongOrNull(), parts[1].toLongOrNull(),
+                parts[2].toLongOrNull() ?: return null, parts[3].toLongOrNull() ?: return null)
+        }
+    }
+}
 
 /**
  * The account's single authoritative session. [version] grows by exactly one per write (the
@@ -222,6 +248,10 @@ object ConnectCodec {
         updatedAtMs = m.long("updatedAt")
     )
 
+    fun encodeIntent(i: ConnectPlayIntent): Map<String, Any?> = mapOf("version" to i.version, "epoch" to i.epoch, "at" to i.atMs, "by" to i.by)
+
+    fun decodeIntent(m: Map<String, Any?>): ConnectPlayIntent = ConnectPlayIntent(m.long("version"), m.long("epoch"), m.long("at"), m.str("by"))
+
     fun encodeQueue(q: ConnectQueue): Map<String, Any?> = mapOf(
         "rev" to q.rev, "offset" to q.offset.toLong(), "tracks" to q.tracks.take(MAX_QUEUE).map(::encodeTrack)
     )
@@ -261,7 +291,10 @@ object ConnectCodec {
 
     private fun encodeTrack(t: ConnectTrack): Map<String, Any?> = mapOf(
         "id" to t.id, "title" to t.title, "artist" to t.artist, "album" to t.album, "albumId" to t.albumId,
-        "thumbnail" to t.thumbnail, "duration" to t.durationSec, "local" to t.local
+        "thumbnail" to t.thumbnail, "duration" to t.durationSec, "local" to t.local,
+        "lyricsProvider" to t.lyricsProvider, "lyricsSpotifyId" to t.lyricsSpotifyId,
+        "lyricsTitle" to t.lyricsTitle?.take(MAX_TEXT), "lyricsArtist" to t.lyricsArtist?.take(MAX_TEXT),
+        "lyricsDurationMs" to t.lyricsDurationMs
     )
 
     private fun decodeTrack(m: Map<String, Any?>): ConnectTrack? {
@@ -269,7 +302,12 @@ object ConnectCodec {
         return ConnectTrack(
             id = id, title = m.str("title"), artist = m.str("artist"),
             album = m.str("album").takeIf { it.isNotBlank() }, albumId = m.str("albumId").takeIf { it.isNotBlank() },
-            thumbnail = m.str("thumbnail"), durationSec = m.long("duration"), local = m["local"] == true
+            thumbnail = m.str("thumbnail"), durationSec = m.long("duration"), local = m["local"] == true,
+            lyricsProvider = m.str("lyricsProvider").takeIf { name -> com.auralis.music.domain.model.LyricsProvider.entries.any { it.name == name } },
+            lyricsSpotifyId = m.str("lyricsSpotifyId").takeIf { Regex("[A-Za-z0-9]{22}").matches(it) },
+            lyricsTitle = m.str("lyricsTitle").take(MAX_TEXT).takeIf { it.isNotBlank() },
+            lyricsArtist = m.str("lyricsArtist").take(MAX_TEXT).takeIf { it.isNotBlank() },
+            lyricsDurationMs = m.long("lyricsDurationMs").takeIf { it in 1..86_400_000L }
         )
     }
 

@@ -28,6 +28,7 @@ fun MiniPlayer(
     onNextClick: (() -> Unit)? = null,
     onPreviousClick: (() -> Unit)? = null,
     onSelectQueueTrack: ((Int) -> Unit)? = null,
+    onSwipeToQueueTrack: ((Int) -> Unit)? = onSelectQueueTrack,
     onFavoriteToggle: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onArtistClick: (() -> Unit)? = null,
@@ -36,6 +37,7 @@ fun MiniPlayer(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     connect: com.auralis.music.ui.connect.MiniConnect? = null,
+    isFullyCollapsed: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     PlayerMiniPlayer(
@@ -53,6 +55,7 @@ fun MiniPlayer(
         onNextClick = onNextClick,
         onPreviousClick = onPreviousClick,
         onSelectQueueTrack = onSelectQueueTrack,
+        onSwipeToQueueTrack = onSwipeToQueueTrack,
         onFavoriteToggle = onFavoriteToggle,
         onAddToPlaylist = onAddToPlaylist,
         onArtistClick = onArtistClick,
@@ -61,6 +64,7 @@ fun MiniPlayer(
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         connect = connect,
+        isFullyCollapsed = isFullyCollapsed,
         modifier = modifier
     )
 }

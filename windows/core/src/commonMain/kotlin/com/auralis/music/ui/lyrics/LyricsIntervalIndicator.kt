@@ -85,6 +85,15 @@ fun estimatedSungLengthMs(text: String): Long {
     return (words * 450L + 800L).coerceIn(2_500L, 7_000L)
 }
 
+/** The phone's break rule, used by every Windows lyrics view: each line's gap to the next line, in any animation mode. */
+fun phoneInstrumentalBreaks(lines: List<com.auralis.music.domain.model.LyricLine>): Map<Int, Pair<Long, Long>> {
+    val windows = linkedMapOf<Int, Pair<Long, Long>>()
+    lines.indices.forEach { index ->
+        if (index < lines.size - 1) instrumentalBreakWindow(lines[index], lines[index + 1].time)?.let { windows[index] = it }
+    }
+    return windows
+}
+
 /** Shared break rows for compact and fullscreen lyrics, including a timed instrumental outro.
  * Keep overlapping lead/background vocals out of the break; never change provider timestamps.
  */

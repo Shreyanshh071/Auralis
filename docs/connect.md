@@ -55,13 +55,13 @@ users/{uid}/connect/queue               its queue window (written with the sessi
 `deviceId` is a random UUID per (install, account), never derived from hardware or the name.
 Device documents hold the platform-reported name (Android: Settings > About > Device name, else
 maker + model; Windows: the computer name via JNA), an optional nickname, platform, type, whether
-it can play, an online flag and a server-time heartbeat (`seenAt`, every 10 s, stale after 30 s). Duplicate names
+it can play, an online flag and a server-time heartbeat (`seenAt`, every 2 min, stale after 5 min). Duplicate names
 are shown as "Name", "Name (2)"…; blank names fall back to "Android phone" / "Windows computer".
 Registrations not seen for 30 days are deleted by the account's other clients.
 Android marks an idle phone offline when its activity stops, and restores availability when it
 returns or starts playback. Background audio remains available. Windows refreshes device records
 every second while its picker is open. A sudden process kill or lost network still requires the
-30-second heartbeat expiry; graceful backgrounding sends an explicit offline update.
+5-minute heartbeat expiry; graceful backgrounding sends an explicit offline update.
 
 ### Session fields that make it safe
 
@@ -69,7 +69,7 @@ every second while its picker is open. A sudden process kill or lost network sti
 | --- | --- |
 | `version` | +1 on every write; the rules refuse anything else, so a write based on old state always loses |
 | `ownerId` / `epoch` | the one output and its fencing token; `epoch` +1 on every change of owner |
-| `leaseUntil` | the output renews it every 30 s (90 s lease); when it lapses the output is "last played on" |
+| `leaseUntil` | the output renews it every 30 s (90 s lease) while another device is online; alone it writes a bookmark every 5 min; when it lapses the output is "last played on" |
 | `positionMs` + `positionAt` | position and the (estimated) server time it was true; clients extrapolate |
 | `transfer` | a handoff in progress: `requested` → `ready` → `committed` (or `failed`) |
 | `commands` | controls waiting for the output (max 20), applied once each and removed by the output |
@@ -113,6 +113,46 @@ between checkpoints, and keeps Firestore HTTP connections pooled to avoid repeat
   to take the session over. When the old output reconnects it reads the session first, sees it is
   no longer the output and stays silent — it never reclaims playback. If nobody took over, it is
   still the output and simply renews its lease.
+- Firebase follows playback; playback never follows Firebase. Before acting, the player asks
+  `ConnectEngine.intercept`, which doesn't suspend and only looks at state it already has:
+  - A control for this device acts in the local player at once, whatever Firestore is doing, and the
+    engine records a pending local control. The session hears about it afterwards, from the engine's
+    usual sync (a changed player or the once-a-second tick).
+  - A control goes to another device only while that device is the live output and shows as playing
+    here. Its failures stay visible: a song or Play that can't be delivered (failure, or 4 s without
+    an answer) plays here instead, and a handoff that can't be requested shows as failed. Asking for
+    the audio on this device still plays here when the handoff can't be written.
+  - With the output unreachable (a failed write, or the listener offline), anything that starts audio
+    plays here at once. Pause, seek and queue edits stay aimed at the device on screen, so pausing a
+    mirrored device can never start audio here.
+- Reconciling a pending local control happens in `syncLocalControl`, and never restarts the song.
+  `connect/intent` records the last thing a person did (Play, Pause, loading or skipping a song,
+  sending one to another device, asking for a handoff): `version` is the session version it produced,
+  `epoch` the output epoch it leads to, `at` estimated server time, `by` the device. It is a document
+  of its own because every client replaces the whole session when it writes, so a session field
+  would be erased by releases that don't know it. It is written after the session, not with it, so
+  a refused write can't block sync, and read only for a conflict, so it costs no listener. Routine
+  reports record nothing, so they can't outrank an action. With another device playing, once this
+  device is back online, `reconcileLocalControl` decides:
+  1. An output that moved with nothing recording it (a released client, an automatic takeover) stays
+     there, since ownership is the only evidence.
+  2. An intent from a session version this device had already seen is older, whatever any clock says.
+  3. An intent it hadn't seen is ordered by time. The action's time is the elapsed time since it
+     happened (a timer wall clock changes can't move) subtracted from a server clock sampled within
+     90 s. Until there is such a sample the device keeps playing and waits.
+  4. Actions within 3 s (plus 0.1% of the time since) have no knowable order, so what the session
+     committed first stands, on every device.
+  The winner takes the output through a handoff (the rules refuse anything else over a live lease), two writes. A loser
+  stops and offers the way back. A silent device always leaves a playing one alone. An output with
+  an unreported control goes through the same decision when it finds the output moved, and drops
+  commands older than that control.
+- A pending control survives an engine restart in a small local record, for at most 6 hours. It only
+  applies if audio is still sounding here, so it can never start or move playback on its own. Its
+  time comes from the wall clock, so conflicts with it use a 30 s margin.
+- `docs/connect-rules-deploy.md` has the rules change, its deployment and rollback.
+- Firestore calls are bounded (10 s), so none can hold the engine's lock. After a failed write,
+  routine writes pause for 30 s, because failed transactions still cost reads, and heartbeats run one
+  at a time, because Android queues offline writes.
 - Signing out / switching accounts: the client gives up the output (paused), deletes its device
   registration while still authorised, drops its listeners/polling, and stops intercepting
   controls. FirebaseAuth state changes (Android) / the account state (Windows) drive this, so an

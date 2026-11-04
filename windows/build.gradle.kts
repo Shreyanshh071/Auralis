@@ -39,10 +39,12 @@ val skikoRuntime = when {
 configurations.matching { it.name in setOf("runtimeClasspath", "testRuntimeClasspath") }.configureEach {
     resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25", skikoRuntime)
 }
-
 dependencies {
+    // NewPipe needs protobuf at runtime. The old Firestore transport supplied it transitively.
+    implementation("com.google.protobuf:protobuf-java:3.25.8")
     testImplementation(kotlin("test"))
     implementation(project(":windows-core"))
+    implementation(libs.okhttp)
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
@@ -52,9 +54,6 @@ dependencies {
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
     implementation(libs.org.json)
-    implementation("com.google.api.grpc:grpc-google-cloud-firestore-v1:3.33.0")
-    implementation("io.grpc:grpc-netty-shaded:1.71.0")
-    testImplementation("io.grpc:grpc-inprocess:1.71.0")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     // Windows media overlay through the Windows Runtime (same JNA build VLCJ uses).
     implementation("net.java.dev.jna:jna-jpms:5.14.0")
@@ -118,6 +117,7 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
 }
 
+
 // One class-data archive per build (see the jvmArgs below).
 val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
 
@@ -141,6 +141,12 @@ compose.desktop {
                 "-Dio.grpc.netty.shaded.io.netty.transport.noNative=true",
                 "-Dio.netty.transport.noNative=true"
             )
+        }
+        providers.gradleProperty("connect.realtime.url").orNull?.takeIf { it.isNotBlank() }?.let { url ->
+            require(url.startsWith("wss://") && url.none { it.isWhitespace() } && !url.contains("staging", ignoreCase = true)) {
+                "Connect requires a production WSS endpoint."
+            }
+            jvmArgs("-Dauralis.connectRealtimeUrl=$url")
         }
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
@@ -225,7 +231,7 @@ tasks.register<JavaExec>("verifyYouTubeLibrary") {
     mainClass.set("com.auralis.music.windows.dev.VerifyYouTubeLibraryKt")
 }
 
-// Owner-provided desktop OAuth client, outside version control.
+// Owner-provided desktop OAuth and Firebase configuration, outside version control.
 tasks.named<ProcessResources>("processResources") {
     from("local-resources")
     from("version.properties") { rename { "windows-version.properties" } }
@@ -281,6 +287,13 @@ tasks.register<JavaExec>("probeStartup") {
     mainClass.set("com.auralis.music.windows.dev.ProbeStartupKt")
     args = listOfNotNull(findProperty("args")?.toString())
     findProperty("relayCachingMs")?.let { systemProperty("auralis.relayCachingMs", it.toString()) }
+}
+
+// Development check: ./gradlew :windows:probeFirebaseDown -Pargs="vlcDir::videoId" (silent; real playback with Firestore failing)
+tasks.register<JavaExec>("probeFirebaseDown") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.auralis.music.windows.dev.ProbeFirebaseDownKt")
+    args = listOfNotNull(findProperty("args")?.toString())
 }
 
 // Development check: ./gradlew :windows:probeStall -Pargs="vlcDir::videoId" (silent; a stalled stream recovers by itself)

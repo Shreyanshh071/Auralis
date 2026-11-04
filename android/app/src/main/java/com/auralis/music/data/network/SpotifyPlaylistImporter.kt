@@ -540,9 +540,7 @@ class SpotifyPlaylistImporter(
             val items = content.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
-            val before = allTracks.size
             parsePathfinderPlaylistItems(items, title, allTracks, coverUrl ?: "")
-            PlaylistImportIntegrity.requirePage("Spotify", items.length(), allTracks.size - before)
 
             onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
@@ -550,7 +548,8 @@ class SpotifyPlaylistImporter(
             page++
         }
 
-        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
+        PlaylistImportIntegrity.requireComplete("Spotify", offset, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
+        PlaylistImportIntegrity.requireReadable("Spotify", offset, allTracks.size)
         if (allTracks.isEmpty()) return@withContext null
 
         Log.i(TAG, "Pathfinder GraphQL fetched ${allTracks.size} tracks for playlist '$title'")
@@ -641,9 +640,7 @@ class SpotifyPlaylistImporter(
             val items = tracksObj.optJSONArray("items") ?: break
             if (items.length() == 0) break
 
-            val before = allTracks.size
             parsePathfinderAlbumItems(items, title, artist, coverUrl, allTracks)
-            PlaylistImportIntegrity.requirePage("Spotify album", items.length(), allTracks.size - before)
 
             onProgress?.invoke("Fetching album tracks from Spotify (${allTracks.size}/${if (totalTracks < Int.MAX_VALUE) totalTracks else allTracks.size})...")
 
@@ -651,7 +648,8 @@ class SpotifyPlaylistImporter(
             page++
         }
 
-        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
+        PlaylistImportIntegrity.requireComplete("Spotify", offset, totalTracks.takeIf { it != Int.MAX_VALUE }, hasMore = offset < totalTracks)
+        PlaylistImportIntegrity.requireReadable("Spotify album", offset, allTracks.size)
         if (allTracks.isEmpty()) return@withContext null
 
         Playlist(
@@ -847,10 +845,12 @@ class SpotifyPlaylistImporter(
         val tracksObj = root.optJSONObject("tracks")
         var totalTracks = tracksObj?.optInt("total", 0) ?: 0
         var nextUrl = tracksObj?.optString("next").takeIf { !it.isNullOrBlank() }
+        var rows = 0
 
         // Parse initial batch of tracks
         tracksObj?.optJSONArray("items")?.let { items ->
             parseApiTrackItems(items, title, allTracks)
+            rows += items.length()
         }
 
         onProgress?.invoke("Fetching tracks from Spotify (${allTracks.size}/${if (totalTracks > 0) totalTracks else allTracks.size})...")
@@ -874,6 +874,7 @@ class SpotifyPlaylistImporter(
                     val items = pageJson.optJSONArray("items")
                     if (items != null) {
                         parseApiTrackItems(items, title, allTracks)
+                        rows += items.length()
                     }
                     totalTracks = pageJson.optInt("total", totalTracks)
                     nextUrl = pageJson.optString("next").takeIf { !it.isNullOrBlank() }
@@ -888,7 +889,8 @@ class SpotifyPlaylistImporter(
             }
         }
 
-        PlaylistImportIntegrity.requireComplete("Spotify", allTracks.size, totalTracks, hasMore = !nextUrl.isNullOrBlank())
+        PlaylistImportIntegrity.requireComplete("Spotify", rows, totalTracks, hasMore = !nextUrl.isNullOrBlank())
+        PlaylistImportIntegrity.requireReadable("Spotify", rows, allTracks.size)
         Log.i(TAG, "Fetched ${allTracks.size} total tracks via Spotify Web API for playlist '$title'")
 
         Playlist(

@@ -16,15 +16,20 @@ import kotlin.math.abs
 import kotlin.math.pow
 
 /** A screen-space focus field. Neither lyric identity nor scroll offset enters this profile. */
+/** True while something else needs the frame budget; read at draw, so a change never recomposes. */
+internal val LocalLyricsBlurSuspended =
+    androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<Boolean>?> { null }
+
 internal object LyricsViewportBlurProfile {
-    const val LEVELS = 4
+    // Each level past the first is a full-screen blur on every lyric frame.
+    const val LEVELS = 3
     const val MAX_RADIUS_DP = 24f
 
     fun amount(y: Float, height: Float, focusFraction: Float, clearHalfHeight: Float): Float {
         if (!y.isFinite() || !height.isFinite() || height <= 0f || !focusFraction.isFinite() || !clearHalfHeight.isFinite()) return 0f
         val focus = height * focusFraction.coerceIn(.2f, .6f)
         val reach = minOf(focus, height - focus)
-        val clear = clearHalfHeight.coerceIn(0f, reach * .8f)
+        val clear = clearHalfHeight.coerceAtLeast(0f)
         val distance = abs(y.coerceIn(0f, height) - focus)
         return ((distance - clear) / (reach - clear).coerceAtLeast(1f)).coerceIn(0f, 1f).pow(1.35f)
     }
@@ -40,12 +45,13 @@ internal object LyricsViewportBlurProfile {
  * Android <12 has no RenderEffect, matching Compose blur's existing sharp fallback.
  */
 @Composable
-internal fun Modifier.stationaryLyricsBlur(enabled: Boolean, focusFraction: Float): Modifier {
+internal fun Modifier.stationaryLyricsBlur(enabled: Boolean, focusFraction: Float, clearHalfHeightPx: () -> Float = { 0f }): Modifier {
     if (!enabled || Build.VERSION.SDK_INT < 31) return this
     val density = LocalDensity.current.density
+    val suspended = LocalLyricsBlurSuspended.current
     val cache = remember(density, focusFraction) { ViewportBlurEffectCache(density, focusFraction) }
     return graphicsLayer {
-        renderEffect = cache.forHeight(size.height)
+        renderEffect = if (suspended?.value == true) null else cache.forHeight(size.height, clearHalfHeightPx())
         clip = true
     }
 }
@@ -53,14 +59,16 @@ internal fun Modifier.stationaryLyricsBlur(enabled: Boolean, focusFraction: Floa
 @RequiresApi(31)
 private class ViewportBlurEffectCache(private val density: Float, private val focus: Float) {
     private var previousHeight = -1f
+    private var previousClear = -1f
     private var effect: androidx.compose.ui.graphics.RenderEffect? = null
 
-    fun forHeight(height: Float): androidx.compose.ui.graphics.RenderEffect? {
+    fun forHeight(height: Float, requestedClear: Float): androidx.compose.ui.graphics.RenderEffect? {
         if (height <= 0f) return null
-        if (height == previousHeight) return effect
+        val clearHalfHeight = maxOf(minOf(48f * density, height * .10f), kotlin.math.ceil(requestedClear / 16f) * 16f)
+        if (height == previousHeight && previousClear == clearHalfHeight) return effect
+        previousClear = clearHalfHeight
         previousHeight = height
         val positions = FloatArray(129) { it / 128f }
-        val clearHalfHeight = minOf(48f * density, height * .10f)
         val amounts = positions.map { LyricsViewportBlurProfile.amount(it * height, height, focus, clearHalfHeight) }
         var combined: RenderEffect? = null
         repeat(LyricsViewportBlurProfile.LEVELS) { level ->

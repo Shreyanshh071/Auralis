@@ -81,7 +81,7 @@ class SpicySourceUpgradeTest {
         provider = provider, trackName = "Fixture", artistName = "Artist", durationMs = 180000,
         fetchedAtMs = System.currentTimeMillis())
 
-    @Test fun controllerWordCacheEarlyExitDoesNotCancelASlowSpicyUpgrade() = runBlocking {
+    @Test fun controllerWaitsForPreferredSpicyInsteadOfDisplayingFallbackCache() = runBlocking {
         val folder = Files.createTempDirectory("auralis-controller-upgrade").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val vlc = assertNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(
@@ -99,10 +99,10 @@ class SpicySourceUpgradeTest {
             val mode = MutableStateFlow(true)
             val controller = DesktopLyricsController(playback, repository, scope, mode)
             playback.restoreQueue(listOf(Track(videoId, "Fixture", "Artist", duration = 180)))
-            withTimeout(3000) { entered.await() }
-            assertEquals(LyricsProvider.BETTER_LYRICS, controller.state.value.lyrics?.provider)
-            // The normal no-audio-length wait ends at 2.5s, followed by the old
-            // word-cache return. Its child upgrade must remain alive after it.
+            withTimeout(6000) { entered.await() }
+            assertNull(controller.state.value.lyrics)
+            assertTrue(controller.state.value.isLoading)
+            // A slow preferred response must not expose an intermediate fallback.
             delay(2800)
             release.complete(Unit)
             val result = withTimeout(3000) { controller.state.first { it.lyrics?.provider == LyricsProvider.SPICY_LYRICS } }

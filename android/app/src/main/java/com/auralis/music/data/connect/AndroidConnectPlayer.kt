@@ -47,6 +47,7 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
             shuffle = q.isShuffled,
             repeat = q.repeatMode,
             context = player.connectContext,
+            lyricsSelection = ConnectLyricsState.current(track?.id),
             error = player.playbackError.value
         )
     }

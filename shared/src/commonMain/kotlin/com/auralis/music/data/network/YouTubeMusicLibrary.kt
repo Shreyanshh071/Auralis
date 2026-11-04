@@ -33,13 +33,13 @@ object YouTubeMusicLibrary {
         val isLikedMusic: Boolean get() = id == LIKED_MUSIC_ID
     }
 
-    private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
+    val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     /** Headers that make a music.youtube.com request count as the signed-in user; empty when signed out. */
-    fun signedInHeaders(): Map<String, String> = YouTubeSession.authHeaders(ORIGIN)
+    fun signedInHeaders(origin: String = ORIGIN): Map<String, String> = YouTubeSession.authHeaders(origin)
 
     /** The user's playlists (Liked Music first), or null when signed out or YouTube didn't answer. */
     suspend fun fetchPlaylists(): List<LibraryPlaylist>? = withContext(Dispatchers.IO) {

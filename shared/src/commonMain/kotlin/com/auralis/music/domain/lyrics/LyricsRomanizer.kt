@@ -3,6 +3,8 @@ package com.auralis.music.domain.lyrics
 import com.github.promeg.pinyinhelper.Pinyin
 import com.auralis.music.domain.model.RomanizationScript
 import java.util.Locale
+import java.text.Normalizer
+import com.atilika.kuromoji.ipadic.Tokenizer
 
 /**
  * Settings → Content → Lyrics → Romanize lyrics: Latin spelling shown as a second line under
@@ -10,36 +12,58 @@ import java.util.Locale
  *
  * Transliteration tables and functions ported from Metrolist (GPL-3.0,
  * github.com/mostafaalagamy/Metrolist), lyrics/LyricsUtils.kt. Japanese differs: Metrolist reads
- * kanji with the Kuromoji dictionary (~15 MB); here only kana is romanized and kanji stays as is.
+ * kanji with Kuromoji. The offline dictionary approach also follows Vivi Music:
+ * github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/lyrics/LyricsUtils.kt.
  */
 @Suppress("RegExpRedundantEscape")
 object LyricsRomanizer {
 
-    /** Romanized form of [line] for the first enabled script it's written in, or null. */
-    fun romanize(line: String, scripts: Set<RomanizationScript>): String? {
-        if (line.isBlank()) return null
-        val result = when {
-            // Kanji need a reading dictionary (Kuromoji, ~15 MB) this build doesn't ship; a line
-            // with kanji would come out half-converted ("夜ni駆keru"), so only kana-only lines.
-            RomanizationScript.JAPANESE in scripts && isJapanese(line) && !isChinese(line) ->
-                if (line.any { it in '一'..'鿿' }) null else romanizeJapaneseKana(line)
-            RomanizationScript.KOREAN in scripts && isKorean(line) -> romanizeKorean(line)
-            RomanizationScript.CHINESE in scripts && isChinese(line) -> romanizeChinese(line)
-            RomanizationScript.HINDI in scripts && isHindi(line) -> romanizeHindi(line)
-            RomanizationScript.PUNJABI in scripts && isPunjabi(line) -> romanizePunjabi(line)
-            RomanizationScript.CYRILLIC in scripts -> romanizeCyrillic(line)
-            else -> null
+    private val japaneseTokenizer by lazy { Tokenizer() }
+    private val cjkRun = Regex("[\\u3040-\\u30FF\\u3400-\\u9FFF\\uFF66-\\uFF9F々〆]+")
+    private val koreanRun = Regex("[\\u1100-\\u11FF\\u3130-\\u318F\\uAC00-\\uD7A3]+")
+    private val hindiRun = Regex("[\\u0900-\\u097F\\u200C\\u200D]+")
+    private val punjabiRun = Regex("[\\u0A00-\\u0A7F\\u200C\\u200D]+")
+    private val cyrillicRun = Regex("[\\u0400-\\u04FF]+")
+
+    /** Convert every enabled script, leaving Latin text and punctuation untouched. */
+    fun romanize(line: String, scripts: Set<RomanizationScript>, japaneseContext: Boolean = false): String? {
+        if (line.isBlank() || scripts.isEmpty()) return null
+        LyricsRomanizationCache.get(line, scripts, japaneseContext)?.let { return it.text }
+        var result = cjkRun.replace(line) { match ->
+            val text = match.value
+            val japanese = hasJapaneseKana(text) || japaneseContext || RomanizationScript.CHINESE !in scripts
+            when {
+                japanese && RomanizationScript.JAPANESE in scripts -> romanizeJapanese(text)
+                !japanese && RomanizationScript.CHINESE in scripts -> romanizeChinese(text)
+                else -> text
+            }
         }
-        // Nothing changed (e.g. a Japanese line that is all kanji): don't repeat the line.
-        return result?.trim()?.takeIf { it.isNotEmpty() && it != line.trim() }
+        if (RomanizationScript.KOREAN in scripts) result = koreanRun.replace(result) {
+            romanizeKorean(Normalizer.normalize(it.value, Normalizer.Form.NFC))
+        }
+        if (RomanizationScript.HINDI in scripts) result = hindiRun.replace(result) { romanizeHindi(it.value) }
+        if (RomanizationScript.PUNJABI in scripts) result = punjabiRun.replace(result) { romanizePunjabi(it.value) }
+        if (RomanizationScript.CYRILLIC in scripts) result = cyrillicRun.replace(result) { romanizeCyrillic(it.value) ?: it.value }
+        val converted = result.takeIf { it.isNotBlank() && it != line }
+        LyricsRomanizationCache.put(line, scripts, japaneseContext, converted)
+        return converted
     }
 
-    /** Hiragana → katakana, then the katakana table. Kanji pass through unchanged. */
-    private fun romanizeJapaneseKana(text: String): String {
-        val katakana = buildString(text.length) {
-            for (c in text) append(if (c in 'ぁ'..'ゖ') (c + 0x60) else c)
+    fun hasJapaneseKana(text: String): Boolean = LyricsRomanizationContext.hasKana(text)
+
+    private fun romanizeJapanese(text: String): String {
+        val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC)
+        if (normalized.none { it in '\u3400'..'\u9FFF' || it == '々' }) return katakanaToRomaji(normalized)
+        return synchronized(japaneseTokenizer) {
+            japaneseTokenizer.tokenize(normalized).joinToString(" ") { token ->
+                val reading = when {
+                    token.partOfSpeechLevel1 == "助詞" && token.surface == "は" -> "ワ"
+                    token.partOfSpeechLevel1 == "助詞" && token.surface == "へ" -> "エ"
+                    else -> token.reading.takeUnless { it.isNullOrBlank() || it == "*" } ?: token.surface
+                }
+                katakanaToRomaji(reading)
+            }
         }
-        return katakanaToRomaji(katakana)
     }
 
     private val KANA_ROMAJI_MAP: Map<String, String> = mapOf(
@@ -57,6 +81,12 @@ object LyricsRomanizer {
         "ビャ" to "bya", "ビュ" to "byu", "ビョ" to "byo",
         "ピャ" to "pya", "ピュ" to "pyu", "ピョ" to "pyo",
         // Basic Katakana Characters
+        "ファ" to "fa", "フィ" to "fi", "フェ" to "fe", "フォ" to "fo", "フュ" to "fyu",
+        "ウィ" to "wi", "ウェ" to "we", "ウォ" to "wo", "ティ" to "ti", "ディ" to "di",
+        "トゥ" to "tu", "ドゥ" to "du", "シェ" to "she", "ジェ" to "je", "チェ" to "che",
+        "ヴァ" to "va", "ヴィ" to "vi", "ヴェ" to "ve", "ヴォ" to "vo", "ヴ" to "vu",
+        "ァ" to "a", "ィ" to "i", "ゥ" to "u", "ェ" to "e", "ォ" to "o",
+        "ャ" to "ya", "ュ" to "yu", "ョ" to "yo", "ヮ" to "wa",
         "ア" to "a", "イ" to "i", "ウ" to "u", "エ" to "e", "オ" to "o",
         "カ" to "ka", "キ" to "ki", "ク" to "ku", "ケ" to "ke", "コ" to "ko",
         "サ" to "sa", "シ" to "shi", "ス" to "su", "セ" to "se", "ソ" to "so",
@@ -91,7 +121,7 @@ object LyricsRomanizer {
             "ᅥ" to "eo", "ᅦ" to "e", "ᅧ" to "yeo", "ᅨ" to "ye",
             "ᅩ" to "o", "ᅪ" to "wa", "ᅫ" to "wae", "ᅬ" to "oe",
             "ᅭ" to "yo", "ᅮ" to "u", "ᅯ" to "wo", "ᅰ" to "we",
-            "ᅱ" to "wi", "ᅲ" to "yu", "ᅳ" to "eu", "ᅴ" to "eui",
+            "ᅱ" to "wi", "ᅲ" to "yu", "ᅳ" to "eu", "ᅴ" to "ui",
             "ᅵ" to "i"
         ),
         "jong" to mapOf(
@@ -112,7 +142,8 @@ object LyricsRomanizer {
             "ᆸᄋ" to "b", "ᆸᄂ" to "mn", "ᆸᄅ" to "mn", "ᆸᄆ" to "mm", "ᆸᄒ" to "ph", "ᆹ" to "p",
             "ᆹᄋ" to "ps", "ᆹᄂ" to "mn", "ᆹᄅ" to "mn", "ᆹᄆ" to "mm", "ᆹᄒ" to "psh", "ᆺ" to "t",
             "ᆺᄋ" to "s", "ᆺᄂ" to "nn", "ᆺᄅ" to "nn", "ᆺᄆ" to "nm", "ᆺᄒ" to "sh", "ᆻ" to "t",
-            "ᆻᄋ" to "ss", "ᆻᄂ" to "tn", "ᆻᄅ" to "tn", "ᆻᄆ" to "nm", "ᆻᄒ" to "th", "ᆼ" to "ng",
+            "ᆻᄋ" to "ss", "ᆻᄂ" to "nn", "ᆻᄅ" to "nn", "ᆻᄆ" to "nm", "ᆻᄒ" to "th", "ᆼ" to "ng",
+            "ᆼᄅ" to "ngn",
             "ᆽ" to "t", "ᆽᄋ" to "j", "ᆽᄂ" to "nn", "ᆽᄅ" to "nn", "ᆽᄆ" to "nm", "ᆽᄒ" to "ch",
             "ᆾ" to "t", "ᆾᄋ" to "ch", "ᆾᄂ" to "nn", "ᆾᄅ" to "nn", "ᆾᄆ" to "nm", "ᆾᄒ" to "ch",
             "ᆿ" to "k", "ᆿᄋ" to "k", "ᆿᄂ" to "ngn", "ᆿᄅ" to "ngn", "ᆿᄆ" to "ngm", "ᆿᄒ" to "kh",
@@ -147,6 +178,10 @@ object LyricsRomanizer {
 
     private val GURMUKHI_ROMAJI_MAP: Map<String, String> = mapOf(
         "ੳ" to "o", "ਅ" to "a", "ੲ" to "e", "ਸ" to "s", "ਹ" to "h",
+        "ਆ" to "aa", "ਇ" to "i", "ਈ" to "ee", "ਉ" to "u", "ਊ" to "oo",
+        "ਏ" to "e", "ਐ" to "ai", "ਓ" to "o", "ਔ" to "au",
+        "ਸ\u0A3C" to "sh", "ਖ\u0A3C" to "kh", "ਗ\u0A3C" to "g", "ਜ\u0A3C" to "z",
+        "ਫ\u0A3C" to "f", "ਲ\u0A3C" to "l",
         "ਕ" to "k", "ਖ" to "kh", "ਗ" to "g", "ਘ" to "gh", "ਙ" to "ng",
         "ਚ" to "ch", "ਛ" to "chh", "ਜ" to "j", "ਝ" to "jh", "ਞ" to "ny",
         "ਟ" to "t", "ਠ" to "th", "ਡ" to "d", "ਢ" to "dh", "ਣ" to "n",
@@ -339,45 +374,39 @@ object LyricsRomanizer {
 
     fun katakanaToRomaji(katakana: String?, nextKatakana: String? = null): String {
         if (katakana.isNullOrEmpty()) return ""
-
-        val romajiBuilder = StringBuilder(katakana.length)
+        val kana = Normalizer.normalize(katakana, Normalizer.Form.NFKC).map {
+            if (it in 'ぁ'..'ゖ') it + 0x60 else it
+        }.joinToString("")
+        val out = StringBuilder()
+        fun syllable(at: Int): String? {
+            if (at >= kana.length) return nextKatakana?.let { katakanaToRomaji(it) }
+            return KANA_ROMAJI_MAP[kana.substring(at, minOf(at + 2, kana.length))]
+                ?: KANA_ROMAJI_MAP[kana[at].toString()]
+        }
         var i = 0
-        val n = katakana.length
-        while (i < n) {
-            var consumed = false
-            if (i + 1 < n) {
-                val twoCharCandidate = katakana.substring(i, i + 2)
-                val mappedTwoChar = KANA_ROMAJI_MAP[twoCharCandidate]
-                if (mappedTwoChar != null) {
-                    romajiBuilder.append(mappedTwoChar)
-                    i += 2
-                    consumed = true
+        while (i < kana.length) {
+            when (kana[i]) {
+                'ッ' -> {
+                    val next = syllable(i + 1).orEmpty()
+                    val first = if (next.startsWith("ch")) 't' else next.firstOrNull()
+                    if (first != null && first in "bcdfghjklmpqrstvwxyz") out.append(first)
+                    i++
                 }
-            }
-
-            if (!consumed && katakana[i] == 'ッ') {
-                val nextCharToDouble = nextKatakana?.getOrNull(0)
-                if (nextCharToDouble != null) {
-                    val nextCharRomaji = KANA_ROMAJI_MAP[nextCharToDouble.toString()]?.getOrNull(0)?.toString()
-                        ?: nextCharToDouble.toString()
-                    romajiBuilder.append(nextCharRomaji.lowercase().trim())
+                'ー' -> { out.lastOrNull { it in "aeiou" }?.let(out::append); i++ }
+                'ン' -> {
+                    out.append('n')
+                    if (syllable(i + 1)?.firstOrNull()?.let { it in "aeiouy" } == true) out.append("'")
+                    i++
                 }
-                i += 1
-                consumed = true
-            }
-
-            if (!consumed) {
-                val oneCharCandidate = katakana[i].toString()
-                val mappedOneChar = KANA_ROMAJI_MAP[oneCharCandidate]
-                if (mappedOneChar != null) {
-                    romajiBuilder.append(mappedOneChar)
-                } else {
-                    romajiBuilder.append(oneCharCandidate)
+                else -> {
+                    val two = kana.substring(i, minOf(i + 2, kana.length))
+                    val pair = if (two.length == 2) KANA_ROMAJI_MAP[two] else null
+                    if (pair != null) { out.append(pair); i += 2 }
+                    else { out.append(KANA_ROMAJI_MAP[kana[i].toString()] ?: kana[i]); i++ }
                 }
-                i += 1
             }
         }
-        return romajiBuilder.toString().lowercase()
+        return out.toString()
     }
 
     fun romanizeKorean(text: String): String = run {
@@ -396,17 +425,29 @@ object LyricsRomanizer {
                 val jungChar = (0x1161 + jungIndex).toChar().toString()
                 val jongChar = if (jongIndex == 0) null else (0x11A7 + jongIndex).toChar().toString()
 
+                var onsetConsumed = false
                 if (prevFinal != null) {
                     val contextKey = prevFinal + choChar
-                    val jong = HANGUL_ROMAJA_MAP["jong"]?.get(contextKey)
+                    val joined = when {
+                        prevFinal == "ᇂ" && choChar == "ᄋ" -> ""
+                        prevFinal == "ᆭ" && choChar == "ᄋ" -> "n"
+                        prevFinal == "ᆶ" && choChar == "ᄋ" -> "r"
+                        prevFinal == "ᆮ" && choChar == "ᄋ" && jungChar == "ᅵ" -> "j"
+                        prevFinal == "ᇀ" && choChar == "ᄋ" && jungChar == "ᅵ" -> "ch"
+                        else -> HANGUL_ROMAJA_MAP["jong"]?.get(contextKey)
+                    }
+                    val jong = joined
                         ?: HANGUL_ROMAJA_MAP["jong"]?.get(prevFinal)
                         ?: prevFinal
                     romajaBuilder.append(jong)
+                    // Contextual entries contain both the preceding coda and the new onset.
+                    onsetConsumed = joined != null
                 }
 
                 val cho = HANGUL_ROMAJA_MAP["cho"]?.get(choChar) ?: choChar
                 val jung = HANGUL_ROMAJA_MAP["jung"]?.get(jungChar) ?: jungChar
-                romajaBuilder.append(cho).append(jung)
+                if (!onsetConsumed) romajaBuilder.append(cho)
+                romajaBuilder.append(jung)
                 prevFinal = jongChar
             } else {
                 if (prevFinal != null) {
@@ -431,7 +472,7 @@ object LyricsRomanizer {
         val builder = StringBuilder(text.length * 2)
         for (ch in text) {
             if (ch in '\u4E00'..'\u9FFF') {
-                val py = Pinyin.toPinyin(ch).lowercase(Locale.getDefault())
+                val py = Pinyin.toPinyin(ch).lowercase(Locale.ROOT)
                 builder.append(py).append(' ')
             } else {
                 builder.append(ch)
@@ -449,8 +490,7 @@ object LyricsRomanizer {
 
         val cyrillicChars = text.filter { it in '\u0400'..'\u04FF' }
 
-        if (cyrillicChars.isEmpty() ||
-            (cyrillicChars.length == 1 && (cyrillicChars[0] == 'е' || cyrillicChars[0] == 'Е'))) {
+        if (cyrillicChars.isEmpty()) {
             return@run null
         }
 
@@ -752,30 +792,9 @@ object LyricsRomanizer {
         }
     }
 
-    fun romanizeHindi(text: String): String = run {
-        val sb = StringBuilder(text.length)
-        var i = 0
-        while (i < text.length) {
-            var consumed = false
-            // Check for 2-character sequences (e.g. char + nukta)
-            if (i + 1 < text.length) {
-                val twoCharCandidate = text.substring(i, i + 2)
-                val mappedTwoChar = DEVANAGARI_ROMAJI_MAP[twoCharCandidate]
-                if (mappedTwoChar != null) {
-                    sb.append(mappedTwoChar)
-                    i += 2
-                    consumed = true
-                }
-            }
-
-            if (!consumed) {
-                val charStr = text[i].toString()
-                sb.append(DEVANAGARI_ROMAJI_MAP[charStr] ?: charStr)
-                i += 1
-            }
-        }
-        sb.toString()
-    }
+    fun romanizeHindi(text: String): String = romanizeIndic(text, DEVANAGARI_ROMAJI_MAP,
+        ('क'..'ह').toSet() + ('क़'..'य़').toSet() + setOf('ळ', 'ऩ', 'ऱ'),
+        "ािीुूृॄेैोौॅॉ".toSet(), '्', '़', null)
 
     fun isPunjabi(text: String): Boolean {
         return text.any { char ->
@@ -783,49 +802,52 @@ object LyricsRomanizer {
         }
     }
 
-    fun romanizePunjabi(text: String): String = run {
-        val sb = StringBuilder(text.length)
+    fun romanizePunjabi(text: String): String = romanizeIndic(text, GURMUKHI_ROMAJI_MAP,
+        ('ਕ'..'ਹ').toSet() + "ਸ਼ਖ਼ਗ਼ਜ਼ੜਫ਼ਲ਼".toSet(), "ਾਿੀੁੂੇੈੋੌ".toSet(), '੍', '਼', 'ੱ')
+
+    private fun isCyrillicVowel(char: Char): Boolean = "АаЕеЄєИиІіЇїОоУуЮюЯяЫыЭэ".contains(char)
+
+    private fun romanizeIndic(
+        text: String, map: Map<String, String>, consonants: Set<Char>, matras: Set<Char>,
+        virama: Char, nukta: Char, gemination: Char?
+    ): String {
+        val input = Normalizer.normalize(text, Normalizer.Form.NFC).replace("\u200C", "").replace("\u200D", "")
+        val out = StringBuilder()
+        var hadVowel = false
         var i = 0
-        while (i < text.length) {
-            val char = text[i]
-            var consumed = false
-
-            // Check for Adhak (Gemination)
-            if (char == '\u0A71') {
-                 // Double next consonant if possible
-                 if (i + 1 < text.length) {
-                     val nextCharStr = text[i+1].toString()
-                     val nextMapped = GURMUKHI_ROMAJI_MAP[nextCharStr]
-                     if (nextMapped != null && nextMapped.isNotEmpty()) {
-                         sb.append(nextMapped[0])
-                     }
-                 }
-                 i++
-                 continue
+        while (i < input.length) {
+            val ch = input[i]
+            if (ch == gemination) {
+                input.getOrNull(i + 1)?.let { next -> map[next.toString()]?.firstOrNull()?.let(out::append) }
+                i++
+                continue
             }
-
-            // Check for 2-character sequences (e.g. char + nukta)
-            if (i + 1 < text.length) {
-                val twoCharCandidate = text.substring(i, i + 2)
-                val mappedTwoChar = GURMUKHI_ROMAJI_MAP[twoCharCandidate]
-                if (mappedTwoChar != null) {
-                    sb.append(mappedTwoChar)
-                    i += 2
-                    consumed = true
+            if (ch in consonants) {
+                val cluster = input.substring(i, minOf(i + 3, input.length)).takeIf { it.length == 3 && map.containsKey(it) }
+                val withNukta = input.substring(i, minOf(i + 2, input.length)).takeIf { it.length == 2 && it[1] == nukta }
+                val unit = cluster ?: withNukta ?: ch.toString()
+                out.append(map[unit] ?: map[ch.toString()] ?: ch.toString())
+                i += unit.length
+                val next = input.getOrNull(i)
+                when {
+                    next == virama -> { i++; hadVowel = false }
+                    next != null && next in matras -> { out.append(map[next.toString()] ?: next); i++; hadVowel = true }
+                    else -> {
+                        val final = next == null || next !in consonants && next !in "ंँःੰਂ" && next != gemination
+                        val followingVowel = input.getOrNull(i + 1)
+                        val nextHasLongVowel = next != null && next in consonants && followingVowel != null &&
+                            followingVowel in matras && followingVowel !in "िਿ"
+                        val drop = final || hadVowel && nextHasLongVowel
+                        if (!drop) out.append('a')
+                        hadVowel = !drop
+                    }
                 }
-            }
-
-            if (!consumed) {
-                val str = char.toString()
-                sb.append(GURMUKHI_ROMAJI_MAP[str] ?: str)
+            } else {
+                out.append(map[ch.toString()] ?: ch.toString())
+                if (ch !in "ंँःੰਂ") hadVowel = ch.isLetter()
                 i++
             }
         }
-        sb.toString()
+        return out.toString()
     }
-
-    private fun isCyrillicVowel(char: Char): Boolean {
-        return "АаЕеЄєИиІіЇїОоУуЮюЯяЫыЭэ".contains(char)
-    }
-
 }

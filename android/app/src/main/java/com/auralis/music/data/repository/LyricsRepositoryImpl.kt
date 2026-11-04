@@ -297,6 +297,7 @@ class LyricsRepositoryImpl(
         durationMs: Long?,
         audioLeadingSilenceMs: Long?
     ): LyricsData? {
+        com.auralis.music.data.local.ImportedLyricsStore.read(videoId)?.let { return it }
         val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
 
@@ -494,7 +495,8 @@ class LyricsRepositoryImpl(
             album = album,
             channelTitle = channelTitle,
             durationMs = playbackMs,
-            audioLeadingSilenceMs = audioLeadingSilenceMs
+            audioLeadingSilenceMs = audioLeadingSilenceMs,
+            reportFailures = true
         ) ?: return null
         return if (playbackMs > 0L && result.syncType != SyncType.PLAIN) {
             com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(result, playbackMs, audioLeadingSilenceMs)
@@ -522,6 +524,7 @@ class LyricsRepositoryImpl(
         title: String, artist: String, durationSec: Long?, videoId: String?, album: String?,
         channelTitle: String?, durationMs: Long?, audioLeadingSilenceMs: Long?, spotifyId: String?
     ): LyricsData? {
+        com.auralis.music.data.local.ImportedLyricsStore.read(videoId)?.let { return it }
         if (!spicyEnabled()) return null
         val existing = getCachedLyrics(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
         if (existing?.provider == LyricsProvider.SPICY_LYRICS && existing.fetchedAtMs?.let {
@@ -530,12 +533,12 @@ class LyricsRepositoryImpl(
         val attemptKey = listOf(videoId, spotifyId, title, artist, durationMs).joinToString("|")
         synchronized(spicyAttempts) {
             val last = spicyAttempts[attemptKey]
-            if (last != null && clock() - last < 5 * 60_000L) return null
+            if (last != null && clock() - last < 15_000L) return null
             if (spicyAttempts.size >= 512) spicyAttempts.clear()
             spicyAttempts[attemptKey] = clock()
         }
         val result = try {
-            kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            kotlinx.coroutines.withTimeoutOrNull(45_000L) {
                 spicyLookup(com.auralis.music.data.network.provider.LyricsSearchQuery(title, artist, durationSec,
                     videoId, album, channelTitle, durationMs, spotifyId = spotifyId, audioLeadingSilenceMs = audioLeadingSilenceMs))
             }
@@ -565,6 +568,7 @@ class LyricsRepositoryImpl(
         durationMs: Long?,
         audioLeadingSilenceMs: Long?
     ): LyricsData? {
+        com.auralis.music.data.local.ImportedLyricsStore.read(videoId)?.let { return it }
         val trackKey = (videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
         val networkResult = lyricsClient.getLyrics(
@@ -626,6 +630,7 @@ class LyricsRepositoryImpl(
         audioLeadingSilenceMs: Long?,
         onInterim: ((LyricsData) -> Unit)?
     ): LyricsData? {
+        com.auralis.music.data.local.ImportedLyricsStore.read(videoId)?.let { return it }
         val trackKey =(videoId?.takeIf { it.isNotBlank() } ?: "$title::$artist::${durationSec ?: 0}").lowercase()
         val playbackMs = durationMs?.takeIf { it > 0L } ?: ((durationSec ?: 0L) * 1000L)
         android.util.Log.d("AuralisLyrics", "[getLyrics] Request for '$title' by '$artist' (key=$trackKey, forceRefresh=$forceRefresh, album=$album, durMs=$playbackMs)")

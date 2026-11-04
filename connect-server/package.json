@@ -1,0 +1,14 @@
+{
+  "name": "auralis-connect-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/core.test.mjs test/auth.test.mjs test/server.test.mjs",
+    "load": "node test/load.mjs",
+    "measure": "node tools/measure.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.45.0",
+    "ws": "8.18.3"
+  }
+}

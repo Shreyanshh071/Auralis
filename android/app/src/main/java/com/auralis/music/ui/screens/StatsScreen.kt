@@ -1,5 +1,9 @@
 package com.auralis.music.ui.screens
 
+import com.auralis.music.ui.glass.OptionalGlassPage
+import com.auralis.music.ui.glass.OptionalGlassCard
+import com.auralis.music.ui.glass.pageGlassSelection
+import com.auralis.music.ui.glass.pageGlassActionColor
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -110,6 +114,8 @@ import com.auralis.music.ui.theme.dynamicPrimary
 import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.viewmodel.StatsViewModel
 import java.util.Locale
+import androidx.compose.runtime.State
+import kotlin.math.roundToInt
 import com.auralis.music.ui.components.bottomChromePadding
 
 @Composable
@@ -205,7 +211,7 @@ fun StatsScreen(
     val selectedChipIndex by viewModel.selectedChipIndex.collectAsState()
     val firstEventTs by viewModel.firstEventTimestamp.collectAsState()
     val statsContent by viewModel.statsContent.collectAsState()
-    val content = statsContent?.takeIf { it.option == selectedOption && it.chipIndex == selectedChipIndex }
+    val content = statsContent
     val overview = content?.overview
     val topSongs = content?.songs.orEmpty()
     val artistPhotos by viewModel.topArtists.collectAsState()
@@ -242,94 +248,57 @@ fun StatsScreen(
     val textPrimary = MaterialTheme.dynamicOnSurface
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
 
-    val contentBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit = {
-        drawRect(themeBackground)
-        drawContent()
-    }
-    val contentBackdrop = rememberLayerBackdrop(onDraw = contentBackdropDraw)
+    // No fill of its own: an opaque capture hid the page glow under the list, leaving it
+    // visible only as a band behind the filter pills.
+    val contentBackdrop = rememberLayerBackdrop()
     val statsGlass = rememberPageHeaderGlass(contentBackdrop)
 
     val dateChips = remember(selectedOption, firstEventTs) {
         viewModel.generateDateChips(firstEventTs)
     }
 
-    Box(
+    OptionalGlassPage(background = themeBackground, accent = themePrimary,
         modifier = modifier
             .fillMaxSize()
             .background(themeBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top App Bar
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = str(R.string.stats),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp
-                        ),
-                        color = textPrimary
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.tactileBounce(0.88f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = textPrimary
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = onOpenWrapped,
-                        modifier = Modifier.tactileBounce(0.88f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = str(R.string.your_wrapped),
-                            tint = textPrimary
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { showStatsMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = str(R.string.stats_options),
-                                tint = textPrimary
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showStatsMenu,
-                            onDismissRequest = { showStatsMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(str(R.string.clear_listening_stats)) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = null)
-                                },
-                                onClick = {
-                                    showStatsMenu = false
-                                    showClearConfirmation = true
-                                }
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = themeBackground
-                ),
+            com.auralis.music.ui.glass.PageHeading(
+                title = str(R.string.stats),
+                onBack = onDismiss,
+                backdrop = contentBackdrop,
                 modifier = Modifier.statusBarsPadding()
-            )
+            ) {
+                com.auralis.music.ui.glass.FloatingPageButton(
+                    Icons.Rounded.AutoAwesome, str(R.string.your_wrapped), contentBackdrop, onClick = onOpenWrapped
+                )
+                Box {
+                    com.auralis.music.ui.glass.FloatingPageButton(
+                        Icons.Default.MoreVert, str(R.string.stats_options), contentBackdrop, onClick = { showStatsMenu = true }
+                    )
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
+                        expanded = showStatsMenu,
+                        onDismissRequest = { showStatsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(str(R.string.clear_listening_stats)) },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                            },
+                            onClick = {
+                                showStatsMenu = false
+                                showClearConfirmation = true
+                            }
+                        )
+                    }
+                }
+            }
 
-            // Period Filter Chips Row
+            // Period Filter Chips Row; the pills scroll off the screen edge, not short of it
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Dropdown Chip
@@ -362,7 +331,7 @@ fun StatsScreen(
                         )
                     }
 
-                    DropdownMenu(
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
                         expanded = showOptionDropdown,
                         onDismissRequest = { showOptionDropdown = false }
                     ) {
@@ -467,7 +436,7 @@ fun StatsScreen(
 
                                 // Card 1: Top Artist
                                 topArtist?.let { artist -> UnfoldIn(1, openedAtMs, statsUnfoldOpen) {
-                                    Surface(
+                                    OptionalGlassCard(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
                                         border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
@@ -564,7 +533,7 @@ fun StatsScreen(
 
                                 // Card 2: Top Song
                                 topSong?.let { song -> UnfoldIn(2, openedAtMs, statsUnfoldOpen) {
-                                    Surface(
+                                    OptionalGlassCard(
                                         shape = RoundedCornerShape(22.dp),
                                         color = surfaceCardColor,
                                         border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
@@ -625,8 +594,7 @@ fun StatsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .size(42.dp)
-                                                    .clip(CircleShape)
-                                                    .background(themePrimary)
+                                                    .pageGlassSelection(CircleShape, true, themePrimary, themePrimary)
                                                     .clickable(
                                                         interactionSource = remember { MutableInteractionSource() },
                                                         indication = null,
@@ -637,7 +605,7 @@ fun StatsScreen(
                                                 Icon(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = str(R.string.play_song),
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    tint = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary),
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -662,12 +630,23 @@ fun StatsScreen(
 
                             // Hero Card: Total Time Listened
                             UnfoldIn(4, openedAtMs, statsUnfoldOpen) {
-                            Surface(
+                            OptionalGlassCard(
                                 shape = RoundedCornerShape(24.dp),
                                 color = surfaceCardColor,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, cardBorderColor),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
+                                if (com.auralis.music.ui.glass.pageGlassEnabled()) {
+                                    Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                                            Text(str(R.string.total_time_listened),color=textSecondary,modifier=Modifier.weight(1f))
+                                            Icon(Icons.Rounded.Headphones,null,tint=themePrimary,modifier=Modifier.size(28.dp))
+                                        }
+                                        val shownTime by animatedStat(overview.totalPlayTimeMs.toFloat())
+                                        Text(makeDurationString(shownTime.toLong()),color=textPrimary,
+                                            fontSize=48.sp,fontWeight=FontWeight.Bold,letterSpacing=(-2).sp)
+                                    }
+                                } else {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -728,8 +707,9 @@ fun StatsScreen(
                                             fontSize = 13.5.sp
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
+                                        val shownTime by animatedStat(overview.totalPlayTimeMs.toFloat())
                                         Text(
-                                            text = makeDurationString(overview.totalPlayTimeMs),
+                                            text = makeDurationString(shownTime.toLong()),
                                             style = MaterialTheme.typography.headlineLarge.copy(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 36.sp,
@@ -738,6 +718,7 @@ fun StatsScreen(
                                             color = textPrimary
                                         )
                                     }
+                                }
                                 }
                             }
                             }
@@ -800,17 +781,50 @@ fun StatsScreen(
                     // Section: Top Songs
                     if (topSongs.isNotEmpty()) {
                         item(key = "top_songs_header") { UnfoldIn(6, openedAtMs, statsUnfoldOpen) {
-                            Text(
-                                text = str(R.string.top_songs),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                ),
-                                color = themePrimary
-                            )
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = str(R.string.top_songs),
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp
+                                    ),
+                                    color = themePrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                // In the header, not floating: a floating button always sat on some row's menu.
+                                val shuffleContent = com.auralis.music.ui.glass.pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
+                                Row(
+                                    modifier = Modifier
+                                        .pageGlassSelection(CircleShape, true, themePrimary, themePrimary)
+                                        .tactileBounce(0.92f) {
+                                            val shuffled = topSongs.map { it.track }.shuffled()
+                                            if (shuffled.isNotEmpty()) {
+                                                onPlayTrack(shuffled.first(), shuffled)
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Shuffle,
+                                        contentDescription = null,
+                                        tint = shuffleContent,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Text(
+                                        text = str(R.string.shuffle),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp
+                                        ),
+                                        color = shuffleContent
+                                    )
+                                }
+                            }
                         } }
 
-                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
+                        itemsIndexed(topSongs, key = { _, s -> "song_${s.track.id}" }) { index, songStat -> Box(Modifier.animateItem()) { UnfoldIn(7 + index.coerceAtMost(6), openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -878,7 +892,7 @@ fun StatsScreen(
                                     )
                                 }
                             }
-                        } }
+                        } } }
                     }
 
                     // Section: Top Artists
@@ -895,7 +909,7 @@ fun StatsScreen(
                             )
                         } }
 
-                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> UnfoldIn(15, openedAtMs, statsUnfoldOpen) {
+                        itemsIndexed(topArtists, key = { _, a -> "artist_${a.name}" }) { _, artistStat -> Box(Modifier.animateItem()) { UnfoldIn(15, openedAtMs, statsUnfoldOpen) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -956,7 +970,7 @@ fun StatsScreen(
                                     )
                                 }
                             }
-                        } }
+                        } } }
                     }
 
                     // Empty state if no stats at all
@@ -989,59 +1003,6 @@ fun StatsScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // Floating Action Button: Shuffle Top Songs (Bottom Right)
-        AnimatedVisibility(
-            visible = topSongs.isNotEmpty(),
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 20.dp, bottom = if (hasActiveMiniPlayer) 150.dp else 90.dp)
-        ) {
-            val shuffleModifier = if (statsGlass != null) {
-                Modifier.liquidGlass(statsGlass, CircleShape, tint = com.auralis.music.ui.glass.glassIndicatorTint(statsGlass.isDark))
-            } else {
-                Modifier.clip(CircleShape)
-            }
-            Surface(
-                onClick = {
-                    val shuffled = topSongs.map { it.track }.shuffled()
-                    if (shuffled.isNotEmpty()) {
-                        onPlayTrack(shuffled.first(), shuffled)
-                    }
-                },
-                shape = CircleShape,
-                color = if (statsGlass != null) Color.Transparent else themePrimary,
-                border = null,
-                shadowElevation = if (statsGlass != null) 0.dp else 6.dp,
-                modifier = Modifier
-                    .then(shuffleModifier)
-                    .tactileBounce(0.92f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = str(R.string.shuffle),
-                        tint = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = str(R.string.shuffle),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        ),
-                        color = if (statsGlass != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
-                    )
                 }
             }
         }
@@ -1081,16 +1042,13 @@ fun StatsScreen(
         }
 
         if (showClearConfirmation) {
-            AlertDialog(
-                onDismissRequest = { if (!isClearingStats) showClearConfirmation = false },
-                title = { Text(str(R.string.clear_listening_stats_2)) },
-                text = {
-                    Text(str(R.string.this_clears_your_listening_history_play))
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = !isClearingStats,
-                        onClick = {
+            com.auralis.music.ui.components.AuralisConfirmDialog(
+                title = str(R.string.clear_listening_stats_2),
+                message = str(R.string.this_clears_your_listening_history_play),
+                confirmLabel = str(R.string.clear),
+                onDismiss = { if (!isClearingStats) showClearConfirmation = false },
+                enabled = !isClearingStats,
+                onConfirm = {
                             isClearingStats = true
                             viewModel.clearListeningStats { succeeded ->
                                 isClearingStats = false
@@ -1101,21 +1059,23 @@ fun StatsScreen(
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
-                        }
-                    ) {
-                        Text(str(R.string.clear), color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        enabled = !isClearingStats,
-                        onClick = { showClearConfirmation = false }
-                    ) { Text(str(R.string.cancel)) }
-                }
+                        },
             )
         }
     }
 }
+
+/** A figure that counts its way to a new period's value. */
+@Composable
+private fun animatedStat(target: Float): State<Float> = androidx.compose.animation.core.animateFloatAsState(
+    targetValue = target,
+    animationSpec = if (LocalReducedMotion.current) androidx.compose.animation.core.snap()
+        else androidx.compose.animation.core.tween(
+            durationMillis = 650,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+    label = "statsValue"
+)
 
 @Composable
 private fun MetricMiniCard(
@@ -1131,7 +1091,20 @@ private fun MetricMiniCard(
     iconBg: Color = cardBg,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    val shownCount by animatedStat(count.toFloat())
+    if (com.auralis.music.ui.glass.pageGlassEnabled()) {
+        OptionalGlassCard(RoundedCornerShape(26.dp),cardBg,null,modifier.height(128.dp)) {
+            Column(Modifier.fillMaxSize().padding(14.dp),verticalArrangement=Arrangement.SpaceBetween) {
+                Icon(icon,null,tint=iconTint,modifier=Modifier.size(23.dp))
+                Column {
+                    Text(shownCount.roundToInt().toString(),fontSize=28.sp,fontWeight=FontWeight.Bold,color=textPrimary,letterSpacing=(-1).sp)
+                    Text(label,color=textSecondary,fontSize=12.sp)
+                }
+            }
+        }
+        return
+    }
+    OptionalGlassCard(
         shape = RoundedCornerShape(18.dp),
         color = cardBg,
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
@@ -1163,7 +1136,7 @@ private fun MetricMiniCard(
 
             Column {
                 Text(
-                    text = count.toString(),
+                    text = shownCount.roundToInt().toString(),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp

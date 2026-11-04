@@ -97,6 +97,82 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         private set
     private var enqueuedNextTrack: Track? = null
     private var onGaplessTransitionCallback: ((Track) -> Unit)? = null
+    private val transitionFilter = com.auralis.music.data.service.automix.AutoMixFilterProcessor()
+    private var transitionController: AudioTransitionController? = null
+    /** Includes hosting a room; mixing locally would put listeners on a different timeline. */
+    var synchronizedPlaybackActive: () -> Boolean = { false }
+
+    private fun transitionsEligible(): Boolean = isUsingExoPlayer && !stopAtEndOfTrack &&
+        !isGuestListenTogether.value && !roomHoldActive && !synchronizedPlaybackActive() && connectHook?.remote() == null
+
+    private fun updateAudioTransitions() {
+        val current = _currentTrack.value ?: return
+        if (!(runtimeSettings.crossfadeEnabled || runtimeSettings.automixEnabled) || !transitionsEligible()) {
+            transitionController?.cancel()
+            return
+        }
+        val controller = transitionController ?: AudioTransitionController(
+            primary = exoPlayer, primaryFilter = transitionFilter, scope = scope,
+            createIncoming = ::createTransitionPlayer,
+            createAnalyzer = { com.auralis.music.data.service.automix.AutoMixAnalyzer(appContext) },
+            eligible = ::transitionsEligible,
+            onTransition = ::commitQueuedTransition,
+            onFinished = {
+                if (isUsingExoPlayer) {
+                    _isPlaying.value = exoPlayer.isPlaying
+                    _isBuffering.value = exoPlayer.playbackState == Player.STATE_BUFFERING
+                    _playbackPositionMs.value = exoPlayer.currentPosition.coerceAtLeast(0L)
+                }
+            }
+        ).also { transitionController = it }
+        runCatching { controller.tick(current, enqueuedNextTrack, queueManager.state.currentIndex, runtimeSettings) }
+            .onFailure { controller.cancel(); Log.w("AuralisPlayback", "Audio transition unavailable; continuing normal playback", it) }
+    }
+
+    private fun createTransitionPlayer(filter: com.auralis.music.data.service.automix.AutoMixFilterProcessor): ExoPlayer {
+        val http = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            com.auralis.music.data.network.NetworkClientProvider.okHttpClient
+        ).setUserAgent("Mozilla/5.0").setDefaultRequestProperties(mapOf("Accept" to "*/*"))
+        val sources = androidx.media3.datasource.DefaultDataSource.Factory(appContext, SongCache.dataSourceFactory(appContext, http))
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(appContext) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(false).setAudioProcessors(arrayOf(filter)).build()
+        }
+        return ExoPlayer.Builder(appContext, renderers)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(appContext).setDataSourceFactory(sources))
+            .setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(5_000, 20_000, 250, 500).build())
+            .build().apply {
+                setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
+                setHandleAudioBecomingNoisy(false)
+                setPreferredAudioDevice(preferredAudioDevice)
+                setWakeMode(C.WAKE_MODE_NETWORK)
+                volume = 0f
+            }
+    }
+
+    private fun commitQueuedTransition(nextTrack: Track, positionMs: Long) {
+        val advancedTrack = queueManager.advanceNext() ?: nextTrack
+        _queueState.value = queueManager.state
+        _currentTrack.value = com.auralis.music.data.download.DownloadArtworkPolicy.display(advancedTrack,
+            com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.value[advancedTrack.id])
+        _durationMs.value = advancedTrack.duration * 1000L
+        _playbackPositionMs.value = positionMs
+        // Drop only consumed items; the playing item becomes index zero before the next preload.
+        val consumed = exoPlayer.currentMediaItemIndex
+        if (consumed > 0) exoPlayer.removeMediaItems(0, consumed)
+        publishDiscordPresenceNow()
+        enqueuedNextTrack = null
+        persistQueue()
+        onGaplessTransitionCallback?.invoke(_currentTrack.value ?: advancedTrack)
+        // Don't tear down the overlapping decoder while it hands audio back to the session player.
+        scope.launch {
+            while (transitionController?.isMixing == true) delay(50)
+            syncUpcomingGaplessTrack()
+        }
+        if (canExtendQueue() && queueManager.isNearEnd(4)) requestAutoQueueExtension()
+    }
 
     private val sleepTimerManager = com.auralis.music.domain.model.SleepTimerManager()
     private var sleepTimerJob: Job? = null
@@ -114,6 +190,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     val needsWebView: StateFlow<Boolean> = _needsWebView.asStateFlow()
 
     init {
+
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] Initialized singleton instance")
         com.auralis.music.data.network.AudioStreamResolver.init(appContext)
 
@@ -137,7 +214,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 tracks = persisted.tracks,
                                 startIndex = persisted.currentIndex,
                                 preserveOrderIfSame = false,
-                                isUserQueue = persisted.isUserQueue
+                                isUserQueue = persisted.isUserQueue && persisted.tracks.size > 1
                             )
                             queueManager.setRepeatMode(repeatMode)
                             // Shuffle was saved but never restored, so it silently turned off
@@ -147,7 +224,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             _queueState.value = queueManager.state
                             val cur = queueManager.state.currentTrack
                             if (cur != null && _currentTrack.value == null) {
-                                _currentTrack.value = cur
+                                _currentTrack.value = com.auralis.music.data.download.DownloadArtworkPolicy.display(cur,
+                                    com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.value[cur.id])
                                 _playbackPositionMs.value = persisted.lastPositionMs
                                 _durationMs.value = cur.duration * 1000L
                             }
@@ -161,6 +239,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 withContext(Dispatchers.Main) {
                     queueRestoreComplete = true
                     persistQueue()
+                    if (com.auralis.music.domain.recommendations.AutoQueuePolicy.needsRefill(queueManager.state)) requestAutoQueueExtension()
                 }
             }
         }
@@ -199,6 +278,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     var isUsingExoPlayer: Boolean = false
+    private var signalDecoder: String? = null
+    private var signalOutputBits: String? = null
+    private var signalNetworkKbps: Int? = null
+    private var signalUnderruns = 0
         private set
     private var nativeRetryCount = 0
     private var streamResolveJob: Job? = null
@@ -209,6 +292,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private var preferredAudioDevice: android.media.AudioDeviceInfo? = null
 
     fun routeAudio(toSpeaker: Boolean) {
+        transitionController?.cancel()
         _isSpeakerForced.value = toSpeaker
         val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
         try {
@@ -283,7 +367,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf(audioLeadingSilenceProcessor))
+                    .setAudioProcessors(arrayOf(audioLeadingSilenceProcessor, transitionFilter))
                     .build()
             }
         }
@@ -299,9 +383,55 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 setAudioAttributes(audioAttributes, true)
                 setHandleAudioBecomingNoisy(true)
 
+                addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onMediaItemTransition(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        mediaItem: MediaItem?,
+                        reason: Int
+                    ) {
+                        signalUnderruns = 0
+                        signalNetworkKbps = null
+                    }
+
+                    override fun onAudioDecoderInitialized(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        decoderName: String,
+                        initializedTimestampMs: Long,
+                        initializationDurationMs: Long
+                    ) {
+                        signalDecoder = decoderName
+                    }
+
+                    override fun onAudioTrackInitialized(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig
+                    ) {
+                        signalOutputBits = PlaybackSignals.outputBits(audioTrackConfig.encoding)
+                    }
+
+                    override fun onAudioUnderrun(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        bufferSize: Int,
+                        bufferSizeMs: Long,
+                        elapsedSinceLastFeedMs: Long
+                    ) {
+                        signalUnderruns++
+                    }
+
+                    override fun onBandwidthEstimate(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        totalLoadTimeMs: Int,
+                        totalBytesLoaded: Long,
+                        bitrateEstimate: Long
+                    ) {
+                        signalNetworkKbps = (bitrateEstimate / 1000).toInt().takeIf { it > 0 }
+                    }
+                })
+
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
                         if (!isUsingExoPlayer) return
+                        if (!playing && transitionController?.isHandoff == true) return
                         _isPlaying.value = playing
                         Log.d("AuralisPlayback", "[ExoPlayer Listener] onIsPlayingChanged: $playing")
                         if (playing && isUsingExoPlayer) {
@@ -331,7 +461,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (!isUsingExoPlayer) return
+                        if (!isUsingExoPlayer || transitionController?.isHandoff == true) return
                         when (playbackState) {
                             Player.STATE_BUFFERING -> {
                                 _isBuffering.value = true
@@ -399,19 +529,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             Log.d("AuralisPlayback", "[Gapless Auto-Transition] Seamlessly crossed boundary into next track: $nextId (0ms delay)")
                             val nextTrack = enqueuedNextTrack
                             if (nextTrack != null && (nextTrack.id == nextId || AudioStreamResolver.getMatchedVideoId(nextTrack.id) == nextId)) {
-                                val advancedTrack = queueManager.advanceNext() ?: nextTrack
-                                _queueState.value = queueManager.state
-                                _currentTrack.value = advancedTrack
-                                _durationMs.value = advancedTrack.duration * 1000L
-                                _playbackPositionMs.value = 0L
-                                publishDiscordPresenceNow()
-                                enqueuedNextTrack = null
-                                syncUpcomingGaplessTrack()
-                                persistQueue()
-                                onGaplessTransitionCallback?.invoke(advancedTrack)
-                                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
-                                    requestAutoQueueExtension()
-                                }
+                                commitQueuedTransition(nextTrack, 0L)
                             } else {
                                 dispatchTrackCompleted()
                             }
@@ -551,11 +669,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                if (canExtendQueue() && queueManager.isNearEnd(4)) {
                     requestAutoQueueExtension()
                 }
             } else {
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+                continueAfterListEnded()
+                if (canExtendQueue()) {
                     _isBuffering.value = true
                     persistQueue()
                     requestAutoQueueExtension(advanceWhenLoaded = true)
@@ -578,6 +697,18 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     init {
+        scope.launch {
+            com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.collect { choices ->
+                val current = _currentTrack.value ?: return@collect
+                if (choices[current.id] == false) {
+                    _currentTrack.value = com.auralis.music.data.download.DownloadArtworkPolicy.display(current, false)
+                } else if (choices[current.id] == true && current.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN) {
+                    com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(current.id)?.let {
+                        _currentTrack.value = current.copy(thumbnail = it.toURI().toString())
+                    }
+                }
+            }
+        }
         // Observe preferences for the lifetime of the existing player, including background playback.
         connectedAudioDevices.addAll(audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).map { it.id })
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, android.os.Handler(android.os.Looper.getMainLooper()))
@@ -587,11 +718,23 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 val persistenceChanged = runtimeSettings.persistentQueue != settings.persistentQueue
                 val autoLoadEnabled = (!settingsLoaded || !runtimeSettings.autoLoadMore) && settings.autoLoadMore
                 settingsLoaded = true
+                val transitionsChanged = runtimeSettings.crossfadeEnabled != settings.crossfadeEnabled ||
+                    runtimeSettings.automixEnabled != settings.automixEnabled ||
+                    runtimeSettings.crossfadeSeconds != settings.crossfadeSeconds ||
+                    runtimeSettings.skipGaplessAlbums != settings.skipGaplessAlbums || runtimeSettings.skipSilence != settings.skipSilence
+                if (transitionsChanged) transitionController?.cancel(resetAttempt = true)
+                if (runtimeSettings.automixEnabled && !settings.automixEnabled) transitionController?.stopAnalysis()
                 runtimeSettings = settings
+                if (isUsingExoPlayer && transitionsChanged) syncUpcomingGaplessTrack()
                 if (!settings.autoLoadMore) {
+                    if (advanceAfterAutoLoad) {
+                        _isBuffering.value = false
+                        _isPlaying.value = false
+                        syncWantsPlay = false
+                    }
                     autoQueueJob?.cancel()
                     advanceAfterAutoLoad = false
-                } else if (autoLoadEnabled && _isPlaying.value && queueManager.isNearEnd(4)) {
+                } else if (autoLoadEnabled && (queueManager.state.queue.size == 1 || _isPlaying.value && queueManager.isNearEnd(4))) {
                     requestAutoQueueExtension()
                 }
                 if (persistenceChanged) persistQueue()
@@ -650,6 +793,22 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             }
         }
 
+        youTubeEngine.setOnRendererGoneCallback {
+            val curTrack = _currentTrack.value
+            if (!isUsingExoPlayer && curTrack != null && syncWantsPlay) {
+                if (nativeRetryCount < 2) {
+                    nativeRetryCount++
+                    Log.w("AuralisPlayback", "[WebView Auto-Recovery #$nativeRetryCount] Restarting '${curTrack.title}' after the renderer was lost")
+                    play(curTrack, initialSeekMs = _playbackPositionMs.value)
+                } else {
+                    nativeRetryCount = 0
+                    syncWantsPlay = false
+                    _isBuffering.value = false
+                    _playbackError.value = "Couldn't play '${curTrack.title}'. Try again in a moment."
+                }
+            }
+        }
+
         // Real-time progress ticker for ExoPlayer UI seekbars & time indicators (100ms is completely smooth
         // for seekbars and stops main-thread flooding. Lyrics has its own dedicated 60fps withFrameMillis clock).
         scope.launch {
@@ -657,6 +816,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             while (isActive) {
                 delay(100)
                 pauseIfMediaMuted()
+                updateAudioTransitions()
+                if (canExtendQueue() && (_isPlaying.value || advanceAfterAutoLoad) &&
+                    com.auralis.music.domain.recommendations.AutoQueuePolicy.needsRefill(queueManager.state) &&
+                    android.os.SystemClock.elapsedRealtime() - lastAutoQueueAttemptMs >= 15_000L) {
+                    requestAutoQueueExtension()
+                }
                 if (isUsingExoPlayer && (exoPlayer.isPlaying || _isPlaying.value)) {
                     val pos = exoPlayer.currentPosition
                     if (pos >= 0L && pos != _playbackPositionMs.value) {
@@ -733,6 +898,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun updateCurrentTrackArtwork(artworkUrl: String) {
         if (artworkUrl.isBlank()) return
         val current = _currentTrack.value ?: return
+        if (com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(current.id)) return
         if (current.thumbnail.isBlank() || current.thumbnail != artworkUrl) {
             _currentTrack.value = current.copy(thumbnail = artworkUrl)
         }
@@ -746,7 +912,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         val active = _currentTrack.value
         if (active?.id == track.id) {
-            _currentTrack.value = active.copy(album = track.album, thumbnail = track.thumbnail)
+            _currentTrack.value = com.auralis.music.data.download.DownloadArtworkPolicy.display(
+                active.copy(album = track.album, thumbnail = track.thumbnail),
+                com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.value[track.id])
         }
     }
 
@@ -758,6 +926,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         initialSeekMs: Long = 0L,
         requestId: Long = currentSessionId.incrementAndGet()
     ) {
+        val track = if (track.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN &&
+            !com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(track.id)) track.copy(thumbnail = "") else track
+        transitionController?.cancel()
         syncWantsPlay = true
         roomHoldActive = false
         seekWhileLoadingMs = null
@@ -768,8 +939,6 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         )
         activeTimingTracker = tracker
         currentSessionId.set(requestId)
-        autoQueueJob?.cancel()
-        advanceAfterAutoLoad = false
         streamResolveJob?.cancel()
         nativeStreamPreparation?.cancel()
         nativeStreamPreparation = null
@@ -784,7 +953,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         audioLeadingSilenceProcessor.resetDetection()
         _audioLeadingSilenceMs.value = null
 
-        val initialTrack = if (track.thumbnail.isBlank()) {
+        val initialTrack = if (com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(track.id)) {
+            com.auralis.music.data.download.DownloadArtworkPolicy.display(track, false)
+        } else if (track.thumbnail.isBlank()) {
             val localArt = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
             if (localArt != null && localArt.exists()) {
                 track.copy(thumbnail = Uri.fromFile(localArt).toString())
@@ -826,14 +997,21 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         // Start both engines without waiting for a slow extraction.
                         // A ready native stream can still win while the web page loads.
                         val preparation = scope.async(Dispatchers.IO) {
-                            AudioStreamResolver.resolveAudioStream(
-                                videoId = track.id,
-                                title = track.title,
-                                artist = track.artist,
-                                quality = currentAudioQuality,
-                                context = appContext,
-                                duration = track.duration
-                            )
+                            // Nothing that fails here may end the app: the web engine still plays the song.
+                            try {
+                                AudioStreamResolver.resolveAudioStream(
+                                    videoId = track.id,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    quality = currentAudioQuality,
+                                    context = appContext,
+                                    duration = track.duration
+                                )
+                            } catch (e: Throwable) {
+                                if (e is CancellationException) throw e
+                                Log.w("AuralisPlayback", "[Resolver] Native stream failed: ${e.javaClass.simpleName} - ${e.message}")
+                                null
+                            }
                         }
                         nativeStreamPreparation = preparation
                         directUrl = withTimeoutOrNull(250L) { preparation.await() }
@@ -858,6 +1036,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
                     val localArtFile = com.auralis.music.data.download.AuralisDownloadManager.getDownloadedArtworkFile(track.id)
                     val effectiveThumb = when {
+                        com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(track.id) -> ""
                         localArtFile != null && localArtFile.exists() && localArtFile.length() > 500 -> {
                             Uri.fromFile(localArtFile).toString()
                         }
@@ -997,10 +1176,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 }
 
                 // 🚀 TRUE GAPLESS PLAYBACK PRE-BUFFERING
-                if (!streamUrl.isNullOrBlank() && isGaplessEnabled && isUsingExoPlayer) {
+                if (!streamUrl.isNullOrBlank() && (isGaplessEnabled || runtimeSettings.crossfadeEnabled || runtimeSettings.automixEnabled) && isUsingExoPlayer) {
                     withContext(Dispatchers.Main) {
-                        if (exoPlayer.mediaItemCount == 1 && _isPlaying.value) {
-                            val effectiveThumb = if (!track.thumbnail.isNullOrBlank()) {
+                        if (exoPlayer.mediaItemCount == 1 && _isPlaying.value && queueManager.gaplessNextTrack()?.id == track.id) {
+                            val effectiveThumb = if (com.auralis.music.data.download.AuralisDownloadManager.isDownloadedCoverHidden(track.id)) {
+                                ""
+                            } else if (!track.thumbnail.isNullOrBlank()) {
                                 track.thumbnail
                             } else {
                                 com.auralis.music.data.network.ArtworkResolver.getArtwork(track) ?: track.thumbnail
@@ -1038,7 +1219,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
 
     fun syncUpcomingGaplessTrack() {
         // Guests never preload the next song: they only ever play what the host plays.
-        if (stopAtEndOfTrack || isGuestListenTogether.value) {
+        if (stopAtEndOfTrack || isGuestListenTogether.value || !(isGaplessEnabled || runtimeSettings.crossfadeEnabled || runtimeSettings.automixEnabled)) {
+            transitionController?.cancel()
             prefetchJob?.cancel()
             if (isUsingExoPlayer && exoPlayer.mediaItemCount > 1) {
                 try {
@@ -1048,8 +1230,10 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             enqueuedNextTrack = null
             return
         }
-        val nextUpcoming = queueManager.state.queue.getOrNull(queueManager.state.currentIndex + 1)
+        if (transitionController?.isHandoff == true) return
+        val nextUpcoming = queueManager.gaplessNextTrack()
         if (nextUpcoming?.id != enqueuedNextTrack?.id) {
+            transitionController?.cancel()
             prefetchJob?.cancel()
             if (isUsingExoPlayer && exoPlayer.mediaItemCount > 1) {
                 try {
@@ -1066,79 +1250,68 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private val queueGenerationId = java.util.concurrent.atomic.AtomicLong(0L)
     private var autoQueueJob: Job? = null
     private var advanceAfterAutoLoad = false
-    private val radioHistory by lazy {
-        com.auralis.music.data.repository.HistoryRepositoryImpl(
-            database.trackDao(), database.historyDao(), database.playCountDao(), database.playbackEventDao()
-        )
-    }
     private val radioClient by lazy { com.auralis.music.data.network.InnerTubeClient() }
 
     // Queue extension belongs to the existing player so it survives Activity/task removal.
+    private fun canExtendQueue(): Boolean = com.auralis.music.domain.recommendations.AutoQueuePolicy.canExtend(
+        runtimeSettings, queueManager.state, isGuestListenTogether.value
+    )
+
+    private var lastAutoQueueAttemptMs = 0L
+
+    /** A playlist or album that has played to its end carries on with songs related to its last one. */
+    private fun continueAfterListEnded() {
+        val state = queueManager.state
+        if (!state.isUserQueue || !runtimeSettings.autoLoadMore || isGuestListenTogether.value || state.queue.isEmpty()) return
+        _queueState.value = queueManager.setQueue(state.queue, state.currentIndex, preserveOrderIfSame = true, isUserQueue = false)
+    }
+
     fun requestAutoQueueExtension(advanceWhenLoaded: Boolean = false) {
-        if (!runtimeSettings.autoLoadMore || queueManager.state.isUserQueue || isGuestListenTogether.value) return
+        if (!canExtendQueue()) return
+        if (queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.ONE ||
+            queueManager.state.repeatMode == com.auralis.music.domain.model.RepeatMode.ALL && queueManager.state.queue.size > 1) return
         val seed = queueManager.state.currentTrack ?: return
         advanceAfterAutoLoad = advanceAfterAutoLoad || advanceWhenLoaded
         if (autoQueueJob?.isActive == true) return
+        lastAutoQueueAttemptMs = android.os.SystemClock.elapsedRealtime()
         val genId = queueGenerationId.get()
         autoQueueJob = scope.launch {
             try {
-                val tracks = withContext(Dispatchers.IO) {
-                    withTimeoutOrNull(5000L) { com.auralis.music.data.network.LocalizedContent.run { radioClient.getRadioTracks(seed.id, seed.artist, seed.title) } } ?: emptyList()
+                // Resolve playback first: imported song IDs may only then have a YouTube radio seed.
+                streamResolveJob?.join()
+                ensureActive()
+                val batch = withContext(Dispatchers.IO) {
+                    com.auralis.music.domain.recommendations.RelatedQueueLoader.load(seed, queueManager.state.queue,
+                        radio = { song -> com.auralis.music.data.network.LocalizedContent.run {
+                            radioClient.getRadioTracks(AudioStreamResolver.getMatchedVideoId(song.id) ?: song.id, song.artist, song.title)
+                        } },
+                        artistSongs = { artist -> radioClient.search("$artist songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs })
                 }
                 ensureActive()
-                if (!runtimeSettings.autoLoadMore || queueGenerationId.get() != genId ||
-                    queueManager.state.isUserQueue || isGuestListenTogether.value) return@launch
-
-                val existingIds = queueManager.state.queue.map { it.id }.toSet()
-                var uniqueTracks = tracks.filter { it.id !in existingIds && it.id != seed.id }
-
-                if (uniqueTracks.size < 14) {
-                    val fallbackCandidates = withContext(Dispatchers.IO) {
-                        try {
-                            val candidates = radioHistory.getRecentHeavyRotation() +
-                                radioHistory.getHistory().first().map { it.track } + radioHistory.getLikedSeeds()
-                            val fromHistory = candidates.filter { it.id != seed.id && it.id !in existingIds && it.id !in uniqueTracks.map { u -> u.id } }
-                            if (fromHistory.isNotEmpty()) {
-                                fromHistory.shuffled().take(14 - uniqueTracks.size)
-                            } else {
-                                withTimeoutOrNull(2500L) {
-                                    radioClient.search("${seed.artist} songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS)
-                                        .songs.filter { it.id != seed.id && it.id !in existingIds && it.id !in uniqueTracks.map { u -> u.id } }
-                                        .take(14 - uniqueTracks.size)
-                                } ?: emptyList()
-                            }
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    }
-                    uniqueTracks = uniqueTracks + fallbackCandidates
+                if (!canExtendQueue() || queueGenerationId.get() != genId) return@launch
+                if (queueManager.state.currentTrack?.id != seed.id) {
+                    lastAutoQueueAttemptMs = 0L
+                    return@launch
                 }
-
-                val batch = uniqueTracks.take(14)
-                if (batch.isNotEmpty()) {
-                    appendTracks(batch)
-                    Log.d("AuralisPlayback", "[AutoRadio] Appended ${batch.size} tracks to queue. New queueSize=${queueManager.state.queue.size}")
-                }
-
+                val fresh = com.auralis.music.domain.recommendations.RelatedQueueLoader.fresh(seed, batch, queueManager.state.queue)
+                if (fresh.isNotEmpty()) appendTracks(fresh)
                 if (advanceAfterAutoLoad) {
-                    advanceAfterAutoLoad = false
                     val nextTrack = queueManager.advanceNext()
                     if (nextTrack != null) {
+                        advanceAfterAutoLoad = false
                         _queueState.value = queueManager.state
                         play(nextTrack, initialSeekMs = 0L)
                         syncUpcomingGaplessTrack()
                         persistQueue()
                     } else {
-                        pause()
+                        _isBuffering.value = true
+                        _playbackError.value = "No related songs available yet. Retrying…"
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w("AuralisPlayback", "[AutoRadio] Queue extension failed: ${e.message}")
-                if (advanceAfterAutoLoad) pause()
-            } finally {
-                if (coroutineContext[Job] == autoQueueJob) advanceAfterAutoLoad = false
+                Log.w("AuralisPlayback", "[AutoRadio] Queue extension failed; retrying: ${e.message}")
             }
         }
     }
@@ -1190,7 +1363,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val wasEnabled = isGaplessEnabled
         isGaplessEnabled = enabled
         Log.d("AuralisPlayback", "[Settings] Gapless playback set to: $enabled")
-        if (!enabled && isUsingExoPlayer) {
+        if (!enabled && !runtimeSettings.crossfadeEnabled && !runtimeSettings.automixEnabled && isUsingExoPlayer) {
             if (exoPlayer.mediaItemCount > 1) {
                 exoPlayer.removeMediaItem(1)
                 enqueuedNextTrack = null
@@ -1332,6 +1505,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
      * it and everyone starts from the very beginning together. [releaseHeldStart] starts it.
      */
     fun holdStartForRoom() {
+        transitionController?.cancel()
         roomHoldActive = true
         syncWantsPlay = false
         if (streamResolveJob?.isActive == true) return // it will load paused
@@ -1483,6 +1657,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun syncPause() {
+        transitionController?.cancel()
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncPause from host")
         syncWantsPlay = false
         if (isUsingExoPlayer) {
@@ -1494,6 +1669,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun syncSeek(positionMs: Long) {
+        transitionController?.cancel()
         val bounded = positionMs.coerceAtLeast(0L)
         _playbackPositionMs.value = bounded
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncSeek from host: ${bounded}ms")
@@ -1513,7 +1689,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         startIndex: Int = 0,
         isUserQueue: Boolean = false,
         initialPositionMs: Long = 0L,
-        preserveQueueSource: Boolean = false
+        preserveQueueSource: Boolean = false,
+        keepQueueOrder: Boolean = false
     ) {
         if (isGuestListenTogether.value) {
             Log.d("AuralisPlayback", "[AuralisAudioPlayer] playTrack blocked - user is listener in Listen Together room")
@@ -1529,7 +1706,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         // Signed in while another device of the account plays: the pick plays there.
         if (connect(com.auralis.music.data.connect.ConnectIntent.Load(newQueue.ifEmpty { listOf(track) }, if (newQueue.isEmpty()) 0 else startIndex, connectContext))) return
         val isSingleSongSelection = !preserveQueueSource && !isUserQueue && (newQueue.isEmpty() || newQueue.size == 1)
-        if (isSingleSongSelection) {
+        if (!preserveQueueSource && (isSingleSongSelection || newQueue.map { it.id } != queueManager.state.queue.map { it.id })) {
+            lastAutoQueueAttemptMs = 0L
             queueGenerationId.incrementAndGet()
             autoQueueJob?.cancel()
             advanceAfterAutoLoad = false
@@ -1554,14 +1732,14 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
         val qState = if (isSameQueue && preserveQueueSource) {
-            queueManager.selectIndex(targetIndex, retainUnplayed = !isGuestListenTogether.value)
-        } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue, isUserQueue = isUserQueue)
+            queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder && !isGuestListenTogether.value)
+        } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = isUserQueue, keepShuffle = runtimeSettings.permanentShuffle)
         _queueState.value = qState
 
         play(track, initialSeekMs = initialPositionMs)
         syncUpcomingGaplessTrack()
         persistQueue()
-        if (isSingleSongSelection && runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+        if (canExtendQueue() && com.auralis.music.domain.recommendations.AutoQueuePolicy.needsRefill(queueManager.state)) {
             requestAutoQueueExtension()
         }
     }
@@ -1632,6 +1810,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         }
         if (connect(com.auralis.music.data.connect.ConnectIntent.Pause)) return
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] pause() called (isUsingExo=$isUsingExoPlayer, track=${_currentTrack.value?.title})")
+        if (advanceAfterAutoLoad) _isBuffering.value = false
+        advanceAfterAutoLoad = false
         roomHoldActive = false
         syncWantsPlay = false
         if (isUsingExoPlayer) {
@@ -1678,6 +1858,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             return
         }
         if (connect(com.auralis.music.data.connect.ConnectIntent.Seek(positionMs.coerceAtLeast(0L)))) return
+        transitionController?.cancel()
         val bounded = positionMs.coerceAtLeast(0L)
         _playbackPositionMs.value = bounded
         roomActionObserver?.invoke(com.auralis.music.data.sync.GuestCommand(com.auralis.music.data.sync.GuestCommand.SEEK, positionMs = bounded))
@@ -1824,14 +2005,15 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 play(nextTrack, initialSeekMs = 0L)
                 syncUpcomingGaplessTrack()
                 persistQueue()
-                if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue && queueManager.isNearEnd(4)) {
+                if (canExtendQueue() && queueManager.isNearEnd(4)) {
                     requestAutoQueueExtension()
                 }
                 return true
             }
         }
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] next() reached the end of the queue")
-        if (runtimeSettings.autoLoadMore && !queueManager.state.isUserQueue) {
+        continueAfterListEnded()
+        if (canExtendQueue()) {
             requestAutoQueueExtension(advanceWhenLoaded = true)
         } else {
             pause()
@@ -2011,6 +2193,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun stop() {
+        transitionController?.cancel()
         syncWantsPlay = false
         autoQueueJob?.cancel()
         advanceAfterAutoLoad = false
@@ -2028,12 +2211,57 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         youTubeEngine.stop()
     }
 
+    /** Stats for nerds. Reads the player, so call it on the main thread. */
+    fun playbackSignal(): PlaybackSignal {
+        // A song restored after a restart stays paused and unloaded until play is pressed. The web
+        // engine plays YouTube too, but reports none of these figures.
+        if (!isUsingExoPlayer) {
+            return PlaybackSignal(source = if (_isPlaying.value) SignalSource.YOUTUBE else SignalSource.NOT_STARTED)
+        }
+        val item = exoPlayer.currentMediaItem
+        val uri = item?.localConfiguration?.uri
+        val url = uri?.toString().orEmpty()
+        val source = PlaybackSignals.sourceOf(url)
+        val format = exoPlayer.audioFormat
+        val durationMs = exoPlayer.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+        val fileBytes = uri?.takeIf { it.scheme == "file" }?.path?.let { java.io.File(it).length() }
+        return PlaybackSignal(
+            source = source,
+            mediaId = item?.mediaId,
+            itag = if (source == SignalSource.YOUTUBE) PlaybackSignals.itagOf(url) else null,
+            codec = PlaybackSignals.codecName(format?.sampleMimeType),
+            kbps = PlaybackSignals.bitrateOf(url, durationMs, fileBytes, format?.bitrate ?: -1),
+            sampleRateHz = format?.sampleRate?.takeIf { it > 0 },
+            channels = format?.channelCount?.takeIf { it > 0 },
+            decoder = signalDecoder,
+            outputBits = signalOutputBits,
+            outputDevice = activeOutputName(),
+            bufferedMs = exoPlayer.totalBufferedDuration,
+            networkKbps = if (source == SignalSource.DOWNLOAD) null else signalNetworkKbps,
+            underruns = signalUnderruns,
+            speed = exoPlayer.playbackParameters.speed
+        )
+    }
+
+    private fun activeOutputName(): String? {
+        val speaker = appContext.getString(com.auralis.music.R.string.stats_device_speaker)
+        if (_isSpeakerForced.value) return speaker
+        val manager = appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return null
+        val outputs = manager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+        val wireless = setOf(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+        val wired = setOf(android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_HEADSET)
+        val device = outputs.firstOrNull { it.type in wireless } ?: outputs.firstOrNull { it.type in wired }
+            ?: return speaker
+        return device.productName?.toString()?.takeIf { it.isNotBlank() }
+    }
+
     fun getOrCreateWebView(ctx: Context): View {
         _needsWebView.value = true
         return youTubeEngine.getOrCreateWebView(ctx)
     }
 
     fun release() {
+        transitionController?.release()
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] release() called")
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         appContext.contentResolver.unregisterContentObserver(mediaVolumeObserver)

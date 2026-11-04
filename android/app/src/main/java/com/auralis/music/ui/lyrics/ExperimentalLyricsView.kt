@@ -1,5 +1,6 @@
 package com.auralis.music.ui.lyrics
 
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -756,8 +757,11 @@ fun ExperimentalLyricsView(
             if (activeIndicatorIndex >= 0) {
                 activeIndicatorIndex
             } else {
+                // The newest line sung: following the oldest held the list still through an
+                // overlap, then dropped 2-3 lines at once when that line ended.
+                val anchorIdx = activeLineIndices.filter { effectiveLines.getOrNull(it)?.isBackground == false }.maxOrNull() ?: curIdx
                 val lineIdx = mergedLyricsList.indexOfFirst {
-                    it is ExperimentalLyricsListItem.Line && it.index == curIdx
+                    it is ExperimentalLyricsListItem.Line && it.index == anchorIdx
                 }
                 if (lineIdx >= 0) lineIdx else 0
             }
@@ -790,6 +794,21 @@ fun ExperimentalLyricsView(
         }
     }
 
+    // Glass needs something to bend: the list, recorded only while the button shows.
+    val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
+    val lyricsGlide = remember { LyricsScrollGlide() }
+    val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
+    // Read when a scroll runs: the follow-the-song effect keeps the scroll it started with, and that
+    // one can be from while this tab was still hidden, which made every line jump.
+    val lyricsOnScreenNow = androidx.compose.runtime.rememberUpdatedState(lyricsOnScreen)
+    // The tab stays composed while hidden, so leaving it has to end a selection itself.
+    LaunchedEffect(lyricsOnScreen) {
+        if (!lyricsOnScreen) {
+            isSelectionModeActive = false
+            selectedIndices.clear()
+        }
+    }
     val centerActiveLine: suspend (targetIndex: Int, animate: Boolean) -> Unit = { targetIndex, animate ->
         if (targetIndex in mergedLyricsList.indices) {
             isProgrammaticScroll = true
@@ -853,12 +872,8 @@ fun ExperimentalLyricsView(
                         if (kotlin.math.abs(scrollDelta) > 1.5f) {
                             try {
                                 // Even short corrections should ease into place instead of snapping.
-                                if (animate) {
-                                    val durationMs = (220 + kotlin.math.abs(scrollDelta) / 10f).toInt().coerceIn(220, 360)
-                                    listState.animateScrollBy(
-                                        value = scrollDelta,
-                                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
-                                    )
+                                if (animate && lyricsOnScreenNow.value) {
+                                    lyricsGlide.glide(listState, scrollDelta)
                                 } else {
                                     listState.scrollBy(scrollDelta)
                                 }
@@ -997,10 +1012,20 @@ fun ExperimentalLyricsView(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
+                    .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                     .fillMaxSize()
                     .stationaryLyricsBlur(
                         enabled = standardLyricsBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && !isSelectionModeActive,
-                        focusFraction = LYRICS_ANCHOR_RATIO
+                        focusFraction = LYRICS_ANCHOR_RATIO,
+                        clearHalfHeightPx = {
+                            val info = listState.layoutInfo
+                            val focus = info.viewportStartOffset + (info.viewportEndOffset-info.viewportStartOffset)*LYRICS_ANCHOR_RATIO
+                            info.visibleItemsInfo.filter { item ->
+                                val row = mergedLyricsList.getOrNull(item.index)
+                                row is ExperimentalLyricsListItem.Line && row.index in activeLineIndices
+                            }.maxOfOrNull { item -> maxOf(kotlin.math.abs(item.offset-focus),
+                                kotlin.math.abs(item.offset+item.size-focus)) + with(density) { 28.dp.toPx() } } ?: 0f
+                        }
                     )
                     .fadingEdge(top = 44.dp, bottom = LYRICS_FADE_BOTTOM_DP)
                     .nestedScroll(lyricsNestedScrollConnection),
@@ -1130,7 +1155,7 @@ fun ExperimentalLyricsView(
                                         }
                                     },
                                     onLongClick = {
-                                        if (lyrics?.provider != com.auralis.music.domain.model.LyricsProvider.SPICY_LYRICS && !isSelectionModeActive) {
+                                        if (!isSelectionModeActive) {
                                             isSelectionModeActive = true
                                             selectedIndices.add(index)
                                         }
@@ -1203,29 +1228,7 @@ fun ExperimentalLyricsView(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF1E1B18).copy(alpha = 0.92f))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(32.dp))
-                    .clickable(onClick = resyncLyrics)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = str(R.string.re_sync),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = str(R.string.re_sync),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            LyricsResyncButton(resyncGlass, resyncLyrics)
         }
 
         // Floating Action Bar for Selected Lyrics
@@ -1344,7 +1347,8 @@ internal fun ExperimentalLyricsLine(
     // Speaker-aware MetroLyrics layout (7.7). Only lines the source attributed to a vocalist in
     // a multi-speaker song carry a side; every other line (and every line of a song without
     // multi-speaker metadata) keeps the original positioning below, unchanged.
-    val isSpicyStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation) == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
+    val selectedStyle = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val isSpicyStyle = selectedStyle == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
     val speakerSide = speakerStyle?.side
     val agent = if (useAgentSides) line.agent else null
     val alignBackgroundCentered = line.isBackground && useAgentSides
@@ -1364,7 +1368,8 @@ internal fun ExperimentalLyricsLine(
             onLongClick = onLongClick
         )
         .background(
-            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent
+            if (isSelected && isSelectionModeActive) Color.White.copy(alpha = 0.22f) else Color.Transparent,
+            RoundedCornerShape(16.dp)
         )
         .then(
             if (speakerSide != null) {
@@ -1477,7 +1482,7 @@ internal fun ExperimentalLyricsLine(
 
             // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
-            val blurModifier = if (standardBlur && animatedBlur > 0.1f) {
+            val blurModifier = if (standardBlur && !((isSpicyStyle) && isActiveLine) && animatedBlur > 0.1f) {
                 Modifier.blur(animatedBlur.dp, edgeTreatment = androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded)
             } else Modifier
 
@@ -1642,8 +1647,16 @@ internal fun ExperimentalLyricsLine(
         if (line.isBackground) {
             AnimatedVisibility(
                 visible = bgVisible,
-                enter = fadeIn(tween(durationMillis = 250, delayMillis = 100)),
-                exit = fadeOut(tween(250))
+                // The room animates with the text: a fade alone let the height pop when it ended,
+                // and every line below jumped with it.
+                enter = androidx.compose.animation.expandVertically(
+                    animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+                    expandFrom = Alignment.Top
+                ) + fadeIn(tween(durationMillis = 280, delayMillis = 100)),
+                exit = androidx.compose.animation.shrinkVertically(
+                    animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                    shrinkTowards = Alignment.Top
+                ) + fadeOut(tween(durationMillis = 260))
             ) {
                 LineContent()
             }

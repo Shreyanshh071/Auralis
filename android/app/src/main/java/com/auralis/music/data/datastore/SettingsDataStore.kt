@@ -28,7 +28,12 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
         val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
         val GAPLESS_PLAYBACK = booleanPreferencesKey("gapless_playback")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val CROSSFADE_ENABLED = booleanPreferencesKey("crossfade_enabled")
+        val CROSSFADE_SECONDS = floatPreferencesKey("crossfade_seconds")
+        val AUTOMIX_ENABLED = booleanPreferencesKey("automix_enabled")
+        val SKIP_GAPLESS_ALBUMS = booleanPreferencesKey("skip_gapless_albums")
         val PERSISTENT_QUEUE = booleanPreferencesKey("persistent_queue")
+        val PERMANENT_SHUFFLE = booleanPreferencesKey("permanent_shuffle")
         val AUTO_LOAD_MORE = booleanPreferencesKey("auto_load_more")
         val STOP_MUSIC_ON_TASK_CLEAR = booleanPreferencesKey("stop_music_on_task_clear")
         val PAUSE_ON_MEDIA_MUTE = booleanPreferencesKey("pause_on_media_mute")
@@ -59,7 +64,12 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
                 audioQuality = parseEnum(preferences[AUDIO_QUALITY], AudioQuality.HIGH),
                 gaplessPlayback = preferences[GAPLESS_PLAYBACK] ?: true,
                 skipSilence = preferences[SKIP_SILENCE] ?: false,
+                crossfadeEnabled = preferences[CROSSFADE_ENABLED] ?: false,
+                crossfadeSeconds = (preferences[CROSSFADE_SECONDS] ?: 5f).let { if (it.isFinite()) it.coerceIn(1f, 12f) else 5f },
+                automixEnabled = preferences[AUTOMIX_ENABLED] ?: false,
+                skipGaplessAlbums = preferences[SKIP_GAPLESS_ALBUMS] ?: true,
                 persistentQueue = preferences[PERSISTENT_QUEUE] ?: true,
+                permanentShuffle = preferences[PERMANENT_SHUFFLE] ?: false,
                 autoLoadMore = preferences[AUTO_LOAD_MORE] ?: true,
                 stopMusicOnTaskClear = preferences[STOP_MUSIC_ON_TASK_CLEAR] ?: true,
                 pauseOnMediaMute = preferences[PAUSE_ON_MEDIA_MUTE] ?: false,
@@ -83,7 +93,12 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
             preferences[AUDIO_QUALITY] = settings.audioQuality.name
             preferences[GAPLESS_PLAYBACK] = settings.gaplessPlayback
             preferences[SKIP_SILENCE] = settings.skipSilence
+            preferences[CROSSFADE_ENABLED] = settings.crossfadeEnabled && !settings.automixEnabled
+            preferences[CROSSFADE_SECONDS] = settings.crossfadeSeconds.let { if (it.isFinite()) it.coerceIn(1f, 12f) else 5f }
+            preferences[AUTOMIX_ENABLED] = settings.automixEnabled
+            preferences[SKIP_GAPLESS_ALBUMS] = settings.skipGaplessAlbums
             preferences[PERSISTENT_QUEUE] = settings.persistentQueue
+            preferences[PERMANENT_SHUFFLE] = settings.permanentShuffle
             preferences[AUTO_LOAD_MORE] = settings.autoLoadMore
             preferences[STOP_MUSIC_ON_TASK_CLEAR] = settings.stopMusicOnTaskClear
             preferences[PAUSE_ON_MEDIA_MUTE] = settings.pauseOnMediaMute
@@ -115,12 +130,38 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
         dataStore.edit { it[SKIP_SILENCE] = enabled }
     }
 
+    suspend fun setCrossfadeEnabled(enabled: Boolean) {
+        dataStore.edit {
+            it[CROSSFADE_ENABLED] = enabled
+            if (enabled) it[AUTOMIX_ENABLED] = false
+        }
+    }
+
+    suspend fun setAutomixEnabled(enabled: Boolean) {
+        dataStore.edit {
+            it[AUTOMIX_ENABLED] = enabled
+            if (enabled) it[CROSSFADE_ENABLED] = false
+        }
+    }
+
+    suspend fun setCrossfadeSeconds(seconds: Float) {
+        if (seconds.isFinite()) dataStore.edit { it[CROSSFADE_SECONDS] = seconds.coerceIn(1f, 12f) }
+    }
+
+    suspend fun setSkipGaplessAlbums(enabled: Boolean) {
+        dataStore.edit { it[SKIP_GAPLESS_ALBUMS] = enabled }
+    }
+
     suspend fun setSpatialAudio(enabled: Boolean) {
         dataStore.edit { it[SPATIAL_AUDIO] = enabled }
     }
 
     suspend fun setPersistentQueue(enabled: Boolean) {
         dataStore.edit { it[PERSISTENT_QUEUE] = enabled }
+    }
+
+    suspend fun setPermanentShuffle(enabled: Boolean) {
+        dataStore.edit { it[PERMANENT_SHUFFLE] = enabled }
     }
 
     suspend fun setAutoLoadMore(enabled: Boolean) {

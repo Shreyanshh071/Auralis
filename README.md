@@ -17,7 +17,7 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [What's New](#-whats-new-in-111) • [Features](#-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -26,82 +26,11 @@
 
 ---
 
-## 🆕 What's New in 1.1.2
+## 📦 Download
 
-### Added
+[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.2.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.2)
 
-- **Eight-page interactive app tour** with silent previews of the real player, lyrics styles and Home layout, alongside audio quality, permissions and region/language choices.
-- **Liquid glass comparison** — switch between solid and glass controls in the tour. The Home preview includes enough songs to scroll, collapse the mini-player and dock, and expand them again. Your appearance choice is saved.
-- **Animated tour introduction** — the Auralis mark draws using the startup logo's paths. The brown-and-gold background starts with a fast rotation, slows as the logo finishes, and gradually reveals its contour lines. Page swipes briefly speed up the background.
-- **Disconnect confirmation** so an accidental tap does not immediately sign you out.
-
-### Fixed
-
-- **Tour appearing before sign-in** — newcomers enter the tour after authentication; account restoration is checked before deciding whether a returning listener needs onboarding.
-- **Laggy tour page changes** — finger dragging and Next navigation now use the same optimized pager rendering. Quick reversals, held drags and cancelled swipes keep the incoming preview visible.
-- **Screens showing through account pages** — profile and settings navigation keeps an opaque backdrop while pages move and fade.
-- **Sign-out waiting on the network** — disconnecting clears the local account state immediately instead of waiting for a cloud upload. Local changes remain associated with their account for a later sync.
-- **Lyrics glow artifacts** — Fluid highlighting no longer redraws fragments of adjacent words, and MetroLyrics highlights reuse the correct shaped glyphs instead of a mismatched font.
-- **Lyrics after seeking** — seek notifications are sent after the playback clock has moved, reducing incorrect re-sync positions when jumping within a song.
-
-### Improved
-
-- **Touch responsiveness** — tour previews are prepared ahead of page movement, hidden animations pause, and cached page images avoid repeatedly rendering player effects during a drag. Slow and fast touchscreen swipes, direction changes, preview-area drags and cancellation have device-test coverage.
-- **Startup handoff** — the drawn logo stays visible until the first app frame is ready, with better handling of process restoration and activity recreation.
-- **Account and import screens** — refreshed Profile & Account, YouTube account and playlist-import layouts with clearer integration status and account actions.
-- **Seeking across connected devices** — Android and Windows publish explicit seeks promptly, apply incoming seek commands without waiting on unrelated state work, and prioritize the latest position during repeated scrubbing.
-- **Appearance preference consistency** — missing settings use the shared defaults while existing saved choices and legacy player settings remain supported.
-
-### Updated appearance defaults
-
-- **Liquid glass is off by default** and can be enabled in the tour or Appearance settings.
-- **Old player**, **New mini player** with a **Live Mesh** background, and **Spicy Lyrics** are the starting appearance choices. Landscape scaling is enabled.
-- **Swipe to remove a song from a playlist is off by default**. Top, weekly-most-played and monthly-most-played automatic playlists start hidden.
-
-These defaults apply when a preference has not been saved; they do not overwrite your existing appearance choices.
-
----
-
-## 🆕 What's New in 1.1.1
-
-### Fixed
-
-- **Background playback** — fixes for disappearing mini-player/media controls and offline queues switching away from downloaded playback.
-- **Spotify artwork** — existing Spotify release artwork is preserved during YouTube playback matching.
-- **Playlist reordering** — drag songs using the handle; holding the song title or artwork no longer starts reordering.
-- **Lyrics wording and timing** — preserves full wording and handles defective word timing more reliably.
-- **Account and room cleanup** — improved account deletion, listener membership/vote cleanup, and host room closure.
-
-### Added
-
-- **Playlist downloads** with progress, folder display and removal controls.
-- **Playlist order locking**, listening statistics and Speed Dial support.
-- **YouTube account and playlist picker** in the import screen.
-- **Listen Together cleanup retries** and warnings before alone/idle rooms close.
-
-### Improved
-
-- **Search and imports** — selected ranking improvements, stable playlist identity and identifiable Shorts filtering.
-- **Lyrics presentation** — scrolling, alignment, blur and re-sync improvements.
-- **Interface** — player, profile, playlist and floating notification updates.
-- **Account isolation** and cloud cleanup coordination.
-
-[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.1.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.1-rebuilt)
-
-### 📦 Current universal APK (~25 MB)
-The 1.1.1 APK supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
-
-## What's New in 1.1.0
-
-The biggest update so far. [Full release notes →](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.1.0)
-
-- **Stats that follow your account** — listening stats can be backed up when you're signed in and restored after a reinstall or on a new phone.
-- **Offline song cache** — cached songs can replay without another download; fully cached tracks can play without internet.
-- **Smarter search** — an album and a song sharing a name can appear as the Top result and under **Also matching**, based on relevance and available play counts.
-- **Rebuilt Listen Together** — hosts decide who can play, skip or seek; playback coordinates song starts across the room; optional Allow / Decline for guests' picks.
-- **Word-by-word lyrics** — smoother karaoke highlighting, optional Latin-script transliteration when available, and improved timing after you tap a line.
-- **Smoother screens** — reduced launch flashing, faster Home artwork, sections that unfold into place, and a new wavy volume dial.
-- **Remove from queue**, a **Discord profile** in Discord Integration, and dozens of fixes.
+The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
 
 ---
 
@@ -115,8 +44,8 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
         <sub><b>Now Playing</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/lyrics.jpg" alt="Synced Lyrics" width="100%" /><br />
-        <sub><b>Synced Karaoke Lyrics</b></sub>
+        <img src="docs/screenshots/lyrics.jpg" alt="Karaoke lyrics with word-by-word sync" width="100%" /><br />
+        <sub><b>Karaoke Lyrics · Word-by-Word Sync</b></sub>
       </td>
       <td align="center" width="25%">
         <img src="docs/screenshots/artist.jpg" alt="Artist Profile" width="100%" /><br />
@@ -137,12 +66,12 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
         <sub><b>Search & Discovery</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/account_sync.jpg" alt="Cloud Sync & Importer" width="100%" /><br />
-        <sub><b>Playlist Importers</b></sub>
+        <img src="docs/screenshots/library.jpg" alt="Library" width="100%" /><br />
+        <sub><b>Library</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/discord.jpg" alt="Discord Rich Presence" width="100%" /><br />
-        <sub><b>Discord Presence</b></sub>
+        <img src="docs/screenshots/wrapped.jpg" alt="Auralis Wrapped" width="100%" /><br />
+        <sub><b>Auralis Wrapped</b></sub>
       </td>
     </tr>
     <tr>
@@ -151,8 +80,8 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
         <sub><b>Listening Stats</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/new_player.jpg" alt="New Player" width="100%" /><br />
-        <sub><b>New Player</b></sub>
+        <img src="docs/screenshots/new_player.jpg" alt="Immersive Player" width="100%" /><br />
+        <sub><b>Immersive Player</b></sub>
       </td>
       <td align="center" width="25%">
         <img src="docs/screenshots/new_player_lyrics.jpg" alt="Player with Lyrics" width="100%" /><br />
@@ -168,58 +97,65 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-### 🌐 Listen Together (Real-Time Group Listening)
-- **Synchronized Playback Rooms**: Join with a 6-character code and listen together in real time. The host briefly holds each new song for guests to load, subject to a timeout, then coordinates playback.
-- **Host Permissions**: Choose whether guests may control playback (play, pause, seek) and whether they may play or skip songs, with optional Allow / Decline approval for their picks.
-- **Dedicated Host Controls & Listener Protection**: Prevents accidental desync by blocking listener playback alterations from Bluetooth earphones, TWS touch gestures, or lockscreen controls while keeping volume independent.
-- **Smart Song Recommendations & Voting**: Room members can search, recommend, and upvote songs in a shared room queue.
-- **Member Presence Alerts**: A small notification when friends join, leave or disconnect.
+<table>
+<tr>
+<td valign="top" width="50%">
 
-### 🎨 Visual Excellence & Modern Aesthetics
-- **Artwork-Coloured Player**: The player background takes its colours from the current song's artwork.
-- **Frosted-Glass Sheets & Controls**: A blurred glass effect (Haze) on player sheets, dialogs and popups.
-- **Spring Animations & High Refresh Rate**: Spring-based motion throughout, with support for 90/120 Hz displays and cached artwork for smooth scrolling.
-- **High-Resolution Artwork & Artist Photos**: Album covers up to 1200×1200, with Wikipedia photos filled in for artists who have no picture (e.g. Kanye West).
+#### Playback
 
-### 📜 Multi-Engine Synced Lyrics Ecosystem
-- **Word-by-Word Karaoke Lyrics**: Timed lyrics can light up word by word; Hindi/Urdu lyrics can be shown in Latin script when transliteration is available.
-- **Multi-Source Lyrics**: Line-by-line and word-by-word synced lyrics, when available, from **Musixmatch**, **LRCLIB**, **KuGou**, **AMLL**, and **YouTube Music**.
-- **AI Translation & Romanization**: One-tap AI translation to English and Latin-script romanization, including Pinyin and Romaji, for supported tracks.
-- **Spotify-Style Lyric Card Sharing**: Generate and export customizable aesthetic lyric cards directly to social media.
-- **Offline Caching**: Lyrics are saved once fetched, so they're available offline.
+- **Play anything available on YouTube Music** — search, browse and listen.
+- **Offline downloads** — save songs and whole playlists.
+- **Offline song cache** — songs you've played can replay without internet, up to a size you choose.
+- **Gapless playback** and **Spatial Audio**.
+- **Persistent queue** — your queue is still there when you reopen the app.
+- **Endless listening** — more songs load automatically when your queue is about to finish.
+- **Audio quality options** — choose Auto, High, Standard or Data Saver.
+- **Sleep timer** to stop playback when you're done.
+- **Background playback** with lock-screen and notification controls.
 
-### 🎧 Playback
-- **Background Playback**: Keeps playing with the screen off, using a foreground `MediaSessionService` with wake and Wi-Fi locks.
-- **Android 13/14 Quick Settings & Lock-Screen Deck**: Native system media card featuring monochrome app badge, interactive scrub seekbar, previous/next controls, like/heart toggle, and repeat modes.
-- **Offline Song Cache**: Cached audio is kept on your phone up to a size you choose; fully cached tracks can replay offline.
-- **Offline Downloads & Local Library**: Download songs and whole playlists for offline playback, with Auto / High / Low audio quality (High is Opus up to ~160 kbps).
-- **Gapless Playback & Spatial Audio**: The next song is preloaded for gapless transitions, and a Spatial Audio switch widens the soundstage.
+#### Discovery
 
-### 🔍 Discovery, Search & Music Recognition
-- **Search & Autocomplete**: Suggestions as you type, across songs, albums, artists and playlists.
-- **Ranked Search**: Results use query relevance and available play counts. An album and a song with the same name can be weighed against each other, with the runner-up under **Also matching**.
-- **Album Metadata Resolution**: "View album" tries to find a song's original release instead of a compilation and identifies standalone singles where metadata allows.
-- **Music & Voice Recognition**: Identify songs playing around you using built-in Shazam-compatible acoustic fingerprinting.
-- **Taste Profiler & Speed Dial**: Personalized home feed tailored to your real listening habits, heavy rotation, and top-played artists.
-- **Artist Pages**: Artist bios, subscriber counts, top tracks, albums, singles, and related artists where the source provides them.
+- **Smart search** — suggestions as you type, ranked by relevance and play counts.
+- **Music recognition** — identify songs playing around you.
+- **Personal Home and Speed Dial** — built from your real listening.
+- **Artist and album pages** — top songs, albums, singles and related artists.
 
-### ☁️ Cloud Sync & Playlist Importer
-- **Playlist Import**: Paste a public Spotify or YouTube playlist link to add it to your library.
-- **Google Account & Firebase Sync**: Back up your liked songs, playlists, saved artists and listening stats; restore them after signing in on a new phone when a backup is available.
+#### Together & Accounts
 
-### 📊 Listening Stats
-- **Real Listening Time**: Only what you actually heard counts; skips don't add a whole song.
-- **Top Songs & Artists**: Weekly, monthly and yearly views, with duplicate-upload matching to reduce split counts for the same song.
+- **Listen Together** — join a room with a code and hear the same song with friends.
+- **Auralis Connect** — move your music between your phone and PC, and control playback from either one. The PC app is coming soon.
+- **Spotify integration** — sign in to bring over your playlists and Liked Songs.
+- **Playlist import** for Spotify and YouTube Music.
+- **Discord Rich Presence** — show your song, artist, cover and progress.
+- **Listening stats** — real listening time, top songs, top artists and Wrapped.
+- **Cloud sync** — back up your likes, playlists, artists, stats and settings with your Auralis account.
 
-### 🎮 Discord Rich Presence
-- **Show What You're Playing**: Song, artist, album art and progress on your Discord profile via Discord's official Social SDK.
-- **Fully Customizable**: Activity name, details, images, status and update interval; seeking updates Discord right away.
+</td>
+<td valign="top" width="50%">
 
-### 🔄 In-App Direct OTA Updater
-- **Update Notifications**: Checks GitHub Releases and tells you when a new version is out.
-- **In-App Background Download & Install**: Download APK updates with a progress bar, then open Android's installer. Android may ask you to allow installs from this app and confirm the update.
+#### Lyrics
+
+- **Syllable-synced lyrics** — every word and syllable lights up as it's sung, with fluid animations that go well beyond standard animated lyrics. Sync and motion at this level are rarely found in a music player.
+- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com), [Genius](https://genius.com) and [YouTube Music](https://music.youtube.com).
+
+- **AI translation and romanization**, including Pinyin and Romaji, for supported songs.
+- **Lyric cards** — share your favourite lines as images.
+- **Offline lyrics** — lyrics are saved once fetched.
+
+#### Experience
+
+- **Liquid Glass mode** — a see-through glass look for the dock, buttons, sheets and menus on dark themes.
+- **Animated album canvas** — motion artwork on the now-playing screen.
+- **Three player designs** — New, Old and Immersive.
+- **Artwork-driven colours** — the player takes its colours from the current song.
+- **High-resolution artwork** and smooth motion on 90/120 Hz displays.
+- **In-app updates** — download new versions right inside Auralis.
+
+</td>
+</tr>
+</table>
 
 ---
 
@@ -234,7 +170,6 @@ The biggest update so far. [Full release notes →](https://github.com/Shreyansh
 | **Networking & Extraction** | [OkHttp 4](https://square.github.io/okhttp/), Custom InnerTube Web Client, NewPipe Extractor |
 | **Backend & Sync** | [Firebase Auth](https://firebase.google.com/products/auth), [Cloud Firestore](https://firebase.google.com/products/firestore), Google Sign-In |
 | **Discord** | [Discord Social SDK](https://discord.com/developers/docs/discord-social-sdk/overview) (Rich Presence) |
-| **Lyrics Providers** | Musixmatch, LRCLIB, KuGou, AMLL, YouTube Music |
 
 ---
 
@@ -296,7 +231,7 @@ The app itself is native **Jetpack Compose** and **AndroidX Media3**, shrunk wit
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-Download `Auralis-v1.1.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
+Download `Auralis-v1.1.3.2-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
 </details>
 
 <details>
@@ -309,6 +244,44 @@ Fresh installs start with a starter set of songs from curated artists (*Tame Imp
 <br />
 
 > 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs.
+
+---
+
+## 🙏 Credits
+
+Auralis is built on the work of many people. Thank you to all of them.
+
+**Lyrics**
+
+- **[Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics)** by Spikerko — syllable-synced lyrics, and the inspiration for the Spicy lyric style in Auralis.
+- **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**, **[Unison](https://unison.boidu.dev)**, **[LyricsPlus](https://github.com/ibratabian17/LyricsPlus)** and **[Paxsenix](https://lyrics.paxsenix.org)** — word-synced lyrics.
+- **[AMLL TTML Database](https://github.com/amll-dev/amll-ttml-db)** — community-made word-synced lyrics.
+- **[LRCLIB](https://lrclib.net)** — open, community-synced lyrics.
+- **[Musixmatch](https://www.musixmatch.com)**, **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)**, **[Genius](https://genius.com)** and **[YouTube Music](https://music.youtube.com)** — lyrics.
+
+**Music & playback**
+
+- **[NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor)** — YouTube Music streams and metadata.
+- **[Zemer Cipher](https://github.com/ZemerTeam/zemer-cipher)** by alltechdev and the Zemer team — age-restricted downloads, along with the upstream work credited there, including yt-dlp, NewPipe and BgUtils.
+- **[Media3 / ExoPlayer](https://github.com/androidx/media)** — audio and animated cover playback.
+- **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
+- **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the JioSaavn 320kbps audio in High Quality (GPL-3.0).
+- **[Vivi Music’s LyricsUtils](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/lyrics/LyricsUtils.kt)** — reference for offline dictionary-based Japanese romanisation and background conversion (GPL-3.0).
+- **[Kuromoji](https://github.com/atilika/kuromoji)** — offline Japanese tokenisation and kanji readings (Apache-2.0).
+- **[ArchiveTune and its Automix fork](https://github.com/4nx3b/ArchiveTune/tree/main/app/src/main/kotlin/moe/rukamori/archivetune/playback/automix)** — Automix audio analysis, beat and energy planning, FFT helpers, and transition filtering adapted under GPL-3.0. The original notices are retained in the adapted files.
+- **shazam_identifier** by Shashwat and **Shazam** — music recognition.
+
+**Design & interface**
+
+- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation, motion references and Apple Music artist photo lookup (GPL-3.0).
+- **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
+
+**Services**
+
+- **[Discord Social SDK](https://discord.com/developers)** — Rich Presence.
+- **[Firebase](https://firebase.google.com)** — accounts, sync and Listen Together.
+
+All lyrics, artwork and trademarks belong to their respective owners.
 
 ---
 

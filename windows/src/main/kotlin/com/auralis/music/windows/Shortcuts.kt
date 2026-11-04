@@ -13,6 +13,7 @@ import java.awt.event.KeyEvent.VK_COMMA
 import java.awt.event.KeyEvent.VK_DOWN
 import java.awt.event.KeyEvent.VK_ESCAPE
 import java.awt.event.KeyEvent.VK_F
+import java.awt.event.KeyEvent.VK_I
 import java.awt.event.KeyEvent.VK_K
 import java.awt.event.KeyEvent.VK_L
 import java.awt.event.KeyEvent.VK_LEFT
@@ -42,6 +43,7 @@ interface ShortcutActions {
     fun openSettings() {}
     fun closeWindow() {}
     fun minimizeWindow() {}
+    fun openImmersive() {}
 }
 
 /**
@@ -64,6 +66,7 @@ interface ShortcutActions {
  * | Ctrl+P / ⌘P | Open / close the player |
  * | Ctrl+L / ⌘L | Player with lyrics |
  * | Ctrl+Q / ⌘U | Player with queue |
+ * | I | Immersive mode |
  * | Esc | Close the player, otherwise return to the previous page |
  */
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
@@ -120,6 +123,7 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
         VK_RIGHT -> actions.seekBy(step)
         VK_LEFT -> actions.seekBy(-step)
         VK_M -> actions.toggleMute()
+        VK_I -> actions.openImmersive()
         else -> return false
     }
     return true

@@ -49,7 +49,8 @@ internal class ConnectOverlayState(
         val lyrics = remoteLyrics.value
         local.value.withRemote(it, now()).copy(
             lyrics = lyrics.lyrics.takeIf { _ -> lyrics.currentTrack?.id == it.track.id },
-            isLoadingLyrics = lyrics.isLoadingLyrics && lyrics.currentTrack?.id == it.track.id
+            isLoadingLyrics = lyrics.isLoadingLyrics && lyrics.currentTrack?.id == it.track.id,
+            errorMessage = lyrics.errorMessage.takeIf { _ -> lyrics.currentTrack?.id == it.track.id }
         )
     } ?: local.value
     override val replayCache: List<PlayerUiState> get() = listOf(value)

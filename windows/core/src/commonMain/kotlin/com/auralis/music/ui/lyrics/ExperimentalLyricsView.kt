@@ -477,6 +477,21 @@ fun ExperimentalPendingSeekTarget.hasReached(positionMs: Long, nowMs: Long, play
  * - Uses kinetic word typography on genuine RichSync tracks.
  * - Preserves strict line illumination on LINE_SYNC without synthetic word pacing.
  */
+/** Active Spicy glyphs swell beyond their measured row; an offscreen texture clips that ink
+ * even with clip=false. Only the out-of-focus rows need a blur texture. */
+fun Modifier.lyricsBlurLayer(enabled: Boolean, activeSpicy: Boolean,
+    radius: androidx.compose.ui.unit.Density.() -> Float): Modifier =
+    if (!enabled || activeSpicy) this else this.graphicsLayer {
+        compositingStrategy = CompositingStrategy.Offscreen
+        val sigma = radius(this)
+        renderEffect = if (sigma > .1f) androidx.compose.ui.graphics.BlurEffect(sigma, sigma,
+            androidx.compose.ui.graphics.TileMode.Decal) else null
+        clip = false
+    }.drawWithContent {
+        drawRect(Color.Transparent, blendMode = BlendMode.Clear)
+        drawContent()
+    }
+
 @Suppress("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -550,8 +565,7 @@ fun ExperimentalLyricsView(
 
     val mergedLyricsList = remember(effectiveLines, playbackDurationMs, lyrics?.durationMs, appearance.lyricsAnimation) {
         val list = mutableListOf<ExperimentalLyricsListItem>()
-        val breaks = if (spicyStyle) spicyInterludeWindows(effectiveLines) else
-            instrumentalBreakWindows(effectiveLines, playbackDurationMs.takeIf { it > 0L } ?: lyrics?.durationMs)
+        val breaks = phoneInstrumentalBreaks(effectiveLines)
         effectiveLines.forEachIndexed { index, line ->
             list.add(ExperimentalLyricsListItem.Line(index, line))
             breaks[index]?.let { (start, end) ->
@@ -687,7 +701,7 @@ fun ExperimentalLyricsView(
                     activeLineIndices = forcedActive
                 }
             } else {
-                val initialActiveIndices = if (spicyStyle) spicyVocalTimeline.activeIndices(currentPos)
+                val initialActiveIndices = if (spicyStyle) spicyVocalTimeline.highlightedIndices(currentPos)
                     else findExperimentalActiveLineIndices(effectiveLines, currentPos)
 
                 // Expand to include paired lead/background lines
@@ -750,7 +764,7 @@ fun ExperimentalLyricsView(
     }
 
     // Lyrics for the same song can arrive in stages (cached/plain, then an interim synced
-    // copy, then the final word-synced upgrade) — each delivery is a new `lyrics` object even
+    // copy, then the final word-synced upgrade) â€” each delivery is a new `lyrics` object even
     // though the song hasn't changed. Resetting scroll state on every one of those snapped the
     // list back to the top and re-jumped to the current line each time, which is the visible
     // "freeze then jump" during loading. Only hard-reset when the song itself changes; let a
@@ -1491,17 +1505,9 @@ fun ExperimentalLyricsLine(
 
             // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
-            val blurModifier = if (standardBlur) {
-                Modifier.graphicsLayer {
-                    compositingStrategy = CompositingStrategy.Offscreen
-                    val radius = animatedBlur.value.dp.toPx()
-                    renderEffect = if (radius > .1f) androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Decal) else null
-                    clip = false
-                }.drawWithContent {
-                    drawRect(Color.Transparent, blendMode = BlendMode.Clear)
-                    drawContent()
-                }
-            } else Modifier
+            val blurModifier = Modifier.lyricsBlurLayer(standardBlur, (isSpicy) && isActiveLine) {
+                animatedBlur.value.dp.toPx()
+            }
 
             Column(
                 modifier = Modifier

@@ -1,6 +1,7 @@
 package com.auralis.music
 
 import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.BroadcastFrameClock
@@ -23,6 +24,99 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerTransitionMotionTest {
+    @Test
+    fun classicPanelLeavesTheWindowRatherThanStoppingBehindMiniPlayer() {
+        // Status/navigation insets and dock space are already included in these window bounds.
+        for (height in listOf(1280f, 2400f, 3200f)) {
+            for (collapsedHeight in listOf(96f, 240f, 380f)) {
+                val travel = PlayerTransitionMotion.sheetTravelDistance(height, collapsedHeight, true)
+                assertTrue("Collapsed classic panel must be outside the window", travel >= height)
+                assertEquals(height - collapsedHeight,
+                    PlayerTransitionMotion.sheetTravelDistance(height, collapsedHeight, false), 0f)
+            }
+        }
+    }
+
+    @Test
+    fun classicMiniPlayerWaitsForPanelToClearAndReturnsContinuously() {
+        val height = 2400f
+        val collapsedHeight = 320f
+        val miniHeight = 160f
+        fun alpha(p: Float) = PlayerTransitionMotion.classicMiniPlayerAlpha(p, height, collapsedHeight, miniHeight)
+        assertEquals(0f, alpha(1f), 0f)
+        assertEquals(0f, alpha(.3f), 0f) // Previously the mini player appeared over the sheet header here.
+        assertEquals(0f, alpha(collapsedHeight / height), .00001f)
+        assertEquals(.5f, alpha((collapsedHeight - miniHeight / 2f) / height), .00001f)
+        assertEquals(1f, alpha((collapsedHeight - miniHeight) / height), .00001f)
+        assertEquals(1f, alpha(0f), 0f)
+        var previous = 0f
+        for (step in 100 downTo 0) {
+            val current = alpha(step / 100f)
+            assertTrue(current in previous..1f)
+            previous = current
+        }
+    }
+
+    @Test
+    fun playerSheetSettlesAt60And120HzWithoutDependingOnFrameCount() = runTest {
+        for (frameNanos in listOf(16_666_667L, 8_333_333L)) {
+            val clock = BroadcastFrameClock()
+            val progress = Animatable(0f)
+            val destinations = mutableListOf<Boolean>()
+            val job = launch(clock) {
+                PlayerTransitionMotion.settleSheet(progress, 1f, false) { destinations += it }
+            }
+            runCurrent()
+            var nanos = 0L
+            var previous = 0f
+            while (job.isActive && nanos <= 1_000_000_000L) {
+                clock.sendFrame(nanos)
+                runCurrent()
+                assertTrue(progress.value >= previous)
+                assertTrue(progress.value in 0f..1f)
+                previous = progress.value
+                nanos += frameNanos
+            }
+            assertTrue("Sheet must settle within a second", job.isCompleted)
+            assertEquals(1f, progress.value, 0f)
+            assertEquals(listOf(true), destinations)
+        }
+    }
+
+    @Test
+    fun reversingPlayerSheetKeepsVisiblePositionAndDoesNotCommitCancelledDestination() = runTest {
+        val clock = BroadcastFrameClock()
+        val progress = Animatable(0f)
+        val destinations = mutableListOf<Boolean>()
+        val opening = launch(clock) {
+            PlayerTransitionMotion.settleSheet(progress, 1f, false) { destinations += it }
+        }
+        runCurrent()
+        for (millis in 0L..96L step 16L) {
+            clock.sendFrame(millis * 1_000_000L)
+            runCurrent()
+        }
+        val visible = progress.value
+        val velocity = progress.velocity
+        assertTrue(visible > 0f && visible < 1f)
+        opening.cancel()
+        runCurrent()
+        assertTrue(destinations.isEmpty())
+        val closing = launch(clock) {
+            PlayerTransitionMotion.settleSheet(progress, 0f, false, velocity) { destinations += it }
+        }
+        runCurrent()
+        assertEquals(visible, progress.value, 0f)
+        for (millis in 112L..1_312L step 16L) {
+            if (!closing.isActive) break
+            clock.sendFrame(millis * 1_000_000L)
+            runCurrent()
+        }
+        assertTrue(closing.isCompleted)
+        assertEquals(0f, progress.value, 0f)
+        assertEquals(listOf(false), destinations)
+    }
+
     @Test
     fun queueDisplacementStartsOnFirstFrameAndSettlesWithoutOvershootInEitherDirection() {
         for (distance in listOf(-204, -68, 68, 204)) {

@@ -67,6 +67,9 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Stage player", "Show cover and lyrics side by side in the main player")
             row("Tabbed player", "Switch between lyrics and queue; turn off to show both")
         }
+        group("Immersive mode") {
+            row("Start when idle", "While music plays and nothing is fullscreen. Any input leaves. Press I to start it yourself.", "clock screensaver fullscreen display monitor")
+        }
         group("Typography") {
             val fontSubtitle = if (isMacPlatform) "Installed macOS fonts" else "Installed Windows fonts"
             row("Body font", fontSubtitle, "typeface text")

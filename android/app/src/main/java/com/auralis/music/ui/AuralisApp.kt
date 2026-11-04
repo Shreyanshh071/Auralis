@@ -1,5 +1,6 @@
 package com.auralis.music.ui
 
+import com.auralis.music.domain.model.inlineLyricsFor
 import kotlinx.coroutines.flow.first
 
 import com.auralis.music.R
@@ -34,6 +35,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import com.auralis.music.ui.glass.underStatusBar
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -198,6 +200,11 @@ fun AuralisApp(
     val audioPlayerIsPlaying by viewModelProvider.audioPlayer.isPlaying.collectAsState()
     val playerUiState = playerViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.PlayerUiState()
     val playerSettings = playerViewModelState?.playerSettings?.collectAsState()?.value ?: com.auralis.music.domain.model.PlayerSettings()
+    val inlineLyricsDesign = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign)
+    val inlineLyricsShown = appearanceSettings.inlineLyricsFor(inlineLyricsDesign)
+    LaunchedEffect(playerViewModelState, inlineLyricsDesign, inlineLyricsShown) {
+        playerViewModelState?.applyInlineLyrics(inlineLyricsDesign, inlineLyricsShown)
+    }
 
     // SearchViewModel: only initialized when Explore tab is active or search/artist/album/recognition is used
     var searchViewModelState by remember {
@@ -212,6 +219,7 @@ fun AuralisApp(
         searchViewModelState = vm
         return vm
     }
+    com.auralis.music.ui.ArtistPreload.request = { name -> obtainSearchViewModel().preloadArtist(name) }
     val searchUiState = searchViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.SearchUiState()
     val recognitionState = searchViewModelState?.recognitionState?.collectAsState()?.value ?: com.auralis.music.domain.recognition.RecognitionState()
     val recognitionHistory = searchViewModelState?.recognitionHistory?.collectAsState()?.value ?: emptyList()
@@ -293,6 +301,7 @@ fun AuralisApp(
     }
 
     var showUpdaterFromNav by remember { mutableStateOf(initialNavDestination == "updater") }
+    var startUpdateFromOffer by remember { mutableStateOf(false) }
     LaunchedEffect(initialNavDestination) {
         if (initialNavDestination == "updater") {
             showUpdaterFromNav = true
@@ -316,6 +325,7 @@ fun AuralisApp(
     var isNowPlayingOpen by rememberSaveable { mutableStateOf(false) }
     // A restored open player starts open, not sliding up from the mini player.
     val playerSheetProgress = remember { Animatable(if (isNowPlayingOpen) 1f else 0f) }
+    val classicPlayerSlide = inlineLyricsDesign == com.auralis.music.domain.model.PlayerDesign.OLD
     val immersivePlayerMorph = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign) ==
         com.auralis.music.domain.model.PlayerDesign.IMMERSIVE
     // The window flag, not View.keepScreenOn: some phones (seen on a Moto) ignored the view
@@ -338,6 +348,9 @@ fun AuralisApp(
     val isFullyCollapsed by remember {
         derivedStateOf { playerSheetProgress.value == 0f }
     }
+    val playerBackdropDismissEnabled by remember {
+        derivedStateOf { playerSheetProgress.value > 0.10f }
+    }
     val dismissOffsetY = remember { Animatable(0f) }
     var isStatsOpen by rememberSaveable { mutableStateOf(false) }
     var isWrappedOpen by rememberSaveable { mutableStateOf(false) }
@@ -349,47 +362,34 @@ fun AuralisApp(
     val reducedMotion = LocalReducedMotion.current
 
     val expandPlayer: () -> Unit = {
+        val velocity = playerSheetProgress.velocity
         isNowPlayingOpen = true
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
         sheetAnimationJob?.cancel()
         dismissAnimationJob?.cancel()
         sheetAnimationJob = coroutineScope.launch {
-            try {
-                playerSheetProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = if (reducedMotion) snap() else spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
-                )
-            } finally {
-                isNowPlayingOpen = true
-                if (playerSheetProgress.value > 0.95f) {
-                    playerSheetProgress.snapTo(1f)
-                }
-            }
+            if (playerSheetProgress.value == 0f && !reducedMotion) withFrameNanos { }
+            com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                progress = playerSheetProgress,
+                target = 1f,
+                reducedMotion = reducedMotion,
+                initialVelocity = velocity
+            ) { isNowPlayingOpen = it }
         }
     }
 
     val collapsePlayer: () -> Unit = {
+        val velocity = playerSheetProgress.velocity
         sheetAnimationJob?.cancel()
         dismissAnimationJob?.cancel()
         sheetAnimationJob = coroutineScope.launch {
-            try {
-                playerSheetProgress.animateTo(
-                    targetValue = 0f,
-                    animationSpec = if (reducedMotion) snap() else spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
-                )
-            } finally {
-                isNowPlayingOpen = false
-                if (playerSheetProgress.value < 0.05f) {
-                    playerSheetProgress.snapTo(0f)
-                }
-            }
+            com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                progress = playerSheetProgress,
+                target = 0f,
+                reducedMotion = reducedMotion,
+                initialVelocity = velocity
+            ) { isNowPlayingOpen = it }
         }
     }
 
@@ -533,18 +533,23 @@ fun AuralisApp(
     // ── Dedicated Background Audio Engine Host ──
     val needsWebView by (playerViewModelState?.getAudioPlayer()?.needsWebView?.collectAsState()
         ?: remember { mutableStateOf(false) })
+    val webViewGeneration by (playerViewModelState?.getAudioPlayer()?.youTubeEngine?.rendererGeneration?.collectAsState()
+        ?: remember { mutableStateOf(0) })
     if (needsWebView) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(-1f)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    playerViewModelState?.getAudioPlayer()?.getOrCreateWebView(ctx) ?: android.view.View(ctx)
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            // A lost renderer means a new WebView, which only a new factory run can attach.
+            androidx.compose.runtime.key(webViewGeneration) {
+                AndroidView(
+                    factory = { ctx ->
+                        playerViewModelState?.getAudioPlayer()?.getOrCreateWebView(ctx) ?: android.view.View(ctx)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 
@@ -845,7 +850,9 @@ fun AuralisApp(
     // The pages are recorded into glassBackdrop (over the app background, so the glass never
     // samples transparency); the dock and mini player render it as glass. Scrolling a page down
     // minimizes the dock and tucks the mini player into the dock row.
-    val glassEnabled = appearanceSettings.liquidGlass
+    // Glass is built for dark pages: it turns off on light themes and returns with a dark one.
+    val glassEnabled = appearanceSettings.liquidGlass &&
+        androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < .5f
     // "Liquid glass" as the mini-player background style: glass on the mini player only.
     val miniPlayerSurface = com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(appearanceSettings)
     val miniPlayerGlass = miniPlayerSurface == com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS
@@ -1027,6 +1034,9 @@ fun AuralisApp(
                 }
             }
         ) { _ ->
+            com.auralis.music.ui.glass.StatusBarGlowBand(
+                Modifier.fillMaxWidth().windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1131,8 +1141,6 @@ fun AuralisApp(
                             }
                         }
 
-                        val currentProgress = transitionProgress.value
-
                         Box(
                             modifier = Modifier.fillMaxSize().then(
                                 if (glassEnabled) Modifier.layerBackdrop(tabHeaderBackdrop, tabBackdropFrame)
@@ -1144,39 +1152,35 @@ fun AuralisApp(
                                 val isCurrentlyActive = destination == activeDestination
                                 val wasPrevious = destination == previousDestination
 
-                                val (alphaVal, transX) = when {
-                                    reducedMotion -> {
-                                        if (isCurrentlyActive) 1f to 0f else 0f to 0f
-                                    }
-                                    isCurrentlyActive -> {
-                                        // Entering screen: slides in from (direction * slideOffsetPx) to 0f
-                                        val a = currentProgress
-                                        val tx = (1f - currentProgress) * (transitionDirection * slideOffsetPx)
-                                        a to tx
-                                    }
-                                    wasPrevious && currentProgress < 1f -> {
-                                        // Exiting screen: slides out from 0f to (-direction * slideOffsetPx)
-                                        val a = 1f - currentProgress
-                                        val tx = -currentProgress * (transitionDirection * slideOffsetPx)
-                                        a to tx
-                                    }
-                                    else -> {
-                                        0f to 0f
-                                    }
-                                }
-
                                 // Keep all 3 primary destinations continuously composed in memory to preserve scroll
                                 // positions, carousel state, and search queries without rebuild or image reload overhead.
                                 // Inactive destinations have alpha = 0f (RenderNode skip-draw) and swallow pointer events.
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
+                                        // Include the status bar in the clipped transition layer.
+                                        // Pages can then draw artwork above their safe content slot.
+                                        .underStatusBar()
                                         .zIndex(if (isCurrentlyActive) 10f else 0f)
                                         .graphicsLayer {
-                                            alpha = alphaVal
-                                            translationX = transX
+                                            // Read the clock in the layer phase, not composition:
+                                            // shelves and lists stay out of every animation frame.
+                                            val progress = transitionProgress.value
+                                            val visible = isCurrentlyActive || wasPrevious
+                                            alpha = when {
+                                                reducedMotion -> if (isCurrentlyActive) 1f else 0f
+                                                isCurrentlyActive -> progress
+                                                wasPrevious -> 1f - progress
+                                                else -> 0f
+                                            }
+                                            translationX = if (reducedMotion || !visible) 0f
+                                                else if (isCurrentlyActive) (1f - progress) * transitionDirection * slideOffsetPx
+                                                else -progress * transitionDirection * slideOffsetPx
                                             clip = true
                                         }
+                                        // The outer content already consumes this inset; restore
+                                        // its slot explicitly inside the taller transition layer.
+                                        .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
                                         .then(
                                             if (!isCurrentlyActive) {
                                                 Modifier.pointerInput(destination) {
@@ -1288,7 +1292,11 @@ fun AuralisApp(
                                                     val msg = if (isNowPinned) str(R.string.pinned_x_to_speed_dial, album.title) else str(R.string.unpinned_x_from_speed_dial, album.title)
                                                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                                                 },
-                                                onToggleSaveAlbum = { obtainLibraryViewModel().toggleSaveAlbum(it) },
+                                                onToggleSaveAlbum = { album ->
+                                                    obtainLibraryViewModel().toggleSaveAlbum(album) {
+                                                        obtainSearchViewModel().getAlbumTracks(com.auralis.music.domain.model.PlaylistResult(id = album.id, title = album.title, author = album.artist, thumbnail = album.thumbnail))
+                                                    }
+                                                },
                                                 onShuffleAlbum = { album ->
                                                     coroutineScope.launch {
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
@@ -1350,9 +1358,11 @@ fun AuralisApp(
                                                                 context,
                                                                 album.id,
                                                                 album.title,
-                                                                tracks
+                                                                tracks,
+                                                                onStarted = {
+                                                                    android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
+                                                                }
                                                             )
-                                                            android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1391,7 +1401,11 @@ fun AuralisApp(
                                                 savedAlbums = libraryUiState.savedAlbums,
                                                 pinnedSpeedDialIds = homeUiState.pinnedSpeedDialIds,
                                                 onToggleSubscribe = { libVM.toggleSaveArtist(it) },
-                                                onToggleSaveAlbum = { libVM.toggleSaveAlbum(it) },
+                                                onToggleSaveAlbum = { album ->
+                                                    libVM.toggleSaveAlbum(album) {
+                                                        searchVM.getAlbumTracks(com.auralis.music.domain.model.PlaylistResult(id = album.id, title = album.title, author = album.artist, thumbnail = album.thumbnail))
+                                                    }
+                                                },
                                                 onPlayNextAlbum = { album ->
                                                     coroutineScope.launch {
                                                         val tracks = searchVM.getAlbumTracks(album)
@@ -1428,9 +1442,11 @@ fun AuralisApp(
                                                                 context,
                                                                 album.id,
                                                                 album.title,
-                                                                tracks
+                                                                tracks,
+                                                                onStarted = {
+                                                                    android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
+                                                                }
                                                             )
-                                                            android.widget.Toast.makeText(context, str(R.string.downloading_x_x_songs, album.title, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1632,8 +1648,13 @@ fun AuralisApp(
                         }
                         val libraryHeaderVisible = libraryUiState.selectedPlaylist == null &&
                             libraryUiState.selectedSmartCollection != com.auralis.music.ui.viewmodel.SmartCollectionType.DOWNLOADED
-                        if (glassEnabled && headerPage != null &&
-                            (currentDestination != AppDestination.LIBRARY || libraryHeaderVisible)) {
+                        // It fades in once the page it replaces has left, not on top of that page.
+                        if (glassEnabled && headerPage != null) DeferredVisibility(
+                            visible = { currentDestination != AppDestination.LIBRARY || libraryHeaderVisible },
+                            enter = fadeIn(tween(160, delayMillis = 170)),
+                            exit = fadeOut(tween(90)),
+                            modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+                        ) {
                             com.auralis.music.ui.components.LiquidGlassPageHeader(
                                 glass = tabHeaderGlass,
                                 onLogoClick = { headerPage.scrollToTop() },
@@ -1652,8 +1673,7 @@ fun AuralisApp(
                                     isStatsOpen = true
                                 }) else null,
                                 // Shut while a page opened from it covers the tab, so it can't show through that page's fade.
-                                collapsed = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen,
-                                modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+                                collapsed = isProfileOpen || isHistoryOpen || isListenTogetherOpen || isStatsOpen
                             )
                         }
                     }
@@ -1741,7 +1761,7 @@ fun AuralisApp(
         val songRequest = listenTogetherUiState.songRequests.firstOrNull()
         if (listenTogetherUiState.isHost && songRequest != null) {
             val ltVM = obtainListenTogetherViewModel()
-            androidx.compose.material3.AlertDialog(
+            com.auralis.music.ui.components.AuralisAlertDialog(
                 onDismissRequest = { },
                 title = {
                     Text(
@@ -1805,7 +1825,7 @@ fun AuralisApp(
                     ltVM.dismissSlowConnectionPrompt()
                 }
             } else {
-                androidx.compose.material3.AlertDialog(
+                com.auralis.music.ui.components.AuralisAlertDialog(
                     onDismissRequest = { ltVM.dismissSlowConnectionPrompt() },
                     title = { Text(str(R.string.your_internet_is_slow_right_now)) },
                     text = {
@@ -1879,6 +1899,7 @@ fun AuralisApp(
                     onImportSelectedPlaylists = { authVM.importSelectedPlaylists() },
                     onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
                     onImportSpotifyLibraryPlaylists = { libVM.importSpotifyLibraryPlaylists(it) },
+                    importedPlaylistIds = remember(libraryUiState.playlists) { libraryUiState.playlists.mapTo(HashSet()) { it.id } },
                     onClearSpotifyImportMessage = { libVM.clearSpotifyImportMessage() },
                     isImportingSpotify = libraryUiState.isImportingSpotify,
                     spotifyImportMessage = libraryUiState.spotifyImportMessage,
@@ -1990,13 +2011,21 @@ fun AuralisApp(
 
             // Atmospheric background layer behind sheet (static fullscreen blurred artwork / gradient)
             val currentTrack = effectiveTrack
+            val downloadedArtworkIds by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
+            val downloadedCoverChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.collectAsState()
+            val playerArtwork = remember(currentTrack.id, currentTrack.thumbnail, downloadedArtworkIds, downloadedCoverChoices[currentTrack.id]) {
+                com.auralis.music.data.download.AuralisDownloadManager.artworkForPlayback(currentTrack.id, currentTrack.thumbnail)
+            }
+            LaunchedEffect(currentTrack.id, downloadedCoverChoices[currentTrack.id]) {
+                if (downloadedCoverChoices[currentTrack.id] == false) com.auralis.music.ui.theme.ArtworkPaletteCache.resetToDefault()
+            }
             val resolvedPlayerBgStyle = remember(appearanceSettings.playerBackgroundStyle) {
                 val style = PlayerBackgroundStyle.fromKey(appearanceSettings.playerBackgroundStyle)
                 if (style == PlayerBackgroundStyle.APPLE_MUSIC) PlayerBackgroundStyle.GRADIENT else style
             }
             val sharedPalette by com.auralis.music.ui.theme.ArtworkPaletteCache.currentPalette.collectAsState()
 
-            if (isPlayerSheetActive) {
+            if (isPlayerSheetActive && !classicPlayerSlide) {
                 Box(
                     modifier = Modifier
                         // Before graphicsLayer so the pills blur it at its current fade.
@@ -2006,7 +2035,7 @@ fun AuralisApp(
                         .graphicsLayer {
                             shape = playerSheetShape
                             clip = true
-                            val p = playerSheetProgress.value
+                            val p = playerSheetProgress.value.coerceIn(0f, 1f)
                             alpha = if (reducedMotion) {
                                 if (isNowPlayingOpen || p > 0f) 1f else 0f
                             } else if (immersivePlayerMorph) {
@@ -2019,7 +2048,7 @@ fun AuralisApp(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            enabled = isPlayerSheetActive && playerSheetProgress.value > 0.10f,
+                            enabled = playerBackdropDismissEnabled,
                             onClick = { collapsePlayer() }
                         )
                 ) {
@@ -2027,7 +2056,7 @@ fun AuralisApp(
                     if (currentTrack != null && !immersivePlayerMorph) {
                         PlayerBackground(
                             style = resolvedPlayerBgStyle,
-                            artworkUrl = currentTrack.thumbnail,
+                            artworkUrl = playerArtwork,
                             extractedColors = sharedPalette,
                             // Blur source for the Classic player's frosted lyrics controls.
                             modifier = Modifier
@@ -2054,7 +2083,9 @@ fun AuralisApp(
                 val miniPlayerHeight = com.auralis.music.ui.player.miniPlayerHeightFor(appearanceSettings.miniPlayerDesign)
                 val collapsedBoundDp = miniPlayerHeight + targetBottomPadding + bottomInset
                 val collapsedBoundPx = with(density) { collapsedBoundDp.toPx() }
-                val travelDistance = (fullHeightPx - collapsedBoundPx).coerceAtLeast(0f)
+                val travelDistance = com.auralis.music.ui.player.PlayerTransitionMotion.sheetTravelDistance(
+                    fullHeightPx, collapsedBoundPx, classicPlayerSlide
+                )
 
                 val sensitivityRatio = (appearanceSettings.miniPlayerSwipeSensitivity / 100f).coerceIn(0.10f, 1.0f)
                 val dismissThresholdPx = with(density) { (38.dp * (1.25f - sensitivityRatio * 0.50f)).toPx() }
@@ -2066,7 +2097,7 @@ fun AuralisApp(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                val p = playerSheetProgress.value
+                                val p = playerSheetProgress.value.coerceIn(0f, 1f)
                                 translationY = if (reducedMotion) {
                                     if (isNowPlayingOpen) 0f else travelDistance
                                 } else {
@@ -2087,6 +2118,7 @@ fun AuralisApp(
                                         keyboardController?.hide()
                                         sheetAnimationJob?.cancel()
                                         dismissAnimationJob?.cancel()
+                                        velocityTracker.resetTracking()
                                         currentProgress = playerSheetProgress.value
                                     },
                                     onVerticalDrag = { change, dragAmount ->
@@ -2104,22 +2136,11 @@ fun AuralisApp(
                                         velocityTracker.resetTracking()
                                         val target = if (currentProgress < 0.5f) 0f else 1f
                                         sheetAnimationJob = coroutineScope.launch {
-                                            try {
-                                                playerSheetProgress.animateTo(
-                                                    targetValue = target,
-                                                    animationSpec = if (reducedMotion) snap() else spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessLow
-                                                    )
-                                                )
-                                            } finally {
-                                                isNowPlayingOpen = (target == 1f)
-                                                if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                    playerSheetProgress.snapTo(0f)
-                                                } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                    playerSheetProgress.snapTo(1f)
-                                                }
-                                            }
+                                            com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                                                progress = playerSheetProgress,
+                                                target = target,
+                                                reducedMotion = reducedMotion
+                                            ) { isNowPlayingOpen = it }
                                         }
                                     },
                                     onDragEnd = {
@@ -2134,37 +2155,40 @@ fun AuralisApp(
                                             else -> 1f
                                         }
                                         sheetAnimationJob = coroutineScope.launch {
-                                            try {
-                                                playerSheetProgress.animateTo(
-                                                    targetValue = target,
-                                                    animationSpec = if (reducedMotion) snap() else spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessLow
-                                                    )
-                                                )
-                                            } finally {
-                                                isNowPlayingOpen = (target == 1f)
-                                                if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                    playerSheetProgress.snapTo(0f)
-                                                } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                    playerSheetProgress.snapTo(1f)
-                                                }
-                                            }
+                                            com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                                                progress = playerSheetProgress,
+                                                target = target,
+                                                reducedMotion = reducedMotion,
+                                                initialVelocity = velocity / travelDistance
+                                            ) { isNowPlayingOpen = it }
                                         }
                                     }
                                 )
                             }
                     ) {
+                        if (classicPlayerSlide) {
+                            PlayerBackground(
+                                style = resolvedPlayerBgStyle,
+                                artworkUrl = playerArtwork,
+                                extractedColors = sharedPalette,
+                                modifier = Modifier.fillMaxSize()
+                                    .background(MaterialTheme.dynamicBackground)
+                                    .then(if (glassEnabled) Modifier.layerBackdrop(playerBackgroundGlass) else Modifier)
+                                    .hazeSource(state = playerBackdropHazeState, zIndex = 0f),
+                                isMiniPlayer = false,
+                                isPlaying = playerUiState.isPlaying
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(if (glassEnabled) Modifier.layerBackdrop(playerContentGlass) else Modifier)
                                 .graphicsLayer {
-                                    val p = playerSheetProgress.value
+                                    val p = playerSheetProgress.value.coerceIn(0f, 1f)
                                     alpha = if (reducedMotion) {
                                         if (isNowPlayingOpen) 1f else 0f
-                                    } else if (immersivePlayerMorph) {
-                                        // The immersive player fades its own layers: the cover stays solid
+                                    } else if (classicPlayerSlide || immersivePlayerMorph) {
+                                        // Classic travels as one solid surface; immersive fades its own layers: the cover stays solid
                                         // while it grows out of the mini player.
                                         1f
                                     } else {
@@ -2180,6 +2204,28 @@ fun AuralisApp(
                                 com.auralis.music.ui.player.LocalClassicLyricsHazeState provides playerBackdropHazeState,
                                 com.auralis.music.ui.player.LocalPlayerSheetProgress provides { if (reducedMotion) 1f else playerSheetProgress.value }
                             ) {
+                                val selectQueueTrack: (Int, Boolean) -> Unit = { index, keepQueueOrder ->
+                                    if (guestNow()) {
+                                        when (index - playerUiState.currentIndex) {
+                                            1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.next()
+                                            -1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.previous()
+                                            else -> playOrRequest(playerUiState.queue.getOrNull(index)) {}
+                                        }
+                                    } else {
+                                        val q = playerUiState.queue
+                                        val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
+                                        val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
+                                        if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
+                                            currentPV.playTrack(
+                                                t,
+                                                if (q.isNotEmpty()) q else listOf(t),
+                                                index,
+                                                preserveQueueSource = true,
+                                                keepQueueOrder = keepQueueOrder
+                                            )
+                                        }
+                                    }
+                                }
                                 NowPlayingSheet(
                                     followHostOnly = isGuestInRoom && !guestCanSwipe,
                                     uiState = playerUiState,
@@ -2220,27 +2266,8 @@ fun AuralisApp(
                                     onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
                                     onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
                                     onSleepTimerSelect = { currentPV.setSleepTimer(it) },
-                                    onSelectQueueTrack = { index ->
-                                        if (guestNow()) {
-                                            when (index - playerUiState.currentIndex) {
-                                                1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.next()
-                                                -1 -> if (guestSkipBlocked()) notifyGuestSkipBlocked() else if (!skipLocked()) currentPV.previous()
-                                                else -> playOrRequest(playerUiState.queue.getOrNull(index)) {}
-                                            }
-                                        } else {
-                                            val q = playerUiState.queue
-                                            val t = q.getOrNull(index) ?: if (index == 0) playerUiState.currentTrack else null
-                                            val activeTrack = currentPV.getAudioPlayer()?.currentTrack?.value ?: playerUiState.currentTrack
-                                            if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
-                                                currentPV.playTrack(
-                                                    t,
-                                                    if (q.isNotEmpty()) q else listOf(t),
-                                                    index,
-                                                    preserveQueueSource = true
-                                                )
-                                            }
-                                        }
-                                    },
+                                    onSelectQueueTrack = { selectQueueTrack(it, false) },
+                                    onSwipeToQueueTrack = { selectQueueTrack(it, true) },
                                     onRemoveQueueItem = { index ->
                                         if (guestNow()) {
                                             obtainListenTogetherViewModel().requestQueueEdit(index)
@@ -2375,7 +2402,7 @@ fun AuralisApp(
                                 }
                             })
                             .graphicsLayer {
-                                val p = playerSheetProgress.value
+                                val p = playerSheetProgress.value.coerceIn(0f, 1f)
                                 val dismissY = dismissOffsetY.value
                                 val progressFrac = (dismissY / (dismissThresholdPx * 1.6f)).coerceIn(0f, 1f)
                                 // Minimized: centre the pill on the dock row instead of above it.
@@ -2384,6 +2411,10 @@ fun AuralisApp(
                                 translationY = dismissY + tuckY - (p * with(density) { 36.dp.toPx() })
                                 alpha = if (reducedMotion) {
                                     if (isNowPlayingOpen) 0f else (1f - progressFrac)
+                                } else if (classicPlayerSlide) {
+                                    com.auralis.music.ui.player.PlayerTransitionMotion.classicMiniPlayerAlpha(
+                                        p, fullHeightPx, collapsedBoundPx, miniPlayerHeight.toPx()
+                                    ) * (1f - progressFrac)
                                 } else {
                                     ((1f - p * 3.5f) * (1f - progressFrac)).coerceIn(0f, 1f)
                                 }
@@ -2501,22 +2532,11 @@ fun AuralisApp(
                                             if (isDraggingUp) {
                                                 val target = if (currentProgress < 0.5f) 0f else 1f
                                                 sheetAnimationJob = coroutineScope.launch {
-                                                    try {
-                                                        playerSheetProgress.animateTo(
-                                                            targetValue = target,
-                                                            animationSpec = if (reducedMotion) snap() else spring(
-                                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                                stiffness = Spring.StiffnessLow
-                                                            )
-                                                        )
-                                                    } finally {
-                                                        isNowPlayingOpen = (target == 1f)
-                                                        if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                            playerSheetProgress.snapTo(0f)
-                                                        } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                            playerSheetProgress.snapTo(1f)
-                                                        }
-                                                    }
+                                                    com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                                                        progress = playerSheetProgress,
+                                                        target = target,
+                                                        reducedMotion = reducedMotion
+                                                    ) { isNowPlayingOpen = it }
                                                 }
                                             }
                                             settleDismiss(0f)
@@ -2534,22 +2554,12 @@ fun AuralisApp(
                                                     else -> 1f
                                                 }
                                                 sheetAnimationJob = coroutineScope.launch {
-                                                    try {
-                                                        playerSheetProgress.animateTo(
-                                                            targetValue = target,
-                                                            animationSpec = if (reducedMotion) snap() else spring(
-                                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                                stiffness = Spring.StiffnessLow
-                                                            )
-                                                        )
-                                                    } finally {
-                                                        isNowPlayingOpen = (target == 1f)
-                                                        if (target == 0f && playerSheetProgress.value < 0.05f) {
-                                                            playerSheetProgress.snapTo(0f)
-                                                        } else if (target == 1f && playerSheetProgress.value > 0.95f) {
-                                                            playerSheetProgress.snapTo(1f)
-                                                        }
-                                                    }
+                                                    com.auralis.music.ui.player.PlayerTransitionMotion.settleSheet(
+                                                        progress = playerSheetProgress,
+                                                        target = target,
+                                                        reducedMotion = reducedMotion,
+                                                        initialVelocity = velocity / travelDistance
+                                                    ) { isNowPlayingOpen = it }
                                                 }
                                             }
                                             settleDismiss(rawVelocityY)
@@ -2614,24 +2624,13 @@ fun AuralisApp(
         }
 
         if (artistChoices.isNotEmpty()) {
-            AlertDialog(
-                onDismissRequest = { artistChoices = emptyList() },
-                title = { Text(str(R.string.choose_artist)) },
-                text = {
-                    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                        artistChoices.forEach { choice ->
-                            TextButton(
-                                onClick = {
-                                    artistChoices = emptyList()
-                                    openArtistDetail(choice)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text(choice.name, modifier = Modifier.fillMaxWidth()) }
-                        }
-                    }
+            com.auralis.music.ui.components.ArtistPickerSheet(
+                artists = artistChoices,
+                onPick = { choice ->
+                    artistChoices = emptyList()
+                    openArtistDetail(choice)
                 },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { artistChoices = emptyList() }) { Text(str(R.string.cancel)) } }
+                onDismiss = { artistChoices = emptyList() }
             )
         }
 
@@ -2665,7 +2664,9 @@ fun AuralisApp(
         DeferredVisibility(
             visible = { isHomeMenuOpen && !isNowPlayingOpen && currentDestination == AppDestination.HOME },
             enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(160))
+            exit = fadeOut(tween(160)),
+            // Above the toast pill (1200): a passing pill mustn't cover the menu's rows.
+            modifier = Modifier.zIndex(1300f)
         ) {
             androidx.activity.compose.BackHandler { isHomeMenuOpen = false }
             Box(
@@ -2954,6 +2955,8 @@ fun AuralisApp(
             }
         }
 
+        com.auralis.music.ui.components.DownloadMetadataPromptHost()
+
         // ── SLEEK COMPACT IN-APP TOAST PILL ──
         val appPill by com.auralis.music.ui.components.AppPillManager.pillState.collectAsState()
         Box(
@@ -2992,6 +2995,9 @@ fun AuralisApp(
                     Box(
                         modifier = Modifier
                             .wrapContentSize()
+                            .then(com.auralis.music.ui.glass.LocalLiquidGlass.current?.let { glass ->
+                                Modifier.liquidGlass(glass, pillShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
+                            } ?: Modifier
                             .shadow(
                                 elevation = 10.dp,
                                 shape = pillShape,
@@ -3015,6 +3021,7 @@ fun AuralisApp(
                                 width = 0.75.dp,
                                 color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
                                 shape = pillShape
+                            )
                             )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -3067,7 +3074,33 @@ fun AuralisApp(
 
         if (showUpdaterFromNav) {
             com.auralis.music.ui.screens.UpdaterScreen(
-                onDismiss = { showUpdaterFromNav = false }
+                onDismiss = {
+                    showUpdaterFromNav = false
+                    startUpdateFromOffer = false
+                },
+                startUpdate = startUpdateFromOffer
+            )
+        }
+
+        val updateOffer by com.auralis.music.data.network.UpdateChecker.updateOffer.collectAsState()
+        updateOffer?.takeIf { !showUpdaterFromNav }?.let { offer ->
+            val offerContext = androidx.compose.ui.platform.LocalContext.current
+            com.auralis.music.ui.components.AuralisAlertDialog(
+                onDismissRequest = { com.auralis.music.data.network.UpdateChecker.skipOffer(offerContext, offer) },
+                title = { androidx.compose.material3.Text(str(R.string.update_offer_title)) },
+                text = { androidx.compose.material3.Text(str(R.string.update_offer_message, offer.latestVersion)) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        com.auralis.music.data.network.UpdateChecker.clearOffer()
+                        startUpdateFromOffer = true
+                        showUpdaterFromNav = true
+                    }) { androidx.compose.material3.Text(str(R.string.update_offer_update)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        com.auralis.music.data.network.UpdateChecker.skipOffer(offerContext, offer)
+                    }) { androidx.compose.material3.Text(str(R.string.update_offer_later)) }
+                }
             )
         }
     }
@@ -3129,6 +3162,35 @@ private fun MiniPlayerHost(
     }
 
     key(appearanceSettings.miniPlayerDesign) {
+        val selectQueueTrack: (Int, Boolean) -> Unit = { index, keepQueueOrder ->
+            if (isGuestInRoom) {
+                // A one-song swipe is a next/previous for the room, like the buttons.
+                when (index - playerUiState.currentIndex) {
+                    1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.next()
+                    -1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.previous()
+                    else -> requestGuestPlay(playerUiState.queue.getOrNull(index))
+                }
+            } else {
+                val q = playerUiState.queue
+                val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
+                val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
+                if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
+                    playerViewModel.playTrack(
+                        t,
+                        if (q.isNotEmpty()) q else listOf(t),
+                        index,
+                        preserveQueueSource = true,
+                        keepQueueOrder = keepQueueOrder
+                    )
+                } else if (t == null) {
+                    if (index > playerUiState.currentIndex) {
+                        playerViewModel.next()
+                    } else if (index < playerUiState.currentIndex) {
+                        playerViewModel.previous()
+                    }
+                }
+            }
+        }
         MiniPlayer(
             track = currentTrack,
             connect = miniConnect,
@@ -3139,6 +3201,7 @@ private fun MiniPlayerHost(
             currentIndex = playerUiState.currentIndex,
             isFavorite = playerUiState.isFavorite,
             userScrollEnabled = (!isGuestInRoom || guestCanSwipe) && isFullyCollapsed,
+            isFullyCollapsed = isFullyCollapsed,
             hazeState = hazeState,
             onPlayPauseClick = {
                 if (guestControlBlocked()) notifyGuestControlBlocked()
@@ -3158,34 +3221,8 @@ private fun MiniPlayerHost(
                     playerViewModel.previous()
                 }
             },
-            onSelectQueueTrack = { index ->
-                if (isGuestInRoom) {
-                    // A one-song swipe is a next/previous for the room, like the buttons.
-                    when (index - playerUiState.currentIndex) {
-                        1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.next()
-                        -1 -> if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) playerViewModel.previous()
-                        else -> requestGuestPlay(playerUiState.queue.getOrNull(index))
-                    }
-                } else {
-                    val q = playerUiState.queue
-                    val t = q.getOrNull(index) ?: if (index == 0) currentTrack else null
-                    val activeTrack = playerViewModel.getAudioPlayer()?.currentTrack?.value ?: currentTrack
-                    if (t != null && (index != playerUiState.currentIndex || t.id != activeTrack?.id)) {
-                        playerViewModel.playTrack(
-                            t,
-                            if (q.isNotEmpty()) q else listOf(t),
-                            index,
-                            preserveQueueSource = true
-                        )
-                    } else if (t == null) {
-                        if (index > playerUiState.currentIndex) {
-                            playerViewModel.next()
-                        } else if (index < playerUiState.currentIndex) {
-                            playerViewModel.previous()
-                        }
-                    }
-                }
-            },
+            onSelectQueueTrack = { selectQueueTrack(it, false) },
+            onSwipeToQueueTrack = { selectQueueTrack(it, true) },
             onFavoriteToggle = { playerViewModel.toggleFavorite() },
             onAddToPlaylist = onAddToPlaylist,
             onArtistClick = onOpenArtist,
@@ -3210,7 +3247,8 @@ private fun DeferredVisibility(
     visible: () -> Boolean,
     enter: EnterTransition,
     exit: ExitTransition,
+    modifier: Modifier = Modifier,
     content: @Composable AnimatedVisibilityScope.() -> Unit
 ) {
-    AnimatedVisibility(visible = visible(), enter = enter, exit = exit, content = content)
+    AnimatedVisibility(visible = visible(), modifier = modifier, enter = enter, exit = exit, content = content)
 }

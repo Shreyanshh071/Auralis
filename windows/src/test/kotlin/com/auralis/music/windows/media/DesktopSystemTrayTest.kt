@@ -22,8 +22,9 @@ class DesktopSystemTrayTest {
             val before = system.trayIcons.toSet()
             var opens = 0
             var quits = 0
+            var restarts = 0
             val anchor = Point(200, 200)
-            val tray = DesktopSystemTray({ opens++ }, { quits++ }, { anchor })
+            val tray = DesktopSystemTray({ opens++ }, { quits++ }, { anchor }, { restarts++ })
             try {
                 tray.install()
                 assertTrue(tray.available)
@@ -49,12 +50,16 @@ class DesktopSystemTrayTest {
                 assertEquals(trayMenuLocation(anchor, openedWindow.size, usable), openedWindow.location)
                 (openedWindow.contentPane as TrayMenuPanel).openButton.doClick(0)
                 assertFalse(openedWindow.isVisible)
+                val restartMenu = openMenu()
+                (restartMenu.contentPane as TrayMenuPanel).restartButton.doClick(0)
+                assertFalse(restartMenu.isVisible)
                 val quitMenu = openMenu()
                 assertFalse(openedWindow.isDisplayable)
                 (quitMenu.contentPane as TrayMenuPanel).quitButton.doClick(0)
                 assertFalse(quitMenu.isVisible)
                 assertEquals(1, opens)
                 assertEquals(1, quits)
+                assertEquals(1, restarts)
             } finally { tray.close() }
             assertEquals(before, system.trayIcons.toSet())
             assertFalse(Window.getWindows().filterIsInstance<JWindow>()
@@ -99,7 +104,7 @@ class DesktopSystemTrayTest {
             val panel = TrayMenuPanel({}, {})
             panel.size = panel.preferredSize
             panel.doLayout()
-            for (button in listOf(panel.openButton, panel.quitButton)) {
+            for (button in listOf(panel.openButton, panel.restartButton, panel.quitButton)) {
                 val labelWidth = button.getFontMetrics(button.font).stringWidth(button.text)
                 assertTrue(button.width >= labelWidth + button.insets.left + button.insets.right +
                     button.icon.iconWidth + button.iconTextGap)

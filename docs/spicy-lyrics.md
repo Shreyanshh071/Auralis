@@ -56,8 +56,8 @@ Android database migration 9 → 10 adds credits, Spotify recording ID, and the
 original API fetch time without deleting library data. Cache round-trips retain
 Spicy syllable boundaries; response age is never renewed by alignment or copying.
 Expired Spicy rows are rejected on read and purged at startup and periodically
-while the repository is alive. Raw lyric selection/sharing is disabled for Spicy
-API responses in both views.
+while the repository is alive. Holding a line to select and share it works for
+Spicy API responses on Android, as it does for every other provider.
 
 Without a valid included or personal publishable key the provider is omitted from
 automatic requests and the picker. Personal overrides stay in local content
@@ -249,7 +249,7 @@ The sidebar uses one compact row (for example, "Better Lyrics · Spicy UI:
 Spikerko+"). Long community credit lists scroll horizontally within that row;
 the fullscreen footer keeps the complete wording and wraps when needed.
 Contributor links use the response URL; missing URLs leave visible text rather
-than guessed links. Unknown sources are labelled unknown. The lyrics-copy/share
+than guessed links. Unknown sources are labelled unknown. The Windows lyrics-copy/share
 action is disabled for Spicy API responses. The Windows updater excludes the
 refetchable lyrics directory from new user-data backups. Existing old backups
 are not automatically rewritten; their stored lyric responses require a separate

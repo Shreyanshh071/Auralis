@@ -106,6 +106,17 @@ class LyricsSettlingTest {
         assertEquals(2, attempts)
     }
 
+    @Test fun `an untimed pass ends the spinner before the background retries`() = runTest {
+        var attempts = 0
+        val spinnerEndedAt = mutableListOf<Int>()
+        searchForTimedLyrics(retryDelayMs = 0L, timedLyricsVisible = { false },
+            onUntimedAttempt = { spinnerEndedAt += attempts }) {
+            attempts++
+            plain
+        }
+        assertEquals(listOf(1, 2), spinnerEndedAt)
+    }
+
     @Test fun `plain answers exhaust bounded retries before unavailable state`() = runTest {
         var attempts = 0
         val result = searchForTimedLyrics(retryDelayMs = 0L, timedLyricsVisible = { false }) {

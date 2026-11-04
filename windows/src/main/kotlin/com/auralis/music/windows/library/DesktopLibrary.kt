@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -49,8 +48,6 @@ fun DesktopLibrary(
     val queue = playback?.queue?.collectAsState()?.value
     val state = playback?.state?.collectAsState()?.value
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    // The phone opens "New playlist" from its bottom dock; on Windows it is a button on the Library page.
-    var showCreate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val savedAlbumEntries = uiState.savedAlbums.associateBy(::savedAlbumEntryId)
     val displayedState = uiState.copy(playlists = desktopLibraryItems(uiState.playlists, uiState.savedAlbums))
 
@@ -115,8 +112,7 @@ fun DesktopLibrary(
             onOpenArtist = browse::openArtist,
             onOpenAlbum = { browse.openAlbum(it) },
             onReorderPlaylistTracks = viewModel::reorderPlaylistTracks,
-            isExternalCreateDialogOpen = showCreate,
-            onCloseExternalCreateDialog = { showCreate = false },
+            desktopBrowser = true,
             isTrackPinned = homeViewModel::isTrackPinned,
             onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
             emptyLibraryContent = { filter, query ->
@@ -141,15 +137,5 @@ fun DesktopLibrary(
             // The whole panel, as the other pages: a centred column left empty bands either side.
             modifier = Modifier.fillMaxSize()
         )
-        if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {
-            androidx.compose.material3.ExtendedFloatingActionButton(
-                onClick = { showCreate = true },
-                icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, contentDescription = null) },
-                text = { androidx.compose.material3.Text(str(Strings.new_playlist)) },
-                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp)
-            )
-        }
     }
 }

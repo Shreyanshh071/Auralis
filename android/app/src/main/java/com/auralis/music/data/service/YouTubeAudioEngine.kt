@@ -34,6 +34,11 @@ class YouTubeAudioEngine(private val context: Context) {
     private var webView: WebView? = null
     private var currentVideoId: String? = null
     private var onTrackCompletedCallback: (() -> Unit)? = null
+    private var onRendererGoneCallback: (() -> Unit)? = null
+
+    // Counts lost renderers, so the screen hosting the WebView attaches the replacement.
+    private val _rendererGeneration = MutableStateFlow(0)
+    val rendererGeneration: StateFlow<Int> = _rendererGeneration.asStateFlow()
 
     // Monotonically increasing playback request/session ID
     private val currentRequestId = AtomicLong(0L)
@@ -309,12 +314,33 @@ class YouTubeAudioEngine(private val context: Context) {
                             Log.e("AuralisPlayback", "[WebView MainFrame HTTP Error #reqId=${currentRequestId.get()}] status=${errorResponse?.statusCode}, url=$urlStr")
                         }
                     }
+
+                    // Without this, Android ends the whole app when the renderer crashes or is killed for memory.
+                    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+                    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                        Log.e("AuralisPlayback", "[WebView Renderer Gone] didCrash=${detail?.didCrash()}, priority=${detail?.rendererPriorityAtExit()}")
+                        if (view != null && view === webView) replaceDeadWebView(view)
+                        return true
+                    }
                 }
             }
         } else {
             (webView?.parent as? android.view.ViewGroup)?.removeView(webView)
         }
         return webView!!
+    }
+
+    private fun replaceDeadWebView(dead: WebView) {
+        val hadRequest = currentVideoId != null
+        webView = null
+        currentVideoId = null
+        _isPlaying.value = false
+        _isBuffering.value = false
+        releaseWakeLock("RendererGone")
+        (dead.parent as? ViewGroup)?.removeView(dead)
+        dead.destroy()
+        _rendererGeneration.value += 1
+        if (hadRequest) onRendererGoneCallback?.invoke()
     }
 
     private var pendingInitialSeekMs: Long = 0L
@@ -593,6 +619,10 @@ class YouTubeAudioEngine(private val context: Context) {
             })();
         """.trimIndent()
         webView?.evaluateJavascript(js, null)
+    }
+
+    fun setOnRendererGoneCallback(callback: () -> Unit) {
+        this.onRendererGoneCallback = callback
     }
 
     fun setOnTrackCompletedCallback(callback: () -> Unit) {

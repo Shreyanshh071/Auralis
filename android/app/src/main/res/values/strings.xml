@@ -1,5 +1,18 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="permanent_shuffle">Permanent shuffle</string>
+    <string name="permanent_shuffle_description">Keep your shuffle choice when starting another song, album or playlist</string>
+    <string name="download_cached_lyrics_notice">Showing cached lyrics. Lyrics were not included in this download.</string>
+    <string name="audio_transitions">Song transitions</string>
+    <string name="audio_crossfade">Crossfade</string>
+    <string name="audio_crossfade_description">Fade into the next song as the current song fades out</string>
+    <string name="audio_crossfade_duration">Crossfade duration · %1$d s</string>
+    <string name="audio_automix">Automix</string>
+    <string name="audio_automix_description">Analyse beats and energy to choose the mix timing. Uses more processing and may use extra data.</string>
+    <string name="skip_gapless_albums">Skip gapless albums</string>
+    <string name="skip_gapless_albums_description">Keep consecutive songs from the same album together without overlapping them</string>
+    <string name="audio_transitions_availability">Applies to automatic song changes on this phone. Unavailable during Listen Together, remote playback, or an end-of-song sleep timer.</string>
+    <string name="skip_silence">Skip silence</string>
     <string name="app_name">Auralis</string>
     <string name="title_activity_main">Auralis</string>
     <string name="package_name">com.auralis.music</string>
@@ -99,6 +112,30 @@
     <string name="top_songs">Top Songs</string>
     <string name="history">History</string>
     <string name="top_result">Top result</string>
+    <string name="update_offer_title">Update available</string>
+    <string name="update_offer_message">Auralis v%1$s is ready to download.</string>
+    <string name="update_offer_update">Update</string>
+    <string name="update_offer_later">Later</string>
+    <string name="changelog">Changelog</string>
+    <string name="changelog_installed">Installed</string>
+    <string name="changelog_loading">Loading updates…</string>
+    <string name="changelog_failed">Couldn\'t load the changelog. Check your connection.</string>
+    <string name="changelog_retry">Try again</string>
+    <string name="stats_for_nerds">Stats for nerds</string>
+    <string name="stats_buffered">Buffered ahead</string>
+    <string name="stats_sample_rate">Sample rate</string>
+    <string name="stats_channels">Channels</string>
+    <string name="stats_output">Output</string>
+    <string name="stats_device">Playing on</string>
+    <string name="stats_device_speaker">Phone speaker</string>
+    <string name="stats_network">Network</string>
+    <string name="stats_underruns">Underruns</string>
+    <string name="stats_speed">Speed</string>
+    <string name="stats_itag">YouTube format</string>
+    <string name="stats_decoder">Decoder</string>
+    <string name="stats_media_id">Song ID</string>
+    <string name="stats_source_download">Downloaded file</string>
+    <string name="stats_source_other">Other source</string>
     <string name="also_matching">Also matching</string>
     <string name="top_songs_info">Top songs &amp; info</string>
     <string name="top_songs_albums">Top songs &amp; albums</string>
@@ -158,6 +195,7 @@
     <string name="search_unavailable">Could not load search results</string>
     <string name="artist_load_failed">Could not load this artist. Please try again.</string>
     <string name="choose_artist">Choose artist</string>
+    <string name="artist_picker_hint">Open an artist page</string>
     <string name="search_unavailable_detail">The search service is taking too long or could not be reached. Please try again.</string>
     <string name="folder_options">Folder options</string>
     <string name="retry_download">Retry download</string>
@@ -372,6 +410,7 @@
     <string name="from_youtube_music_or_spotify">From YouTube Music or Spotify</string>
     <string name="open_import_playlists">Open Import playlists</string>
     <string name="disconnect_account">Disconnect Account</string>
+    <string name="disconnect">Disconnect</string>
     <string name="delete_account">Delete account</string>
     <string name="connected_services">Connected Services</string>
     <string name="music_transfers">Music Transfers</string>
@@ -404,6 +443,8 @@
     <string name="creator_lead_developer">Creator &amp; Lead Developer</string>
     <string name="discord_user_shreyanshh12_3_copied_to_cl">Discord user: shreyanshh12_3 copied to clipboard</string>
     <string name="contributors">Contributors</string>
+    <string name="copy_diagnostic_report">Copy diagnostic report</string>
+    <string name="diagnostic_report_copied">Diagnostic report copied</string>
     <string name="ishaan_thakur">Ishaan Thakur</string>
     <string name="contributor">Contributor</string>
     <string name="ai_lyrics_translation">AI lyrics translation</string>
@@ -547,6 +588,7 @@
     <string name="spotify_account_description">Sign in to import all your Spotify playlists, including private playlists, and Liked Songs.</string>
     <string name="import_all_spotify_playlists">Import all Spotify playlists</string>
     <string name="sign_in_to_spotify">Sign in to Spotify</string>
+    <string name="import_spotify_liked_songs_and_playlists">Import Liked Songs and playlists directly from your Spotify account—including private playlists—without pasting links or setting them to public.</string>
     <string name="your_spotify_playlists">Your Spotify playlists</string>
     <string name="spotify_picker_description">Private playlists are included. Liked Songs are added to your liked songs; importing a playlist again updates it.</string>
     <string name="spotify_playlists_load_failed">Couldn\'t load your Spotify playlists. Sign in again or try again.</string>
@@ -794,7 +836,7 @@
     <string name="persistent_queue">Persistent queue</string>
     <string name="restore_your_queue_and_position_after_re">Restore your queue and position after restarting</string>
     <string name="auto_load_more_songs">Auto load more songs</string>
-    <string name="add_recommendations_as_your_radio_queue">Add recommendations as your radio queue runs low</string>
+    <string name="add_recommendations_as_your_radio_queue">Keep adding songs related to the current song as any queue runs low</string>
     <string name="stop_music_on_task_clear">Stop music on task clear</string>
     <string name="stop_playback_when_auralis_is_swiped_awa">Stop playback when Auralis is swiped away from recent apps</string>
     <string name="pause_music_when_media_is_muted">Pause music when media is muted</string>
@@ -964,7 +1006,7 @@
     <string name="opt_auto_adaptive">Auto (Adaptive)</string>
     <string name="opt_high_on_wi_fi_standard_on_mobile_data">High on Wi-Fi, Standard on Mobile Data</string>
     <string name="opt_high_quality">High Quality</string>
-    <string name="opt_160_kbps_high_bitrate_opus">~160 kbps (High-bitrate Opus)</string>
+    <string name="opt_160_kbps_high_bitrate_opus">Up to 320 kbps (JioSaavn, then YouTube Music)</string>
     <string name="opt_standard">Standard</string>
     <string name="opt_128_kbps_aac_opus">~128 kbps (AAC / Opus)</string>
     <string name="opt_data_saver_low">Data Saver (Low)</string>
@@ -1129,11 +1171,16 @@
     <string name="finding_album">Finding album…</string>
     <string name="single_not_part_of_an_album">Single · not part of an album</string>
     <string name="no_album_for_this_song">No album for this song</string>
+    <string name="no_album">No album</string>
+    <string name="no_album_information">No album information</string>
+    <string name="release_ep">EP</string>
     <string name="album_x">Album • %1$s</string>
     <string name="song_x">Song • %1$s</string>
     <string name="share_album">Share Album</string>
     <string name="downloading_x_of_x_songs">Downloading · %1$s of %2$s songs</string>
     <string name="x_of_x_downloaded_x_failed">%1$s of %2$s downloaded · %3$s failed</string>
+    <string name="x_of_x_downloaded_x_not_on_youtube">%1$s of %2$s downloaded · %3$s not on YouTube</string>
+    <string name="x_of_x_downloaded_x_failed_x_not_on_youtube">%1$s of %2$s downloaded · %3$s failed · %4$s not on YouTube</string>
     <string name="share_playlist">Share Playlist</string>
     <string name="share_playlist_export">Share Playlist Export</string>
     <string name="share_lyric_card">Share Lyric Card</string>
@@ -1207,7 +1254,7 @@
     <string name="months">Months</string>
     <string name="years">Years</string>
     <string name="unlimited">Unlimited</string>
-    <string name="glass_dock_and_mini_player_scrolling_dow">Glass dock and mini player. Scrolling down tucks the mini player into the dock.</string>
+    <string name="glass_dock_and_mini_player_scrolling_dow">Glass on the dock, mini player and pages.</string>
     <string name="glass_dock_and_mini_player_live_blur_nee">Glass dock and mini player. Live blur needs Android 12, so this phone gets a simpler look.</string>
     <string name="auralis_wrapped_x">Auralis Wrapped %1$s</string>
     <string name="tap_to_listen_2">Tap to listen</string>
@@ -1277,6 +1324,10 @@
 
     <!-- Auralis Connect: one listening session across the devices signed in to an account -->
     <string name="connect_to_a_device">Connect to a device</string>
+    <string name="connect_device_sync">Device Sync</string>
+    <string name="connect_build_unavailable">Connect is unavailable in this build.</string>
+    <string name="connect_disconnected">Disconnected</string>
+    <string name="connect_reconnecting">Reconnecting…</string>
     <string name="connect_this_phone">This phone</string>
     <string name="connect_this_tablet">This tablet</string>
     <string name="connect_playing_on">Playing on %1$s</string>
@@ -1342,4 +1393,34 @@
     <string name="connect_presence_channel">Auralis Connect</string>
     <string name="connect_presence_title">Available on your devices</string>
     <string name="connect_presence_description">Ready to receive music. Close Auralis from Recents to disconnect.</string>
+    <string name="latest_album">Latest album</string>
+    <string name="latest_single">Latest single</string>
+    <string name="pin_to_library">Pin to Library</string>
+    <string name="unpin_from_library">Unpin from Library</string>
+    <string name="settings_hint_appearance">Theme, player and lyrics style</string>
+    <string name="settings_hint_player">Quality, gapless and queue</string>
+    <string name="settings_hint_content">Catalog, language and proxy</string>
+    <string name="settings_hint_imported_lyrics">Lyrics you added yourself</string>
+    <string name="settings_hint_ai_lyrics">Provider, model and language</string>
+    <string name="settings_hint_privacy">History and screenshots</string>
+    <string name="settings_hint_storage">Downloads and cache</string>
+    <string name="settings_hint_updater">Version and update checks</string>
+    <string name="settings_hint_system">Permissions and app info</string>
+    <string name="settings_hint_about">Version and credits</string>
+    <string name="liquid_glass_dark_only">Only available on dark themes.</string>
+    <string name="downloads">Downloads</string>
+    <string name="metadata">Metadata</string>
+    <string name="settings_hint_downloads">Metadata saved in your downloads</string>
+    <string name="download_metadata_title">Add to the audio file</string>
+    <string name="download_metadata_message">Song title, artist and available album information are always embedded. Choose whether to also embed cover artwork and lyrics.</string>
+    <string name="metadata_song_details">Song details</string>
+    <string name="metadata_song_details_hint">Song name, artist name and album name</string>
+    <string name="metadata_cover_artwork">Cover artwork</string>
+    <string name="metadata_cover_artwork_hint">Include the cover image in the file and show it for the download. When off, use a placeholder.</string>
+    <string name="metadata_lyrics">Lyrics</string>
+    <string name="metadata_lyrics_hint">Include available lyrics in the file. When off, downloaded songs use only stored lyrics, with a cache notice.</string>
+    <string name="metadata_dont_ask_again">Don\'t ask again – Remember my choices</string>
+    <string name="metadata_ask_every_download">Ask before every download</string>
+    <string name="metadata_ask_every_download_hint">Show the popup for songs and playlists. When off, the choices above are used.</string>
+    <string name="metadata_settings_note">Song details are always embedded. When Cover artwork is off, the download shows a placeholder. When Lyrics is off, only stored lyrics can appear, with a brief cache notice. These choices apply to new downloads.</string>
 </resources>

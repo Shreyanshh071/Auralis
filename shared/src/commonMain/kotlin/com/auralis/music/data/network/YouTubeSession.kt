@@ -25,6 +25,21 @@ object YouTubeSession {
     private const val KEY_AUTH_USER = "auth_user"
     private const val KEY_ACCOUNT_LABEL = "account_label"
     private const val KEY_DATA_SYNC_ID = "data_sync_id"
+    private const val KEY_RAW_DATA_SYNC_ID = "raw_data_sync_id"
+    private const val KEY_CLIENT_VERSION = "client_version"
+    @Volatile private var rawDataSyncId: String = ""
+    @Volatile var clientVersion: String = ""
+        private set
+
+    // A primary account's DATASYNC_ID is "user||". Only "channel||user" delegates.
+    val delegatedSessionId: String get() = rawDataSyncId.takeIf {
+        it.substringAfter("||", "").isNotBlank()
+    }?.substringBefore("||").orEmpty()
+
+    fun playlistSyncUserContext(): org.json.JSONObject = org.json.JSONObject()
+        .put("lockedSafetyMode", false).apply {
+            if (delegatedSessionId.isNotBlank()) put("onBehalfOfUser", delegatedSessionId)
+        }
 
     private var prefs: KeyValueStore? = null
 
@@ -50,6 +65,8 @@ object YouTubeSession {
         visitorData = p.getString(KEY_VISITOR_DATA, "").orEmpty()
         authUser = p.getString(KEY_AUTH_USER, "0").orEmpty().ifBlank { "0" }
         dataSyncId = p.getString(KEY_DATA_SYNC_ID, "").orEmpty()
+        rawDataSyncId = p.getString(KEY_RAW_DATA_SYNC_ID, "").orEmpty()
+        clientVersion = p.getString(KEY_CLIENT_VERSION, "").orEmpty()
         _accountLabel.value = p.getString(KEY_ACCOUNT_LABEL, "").orEmpty()
         _signedIn.value = hasAuthCookies(cookie)
     }
@@ -64,17 +81,21 @@ object YouTubeSession {
 
     fun playlistSyncUser(): String = dataSyncId.also { playlistSyncIdentity() }
 
-    fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "") {
+    fun save(cookie: String, visitorData: String, authUser: String, accountLabel: String, dataSyncId: String = "", clientVersion: String = "") {
         this.cookie = cookie
         this.visitorData = visitorData
         this.authUser = authUser.filter(Char::isDigit).ifBlank { "0" }
         this.dataSyncId = normalizeDataSyncId(dataSyncId)
+        this.rawDataSyncId = dataSyncId
+        this.clientVersion = clientVersion
         prefs?.putStrings(linkedMapOf(
             KEY_COOKIE to cookie,
             KEY_VISITOR_DATA to visitorData,
             KEY_AUTH_USER to this.authUser,
             KEY_ACCOUNT_LABEL to accountLabel,
-            KEY_DATA_SYNC_ID to this.dataSyncId
+            KEY_DATA_SYNC_ID to this.dataSyncId,
+            KEY_RAW_DATA_SYNC_ID to rawDataSyncId,
+            KEY_CLIENT_VERSION to clientVersion
         ))
         _accountLabel.value = accountLabel
         _signedIn.value = hasAuthCookies(cookie)
@@ -85,6 +106,8 @@ object YouTubeSession {
         visitorData = ""
         authUser = "0"
         dataSyncId = ""
+        rawDataSyncId = ""
+        clientVersion = ""
         prefs?.clear()
         _accountLabel.value = ""
         _signedIn.value = false
@@ -133,6 +156,7 @@ object YouTubeSession {
             put("X-Goog-AuthUser", authUser)
             put("X-Youtube-Bootstrap-Logged-In", "true")
             if (visitorData.isNotBlank()) put("X-Goog-Visitor-Id", visitorData)
+            if (delegatedSessionId.isNotBlank()) put("X-Goog-PageId", delegatedSessionId)
         }
     }
 

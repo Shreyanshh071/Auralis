@@ -140,9 +140,8 @@ fun ProfileSettingsView(
     // ── QUALITY DIALOG ──
     if (showQualityDialog) {
         val qualities = remember { AudioQuality.values().toList() }
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = { showQualityDialog = false },
-            containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
                     text = str(R.string.select_audio_quality),

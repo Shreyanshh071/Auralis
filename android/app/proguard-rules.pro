@@ -63,3 +63,5 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 -keepattributes JavascriptInterface
+# Kuromoji dictionaries are loaded from resources under their original package paths.
+-keep class com.atilika.kuromoji.** { *; }

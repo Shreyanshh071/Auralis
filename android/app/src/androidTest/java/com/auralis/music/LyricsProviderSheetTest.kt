@@ -24,7 +24,7 @@ import java.io.File
 
 class LyricsProviderSheetTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun animatedLyricsUnderlayRestsDuringMenuAndResumesAfterDismissal() {
+    @Test fun decorativeUnderlayRestsDuringMenuAndResumesAfterDismissal() {
         val recorded = java.util.concurrent.atomic.AtomicInteger()
         val show = mutableStateOf(false)
         val position = mutableStateOf(1234L)

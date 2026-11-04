@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Check
@@ -21,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -82,6 +84,8 @@ fun ConnectDevicePickerSheet(
     onOpenPhoneOutput: (() -> Unit)? = null
 ) {
     val ui by AuralisConnect.ui.collectAsState()
+    val syncEnabled by AuralisConnect.deviceSyncEnabled.collectAsState()
+    val syncAvailable = AuralisConnect.deviceSyncAvailable
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent by animateColorAsState(liftedAccent(accentColor), label = "connectAccent")
     val sheetBg = remember(accent) { tinted(accent, 0.08f) }
@@ -105,12 +109,34 @@ fun ConnectDevicePickerSheet(
                 color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(cardBg)
+                    .toggleable(
+                        value = syncAvailable && syncEnabled,
+                        enabled = syncAvailable,
+                        role = Role.Switch,
+                        onValueChange = AuralisConnect::setDeviceSyncEnabled
+                    )
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(str(R.string.connect_device_sync), color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        str(connectConnectionStatus(syncAvailable, syncEnabled, ui)),
+                        color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp
+                    )
+                }
+                Switch(checked = syncAvailable && syncEnabled, enabled = syncAvailable, onCheckedChange = null)
+            }
+            Spacer(Modifier.height(12.dp))
             ConnectStatusLine(ui, accent)
-            Spacer(Modifier.height(14.dp))
-            if (!ui.enabled) {
-                Text(str(R.string.connect_sign_in), color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp,
+            if (!syncAvailable || (syncEnabled && !ui.enabled)) {
+                val message = if (syncAvailable) str(R.string.connect_sign_in) else str(R.string.connect_build_unavailable)
+                Text(message, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp,
                     modifier = Modifier.padding(vertical = 12.dp))
-            } else {
+            } else if (syncEnabled && ui.connected) {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
@@ -140,6 +166,13 @@ fun ConnectDevicePickerSheet(
             Spacer(Modifier.height(10.dp))
         }
     }
+}
+
+internal fun connectConnectionStatus(available: Boolean, optedIn: Boolean, ui: ConnectUi): Int = when {
+    !available || !optedIn || !ui.enabled -> R.string.connect_disconnected
+    ui.connected -> R.string.connected
+    ui.error != null -> R.string.connect_reconnecting
+    else -> R.string.connect_connecting
 }
 
 @Composable

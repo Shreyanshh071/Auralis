@@ -24,7 +24,7 @@ class AppUpdateWorker(
                     .build()
 
                 val workRequest = PeriodicWorkRequestBuilder<AppUpdateWorker>(
-                    repeatInterval = 6,
+                    repeatInterval = 1,
                     repeatIntervalTimeUnit = TimeUnit.HOURS
                 )
                     .setConstraints(constraints)
@@ -37,10 +37,11 @@ class AppUpdateWorker(
 
                 WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                     WORK_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
+                    // UPDATE, so phones already scheduled every 6 hours move to the new interval.
+                    ExistingPeriodicWorkPolicy.UPDATE,
                     workRequest
                 )
-                Log.d(TAG, "Scheduled periodic background update check every 6 hours")
+                Log.d(TAG, "Scheduled periodic background update check every hour")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to schedule periodic update check", e)
             }
@@ -50,13 +51,13 @@ class AppUpdateWorker(
     override suspend fun doWork(): Result {
         return try {
             val updaterStore = UpdaterDataStore(applicationContext)
-            val autoCheck = updaterStore.settingsFlow.first().autoCheckUpdates
+            val settings = updaterStore.settingsFlow.first()
 
-            if (autoCheck) {
+            if (settings.autoCheckUpdates && settings.enableNotifications) {
                 val updateInfo = UpdateChecker.checkForUpdates(applicationContext)
                 if (updateInfo.hasUpdate) {
                     Log.d(TAG, "Background update check found new version: v${updateInfo.latestVersion}")
-                    UpdateChecker.showUpdateNotification(applicationContext, updateInfo)
+                    UpdateChecker.notifyOnce(applicationContext, updateInfo)
                 }
             }
             Result.success()

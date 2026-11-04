@@ -19,7 +19,14 @@ private val Context.accountPreferencesJournal by preferencesDataStore(name = "au
 
 class AndroidAccountPreferences(private val context: Context) {
     fun start(scope: CoroutineScope) = scope.launch(Dispatchers.IO) {
-        val auth = FirebaseAuth.getInstance()
+        val auth = try {
+            FirebaseAuth.getInstance()
+        } catch (e: IllegalStateException) {
+            // Local debug builds can omit google-services.json. Optional background sync
+            // must not crash the welcome screen when there is no configured Firebase app.
+            android.util.Log.w("AccountPreferences", "Settings sync unavailable: Firebase is not configured", e)
+            return@launch
+        }
         val prefs = context.getSharedPreferences("auralis_preferences_device", Context.MODE_PRIVATE)
         val device = prefs.getString("id", null) ?: java.util.UUID.randomUUID().toString().also {
             prefs.edit().putString("id", it).commit()

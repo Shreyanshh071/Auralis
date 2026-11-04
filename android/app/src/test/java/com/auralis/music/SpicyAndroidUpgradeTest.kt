@@ -76,6 +76,7 @@ class SpicyAndroidUpgradeTest {
         assertSame(spicy, LyricsRepositoryImpl.chooseSpicy(word, spicy))
         assertSame(word, selectSettledLyrics(word, word, spicy))
         assertSame(spicy, selectSettledLyrics(word, word, spicy, preferSpicy = true))
+        assertSame(spicy, selectSettledLyrics(null, spicy, word))
     }
 
     @Test fun nestedSourceTimingsAndBackingFlagsSurviveRoomAndSpellingRepair() {

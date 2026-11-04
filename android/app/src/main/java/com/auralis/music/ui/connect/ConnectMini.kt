@@ -4,24 +4,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.material3.MaterialTheme
-import com.auralis.music.ui.theme.dynamicSurface
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,41 +78,56 @@ fun ConnectOutputSubtitle(connect: MiniConnect, accent: Color, fontSize: TextUni
  * Shows an active remote output or an in-progress connection, rather than an idle prompt.
  */
 @Composable
-fun ConnectPlayerBar(accent: Color, onOpen: () -> Unit, modifier: Modifier = Modifier, hazeState: HazeState? = null) {
+fun ConnectPlayerBar(accent: Color, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val ui by AuralisConnect.ui.collectAsState()
     if (!shouldShowPlayerDevicePill(ui)) return
-    val t = ui.transfer?.takeUnless { it.failed }
+    val transfer = ui.transfer?.takeUnless { it.failed }
     val output = ui.output
-    val text = when {
-        t != null && !t.failed -> str(R.string.connect_connecting_to, t.label)
-        t != null -> str(R.string.connect_failed_to, t.label)
-        else -> connectOutputLine(output) ?: str(R.string.connect_to_a_device)
-    }
-    val type = ui.devices.firstOrNull { it.device.id == (t?.deviceId ?: output?.deviceId) }?.device?.type ?: output?.type ?: ConnectDeviceType.PHONE
-    val tint = if (t?.failed == true) Color(0xFFFF8A80) else connectAccent(accent)
-    val shape = RoundedCornerShape(32.dp)
-    val surface = MaterialTheme.dynamicSurface
-    val dark = surface.luminance() < 0.5f
+    val label = if (transfer != null) str(R.string.connect_connecting_to, transfer.label)
+        else connectOutputLine(output) ?: str(R.string.connect_to_a_device)
+    val type = ui.devices.firstOrNull { it.device.id == (transfer?.deviceId ?: output?.deviceId) }
+        ?.device?.type ?: output?.type ?: ConnectDeviceType.PHONE
+    val tint = connectAccent(accent)
+    val shape = RoundedCornerShape(18.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = if (dark) .35f else .12f),
-                spotColor = Color.Black.copy(alpha = if (dark) .45f else .18f))
+        modifier = modifier.padding(horizontal = 24.dp).widthIn(max = 320.dp)
             .clip(shape)
-            .then(if (hazeState != null) Modifier.hazeEffect(
-                state = hazeState,
-                style = HazeStyle(backgroundColor = Color.Transparent,
-                    tint = HazeTint(surface.copy(alpha = if (dark) .38f else .48f)),
-                    blurRadius = 24.dp, noiseFactor = .02f)
-            ) { blurEnabled = true } else Modifier.background(surface.copy(alpha = .48f)))
-            .border(1.dp, Brush.verticalGradient(listOf(tint.copy(alpha = .50f),
-                tint.copy(alpha = .20f), tint.copy(alpha = .08f))), shape)
-            .clickable(role = Role.Button, onClickLabel = str(R.string.connect_to_a_device), onClick = onOpen)
-            .padding(horizontal = 14.dp, vertical = 7.dp)
+            .background(Color.Black.copy(alpha = .24f))
+            .border(1.dp, tint.copy(alpha = .16f), shape)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        Icon(connectDeviceIcon(type), null, tint = tint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(text, color = tint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f, fill = false).clip(shape)
+                .clickable(role = Role.Button, onClickLabel = str(R.string.connect_to_a_device), onClick = onOpen)
+                .heightIn(min = 32.dp).padding(horizontal = 8.dp)
+        ) {
+            if (transfer != null) {
+                CircularProgressIndicator(Modifier.size(14.dp), color = tint, strokeWidth = 2.dp)
+            } else {
+                Icon(connectDeviceIcon(type), null, tint = tint, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(6.dp))
+            Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        val me = ui.me
+        if (ui.canPlayHere && me != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clip(shape)
+                    .background(tint.copy(alpha = .12f))
+                    .clickable(role = Role.Button) { AuralisConnect.transferTo(me.id) }
+                    .heightIn(min = 32.dp).padding(horizontal = 8.dp)
+            ) {
+                Icon(connectDeviceIcon(me.type), null, tint = tint, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(str(if (me.type == ConnectDeviceType.TABLET) R.string.connect_this_tablet else R.string.connect_this_phone),
+                    color = tint, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 104.dp))
+            }
+        }
     }
 }
 

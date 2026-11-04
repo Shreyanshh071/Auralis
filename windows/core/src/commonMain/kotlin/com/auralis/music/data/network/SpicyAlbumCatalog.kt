@@ -26,12 +26,13 @@ class SpicyAlbumCatalog(private val client: OkHttpClient,
     private val lookupLock = Mutex()
     private var blockedUntil = 0L
 
-    suspend fun resolve(query: LyricsSearchQuery): SpicyRecording? = lookupLock.withLock {
+    suspend fun resolve(query: LyricsSearchQuery, excludedIds: Set<String> = emptySet()): SpicyRecording? = lookupLock.withLock {
         val album = query.album?.substringBefore('(')?.trim()?.takeIf { it.isNotBlank() } ?: return@withLock null
         if (query.artist.isBlank() || (query.durationMs ?: (query.durationSec ?: 0) * 1000) <= 0) return@withLock null
         val key = album.lowercase() to query.artist.lowercase()
         cache[key]?.takeIf { it.until > clock() }?.let { entry ->
-            return@withLock entry.tracks.firstOrNull { SpicyRecordingMatcher.matches(query, it) }
+            if (entry.tracks.isEmpty()) return@withLock null
+            entry.tracks.firstOrNull { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }?.let { return@withLock it }
         }
         if (clock() < blockedUntil) return@withLock null
         val tracks = mutableListOf<SpicyRecording>()
@@ -58,15 +59,15 @@ class SpicyAlbumCatalog(private val client: OkHttpClient,
                     if (!albums.add(spotifyAlbum)) continue
                     val html = client.searchBody(Request.Builder().url("https://open.spotify.com/embed/album/$spotifyAlbum").build(), 8000)
                     tracks += SpicySpotifyMetadata.fromAlbumEmbed(html, spotifyAlbum)
-                    if (tracks.any { SpicyRecordingMatcher.matches(query, it) }) break
+                    if (tracks.any { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }) break
                 }
-                if (tracks.any { SpicyRecordingMatcher.matches(query, it) }) break
+                if (tracks.any { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }) break
             }
         } catch (e: CancellationException) { throw e }
           catch (e: Exception) { com.auralis.music.util.Log.w("SpicyCatalog", "Album metadata failed: ${e.javaClass.simpleName}") }
         if (cache.size >= 64) cache.clear()
         cache[key] = Cached(tracks, clock() + if (tracks.isEmpty()) 300_000 else 86_400_000)
-        tracks.firstOrNull { SpicyRecordingMatcher.matches(query, it) }.also {
+        tracks.firstOrNull { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }.also {
             com.auralis.music.util.Log.i("SpicyCatalog", "Album tracks=${tracks.size}, recording matched=${it != null}")
         }
     }

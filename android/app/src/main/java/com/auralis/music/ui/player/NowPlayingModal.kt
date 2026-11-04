@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -181,6 +182,7 @@ import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.Job
+
 import com.auralis.music.domain.model.Playlist
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
@@ -210,6 +212,7 @@ import com.auralis.music.ui.theme.dynamicBackground
 import com.auralis.music.ui.theme.dynamicPalette
 import com.auralis.music.ui.theme.motionTween
 import com.auralis.music.ui.viewmodel.PlayerUiState
+internal const val SWIPE_SETTLE_MS = 600L
 
 enum class NowPlayingTab {
     LYRICS,
@@ -286,93 +289,18 @@ fun calculateSegmentPalette(
 @Composable
 private fun NowPlayingDynamicBackground(
     style: PlayerBackgroundStyle,
-    pagerState: androidx.compose.foundation.pager.PagerState,
-    queue: List<Track>,
     activeTrack: Track,
     committedPalette: com.auralis.music.ui.theme.ArtworkPalette,
-    isDynamicAccent: Boolean,
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val offsetFraction = pagerState.currentPageOffsetFraction
-    val absOffset = kotlin.math.abs(offsetFraction)
-    val isMoving = (pagerState.isScrollInProgress || absOffset > 0.005f) && queue.isNotEmpty()
-
-    val motionPalette = if (isMoving && isDynamicAccent) {
-        val currentPage = pagerState.currentPage
-        calculateSegmentPalette(
-            currentPage = currentPage,
-            offsetFraction = offsetFraction,
-            pageCount = queue.size,
-            getPaletteForPage = { pageIdx ->
-                val trk = queue.getOrNull(pageIdx)
-                if (trk != null) {
-                    if (trk.id == activeTrack.id && !committedPalette.isPlaceholder) {
-                        committedPalette
-                    } else {
-                        val cached = com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.id)
-                            ?: com.auralis.music.ui.theme.ArtworkPaletteCache.getCached(trk.thumbnail)
-                        if (cached != null && !cached.isPlaceholder) {
-                            cached
-                        } else if (trk.dominantColor != null && trk.dominantColor != 0) {
-                            val c = Color(trk.dominantColor!!)
-                            com.auralis.music.ui.theme.ArtworkPalette(
-                                primary = c,
-                                secondary = c,
-                                tertiary = c,
-                                seedColor = c,
-                                isMonochrome = false,
-                                glowColors = listOf(c, c, c, c, c, c)
-                            )
-                        } else {
-                            committedPalette
-                        }
-                    }
-                } else {
-                    committedPalette
-                }
-            },
-            fallbackPalette = committedPalette
-        )
-    } else {
-        committedPalette
-    }
-
-    // While swiping, the pager-interpolated palette is drawn as is. Otherwise the committed
-    // palette goes to PlayerBackground, whose own blend runs in the draw phase. The old driver
-    // returned a freshly lerped palette every frame, recomposing the background for the whole
-    // 500ms song-change blend.
-    val swipingPalette = isMoving && isDynamicAccent
-    val effectivePalette = if (swipingPalette) motionPalette else committedPalette
-
-    val currentPage = pagerState.currentPage
-    val direction = if (offsetFraction > 0f) 1 else if (offsetFraction < 0f) -1 else 0
-    val neighborPage = (currentPage + direction).coerceIn(0, (queue.size - 1).coerceAtLeast(0))
-
-    val primaryUrl = if (isMoving) {
-        queue.getOrNull(currentPage)?.thumbnail ?: activeTrack.thumbnail
-    } else {
-        activeTrack.thumbnail
-    }
-
-    val secondaryUrl = if (isMoving && neighborPage != currentPage) {
-        queue.getOrNull(neighborPage)?.thumbnail
-    } else {
-        null
-    }
-
-    val swipeFraction = if (isMoving && secondaryUrl != null) absOffset.coerceIn(0f, 1f) else 0f
-
     PlayerBackground(
         style = style,
-        artworkUrl = primaryUrl,
-        extractedColors = effectivePalette,
-        secondaryArtworkUrl = secondaryUrl,
-        swipeFraction = swipeFraction,
+        artworkUrl = com.auralis.music.data.download.AuralisDownloadManager.artworkForPlayback(activeTrack.id, activeTrack.thumbnail),
+        extractedColors = committedPalette,
         modifier = modifier,
         isMiniPlayer = false,
-        isPlaying = isPlaying,
-        skipPaletteAnimation = swipingPalette
+        isPlaying = isPlaying
     )
 }
 
@@ -425,6 +353,7 @@ fun NowPlayingModal(
     onSetPlaybackSpeed: (Float) -> Unit = {},
     onSleepTimerSelect: (Int) -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
+    onSwipeToQueueTrack: (Int) -> Unit = onSelectQueueTrack,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
     onRemoveQueueItem: ((Int) -> Unit)? = null,
     onLyricsOffsetChange: (Long) -> Unit = {},
@@ -460,7 +389,10 @@ fun NowPlayingModal(
             lastValidTrack = uiState.currentTrack
         }
     }
-    val track = uiState.currentTrack ?: lastValidTrack ?: return
+    val downloadCoverChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedCoverChoices.collectAsState()
+    val track = (uiState.currentTrack ?: lastValidTrack ?: return).let {
+        com.auralis.music.data.download.DownloadArtworkPolicy.display(it, downloadCoverChoices[it.id])
+    }
     val demoControls = LocalPlayerDemoControls.current
     val dynamicPalette = MaterialTheme.dynamicPalette
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -479,7 +411,9 @@ fun NowPlayingModal(
     }
 
     val coroutineScope = rememberCoroutineScope()
-    val queue = uiState.queue
+    val queue = remember(uiState.queue, downloadCoverChoices) {
+        uiState.queue.map { com.auralis.music.data.download.DownloadArtworkPolicy.display(it, downloadCoverChoices[it.id]) }
+    }
     val currentTrackIndex = remember(uiState.currentIndex, queue, track.id) {
         if (uiState.currentIndex in queue.indices && queue[uiState.currentIndex].id == track.id) {
             return@remember uiState.currentIndex
@@ -494,6 +428,21 @@ fun NowPlayingModal(
     ) { pageCount }
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
+
+    val downloadLyricsChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedLyricsChoices.collectAsState()
+    val downloadedIdsForLyrics by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
+    val hasDisplayedLyrics = uiState.lyrics?.let { it.lines.isNotEmpty() || !it.plainLyrics.isNullOrBlank() } == true
+    val cachedDownloadLyricsNotice = str(R.string.download_cached_lyrics_notice)
+    var cachedLyricsNoticeShown by remember(track.id) { mutableStateOf(false) }
+    LaunchedEffect(currentTab, track.id, hasDisplayedLyrics, downloadLyricsChoices[track.id], track.id in downloadedIdsForLyrics) {
+        if (currentTab != NowPlayingTab.LYRICS) {
+            cachedLyricsNoticeShown = false
+        } else if (!cachedLyricsNoticeShown && hasDisplayedLyrics &&
+            track.id in downloadedIdsForLyrics && downloadLyricsChoices[track.id] == false) {
+            cachedLyricsNoticeShown = true
+            com.auralis.music.ui.components.AppPillManager.showPill(cachedDownloadLyricsNotice, durationMs = 4_000L)
+        }
+    }
 
     // Every player design has an inline lyric preview, including Immersive. The menu
     // toggles that preview; the lyrics tab remains a separate full-screen action.
@@ -523,6 +472,13 @@ fun NowPlayingModal(
     // A carousel page genuinely settles on a new page (pendingTargetIndex is set on settle).
     val activeTrack = remember(currentTab, pendingTargetIndex, currentTrackIndex, queue, track) {
         deriveActiveTrack(currentTab, pendingTargetIndex, currentTrackIndex, queue, track)
+    }
+    // What the name and artist show: the card under the finger, while the song itself waits.
+    val shownTrack by remember(activeTrack, queue) {
+        androidx.compose.runtime.derivedStateOf {
+            if (userSwipedPager && currentTab == NowPlayingTab.PLAYER) queue.getOrNull(pagerState.currentPage) ?: activeTrack
+            else activeTrack
+        }
     }
 
     // A tap during a button slide continues from where that slide is heading, not from the page
@@ -581,7 +537,10 @@ fun NowPlayingModal(
     }
 
     // 1. Programmatically sync pager when the active track changes externally (Next/Prev buttons, song end, playlist tap, etc.)
-    LaunchedEffect(currentTrackIndex, track.id, currentTab) {
+    // Also re-checked whenever a swipe ends or a pending song resolves: the playing song is the
+    // truth, so the card under it can never stay on another song once things are at rest.
+    LaunchedEffect(currentTrackIndex, track.id, currentTab, userSwipedPager, pendingTargetIndex, pagerState.isScrollInProgress) {
+        if (userSwipedPager && currentTab == NowPlayingTab.PLAYER) return@LaunchedEffect
         val target = pendingTargetIndex
         if (target != null) {
             if (currentTrackIndex == target) {
@@ -650,14 +609,15 @@ fun NowPlayingModal(
     // Safety timeout: Ensure pendingTargetIndex is never locked indefinitely if track loading fails
     LaunchedEffect(pendingTargetIndex) {
         if (pendingTargetIndex != null) {
-            kotlinx.coroutines.delay(2500)
+            // Long enough for a slow stream: giving up early drops the cards back to the old song.
+            kotlinx.coroutines.delay(8000)
             pendingTargetIndex = null
         }
     }
 
     val currentTrackIndexState = rememberUpdatedState(currentTrackIndex)
     val currentQueueState = rememberUpdatedState(queue)
-    val currentOnSelectQueueTrackState = rememberUpdatedState(onSelectQueueTrack)
+    val currentOnSwipeToQueueTrackState = rememberUpdatedState(onSwipeToQueueTrack)
 
     LaunchedEffect(pagerState) {
         pagerState.interactionSource.interactions.collect { interaction ->
@@ -673,20 +633,28 @@ fun NowPlayingModal(
     LaunchedEffect(pagerState, currentTab) {
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
-            .collect { (isScrolling, settledPage) ->
+            .collectLatest { (isScrolling, settledPage) ->
                 val curIndex = currentTrackIndexState.value
-                val curQueue = currentQueueState.value
                 if (currentTab == NowPlayingTab.PLAYER && !isScrolling) {
-                    if (userSwipedPager && !isProgrammaticScroll) {
-                        userSwipedPager = false
-                        if (curQueue.isNotEmpty() && settledPage in curQueue.indices && settledPage != curIndex) {
-                            pendingTargetIndex = settledPage
-                            val targetTrack = curQueue[settledPage]
-                            com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
-                            currentOnSelectQueueTrackState.value(settledPage)
-                        } else if (settledPage == curIndex) {
-                            pendingTargetIndex = null
+                    if (userSwipedPager) {
+                        // Swiping through several songs only plays the one they stop on: a new
+                        // swipe cancels this wait, so the song, colours and background change once.
+                        // Everything is read after it: when a scroll ends the settled page can still
+                        // be the old one for a moment, and deciding on that dropped the swipe.
+                        kotlinx.coroutines.delay(SWIPE_SETTLE_MS)
+                        val page = pagerState.currentPage
+                        val queueNow = currentQueueState.value
+                        val playing = currentTrackIndexState.value
+                        when {
+                            page == pendingTargetIndex -> Unit
+                            queueNow.isNotEmpty() && page in queueNow.indices && page != playing -> {
+                                pendingTargetIndex = page
+                                com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, queueNow[page])
+                                currentOnSwipeToQueueTrackState.value(page)
+                            }
+                            page == playing -> pendingTargetIndex = null
                         }
+                        userSwipedPager = false
                     } else {
                         userSwipedPager = false
                         if (settledPage == curIndex) {
@@ -698,10 +666,12 @@ fun NowPlayingModal(
     }
 
     // Proactively pre-cache adjacent artwork and blur thumbnails in Coil memory cache
-    LaunchedEffect(pagerState.currentPage, queue) {
+    // The page is read in a flow: as a key it recomposed the whole player on every card passed.
+    LaunchedEffect(pagerState, queue) {
+        snapshotFlow { pagerState.currentPage }.collectLatest { page ->
         if (queue.isNotEmpty()) {
-            val nextTrack = queue.getOrNull(pagerState.currentPage + 1)
-            val prevTrack = queue.getOrNull(pagerState.currentPage - 1)
+            val nextTrack = queue.getOrNull(page + 1)
+            val prevTrack = queue.getOrNull(page - 1)
             withContext(Dispatchers.IO) {
                 val imageLoader = context.imageLoader
                 listOfNotNull(nextTrack, prevTrack).forEach { t ->
@@ -731,6 +701,7 @@ fun NowPlayingModal(
                 }
             }
         }
+        }
     }
 
     var showSleepDialog by remember { mutableStateOf(false) }
@@ -739,8 +710,8 @@ fun NowPlayingModal(
     // Auralis Connect: signed in, the output button picks the device; this phone's own sound
     // output (Bluetooth, speaker, quality) stays one tap further in that sheet.
     var showConnectSheet by remember { mutableStateOf(false) }
-    val connectEnabled by com.auralis.music.data.connect.AuralisConnect.ui.collectAsState()
-    fun openOutputPicker() { if (connectEnabled.enabled) showConnectSheet = true else showAudioOutputSheet = true }
+    // The output button is only for this phone's audio route; Connect lives in the mini player and the ⋮ menu.
+    fun openOutputPicker() { showAudioOutputSheet = true }
     var showTrackOptions by remember { mutableStateOf(false) }
     // Lyrics source picker for the new and old player designs (immersive has its own).
     var showLyricsProviders by remember { mutableStateOf(false) }
@@ -769,8 +740,7 @@ fun NowPlayingModal(
     val lyricsClock = com.auralis.music.ui.lyrics.rememberLyricsClock(
         source = lyricsClockSource,
         enabled = (currentTab == NowPlayingTab.LYRICS ||
-            (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying &&
-            LocalPlayerModalVisualState.current?.animationsActive != false,
+            (currentTab == NowPlayingTab.PLAYER && uiState.showInlineLyrics)) && uiState.isPlaying,
         fallbackPositionMs = playbackPositionState
     )
 
@@ -871,10 +841,10 @@ fun NowPlayingModal(
 
     // Proactively pre-extract artwork palettes in parallel for current + upcoming queue tracks
     // so swiping or fast-skipping immediately hits memory cache with zero delay or color interruption.
-    LaunchedEffect(currentTrackIndex, pagerState.currentPage, currentTab, queue, isDynamicAccent) {
+    LaunchedEffect(currentTrackIndex, pagerState, currentTab, queue, isDynamicAccent) {
+        snapshotFlow { if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex }.collectLatest { cur ->
         val isImmersive = PlayerDesign.fromDisplayName(appearance.playerDesign) == PlayerDesign.IMMERSIVE
         if (queue.isNotEmpty() && isDynamicAccent && !isImmersive) {
-            val cur = if (currentTab == NowPlayingTab.PLAYER) pagerState.currentPage else currentTrackIndex
             val immediateTargets = listOfNotNull(
                 queue.getOrNull(cur + 1),
                 queue.getOrNull(cur - 1)
@@ -912,6 +882,7 @@ fun NowPlayingModal(
                     }
                 }
             }
+        }
         }
     }
 
@@ -999,11 +970,8 @@ fun NowPlayingModal(
         if (renderBackground && PlayerDesign.fromDisplayName(appearance.playerDesign) != PlayerDesign.IMMERSIVE) {
             NowPlayingDynamicBackground(
                 style = playerBgStyle,
-                pagerState = pagerState,
-                queue = queue,
                 activeTrack = activeTrack,
                 committedPalette = extractedColors,
-                isDynamicAccent = isDynamicAccent,
                 isPlaying = uiState.isPlaying,
                 modifier = Modifier
                     .fillMaxSize()
@@ -1064,7 +1032,7 @@ fun NowPlayingModal(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = activeTrack.title,
+                        text = shownTrack.title,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -1779,7 +1747,7 @@ fun NowPlayingModal(
                         AdaptiveTrackActions {
                             Column {
                                 TrackInfoTransition(
-                                    track = activeTrack,
+                                    track = shownTrack,
                                     queue = queue,
                                     onArtistClick = onArtistClick,
                                     onDismiss = onDismiss,
@@ -2094,10 +2062,11 @@ fun NowPlayingModal(
             PlayerDesign.OLD -> {
             CompositionLocalProvider(
                 LocalClassicLyricsHazeState provides classicLyricsHazeState,
-                LocalLyricsSourcePicker provides { showLyricsProviders = true }
+                LocalLyricsSourcePicker provides { showLyricsProviders = true },
+                LocalConnectDevicesAction provides { showConnectSheet = true }
             ) {
                 ClassicPlayerContainer(
-                    track = activeTrack,
+                    track = shownTrack,
                     uiState = uiState,
                     currentTab = currentTab,
                     onTabChange = { currentTab = it },
@@ -2149,6 +2118,8 @@ fun NowPlayingModal(
             PlayerDesign.IMMERSIVE -> {
                 ImmersivePlayerContainer(
                     track = activeTrack,
+                    titleTrack = { shownTrack },
+                    onHeroSwipeStart = { userSwipedPager = true },
                     uiState = uiState,
                     currentTab = currentTab,
                     onTabChange = { currentTab = it },
@@ -2207,8 +2178,7 @@ fun NowPlayingModal(
         if (currentTab != NowPlayingTab.LYRICS) com.auralis.music.ui.connect.ConnectPlayerBar(
             accent = animatedPrimaryColor,
             onOpen = { showConnectSheet = true },
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 64.dp),
-            hazeState = classicLyricsHazeState
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 64.dp)
         )
     }
 
@@ -2272,6 +2242,7 @@ fun NowPlayingModal(
             onCreatePlaylistAndAdd = { title ->
                 onCreatePlaylistAndAdd(title, track)
             },
+            onConnectDevices = { showConnectSheet = true },
             onDismiss = { showTrackOptions = false }
         )
         }
@@ -2281,10 +2252,11 @@ fun NowPlayingModal(
     // never the currently playing song. This sheet belongs only to the classic branch.
     queueOptionsTrack?.let { selectedTrack ->
         if (demoControls != null) {
-            androidx.compose.material3.AlertDialog(onDismissRequest = { queueOptionsTrack = null },
+            com.auralis.music.ui.components.AuralisAlertDialog(onDismissRequest = { queueOptionsTrack = null },
                 title = { androidx.compose.material3.Text("Demo queue") },
                 text = { androidx.compose.material3.Text("Select songs and reorder this queue. Library actions are available after the tour.") },
-                confirmButton = { androidx.compose.material3.TextButton(onClick = { queueOptionsTrack = null }) { androidx.compose.material3.Text("OK") } })
+                confirmButton = { androidx.compose.material3.TextButton(onClick = { queueOptionsTrack = null }) { androidx.compose.material3.Text("OK") } }
+            )
         } else TrackOptionsMenu(
             track = selectedTrack,
             isFavorite = isFavoriteTrack(selectedTrack.id),
@@ -2528,6 +2500,7 @@ fun NowPlayingSheet(
     onLyricsOffsetChange: (Long) -> Unit = {},
     onSleepTimerSelect: (Int) -> Unit,
     onSelectQueueTrack: (Int) -> Unit,
+    onSwipeToQueueTrack: (Int) -> Unit = onSelectQueueTrack,
     onReorderQueue: ((Int, Int) -> Unit)? = null,
     onRemoveQueueItem: ((Int) -> Unit)? = null,
     onAddToPlaylist: (String, Track) -> Unit = { _, _ -> },
@@ -2563,6 +2536,7 @@ fun NowPlayingSheet(
         onSetPlaybackSpeed = {},
         onSleepTimerSelect = onSleepTimerSelect,
         onSelectQueueTrack = onSelectQueueTrack,
+        onSwipeToQueueTrack = onSwipeToQueueTrack,
         onReorderQueue = onReorderQueue,
         onRemoveQueueItem = onRemoveQueueItem,
         onLyricsOffsetChange = onLyricsOffsetChange,

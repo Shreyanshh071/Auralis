@@ -1,11 +1,23 @@
 package com.auralis.music.ui.library
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.playlistsync.*
@@ -49,17 +61,19 @@ fun PlaylistCreationDialog(library: LibraryRepository, engine: PlaylistSyncEngin
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("Create playlist") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The desktop glass host also scrolls its dialog. Bound this inner form before
+        // its scroll modifier so the outer scroller cannot give it infinite height.
+        text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it }, singleLine = true, enabled = !busy && localId == null,
                 label = { Text("Playlist name") }, modifier = Modifier.fillMaxWidth())
-            Text("Sync this playlist with", style = MaterialTheme.typography.titleSmall)
-            Column {
-                FilterChip(service == null, { service = null }, enabled = !busy && localId == null, label = { Text("Auralis only") })
-                SyncService.entries.forEach { item -> FilterChip(service == item, { service = item }, enabled = !busy && localId == null,
-                    label = { Text(item.label) }) }
+            // Spotify playlists import but don't sync, so YouTube Music is the only sync choice.
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Save to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PlaylistDestination("Auralis only", "Save in your Auralis library", Icons.Default.MusicNote,
+                    selected = service == null, enabled = !busy && localId == null) { service = null }
+                PlaylistDestination("YouTube Music", "Private playlist with two-way sync", Icons.Default.Sync,
+                    selected = service == SyncService.YOUTUBE, enabled = !busy && localId == null) { service = SyncService.YOUTUBE }
             }
-            Text(service?.let { "Creates a private playlist in your ${it.label} account and keeps additions and edits synced automatically in both directions." }
-                ?: "Saved in Auralis without connecting a service.", style = MaterialTheme.typography.bodySmall)
             if (request.tracks.isNotEmpty()) Text("${request.tracks.size} song(s) will be added.", style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { Button(enabled = name.isNotBlank() && !busy, onClick = {
@@ -79,4 +93,27 @@ fun PlaylistCreationDialog(library: LibraryRepository, engine: PlaylistSyncEngin
             }
         }) { Text(if (busy) "Creating…" else "Create playlist") } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } })
+}
+
+@Composable
+private fun PlaylistDestination(title: String, subtitle: String, icon: ImageVector, selected: Boolean,
+    enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(14.dp)
+    Surface(shape = shape,
+        color = if (selected) colors.primary.copy(alpha = .12f) else colors.onSurface.copy(alpha = .035f),
+        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = .6f) else colors.outlineVariant.copy(alpha = .5f)),
+        modifier = Modifier.fillMaxWidth().clip(shape).selectable(selected, enabled = enabled,
+            role = Role.RadioButton, onClick = onClick)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, tint = if (selected) colors.primary else colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            }
+            if (selected) Icon(Icons.Default.Check, null, tint = colors.primary, modifier = Modifier.size(18.dp))
+            else Spacer(Modifier.size(18.dp))
+        }
+    }
 }

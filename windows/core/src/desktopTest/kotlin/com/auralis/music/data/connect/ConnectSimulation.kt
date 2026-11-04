@@ -3,6 +3,7 @@ package com.auralis.music.data.connect
 import com.auralis.music.domain.model.RepeatMode
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -19,6 +20,9 @@ class FakeServer(private val now: () -> Long) {
     val violations = mutableListOf<String>()
     val listeners = mutableListOf<SimDevice>()
     var writes = 0
+    var intent: ConnectPlayIntent? = null
+    var intentWrites = 0
+    var intentReads = 0
 
     val version: Long get() = (session?.get("version") as? Number)?.toLong() ?: 0L
 
@@ -59,6 +63,13 @@ class FakeServer(private val now: () -> Long) {
             after.updatedBy == before.ownerId
     }
 
+    /** The rules' check on the intent document: it never goes backwards. */
+    fun writeIntent(i: ConnectPlayIntent) {
+        if ((intent?.version ?: 0L) > i.version) throw IllegalStateException("PERMISSION_DENIED: older intent")
+        intent = i
+        intentWrites++
+    }
+
     fun heartbeat(d: ConnectDevice) {
         devices[d.id] = d.copy(lastSeenMs = now(), createdMs = devices[d.id]?.createdMs ?: d.createdMs)
     }
@@ -71,6 +82,7 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
     var playing = false
     var shuffled = false
     var repeatMode = RepeatMode.OFF
+    var lyricsSelection: ConnectLyricsSelection? = null
     var context: ConnectContext? = null
     private var position = 0L
     private var anchor = 0L
@@ -86,6 +98,7 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
     private fun setPosition(ms: Long) { position = ms; anchor = clock() }
 
     override fun snapshot() = LocalPlayback(
+        lyricsSelection = lyricsSelection,
         track = track, queue = queue, index = index, playing = playing, buffering = false,
         positionMs = positionMs, durationMs = (track?.duration ?: 0L) * 1000L, shuffle = shuffled, repeat = repeatMode,
         context = context, error = if (failStart && !playing && track != null) "stream failed" else null
@@ -132,6 +145,13 @@ class FakePlayer(private val clock: () -> Long) : ConnectPlayer {
     }
 }
 
+/** A device's saved control, which outlives the engine. */
+class MemoryControlStore : ConnectControlStore {
+    var saved: ConnectSavedControl? = null
+    override fun load() = saved
+    override fun save(control: ConnectSavedControl?) { saved = control }
+}
+
 /** One client: its engine, player and the backend connection to [server]. */
 class SimDevice(
     val server: FakeServer,
@@ -141,25 +161,45 @@ class SimDevice(
     name: String,
     platform: ConnectPlatform,
     type: ConnectDeviceType,
-    private val skewMs: Long = 0L,
+    var skewMs: Long = 0L,
     /** How long server changes take to reach this client (a listener, or polling on Windows). */
     val latencyMs: Long = 100L,
-    private val roundTripMs: Long = 80L
+    private val roundTripMs: Long = 80L,
+    /** The same player and saved control as an earlier engine: an app restart without losing audio. */
+    val player: FakePlayer = FakePlayer { testScope.testScheduler.currentTime + skewMs },
+    savedControls: ConnectControlStore? = null
 ) {
     val localNow: () -> Long = { testScope.testScheduler.currentTime + skewMs }
-    val player = FakePlayer(localNow)
     var offline = false
     var rejectNextReady = false
+    /** Reads still work but every write is refused, like a project out of its daily Firestore quota. */
+    var quotaUsedUp = false
+    /** Nothing ever answers, like a call retrying on a dead connection. */
+    var firestoreHangs = false
+    /** The rules don't allow the intent document: not deployed yet, or rolled back. */
+    var intentRefused = false
+    /** Behaves like a released client: never touches the intent document. */
+    var released = false
+    var writeAttempts = 0
     val log = mutableListOf<String>()
-    val clock = ServerClock(localNow)
+    private val elapsedNow: () -> Long = { testScope.testScheduler.currentTime }
+    val clock = ServerClock(localNow, elapsedNow)
     private val serverNow: () -> Long = { testScope.testScheduler.currentTime }
 
     val backend = object : ConnectBackend {
-        private fun check() { if (offline) throw IllegalStateException("offline") }
+        private suspend fun check() {
+            if (firestoreHangs) awaitCancellation()
+            if (offline) throw IllegalStateException("offline")
+        }
+        private suspend fun checkWrite() {
+            writeAttempts++
+            check()
+            if (quotaUsedUp) throw IllegalStateException("RESOURCE_EXHAUSTED")
+        }
         override suspend fun fetch(): ConnectSnapshot { check(); delay(roundTripMs); check(); return server.snapshot() }
         override suspend fun update(block: (ConnectSnapshot) -> ConnectWrite?): ConnectSnapshot? {
             while (true) {
-                check()
+                checkWrite()
                 val sent = localNow()
                 val cur = server.snapshot()
                 val base = server.version
@@ -181,15 +221,26 @@ class SimDevice(
             }
         }
         override suspend fun heartbeat(device: ConnectDevice) {
-            check(); val sent = localNow(); delay(roundTripMs / 2); server.heartbeat(device); val at = serverNow()
+            checkWrite(); val sent = localNow(); delay(roundTripMs / 2); server.heartbeat(device); val at = serverNow()
             server.listeners.forEach { it.deliverDevicesLater() }; delay(roundTripMs / 2); clock.sample(at, sent, localNow())
         }
         override suspend fun removeDevice(id: String) { check(); server.devices.remove(id); server.listeners.forEach { it.deliverDevicesLater() } }
+        override suspend fun readIntent(): ConnectPlayIntent? {
+            check(); delay(roundTripMs)
+            if (intentRefused) throw IllegalStateException("PERMISSION_DENIED")
+            server.intentReads++
+            return server.intent
+        }
+        override suspend fun writeIntent(intent: ConnectPlayIntent) {
+            checkWrite(); delay(roundTripMs)
+            if (intentRefused) throw IllegalStateException("PERMISSION_DENIED")
+            if (!released) server.writeIntent(intent)
+        }
     }
 
     val engine = ConnectEngine(scope, backend, player,
         ConnectDevice(id, name, platform = platform, type = type, createdMs = testScope.testScheduler.currentTime),
-        clock, localNow) { log += it }
+        clock, localNow, elapsedNow, savedControls) { log += it }
 
     init {
         player.onChange = { engine.onLocalChanged() }

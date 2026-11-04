@@ -191,6 +191,8 @@ Java_com_auralis_music_data_network_discord_DiscordSocialClient_nativeUpdatePres
     const std::string activityName = toString(env, name);
     if (!activityName.empty()) activity.SetName(activityName);
     activity.SetDetails(optionalOf(env, details));
+    // The member list shows the song, as the PC app does, rather than the app's name.
+    activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Details);
     activity.SetState(optionalOf(env, state));
 
     if (isPlaying && durationMs > 0) {

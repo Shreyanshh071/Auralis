@@ -76,7 +76,7 @@ class SearchRepositoryImpl(
         /** How long the ranked result may wait for its release card's lookups (album / Single). */
         const val RELEASE_CARD_WAIT_MS = 400L
         /** Partial results are shown only if the ranked result is not ready this long after the first answer. */
-        const val PREVIEW_AFTER_MS = 600L
+        const val PREVIEW_AFTER_MS = 0L
         const val FINISHED_SEARCH_TTL_MS = 30 * 60_000L
     }
 
@@ -191,7 +191,10 @@ class SearchRepositoryImpl(
                 }
                 received += next
                 startEarlyReleaseLookup()
-                if (firstUsefulNs == 0L && next.isNotEmpty()) firstUsefulNs = System.nanoTime()
+                if (firstUsefulNs == 0L && next.isNotEmpty()) {
+                    firstUsefulNs = System.nanoTime()
+                    previewsShown = true
+                }
                 if (previewsShown) searchPreview(trimmed, received).takeIf { it.isNotEmpty() }?.let(emit)
             }
             if (received.size == coreRequests.size && received.all { it.isEmpty() } && received.any { it.requestFailed }) {
@@ -354,7 +357,8 @@ class SearchRepositoryImpl(
                 topSongTier in setOf(
                     SearchQueryMatcher.MatchTier.EXACT_TITLE,
                     SearchQueryMatcher.MatchTier.PREFIX_TITLE,
-                    SearchQueryMatcher.MatchTier.CLOSE_TITLE
+                    SearchQueryMatcher.MatchTier.CLOSE_TITLE,
+                    SearchQueryMatcher.MatchTier.TYPO_MATCH
                 )
 
             // An album named exactly like the query against the top song: the more listened one wins.
@@ -441,7 +445,9 @@ class SearchRepositoryImpl(
                 topSongWins -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
-                popularTitleSongWins && !isYtmArtistValidMatch -> {
+                // A same-named artist keeps the spot only when their songs outplay this one: a tiny
+                // act called "Imposter Syndrome" must not hide a 86M-play song, "radiohead" stays.
+                popularTitleSongWins && (!isYtmArtistValidMatch || topSongViews > queriedArtistPlays) -> {
                     SearchTopResult.SongResult(upgradeTrackThumb(topMatchedSong!!))
                 }
                 isYtmArtistValidMatch -> {
@@ -905,24 +911,49 @@ class SearchRepositoryImpl(
         if (fresh.requestFailed && cached != null) cached else fresh
     }
 
+    /**
+     * The songs filter lists no play counts and the general search does, and ranking goes by plays.
+     * Keeping only the filtered row sank the real song below covers that had a count of their own.
+     */
+    private fun mergeSongResults(filtered: List<Track>, general: List<Track>): List<Track> {
+        val generalById = general.associateBy { it.id }
+        return (filtered.map { song ->
+            val views = generalById[song.id]?.views
+            if (song.views.isNullOrBlank() && !views.isNullOrBlank()) song.copy(views = views) else song
+        } + general).distinctBy { it.id }
+    }
+
+    /** YouTube Music's own picks lead, in its order; ranked search fills in behind them. */
     override suspend fun searchLiveSongs(query: String, onResults: (List<Track>) -> Unit) = coroutineScope {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@coroutineScope
-        val responses = kotlinx.coroutines.channels.Channel<Pair<Boolean, List<Track>>>(2)
-        listOf(true, false).forEach { filtered ->
+        // Whichever answers first shows first, and one failing never takes the others down.
+        val responses = kotlinx.coroutines.channels.Channel<Pair<Int, List<Track>>>(3)
+        val sources = listOf<suspend () -> List<Track>>(
+            { innerTubeClient.parseSuggestedSongs(suggestionsClient.getSuggestedRows(trimmed)) },
+            { innerTubeClient.searchLive(trimmed, InnerTubeClient.FILTER_SONGS).songs },
+            { innerTubeClient.searchLive(trimmed, null).songs }
+        )
+        sources.forEachIndexed { source, fetch ->
             launch(Dispatchers.IO) {
-                val songs = innerTubeClient.searchLive(trimmed, if (filtered) InnerTubeClient.FILTER_SONGS else null).songs
-                responses.send(filtered to songs)
+                val songs = try { fetch() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+                responses.send(source to songs)
             }
         }
+        var suggested = emptyList<Track>()
         var filteredSongs = emptyList<Track>()
         var generalSongs = emptyList<Track>()
-        repeat(2) {
-            val (filtered, songs) = responses.receive()
-            if (filtered) filteredSongs = songs else generalSongs = songs
-            val candidates = (filteredSongs + generalSongs).distinctBy { it.id }
+        repeat(sources.size) {
+            val (source, songs) = responses.receive()
+            when (source) {
+                0 -> suggested = songs
+                1 -> filteredSongs = songs
+                else -> generalSongs = songs
+            }
+            val candidates = mergeSongResults(filteredSongs, generalSongs)
             val (matched, remaining) = SearchQueryMatcher.partitionResults(candidates, trimmed)
-            if (candidates.isNotEmpty()) onResults(if (matched.isNotEmpty()) matched else remaining.take(10))
+            val combined = (suggested + if (matched.isNotEmpty()) matched else remaining.take(10)).distinctBy { it.id }
+            if (combined.isNotEmpty()) onResults(combined)
         }
     }
 
@@ -944,7 +975,7 @@ class SearchRepositoryImpl(
 
         val filtered = filteredDef.await()
         val general = generalDef.await()
-        val candidates = (filtered + general).distinctBy { it.id }
+        val candidates = mergeSongResults(filtered, general)
 
         val (matchedSongs, remaining) = com.auralis.music.domain.search.SearchQueryMatcher.partitionResults(candidates, trimmed)
         if (matchedSongs.isNotEmpty()) matchedSongs else remaining.take(10)
@@ -1055,7 +1086,24 @@ class SearchRepositoryImpl(
         return finalTracks
     }
 
-    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getAlbumTracks(album: PlaylistResult): List<Track> =
+        fetchAlbumTracks(album).withAlbumCover(album)
+
+    /**
+     * Album pages list their songs without art, and the video frame YouTube has instead is a
+     * wide crop of the cover: it shows up zoomed in the player. Every song gets the album's own.
+     */
+    private fun List<Track>.withAlbumCover(album: PlaylistResult): List<Track> {
+        val isPlaylist = album.id.startsWith("artist_top_songs:") || album.id.startsWith("VL") || album.id.startsWith("PL")
+        val cover = album.thumbnail?.takeIf { it.isNotBlank() && !isVideoFrame(it) }
+        if (isPlaylist || cover == null) return this
+        return map { if (it.thumbnail.isBlank() || isVideoFrame(it.thumbnail)) it.copy(thumbnail = cover) else it }
+    }
+
+    private fun isVideoFrame(url: String): Boolean =
+        url.contains("i.ytimg.com") || url.contains("img.youtube.com")
+
+    private suspend fun fetchAlbumTracks(album: PlaylistResult): List<Track> = withContext(Dispatchers.IO) {
         try {
             // 0. If this is an artist Top Songs collection
             if (album.id.startsWith("artist_top_songs:")) {

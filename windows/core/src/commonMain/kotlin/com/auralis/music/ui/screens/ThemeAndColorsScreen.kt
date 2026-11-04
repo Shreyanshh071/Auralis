@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.AppearanceSettings
+import com.auralis.music.ui.components.bottomChromePadding
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.theme.CuratedPalette
 import com.auralis.music.ui.theme.CuratedPalettes
@@ -746,7 +747,7 @@ fun ThemeAndColorsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 24.dp, includeNavigationBar = false)))
         }
     }
 }

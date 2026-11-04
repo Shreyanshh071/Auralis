@@ -53,9 +53,19 @@ object SpicyLyricsPresentation {
  * for each simultaneously displayed panel. */
 class SpicyVocalTimeline(private val lines: List<LyricLine>) {
     private val ends = lines.indices.map { SpicyLyricsPresentation.presentationEnd(lines, it) }
+    private val lastLeadIndex = lines.indexOfLast { !it.isBackground }
 
     fun activeIndices(positionMs: Long): Set<Int> = lines.indices.filterTo(linkedSetOf()) {
         val end = ends[it]
         positionMs >= lines[it].time && end != null && positionMs < end
+    }
+
+    /** Keep the last sung lead highlighted between lines without extending any word timing. */
+    fun highlightedIndices(positionMs: Long): Set<Int> {
+        val active = activeIndices(positionMs)
+        val lead = SpicyLyricsPresentation.scrollAnchor(lines, positionMs, -1)
+        if (lead < 0 || lead >= lastLeadIndex || lines[lead].isInstrumental) return active
+        val end = ends[lead] ?: return active
+        return if (positionMs >= end) active + lead else active
     }
 }

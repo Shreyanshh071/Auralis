@@ -49,6 +49,7 @@ import com.auralis.music.data.network.SpotifySession
 import com.auralis.music.data.network.YouTubeMusicLibrary
 import com.auralis.music.data.network.YouTubeSession
 import com.auralis.music.ui.profile.SpotifyLogoIcon
+import com.auralis.music.ui.theme.auralisPushParent
 import com.auralis.music.ui.theme.dynamicBackground
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.launch
@@ -60,7 +61,7 @@ import androidx.compose.runtime.rememberCoroutineScope
  * Gives users clean choices:
  * 1. Pick from their signed-in YouTube Music account via a scrollable popup.
  * 2. Import a YouTube Music playlist by link.
- * 3. Import every playlist and Liked Songs from a signed-in Spotify account.
+ * 3. Pick from their signed-in Spotify account; picking an imported list adds only what's new.
  * 4. Import a Spotify playlist by link.
  */
 @Composable
@@ -77,6 +78,7 @@ fun ImportPlaylistsScreen(
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,
+    importedPlaylistIds: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
@@ -96,7 +98,8 @@ fun ImportPlaylistsScreen(
     var spotifyPlaylistLoadFailed by remember { mutableStateOf(false) }
     var spotifyReloadKey by remember { mutableStateOf(0) }
     var spotifyImportFromAccount by remember { mutableStateOf(false) }
-    var importAllAfterSpotifySignIn by remember { mutableStateOf(false) }
+    var showSpotifyPicker by remember { mutableStateOf(false) }
+    val selectedSpotifyPlaylists = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(youTubeSignedIn, reloadKey) {
         if (youTubeSignedIn) {
@@ -119,40 +122,24 @@ fun ImportPlaylistsScreen(
             spotifyPlaylists = result
             spotifyPlaylistLoadFailed = result == null
             isLoadingSpotifyPlaylists = false
-            if (result != null && importAllAfterSpotifySignIn) {
-                importAllAfterSpotifySignIn = false
-                spotifyImportFromAccount = true
-                onImportSpotifyLibraryPlaylists(result)
-            }
         } else {
             spotifyPlaylists = null
             spotifyPlaylistLoadFailed = false
-            importAllAfterSpotifySignIn = false
+            selectedSpotifyPlaylists.clear()
         }
     }
 
-    if (showSpotifySignIn) {
-        SpotifySignInScreen(
-            onSignedIn = {
-                showSpotifySignIn = false
-                importAllAfterSpotifySignIn = true
-                spotifyReloadKey++
-            },
-            onDismiss = { showSpotifySignIn = false }
-        )
-        return
-    }
+    val signInPush = com.auralis.music.ui.theme.rememberPushProgress(showSpotifySignIn)
 
+    Box(Modifier.fillMaxSize()) {
     AccountPageTheme {
-        AccountPage(title = str(R.string.import_playlists), onBack = onDismiss, modifier = modifier) {
-            AccountPanel {
-                AccountBadge(str(R.string.account_ui_migration_tool))
-                Spacer(Modifier.height(10.dp))
-                Text(str(R.string.import_playlists), fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp,
-                    lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        AccountPage(
+            title = str(R.string.import_playlists),
+            onBack = onDismiss,
+            modifier = modifier.auralisPushParent(signInPush)
+        ) {
+            Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp, lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 com.auralis.music.ui.library.PlaylistImportSyncToggle()
@@ -170,15 +157,15 @@ fun ImportPlaylistsScreen(
                 )
                 SpotifyAccountCard(
                     signedIn = spotifySignedIn, accountLabel = spotifyAccountLabel,
-                    isLoadingPlaylists = isLoadingSpotifyPlaylists,
+                    isLoadingPlaylists = isLoadingSpotifyPlaylists, playlists = spotifyPlaylists,
                     isImporting = isImportingSpotify,
                     importMessage = if (spotifyPlaylistLoadFailed) str(R.string.spotify_playlists_load_failed)
                         else if (spotifyImportFromAccount) spotifyImportMessage else null,
-                    onImportAll = {
+                    onOpenPicker = {
                         onClearSpotifyImportMessage()
                         spotifyImportFromAccount = true
-                        importAllAfterSpotifySignIn = true
-                        spotifyReloadKey++
+                        showSpotifyPicker = true
+                        spotifyReloadKey++ // Picks up playlists made in Spotify since the last look.
                     },
                     onSignIn = { showSpotifySignIn = true },
                     onDisconnect = { SpotifySession.signOut() }
@@ -203,9 +190,35 @@ fun ImportPlaylistsScreen(
                 onRetry = { reloadKey++ }, selected = selectedPlaylists,
                 isImporting = isImportingYouTube, importMessage = youtubeImportMessage,
                 onImport = onImportYouTubeLibraryPlaylists,
-                onDismiss = { showPlaylistPickerPopup = false }
+                onDismiss = { showPlaylistPickerPopup = false },
+                importedPlaylistIds = importedPlaylistIds
             )
         }
+
+        if (showSpotifyPicker) {
+            SpotifyPlaylistPickerBottomSheet(
+                playlists = spotifyPlaylists, isLoading = isLoadingSpotifyPlaylists,
+                loadFailed = spotifyPlaylistLoadFailed, onRetry = { spotifyReloadKey++ },
+                selected = selectedSpotifyPlaylists, importedPlaylistIds = importedPlaylistIds,
+                isImporting = isImportingSpotify, importMessage = spotifyImportMessage,
+                onImport = onImportSpotifyLibraryPlaylists,
+                onSignInAgain = { showSpotifyPicker = false; showSpotifySignIn = true },
+                onDismiss = { showSpotifyPicker = false }
+            )
+        }
+    }
+
+    com.auralis.music.ui.theme.AuralisPushedPage(page = if (showSpotifySignIn) Unit else null) {
+        SpotifySignInScreen(
+            onSignedIn = {
+                showSpotifySignIn = false
+                showSpotifyPicker = true
+                spotifyImportFromAccount = true
+                spotifyReloadKey++
+            },
+            onDismiss = { showSpotifySignIn = false }
+        )
+    }
     }
 }
 
@@ -279,9 +292,10 @@ private fun SpotifyAccountCard(
     signedIn: Boolean,
     accountLabel: String,
     isLoadingPlaylists: Boolean,
+    playlists: List<SpotifyLibrary.LibraryPlaylist>?,
     isImporting: Boolean,
     importMessage: String?,
-    onImportAll: () -> Unit,
+    onOpenPicker: () -> Unit,
     onSignIn: () -> Unit,
     onDisconnect: () -> Unit
 ) {
@@ -293,30 +307,42 @@ private fun SpotifyAccountCard(
                 Text(str(R.string.spotify_account), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(if (signedIn) accountLabel.ifBlank { str(R.string.signed_in) }
                     else str(R.string.account_ui_spotify_description),
-                    fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.height(16.dp))
-        AccountAction(
-            label = when {
-                isLoadingPlaylists -> str(R.string.loading_playlists)
-                isImporting -> str(R.string.importing_songs)
-                signedIn -> str(R.string.import_all_spotify_playlists)
-                else -> str(R.string.account_ui_connect_spotify)
-            },
-            icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
-            onClick = if (signedIn) onImportAll else onSignIn,
-            loading = isLoadingPlaylists || isImporting, secondary = true
-        )
+        Spacer(Modifier.height(12.dp))
+        if (signedIn && playlists != null && !isLoadingPlaylists) {
+            AccountBadge(str(R.string.choose_playlists_x_available, playlists.size))
+            Spacer(Modifier.height(12.dp))
+        }
+        if (signedIn) {
+            Text(str(R.string.import_spotify_liked_songs_and_playlists), fontSize = 12.sp,
+                lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            AccountAction(
+                label = when {
+                    isLoadingPlaylists -> str(R.string.loading_playlists)
+                    isImporting -> str(R.string.importing)
+                    signedIn -> str(R.string.choose_playlists_to_import)
+                    else -> str(R.string.account_ui_connect_spotify)
+                },
+                icon = if (signedIn) Icons.Default.Sync else Icons.Default.AddLink,
+                onClick = if (signedIn) onOpenPicker else onSignIn,
+                loading = isLoadingPlaylists || isImporting,
+                modifier = Modifier.weight(1f)
+            )
+            if (signedIn) OutlinedIconButton(onClick = onDisconnect,
+                enabled = !isImporting && !isLoadingPlaylists,
+                shape = AccountButtonShape, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.LinkOff, str(R.string.disconnect_spotify), modifier = Modifier.size(20.dp))
+            }
+        }
         if (importMessage != null) {
             Spacer(Modifier.height(10.dp))
             Text(importMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (signedIn) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onDisconnect, enabled = !isImporting && !isLoadingPlaylists) {
-                Text(str(R.string.disconnect_spotify), fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
     }
 }
@@ -347,17 +373,15 @@ private fun UniversalSmartLinkCard(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(str(R.string.import_by_link), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(str(R.string.import_by_link), fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Text(str(R.string.account_ui_link_description), fontSize = 12.sp, lineHeight = 18.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = AccountButtonShape,
-            color = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-            Row(Modifier.fillMaxWidth().padding(3.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Surface(shape = AccountButtonShape, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f)) {
+            Row(Modifier.fillMaxWidth().padding(5.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("youtube" to str(R.string.youtube_music), "spotify" to str(R.string.spotify)).forEach { (id, label) ->
                     val selected = id == platform
                     Surface(Modifier.weight(1f), shape = AccountButtonShape,
-                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f) else Color.Transparent) {
+                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f) else Color.Transparent) {
                         Row(Modifier.selectable(selected = selected, enabled = !isImporting, role = Role.Tab,
                             onClick = { platform = id; validationMessage = null })
                             .heightIn(min = 48.dp).padding(horizontal = 4.dp),
@@ -365,8 +389,8 @@ private fun UniversalSmartLinkCard(
                             Icon(if (id == "youtube") Icons.Default.PlayCircle else Icons.Default.GraphicEq,
                                 null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(label, fontSize = 12.sp,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                            Text(label, fontSize = 13.5.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
                         }
                     }
                 }
@@ -406,9 +430,9 @@ private fun UniversalSmartLinkCard(
             isError = validationMessage != null,
             supportingText = validationMessage?.let { message -> { Text(message) } },
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f),
-                focusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
+                unfocusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f),
+                focusedContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.09f),
+                unfocusedBorderColor = Color.Transparent))
 
         AccountAction(
             label = str(if (isImporting) R.string.importing_songs else R.string.account_ui_fetch_import),
@@ -622,6 +646,7 @@ private fun SpotifyPlaylistPickerBottomSheet(
     loadFailed: Boolean,
     onRetry: () -> Unit,
     selected: SnapshotStateList<String>,
+    importedPlaylistIds: Set<String>,
     isImporting: Boolean,
     importMessage: String?,
     onImport: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit,
@@ -693,7 +718,8 @@ private fun SpotifyPlaylistPickerBottomSheet(
                             Column(Modifier.weight(1f)) {
                                 Text(item.title, fontWeight = FontWeight.SemiBold, maxLines = 1,
                                     overflow = TextOverflow.Ellipsis)
-                                Text(item.subtitle, fontSize = 12.sp,
+                                val imported = "imported:spotify:${item.id}" in importedPlaylistIds
+                                Text(if (imported) "Already imported • adds only new songs" else item.subtitle, fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -738,7 +764,8 @@ fun YouTubePlaylistPickerBottomSheet(
     isImporting: Boolean,
     importMessage: String?,
     onImport: (List<YouTubeMusicLibrary.LibraryPlaylist>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    importedPlaylistIds: Set<String> = emptySet()
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -938,9 +965,10 @@ fun YouTubePlaylistPickerBottomSheet(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (item.subtitle.isNotBlank()) {
+                                    val imported = "imported:youtube_music:${item.id}" in importedPlaylistIds
+                                    if (imported || item.subtitle.isNotBlank()) {
                                         Text(
-                                            text = item.subtitle,
+                                            text = if (imported) "Already imported • re-import updates it" else item.subtitle,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 12.sp,
                                             maxLines = 1,

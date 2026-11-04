@@ -30,7 +30,7 @@ class SpicyLyricsSource(
 ) : LyricsSource {
     override val provider = LyricsProvider.SPICY_LYRICS
     override val supportedSyncTypes = setOf(SyncType.RICHSYNC, SyncType.LINE_SYNC, SyncType.PLAIN)
-    private data class Cached(val recording: SpicyRecording, val expires: Long)
+    private data class Cached(val recording: SpicyRecording, val expires: Long, val alternatives: List<SpicyRecording> = emptyList())
     private val matches = object : LinkedHashMap<List<Any?>, Cached>(32, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, Cached>?): Boolean = size > 256
     }
@@ -44,22 +44,30 @@ class SpicyLyricsSource(
         try {
             if (!isNativeKey(key) || (blockedKey == key && clock() < blockedUntil))
                 throw IOException("Spicy Lyrics is temporarily unavailable or needs a valid publishable key")
-            val recording = resolve(query) ?: return@withContext null
-            val request = Request.Builder().url("https://api.spicylyrics.org/v1/lyrics/${recording.id}")
-                .header("Authorization", "Bearer $key").header("Accept", "application/json").build()
-            val response = fetch(request)
-            if (response.code == 429 || response.code == 401 || response.code == 403) {
-                blockedKey = key
-                blockedUntil = response.retryUntil()
+            val primary = resolve(query) ?: return@withContext null
+            val alternatives = synchronized(matches) { matches[identity(query)]?.alternatives }.orEmpty()
+            // Community uploads may reference another release of the same measured recording.
+            // Try validated equivalents only after a genuine catalog miss, never after rate limiting.
+            val candidates = (listOf(primary) + alternatives).distinctBy { it.id }.toMutableList()
+            val tried = mutableSetOf<String>()
+            for (attempt in 0 until 3) {
+                val recording = if (candidates.isNotEmpty()) candidates.removeAt(0)
+                    else albumCatalog.resolve(query, tried) ?: break
+                tried += recording.id
+                val request = Request.Builder().url("https://api.spicylyrics.org/v1/lyrics/${recording.id}")
+                    .header("Authorization", "Bearer $key").header("Accept", "application/json").build()
+                val response = fetch(request)
+                if (response.code == 404) continue
+                if (response.code == 429 || response.code == 401 || response.code == 403) {
+                    blockedKey = key
+                    blockedUntil = response.retryUntil()
+                }
+                if (response.code != 200) throw IOException("Spicy Lyrics lookup failed: HTTP ${response.code}")
+                val lyrics = SpicyLyricsParser.parse(JSONObject(response.body), recording)?.copy(fetchedAtMs = clock())
+                    ?: throw IOException("Spicy Lyrics returned an unreadable response")
+                return@withContext LyricsCandidate(lyrics, 95, lyrics.syncType, provider)
             }
-            if (response.code != 200) {
-                com.auralis.music.util.Log.w("SpicyLyrics", "Lyrics lookup returned HTTP ${response.code}")
-                if (response.code != 404) throw IOException("Spicy Lyrics lookup failed: HTTP ${response.code}")
-                return@withContext null
-            }
-            val lyrics = SpicyLyricsParser.parse(JSONObject(response.body), recording)?.copy(fetchedAtMs = clock()) ?: return@withContext null
-            // A cross-service match is never an exact YouTube-video match.
-            LyricsCandidate(lyrics, 95, lyrics.syncType, provider)
+            null
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -71,9 +79,11 @@ class SpicyLyricsSource(
         }
     }
 
+    private fun identity(query: LyricsSearchQuery) = listOf(query.videoId, query.spotifyId,
+        query.recordingTitle ?: query.title, query.artist, query.album, query.durationMs, query.durationSec, query.isrc)
+
     private suspend fun resolve(query: LyricsSearchQuery): SpicyRecording? {
-        val identity = listOf(query.videoId, query.spotifyId, query.recordingTitle ?: query.title,
-            query.artist, query.album, query.durationMs, query.durationSec, query.isrc)
+        val identity = identity(query)
         synchronized(matches) { matches[identity] }?.takeIf { it.expires > clock() }?.let { return it.recording }
         if (clock() < metadataBlockedUntil) throw IOException("Recording metadata is rate limited; try again later")
         val id = SpicyRecordingMatcher.spotifyId(query.spotifyId) ?: SpicyRecordingMatcher.spotifyId(query.videoId)
@@ -141,7 +151,7 @@ class SpicyLyricsSource(
         val best = accepted.sortedWith(compareByDescending<SpicyRecording> {
             !query.album.isNullOrBlank() && query.album.equals(it.album, ignoreCase = true)
         }.thenBy { kotlin.math.abs(it.durationMs - duration) }).firstOrNull() ?: return null
-        synchronized(matches) { matches[identity] = Cached(best, clock() + 86_400_000L) }
+        synchronized(matches) { matches[identity] = Cached(best, clock() + 86_400_000L, accepted.filter { it.id != best.id }) }
         return best
     }
 

@@ -84,12 +84,23 @@ fun TrackOptionsMenu(
     onCreatePlaylistAndAdd: (String) -> Unit,
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    onConnectDevices: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     queueReferenceStyle: Boolean = false,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
     sheetBackground: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var showCustomLyrics by remember(track.id) { mutableStateOf(false) }
+    if (showCustomLyrics) {
+        com.auralis.music.ui.lyrics.ImportedLyricsDialog(track = track, onDismiss = onDismiss)
+        return
+    }
+    var showPlaybackStats by remember(track.id) { mutableStateOf(false) }
+    if (showPlaybackStats) {
+        com.auralis.music.ui.player.PlaybackStatsSheet(onDismiss = onDismiss)
+        return
+    }
     val presentationActions = LocalSongPresentationActions.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -107,6 +118,9 @@ fun TrackOptionsMenu(
     val creditedArtists = remember(track.artist) {
         com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(track.artist)
     }
+    LaunchedEffect(track.artist) {
+        if (onGoToArtist != null) com.auralis.music.ui.ArtistPreload.request?.invoke(creditedArtists.firstOrNull() ?: track.artist)
+    }
     fun viewArtist() {
         if (onGoToArtist == null) return
         if (creditedArtists.size > 1) {
@@ -117,26 +131,20 @@ fun TrackOptionsMenu(
         }
     }
     if (showArtistPicker) {
-        AlertDialog(
-            onDismissRequest = { showArtistPicker = false },
-            title = { Text(str(R.string.choose_artist)) },
-            text = {
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    creditedArtists.forEach { artistName ->
-                        TextButton(
-                            onClick = {
-                                showArtistPicker = false
-                                onGoToArtist?.invoke(artistName)
-                                onDismiss()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text(artistName, modifier = Modifier.fillMaxWidth()) }
-                    }
-                }
+        ArtistPickerSheet(
+            artists = remember(creditedArtists) {
+                creditedArtists.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
             },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showArtistPicker = false }) { Text(str(R.string.cancel)) } }
+            subtitle = track.title,
+            onPick = { artist ->
+                showArtistPicker = false
+                onGoToArtist?.invoke(artist.name)
+                onDismiss()
+            },
+            onDismiss = { showArtistPicker = false }
         )
+        // Replace the source menu while choosing; two modal surfaces must not stack.
+        return
     }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
@@ -291,7 +299,13 @@ fun TrackOptionsMenu(
             ) {
                 if (isDownloaded) AuralisDownloadManager.removeDownload(track.id) else AuralisDownloadManager.downloadTrack(track)
             })
-            add(GlassMenuItem(str(R.string.view_album), Icons.Default.Album, enabled = displayAlbum != null) { openAlbum() })
+            add(GlassMenuItem(
+                when {
+                    displayAlbum != null -> str(R.string.view_album)
+                    !albumLookupDone -> str(R.string.finding_album)
+                    else -> str(R.string.no_album)
+                }, Icons.Default.Album, enabled = displayAlbum != null
+            ) { openAlbum() })
             add(GlassMenuItem(str(R.string.view_artist), Icons.Default.Person,
                 enabled = onGoToArtist != null, dismisses = false) { viewArtist() })
             if (!queueReferenceStyle) {
@@ -312,6 +326,10 @@ fun TrackOptionsMenu(
             }
             if (isInListenTogetherRoom && onRecommendToRoom != null) {
                 add(GlassMenuItem(str(R.string.add_to_room_queue), Icons.Default.Group) { onRecommendToRoom(track) })
+            }
+            add(GlassMenuItem("Custom lyrics", Icons.Default.Lyrics, dismisses = false) { showCustomLyrics = true })
+            if (presentationActions?.isNowPlaying(track) == true) {
+                add(GlassMenuItem(str(R.string.stats_for_nerds), Icons.Default.Insights, dismisses = false) { showPlaybackStats = true })
             }
             add(GlassMenuItem(str(R.string.share), Icons.Default.Share) { shareTrack() })
         }
@@ -619,17 +637,25 @@ fun TrackOptionsMenu(
                     }
 
                     // ── GROUP 4: DOWNLOAD ──
+                    TrackOptionRow(icon = Icons.Default.Lyrics, title = "Custom lyrics", subtitle = "Import or manage a TTML file",
+                        onClick = { showCustomLyrics = true })
                     presentationActions?.takeIf { it.isNowPlaying(track) }?.let { actions ->
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(actionCardColor)) {
                             actions.openListenTogether?.let { open ->
                                 TrackOptionRow(icon = Icons.Default.Groups, title = str(R.string.listen_together), subtitle = null,
                                     onClick = { onDismiss(); open(track) })
                             }
+                            onConnectDevices?.let { open ->
+                                TrackOptionRow(icon = Icons.Default.Devices, title = str(R.string.connect_to_a_device), subtitle = null,
+                                    onClick = { onDismiss(); open() })
+                            }
                             TrackOptionRow(icon = Icons.Default.Fullscreen, title = str(R.string.ambient_mode), subtitle = null,
                                 onClick = { onDismiss(); actions.openAmbient(track) })
                             val lyricsShown = actions.isLyricsShown(track)
                             TrackOptionRow(icon = Icons.Default.Lyrics, title = str(if (lyricsShown) R.string.hide_lyrics else R.string.show_lyrics), subtitle = null,
                                 onClick = { onDismiss(); if (lyricsShown) actions.hideLyrics(track) else actions.openLyrics(track) })
+                            TrackOptionRow(icon = Icons.Default.Insights, title = str(R.string.stats_for_nerds), subtitle = null,
+                                onClick = { showPlaybackStats = true })
                         }
                     }
 
@@ -684,7 +710,7 @@ fun TrackOptionsMenu(
                             title = str(R.string.view_album),
                             subtitle = displayAlbum ?: when {
                                 !albumLookupDone -> str(R.string.finding_album)
-                                isKnownSingle -> str(R.string.single_not_part_of_an_album)
+                                isKnownSingle -> str(R.string.no_album)
                                 else -> str(R.string.no_album_for_this_song)
                             },
                             enabled = displayAlbum != null,
@@ -720,120 +746,27 @@ fun TrackOptionsMenu(
                 }
             } else {
                 // ── PLAYLIST PICKER VIEW ──
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = { showPlaylistPicker = false }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = str(R.string.back),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Text(
-                        text = str(R.string.save_to_playlist),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    IconButton(onClick = { showCreatePlaylistDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = str(R.string.new_playlist),
-                            tint = dynamicPrimary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (userPlaylists.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = str(R.string.no_custom_playlists_yet),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { showCreatePlaylistDialog = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = dynamicPrimary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(str(R.string.create_playlist), fontWeight = FontWeight.Bold)
-                            }
+                PlaylistPickerHeader(
+                    title = str(R.string.save_to_playlist),
+                    subtitle = "${track.title} • ${track.artist}",
+                    artworkUrl = track.thumbnail,
+                    onBack = { showPlaylistPicker = false }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                PlaylistPickerList(
+                    playlists = userPlaylists,
+                    isInPlaylist = { playlist -> playlist.tracks.any { it.id == track.id } },
+                    onCreate = { showCreatePlaylistDialog = true },
+                    onPick = { playlist ->
+                        if (playlist.tracks.any { it.id == track.id }) {
+                            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
+                        } else {
+                            onAddToPlaylist(playlist)
+                            showPlaylistPicker = false
+                            onDismiss()
                         }
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 380.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(userPlaylists, key = { it.id }) { playlist ->
-                            val alreadyInPlaylist = playlist.tracks.any { it.id == track.id }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        if (alreadyInPlaylist) {
-                                            com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.already_in_x, playlist.title))
-                                        } else {
-                                            onAddToPlaylist(playlist)
-                                            showPlaylistPicker = false
-                                            onDismiss()
-                                        }
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail,
-                                    modifier = Modifier.size(42.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = playlist.title
-                                )
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = playlist.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = str(R.string.x_songs, playlist.tracks.size),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Icon(
-                                    imageVector = if (alreadyInPlaylist) Icons.Default.Check else Icons.Default.Add,
-                                    contentDescription = if (alreadyInPlaylist) str(R.string.already_in_playlist) else str(R.string.add),
-                                    tint = if (alreadyInPlaylist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -850,7 +783,7 @@ fun TrackOptionsMenu(
             playlistCreator(com.auralis.music.ui.library.PlaylistCreationRequest(listOf(track))); onDismiss()
         }
     } else if (showCreatePlaylistDialog) {
-        AlertDialog(
+        com.auralis.music.ui.components.AuralisAlertDialog(
             onDismissRequest = {
                 showCreatePlaylistDialog = false
                 newPlaylistName = ""
@@ -893,10 +826,7 @@ fun TrackOptionsMenu(
                 }) {
                     Text(str(R.string.cancel))
                 }
-            },
-            containerColor = dynamicSurface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface
+            }
         )
     }
 }

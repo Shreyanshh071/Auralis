@@ -57,6 +57,8 @@ import com.auralis.music.ui.viewmodel.SearchViewModel
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
+    private var accountSync: GoogleAccountSyncManager? = null
+
 
     private val launchTouchGate = com.auralis.music.ui.components.LaunchTouchGate()
     private var launchDrawingComplete by mutableStateOf(false)
@@ -155,7 +157,9 @@ class MainActivity : ComponentActivity() {
         val statsRepository = com.auralis.music.data.repository.StatsRepositoryImpl(trackDao, db.playbackEventDao(), historyDao, playCountDao)
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
         val searchRepository = com.auralis.music.data.repository.CatalogSearchRepository(SearchRepositoryImpl(innerTubeClient, suggestionsClient, com.auralis.music.data.repository.RoomSearchHistoryStore(searchHistoryDao)))
+        com.auralis.music.data.local.ImportedLyricsStore.init(applicationContext)
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
+        com.auralis.music.data.download.DownloadMetadataExport.attachLyrics(lyricsRepository)
 
         Log.d("AuralisPlayback", "[MainActivity] onCreate - connected to AuralisAudioPlayer (track=${audioPlayer.currentTrack.value?.title}, isPlaying=${audioPlayer.isPlaying.value})")
 
@@ -170,6 +174,7 @@ class MainActivity : ComponentActivity() {
             com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
             kotlinx.coroutines.delay(3000L)
             com.auralis.music.data.sync.AndroidAccountPreferences(applicationContext).start(this)
+            accountSync = googleAccountSyncManager
             googleAccountSyncManager.startContinuousCloudSync(this)
             // Listening stats live on the account too, so a reinstall doesn't wipe them.
             com.auralis.music.data.sync.StatsCloudSync.start(this)
@@ -180,18 +185,23 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.delay(1000L)
             try {
                 val updaterStore = com.auralis.music.data.datastore.UpdaterDataStore(applicationContext)
-                val autoCheck = updaterStore.settingsFlow.first().autoCheckUpdates
-                if (autoCheck) {
+                val updaterSettings = updaterStore.settingsFlow.first()
+                if (updaterSettings.autoCheckUpdates) {
                     val updateInfo = com.auralis.music.data.network.UpdateChecker.checkForUpdates(applicationContext)
                     if (updateInfo.hasUpdate) {
                         Log.d("AuralisUpdater", "New update detected on startup: v${updateInfo.latestVersion}")
-                        com.auralis.music.data.network.UpdateChecker.showUpdateNotification(applicationContext, updateInfo)
+                        com.auralis.music.data.network.UpdateChecker.offerUpdate(applicationContext, updateInfo)
+                        if (updaterSettings.enableNotifications) {
+                            com.auralis.music.data.network.UpdateChecker.notifyOnce(applicationContext, updateInfo)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.w("AuralisUpdater", "Startup update check failed: ${e.message}")
             }
         }
+
+        askForNotificationsOnce()
 
         // Cold app startup: initialize immediately from the phone's CURRENT System Dynamic Color.
         // Never restore the previous song's artwork palette as the initial theme.
@@ -356,6 +366,7 @@ class MainActivity : ComponentActivity() {
                                     .background(MaterialTheme.dynamicBackground)
                             )
                         }
+                        com.auralis.music.ui.theme.ThemeCrossfade.Overlay()
                     }
                 }
             }
@@ -366,6 +377,31 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         com.auralis.music.data.connect.AuralisConnect.setForeground(true)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
+        // Back from the background: pick up what other devices changed meanwhile.
+        accountSync?.let { sync -> lifecycleScope.launch { sync.backupLibraryToCloud() } }
+    }
+
+    /**
+     * Only the first-run tour used to ask, so anyone who updated from an older version or skipped
+     * that page had notifications off from Android 13 on, and update notices were silently dropped.
+     */
+    private fun askForNotificationsOnce() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        val permission = android.Manifest.permission.POST_NOTIFICATIONS
+        lifecycleScope.launch {
+            com.auralis.music.data.datastore.OnboardingStore.state.first { it.tourSeen }
+            kotlinx.coroutines.delay(1500L)
+            val prefs = getSharedPreferences("auralis_update_notice", MODE_PRIVATE)
+            if (prefs.getBoolean("notifications_asked", false)) return@launch
+            prefs.edit().putBoolean("notifications_asked", true).apply()
+            if (checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(permission), NOTIFICATION_PERMISSION_REQUEST)
+            }
+        }
+    }
+
+    private companion object {
+        const val NOTIFICATION_PERMISSION_REQUEST = 4102
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {

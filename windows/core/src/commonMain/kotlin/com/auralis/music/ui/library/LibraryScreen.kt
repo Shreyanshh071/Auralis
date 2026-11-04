@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -323,6 +324,8 @@ fun LibraryScreen(
     emptyLibraryContent: (@Composable (LibrarySourceFilter?, String) -> Unit)? = null,
     /** Desktop also recognises older imports that predate source IDs. */
     playlistSource: ((Playlist) -> LibrarySourceFilter?)? = null,
+    /** Windows: the list stays on the left and the chosen playlist opens beside it. */
+    desktopBrowser: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
@@ -409,7 +412,7 @@ fun LibraryScreen(
     }
 
     com.auralis.music.ui.components.PlatformBackHandler(
-        enabled = uiState.selectedPlaylist != null || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
+        enabled = (!desktopBrowser && uiState.selectedPlaylist != null) || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
     ) {
         if (selectedPlaylistForMenu != null) selectedPlaylistForMenu = null
         else if (showCreateDialog) showCreateDialog = false
@@ -433,7 +436,99 @@ fun LibraryScreen(
     // state alive when navigating back to the library list. ──
     val librarySaveableStateHolder = rememberSaveableStateHolder()
 
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    fun libraryPlaylists(query: String, filter: LibrarySourceFilter?): List<Playlist> =
+        sortLibraryPlaylists(
+                playlists = buildList {
+                    if (query.isBlank()) {
+                        if (appearance.showLikedPlaylist) add(likedPlaylist)
+                        if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
+                        if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
+                        // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
+                        if (appearance.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
+                        if (appearance.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
+                        if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
+                    }
+                    addAll(uiState.playlists.filter { it.title.contains(query, ignoreCase = true) })
+                }.filter { playlist ->
+                    val chosen = filter ?: return@filter true
+                    val isSmart = smartCollectionTypeFor(playlist.id) != null
+                    when (chosen) {
+                        LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
+                        LibrarySourceFilter.ARTISTS -> false
+                        LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == chosen else isSpotifyImport(playlist)
+                        LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == chosen else isYouTubeMusicImport(playlist)
+                    }
+                },
+                order = uiState.sortOrder,
+                recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
+            )
+    fun libraryArtists(query: String, filter: LibrarySourceFilter?) =
+        if (filter == null || filter == LibrarySourceFilter.ARTISTS)
+                uiState.savedArtists.filter { it.name.contains(query, ignoreCase = true) }
+                    .distinctBy { it.id }.let { artists -> when (uiState.sortOrder) {
+                        "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
+                        "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
+                        else -> artists.sortedByDescending { it.savedAt }
+                    } }
+            else emptyList()
+
+    // The right side always has something to show: Liked until another playlist is chosen.
+    if (desktopBrowser) LaunchedEffect(uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {
+        if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) onSmartCollectionClick(SmartCollectionType.LIKED)
+    }
+
+    Row(modifier.fillMaxSize()) {
+    if (desktopBrowser) {
+        var paneQuery by remember { mutableStateOf("") }
+        var paneFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
+        val sourceLabel: (Playlist) -> String? = { playlist ->
+            when (playlistSource?.invoke(playlist)) {
+                LibrarySourceFilter.SPOTIFY -> "Spotify"
+                LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+                else -> null
+            }
+        }
+        DesktopLibraryPane(
+            rows = libraryPlaylists(paneQuery, paneFilter).map { playlist ->
+                val isSmart = smartCollectionTypeFor(playlist.id) != null
+                LibraryPaneRow(
+                    playlist = playlist,
+                    subtitle = when {
+                        isSmart -> smartCollectionSubtitleFor(playlist, isJobDownloading)
+                        // A saved album keeps no track list here, so its artist says more than "0 songs".
+                        playlist.tracks.isEmpty() && isAlbumPlaylist(playlist, uiState.savedAlbums) -> playlist.description ?: "Album"
+                        else -> listOfNotNull(sourceLabel(playlist), str(Strings.x_songs, playlist.tracks.size)).joinToString(" \u00b7 ")
+                    },
+                    icon = if (isSmart) smartCollectionIconFor(playlist.id, isJobDownloading) else null
+                )
+            },
+            artists = libraryArtists(paneQuery, paneFilter),
+            selectedId = uiState.selectedPlaylist?.id,
+            query = paneQuery,
+            onQueryChange = { paneQuery = it },
+            filter = paneFilter,
+            onFilterChange = { paneFilter = it },
+            sortOrder = uiState.sortOrder,
+            sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count"),
+            onSortChange = onSortChange,
+            onNewPlaylist = { showCreateDialog = true },
+            onOpen = { playlist ->
+                val smartType = smartCollectionTypeFor(playlist.id)
+                if (smartType != null) onSmartCollectionClick(smartType) else onPlaylistSelect(playlist)
+            },
+            onMenu = { selectedPlaylistForMenu = it },
+            onOpenArtist = { artist ->
+                onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+            },
+            empty = { emptyLibraryContent?.invoke(paneFilter, paneQuery) },
+            modifier = Modifier.width(300.dp)
+        )
+        Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 16.dp).background(MaterialTheme.colorScheme.onBackground.copy(alpha = .08f)))
+    }
     AnimatedContent(
+        modifier = Modifier.weight(1f).fillMaxHeight(),
         targetState = when {
             uiState.selectedPlaylist != null -> "playlist_${uiState.selectedPlaylist.id}"
             uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED -> "downloaded_hub"
@@ -463,6 +558,7 @@ fun LibraryScreen(
                     isPlaying = isPlaying,
                     userName = userName,
                     userAvatarUrl = userAvatarUrl,
+                    showBack = !desktopBrowser,
                     onBack = { onPlaylistSelect(null) },
                     onPlayTrack = { track, list -> onTrackClick(track, list) },
                     onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
@@ -559,7 +655,7 @@ fun LibraryScreen(
                     onClearAllDownloads = { platformActions.clearAllDownloads() }
                 )
             )
-        } else {
+        } else if (!desktopBrowser) {
 
     val gridScrollState = rememberLazyGridState()
     val listScrollState = rememberLazyListState()
@@ -803,42 +899,9 @@ fun LibraryScreen(
             }
             if (headerGlass == null) browseHeader()
 
-            val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
-            val displayedPlaylists = sortLibraryPlaylists(
-                playlists = buildList {
-                    if (searchQuery.isBlank()) {
-                        if (appearance.showLikedPlaylist) add(likedPlaylist)
-                        if (appearance.showDownloadedPlaylist && hasDownloads) add(downloadedPlaylist)
-                        if (appearance.showTopPlaylist && uiState.top50Tracks.isNotEmpty()) add(top50Playlist)
-                        // Empty unless Settings → Content → Wrapped → Most playlists is on (see LibraryViewModel).
-                        if (appearance.showWeeklyMostPlaylist && uiState.weeklyMostTracks.isNotEmpty()) add(weeklyMostPlaylist)
-                        if (appearance.showMonthlyMostPlaylist && uiState.monthlyMostTracks.isNotEmpty()) add(monthlyMostPlaylist)
-                        if (appearance.showCachedPlaylist && uiState.cachedTracks.isNotEmpty()) add(cachedPlaylist)
-                    }
-                    addAll(uiState.playlists.filter { it.title.contains(searchQuery, ignoreCase = true) })
-                }.filter { playlist ->
-                    val filter = sourceFilter ?: return@filter true
-                    val isSmart = smartCollectionTypeFor(playlist.id) != null
-                    when (filter) {
-                        LibrarySourceFilter.PLAYLISTS -> isSmart || !isAlbumPlaylist(playlist, uiState.savedAlbums)
-                        LibrarySourceFilter.ALBUMS -> !isSmart && isAlbumPlaylist(playlist, uiState.savedAlbums)
-                        LibrarySourceFilter.ARTISTS -> false
-                        LibrarySourceFilter.SPOTIFY -> if (playlistSource != null) playlistSource(playlist) == filter else isSpotifyImport(playlist)
-                        LibrarySourceFilter.YOUTUBE -> if (playlistSource != null) playlistSource(playlist) == filter else isYouTubeMusicImport(playlist)
-                    }
-                },
-                order = uiState.sortOrder,
-                recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
-            )
+            val displayedPlaylists = libraryPlaylists(searchQuery, sourceFilter)
             val gridAnimate = !LocalReducedMotion.current
-            val displayedArtists = if (sourceFilter == null || sourceFilter == LibrarySourceFilter.ARTISTS)
-                uiState.savedArtists.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                    .distinctBy { it.id }.let { artists -> when (uiState.sortOrder) {
-                        "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
-                        "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
-                        else -> artists.sortedByDescending { it.savedAt }
-                    } }
-            else emptyList()
+            val displayedArtists = libraryArtists(searchQuery, sourceFilter)
             val gridFadeEnter = fadeIn(motionTween(AuralisDuration.Quick, AuralisEasing.Standard))
             val gridFadeExit = fadeOut(motionTween(AuralisDuration.Fast, AuralisEasing.Standard))
             
@@ -1053,18 +1116,20 @@ fun LibraryScreen(
         )
     }
 
+    }
+} // SaveableStateProvider
+} // AnimatedContent lambda
+    } // Row
+
     // Create New Playlist Dialog
     if (showCreateDialog) {
         var playlistInput by remember { mutableStateOf("") }
-        val dialogShape = RoundedCornerShape(28.dp)
-        val pageView = com.auralis.music.ui.glass.rememberDialogPageAnchor()
 
         com.auralis.music.ui.components.GlassAlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            modifier = if (headerGlass != null) Modifier.liquidGlassDialog(headerGlass, dialogShape, pageView) else Modifier,
-            shape = if (headerGlass != null) dialogShape else AlertDialogDefaults.shape,
-            containerColor = if (headerGlass != null) Color.Transparent else CARD_DARK_BG,
-            tonalElevation = if (headerGlass != null) 0.dp else AlertDialogDefaults.TonalElevation,
+            shape = AlertDialogDefaults.shape,
+            containerColor = CARD_DARK_BG,
+            tonalElevation = AlertDialogDefaults.TonalElevation,
             title = {
                 Text(
                     text = str(Strings.new_playlist),
@@ -1141,10 +1206,7 @@ fun LibraryScreen(
             }
         )
     }
-    }
-} // SaveableStateProvider
-} // AnimatedContent lambda
-} // AnimatedContent call
+} // LibraryScreen
 
 
 // ============================================================================
@@ -1723,6 +1785,7 @@ private fun PlaylistDetailView(
     isPlaying: Boolean,
     userName: String = "You",
     userAvatarUrl: String? = null,
+    showBack: Boolean = true,
     onBack: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onRemoveTrack: (String) -> Unit,
@@ -2604,7 +2667,7 @@ private fun PlaylistDetailView(
     // The song-table layout: Back floats over the page (as on album and artist pages), so it
     // stays reachable however far down the songs are scrolled.
     BoxWithConstraints {
-        if (maxWidth >= PLAYLIST_TABLE_MIN_WIDTH) IconButton(onClick = onBack,
+        if (showBack && maxWidth >= PLAYLIST_TABLE_MIN_WIDTH) IconButton(onClick = onBack,
             modifier = Modifier.padding(start = 12.dp, top = 8.dp).size(40.dp).clip(CircleShape)
                 .background(Color(0xFF202024).copy(alpha = .72f))
                 .border(1.dp, Color.White.copy(alpha = .16f), CircleShape)) {

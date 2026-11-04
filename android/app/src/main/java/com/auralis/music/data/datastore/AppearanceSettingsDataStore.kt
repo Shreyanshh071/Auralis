@@ -92,6 +92,9 @@ class AppearanceSettingsDataStore(
                 hidePlayerThumbnail = preferences[HIDE_PLAYER_THUMBNAIL] ?: defaults.hidePlayerThumbnail,
                 cropAlbumArt = preferences[CROP_ALBUM_ART] ?: defaults.cropAlbumArt,
                 animatedCovers = preferences[ANIMATED_COVERS] ?: defaults.animatedCovers,
+                inlineLyricsNewPlayer = preferences[INLINE_LYRICS_NEW_PLAYER] ?: defaults.inlineLyricsNewPlayer,
+                inlineLyricsOldPlayer = preferences[INLINE_LYRICS_OLD_PLAYER] ?: defaults.inlineLyricsOldPlayer,
+                inlineLyricsImmersive = preferences[INLINE_LYRICS_IMMERSIVE] ?: defaults.inlineLyricsImmersive,
                 animatedCoverSource = preferences[ANIMATED_COVER_SOURCE] ?: defaults.animatedCoverSource,
                 animatedCoversWifiOnly = preferences[ANIMATED_COVERS_WIFI_ONLY] ?: defaults.animatedCoversWifiOnly,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: defaults.playerButtonColors,
@@ -159,6 +162,9 @@ class AppearanceSettingsDataStore(
         val HIDE_PLAYER_THUMBNAIL = booleanPreferencesKey("hide_player_thumbnail")
         val CROP_ALBUM_ART = booleanPreferencesKey("crop_album_art")
         val ANIMATED_COVERS = booleanPreferencesKey("animated_covers")
+        val INLINE_LYRICS_NEW_PLAYER = booleanPreferencesKey("inline_lyrics_new_player")
+        val INLINE_LYRICS_OLD_PLAYER = booleanPreferencesKey("inline_lyrics_old_player")
+        val INLINE_LYRICS_IMMERSIVE = booleanPreferencesKey("inline_lyrics_immersive")
         val ANIMATED_COVER_SOURCE = stringPreferencesKey("animated_cover_source")
         val ANIMATED_COVERS_WIFI_ONLY = booleanPreferencesKey("animated_covers_wifi_only")
         val PLAYER_BUTTON_COLORS = stringPreferencesKey("player_button_colors")
@@ -232,6 +238,9 @@ class AppearanceSettingsDataStore(
                 preferences[HIDE_PLAYER_THUMBNAIL] = settings.hidePlayerThumbnail
                 preferences[CROP_ALBUM_ART] = settings.cropAlbumArt
                 preferences[ANIMATED_COVERS] = settings.animatedCovers
+                preferences[INLINE_LYRICS_NEW_PLAYER] = settings.inlineLyricsNewPlayer
+                preferences[INLINE_LYRICS_OLD_PLAYER] = settings.inlineLyricsOldPlayer
+                preferences[INLINE_LYRICS_IMMERSIVE] = settings.inlineLyricsImmersive
                 preferences[ANIMATED_COVER_SOURCE] = settings.animatedCoverSource
                 preferences[ANIMATED_COVERS_WIFI_ONLY] = settings.animatedCoversWifiOnly
                 preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors

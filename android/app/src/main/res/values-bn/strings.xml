@@ -864,7 +864,7 @@
     <string name="opt_auto_adaptive">অটো (অভিযোজিত)</string>
     <string name="opt_high_on_wi_fi_standard_on_mobile_data">Wi-Fi-তে উচ্চ, মোবাইল ডেটায় সাধারণ</string>
     <string name="opt_high_quality">উচ্চ মান</string>
-    <string name="opt_160_kbps_high_bitrate_opus">~160 kbps (উচ্চ-বিটরেট Opus)</string>
+    <string name="opt_160_kbps_high_bitrate_opus">320 kbps পর্যন্ত (JioSaavn, তারপর YouTube Music)</string>
     <string name="opt_standard">সাধারণ</string>
     <string name="opt_128_kbps_aac_opus">~128 kbps (AAC / Opus)</string>
     <string name="opt_data_saver_low">ডেটা সেভার (নিম্ন)</string>

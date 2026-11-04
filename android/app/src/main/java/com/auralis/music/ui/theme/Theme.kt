@@ -676,6 +676,20 @@ fun dynamicColorSchemeFromSeed(
     }
 }
 
+private const val ACCENT_CLASH_DEGREES = 60.0
+private const val TINTED_NEUTRAL_CHROMA = 3.0
+private const val HARMONIZED_SEED_CHROMA = 48.0
+private const val HARMONIZED_SEED_TONE = 40.0
+
+/**
+ * Wallpaper styles such as Expressive rotate the accent far from the neutrals on purpose: a brown
+ * wallpaper gets a brown page with blue buttons. The app's surfaces are tinted, so that reads as a bug.
+ */
+internal fun accentClashesWithNeutral(accentHue: Double, neutralHue: Double, neutralChroma: Double): Boolean {
+    val apart = kotlin.math.abs(accentHue - neutralHue) % 360.0
+    return neutralChroma >= TINTED_NEUTRAL_CHROMA && minOf(apart, 360.0 - apart) > ACCENT_CLASH_DEGREES
+}
+
 /**
  * Resolves the phone's system dynamic Monet ColorScheme synchronously on Android 12+ (API 31+).
  * Runs instantly on the composition thread (reading pre-loaded Android framework resources).
@@ -690,6 +704,18 @@ fun getSystemDynamicColorScheme(
 ): ColorScheme {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val dynamicSys = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        val neutral = dynamicSys.surfaceVariant.toHct()
+        if (accentClashesWithNeutral(dynamicSys.primary.toHct().hue, neutral.hue, neutral.chroma)) {
+            val key = "system-${neutral.hue.toInt()}-$isDark-$isAmoled-$appTheme"
+            return curatedSchemeCache.getOrPut(key) {
+                dynamicColorSchemeFromSeed(
+                    seedColor = Color(com.materialkolor.hct.Hct.from(neutral.hue, HARMONIZED_SEED_CHROMA, HARMONIZED_SEED_TONE).toInt()),
+                    isDark = isDark,
+                    isAmoled = isAmoled,
+                    appTheme = appTheme
+                )
+            }
+        }
         if (isDark) {
             when {
                 isAmoled -> dynamicSys.copy(
@@ -931,6 +957,36 @@ fun animateDynamicPalette(targetPalette: AuralisDynamicPalette): AuralisDynamicP
     }
 }
 
+private const val ThemeFadeSteps = 8
+private const val ThemeFadeStepMillis = 70L
+
+/**
+ * Walks to [target] in [ThemeFadeSteps] steps. A new target starts from the colours on screen.
+ * Light and dark never blend: the mid-grays between them have no contrast.
+ */
+@Composable
+private fun <T> rememberThemeFade(
+    target: T,
+    reducedMotion: Boolean,
+    lerp: (T, T, Float) -> T,
+    isModeChange: (T, T) -> Boolean
+): T {
+    var shown by remember { mutableStateOf(target) }
+    LaunchedEffect(target) {
+        val from = shown
+        if (from == target) return@LaunchedEffect
+        if (!reducedMotion && !isModeChange(from, target)) {
+            for (step in 1 until ThemeFadeSteps) {
+                kotlinx.coroutines.delay(ThemeFadeStepMillis)
+                shown = lerp(from, target, FastOutSlowInEasing.transform(step / ThemeFadeSteps.toFloat()))
+            }
+            kotlinx.coroutines.delay(ThemeFadeStepMillis)
+        }
+        shown = target
+    }
+    return if (isModeChange(shown, target)) target else shown
+}
+
 /**
  * Key data class used to invalidate [produceState] in AuralisTheme when the palette-relevant
  * inputs change, without triggering unnecessary recomputation for unrelated setting changes.
@@ -1040,13 +1096,13 @@ fun AuralisTheme(
     // Honour the system "remove animations" accessibility preference app-wide
     val reducedMotion = rememberReducedMotion()
 
-    // 4. The theme switches to the new song's colours in one step. Fading it (450ms) changed
-    //    MaterialTheme.colorScheme on every frame, which recomposed nearly the whole app (every
-    //    queue row, header, control and the dock) for the length of the fade: measured on device
-    //    as ~650ms of 25-60ms frames on each song change, which is what made the queue's
-    //    slide-up and the song change itself stutter. The player background still blends,
-    //    in the draw phase only.
-    val colorScheme = rawTargetScheme
+    // 4. The theme fades to the new song's colours in a few steps. Fading on every frame
+    //    recomposed nearly the whole app for the length of the fade: measured on device as ~650ms
+    //    of 25-60ms frames on each song change, which made the queue's slide-up stutter. The steps
+    //    leave free frames between those recompositions.
+    val colorScheme = rememberThemeFade(rawTargetScheme, reducedMotion, ::lerpColorScheme) { from, to ->
+        (from.background.luminance() < 0.5f) != (to.background.luminance() < 0.5f)
+    }
 
     // Dynamic artwork ambient tints for LocalAuralisDynamicPalette
     val rawDynamicPalette = remember(activeArtworkPalette, isDark, artworkDominantColor, hasSongArtwork, rawTargetScheme) {
@@ -1075,8 +1131,9 @@ fun AuralisTheme(
         }
     }
 
-    // Same as the scheme above: one step, not a per-frame app-wide recomposition.
-    val dynamicPalette = rawDynamicPalette
+    val dynamicPalette = rememberThemeFade(rawDynamicPalette, reducedMotion, ::lerpDynamicPalette) { from, to ->
+        from.isDark != to.isDark
+    }
 
 
     // Calculate display density scaling (including responsive landscape scaling)

@@ -196,8 +196,9 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             Spacer(Modifier.width(10.dp))
             // Connect to a device: which of the account's devices plays (separate from play/pause).
             Box {
-                val connectUi = com.auralis.music.windows.connect.DesktopConnect.current?.ui?.collectAsState()?.value
-                if (connectUi?.enabled == true) {
+                val connect = com.auralis.music.windows.connect.DesktopConnect.current
+                if (connect != null) {
+                    val connectUi by connect.ui.collectAsState()
                     val elsewhere = connectUi.output?.takeIf { !it.isThis }
                     IconButton(onClick = { connectMenu = true }, modifier = Modifier.size(34.dp)) {
                         Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),

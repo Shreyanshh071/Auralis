@@ -15,6 +15,88 @@ import java.util.concurrent.TimeUnit
 class DownloadStoreTest {
     @get:Rule val folder = TemporaryFolder()
 
+    @Test fun `unchecked cover remains hidden after restart even with a cached image`() {
+        val store = DownloadStore(folder.root)
+        store.load()
+        audio(store, "one")
+        val original = Track(id = "one", thumbnail = "https://example.com/cover.jpg")
+        store.add(original)
+        store.artworkFile("one").writeBytes(ByteArray(1200) { 7 })
+        store.recordCoverChoice("one", false)
+        val restored = DownloadStore(folder.root)
+        val raw = restored.load().single()
+        assertEquals(false, restored.downloadCoverChoices()["one"])
+        assertEquals(original.thumbnail, raw.thumbnail)
+        val visible = com.auralis.music.data.download.DownloadArtworkPolicy.display(raw, restored.downloadCoverChoices()[raw.id])
+        assertEquals(com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN, visible.thumbnail)
+        assertEquals(original.id, visible.id)
+        assertEquals(original.title, visible.title)
+        assertTrue(restored.artworkFile("one").exists())
+        restored.recordCoverChoice("one", true)
+        assertEquals(original.thumbnail, com.auralis.music.data.download.DownloadArtworkPolicy.display(raw, restored.downloadCoverChoices()[raw.id]).thumbnail)
+    }
+
+    @Test fun `cover and lyrics choices stay independent and are removed with the download`() {
+        val store = DownloadStore(folder.root)
+        store.load()
+        audio(store, "one")
+        store.add(Track(id = "one"))
+        assertTrue(store.downloadCoverChoices().isEmpty())
+        store.recordCoverChoice("one", false)
+        store.recordLyricsChoice("one", true)
+        assertEquals(mapOf("one" to false), store.downloadCoverChoices())
+        assertEquals(mapOf("one" to true), store.downloadLyricsChoices())
+        store.recordCoverChoice("one", true)
+        store.recordLyricsChoice("one", false)
+        assertEquals(mapOf("one" to true), store.downloadCoverChoices())
+        assertEquals(mapOf("one" to false), store.downloadLyricsChoices())
+        store.remove("one")
+        assertTrue(store.downloadCoverChoices().isEmpty())
+        assertTrue(store.downloadLyricsChoices().isEmpty())
+        audio(store, "one")
+        store.add(Track(id = "one"))
+        assertTrue(store.downloadCoverChoices().isEmpty())
+    }
+
+    @Test fun `per song lyrics choices survive restart without removing cover previews`() {
+        val store = DownloadStore(folder.root)
+        store.load()
+        listOf("one", "two").forEach { id ->
+            audio(store, id)
+            store.add(Track(id = id, thumbnail = "https://example.com/$id.jpg"))
+        }
+        val cover = store.artworkFile("one")
+        val bytes = ByteArray(1200) { 9 }
+        cover.writeBytes(bytes)
+        store.recordLyricsChoice("one", false)
+        store.recordLyricsChoice("two", true)
+        val restored = DownloadStore(folder.root)
+        val tracks = restored.load()
+        assertEquals(mapOf("one" to false, "two" to true), restored.downloadLyricsChoices())
+        assertEquals("https://example.com/one.jpg", tracks.first { it.id == "one" }.thumbnail)
+        assertArrayEquals(bytes, cover.readBytes())
+        assertNotNull(restored.downloadedFile("one"))
+    }
+
+    @Test fun `legacy downloads have unknown lyrics choice and removal clears recorded choices`() {
+        val store = DownloadStore(folder.root)
+        store.load()
+        audio(store, "one")
+        store.add(Track(id = "one"))
+        assertFalse(store.downloadLyricsChoices().containsKey("one"))
+        store.recordLyricsChoice("one", false)
+        store.remove("one")
+        assertTrue(store.downloadLyricsChoices().isEmpty())
+        audio(store, "one")
+        store.add(Track(id = "one"))
+        assertFalse(store.downloadLyricsChoices().containsKey("one"))
+        store.recordLyricsChoice("one", true)
+        store.clear()
+        val restored = DownloadStore(folder.root)
+        restored.load()
+        assertTrue(restored.downloadLyricsChoices().isEmpty())
+    }
+
     private fun audio(store: DownloadStore, id: String) {
         store.audioFile(id).apply { parentFile!!.mkdirs(); writeBytes(ByteArray(6000) { 1 }) }
     }

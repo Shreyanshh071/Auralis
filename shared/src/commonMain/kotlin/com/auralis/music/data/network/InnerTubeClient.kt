@@ -684,7 +684,11 @@ open class InnerTubeClient(
         // Fallback: If radio / related returned very few tracks, supplement with artist songs & basic next
         if (candidatesPool.size < 5 && !primaryArtist.isNullOrBlank()) {
             try {
-                val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs
+                val artistSongs = search("$primaryArtist songs", FILTER_SONGS).songs.filter { candidate ->
+                    com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(candidate.artist).any {
+                        com.auralis.music.domain.recommendations.SimilarSeedPlanner.isSameArtist(it, primaryArtist)
+                    }
+                }
                 candidatesPool.addAll(artistSongs)
             } catch (_: Exception) {}
         }
@@ -1149,6 +1153,15 @@ open class InnerTubeClient(
             val albums = mutableListOf<PlaylistResult>()
             val singles = mutableListOf<PlaylistResult>()
             val similarArtists = mutableListOf<Artist>()
+            val otherShelves = mutableListOf<com.auralis.music.domain.model.ArtistShelf>()
+            val releaseYears = mutableMapOf<String, Int>()
+            fun rememberYear(id: String, twoRow: JSONObject) {
+                val runs = twoRow.optJSONObject("subtitle")?.optJSONArray("runs") ?: return
+                val year = (0 until runs.length()).firstNotNullOfOrNull { index ->
+                    Regex("""\b(?:19|20)\d{2}\b""").find(runs.optJSONObject(index)?.optString("text").orEmpty())?.value?.toIntOrNull()
+                }
+                if (year != null) releaseYears[id] = year
+            }
 
             val sectionList = artistSections(json)
 
@@ -1160,8 +1173,8 @@ open class InnerTubeClient(
 
                 val shelfHeader = shelf.optJSONObject("header")?.optJSONObject("musicShelfBasicHeaderRenderer")
                     ?: shelf.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
-                val rawShelfTitle = shelfHeader?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.lowercase()
-                    ?: "songs"
+                val sourceShelfTitle = shelfHeader?.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                val rawShelfTitle = sourceShelfTitle?.lowercase() ?: "songs"
                 // English titles name the shelf directly. Localized ones (content language) don't
                 // match those words, so name it from what it holds instead; see artistShelfKind.
                 val englishTitle = listOf("song", "album", "single", "ep", "fan", "like", "similar").any { rawShelfTitle.contains(it) }
@@ -1173,6 +1186,8 @@ open class InnerTubeClient(
                 }
 
                 val contents = shelf.optJSONArray("contents") ?: JSONArray()
+                val otherTracks = mutableListOf<Track>()
+                val otherPlaylists = mutableListOf<PlaylistResult>()
 
                 for (j in 0 until contents.length()) {
                     val cObj = contents.optJSONObject(j) ?: continue
@@ -1191,6 +1206,9 @@ open class InnerTubeClient(
                             singles.addAll(parsedPlaylists)
                         } else if (shelfTitle.contains("fan") || shelfTitle.contains("like") || shelfTitle.contains("similar")) {
                             similarArtists.addAll(parsedArtists)
+                        } else {
+                            otherTracks.addAll(parsedSongs)
+                            otherPlaylists.addAll(parsedPlaylists)
                         }
                     }
 
@@ -1202,20 +1220,43 @@ open class InnerTubeClient(
                             val aNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val aThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             albums.add(PlaylistResult(id = aNav ?: "pl:$aTitle", title = aTitle, thumbnail = aThumb.ifBlank { null }, author = artistName))
+                            rememberYear(aNav ?: "pl:$aTitle", twoRow)
                         } else if (shelfTitle.contains("single") || shelfTitle.contains("ep")) {
                             val sTitle = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Single"
                             val sNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val sThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             singles.add(PlaylistResult(id = sNav ?: "pl:$sTitle", title = sTitle, thumbnail = sThumb.ifBlank { null }, author = artistName))
+                            rememberYear(sNav ?: "pl:$sTitle", twoRow)
                         } else if (shelfTitle.contains("fan") || shelfTitle.contains("like") || shelfTitle.contains("similar")) {
                             val artName = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Artist"
                             val artNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
                             val artThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
                             similarArtists.add(Artist(id = artNav ?: "yt:$artName", name = artName, thumbnail = artThumb.ifBlank { null }))
-                        } else if (parsedTrack != null && shelfTitle.contains("song")) {
-                            topSongs.add(parsedTrack)
+                        } else if (shelfTitle.contains("song")) {
+                            if (parsedTrack != null) topSongs.add(parsedTrack)
+                        } else if (parsedTrack != null) {
+                            otherTracks.add(parsedTrack)
+                        } else {
+                            val itemTitle = twoRow.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                            val itemNav = twoRow.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+                            if (!itemTitle.isNullOrBlank() && !itemNav.isNullOrBlank()) {
+                                val itemThumb = getBestThumbnailUrl(twoRow.optJSONObject("thumbnailRenderer")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails"), null)
+                                val subtitleRuns = twoRow.optJSONObject("subtitle")?.optJSONArray("runs")
+                                val subtitle = (0 until (subtitleRuns?.length() ?: 0))
+                                    .joinToString("") { subtitleRuns?.optJSONObject(it)?.optString("text").orEmpty() }
+                                otherPlaylists.add(PlaylistResult(id = itemNav, title = itemTitle, thumbnail = itemThumb.ifBlank { null }, author = subtitle.ifBlank { artistName }))
+                            }
                         }
                     }
+                }
+
+                // Shelves of single items are videos and live performances, which Auralis leaves out.
+                if (!sourceShelfTitle.isNullOrBlank() && otherPlaylists.isNotEmpty()) {
+                    otherShelves.add(com.auralis.music.domain.model.ArtistShelf(
+                        title = sourceShelfTitle,
+                        tracks = emptyList(),
+                        playlists = otherPlaylists.distinctBy { it.id }
+                    ))
                 }
             }
 
@@ -1263,6 +1304,13 @@ open class InnerTubeClient(
                 albums = albums.distinctBy { it.id },
                 singles = singles.distinctBy { it.id },
                 similarArtists = similarArtists.distinctBy { it.id },
+                shelves = otherShelves,
+                // Albums first, so an album and a single from the same year show the album.
+                latestRelease = (albums.map { it to true } + singles.map { it to false })
+                    .mapNotNull { (release, isAlbum) ->
+                        releaseYears[release.id]?.let { com.auralis.music.domain.model.ArtistLatestRelease(release, it, isAlbum) }
+                    }
+                    .maxByOrNull { it.year },
                 radioPlaylistId = radioPlaylistId
             )
         } catch (e: Exception) {
@@ -1654,6 +1702,13 @@ open class InnerTubeClient(
             return SearchTopResult.SongResult(track)
         }
         return null
+    }
+
+    /** Songs among the rows YouTube Music suggests; its artist and album rows are left out. */
+    fun parseSuggestedSongs(rows: List<JSONObject>): List<Track> {
+        val songs = mutableListOf<Track>()
+        rows.forEach { parseMusicListItem(it, songs, mutableListOf(), mutableListOf(), mutableListOf()) }
+        return songs
     }
 
     fun parseMusicListItem(

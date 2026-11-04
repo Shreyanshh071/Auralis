@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -99,7 +100,8 @@ fun PlayerScreen(
     panel: PlayerPanel,
     onPanelChange: (PlayerPanel) -> Unit,
     onClose: () -> Unit,
-    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette
+    palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
+    onImmersive: () -> Unit = {}
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
@@ -184,6 +186,9 @@ fun PlayerScreen(
 
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+        IconButton(onClick = onImmersive, modifier = Modifier.padding(12.dp).align(Alignment.TopEnd)) {
+            Icon(Icons.Rounded.Fullscreen, contentDescription = desktopText("Immersive mode"), tint = Color.White, modifier = Modifier.size(28.dp))
         }
     }
 }
@@ -386,6 +391,7 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
     // way, as in a video player; the slightest movement brings both back.
     var lastMove by remember { mutableLongStateOf(0L) }
+    val pointerActivity = remember { CoverPointerActivity() }
     var idle by remember { mutableStateOf(false) }
     LaunchedEffect(lastMove, hovered) {
         idle = false
@@ -400,7 +406,12 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     val volume by playback.volume.collectAsState()
     val remote by playback.connectRemote.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)
-        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { lastMove = System.nanoTime() }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { event ->
+            event.changes.firstOrNull()?.let { if (pointerActivity.moved(it.position)) lastMove = System.nanoTime() }
+        }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press) { lastMove = System.nanoTime() }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
         AnimatedCover(queue.current, Modifier.fillMaxSize()) {
             DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,

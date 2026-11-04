@@ -89,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,6 +183,7 @@ fun MiniPlayer(
     onNextClick: (() -> Unit)? = null,
     onPreviousClick: (() -> Unit)? = null,
     onSelectQueueTrack: ((Int) -> Unit)? = null,
+    onSwipeToQueueTrack: ((Int) -> Unit)? = onSelectQueueTrack,
     onFavoriteToggle: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onArtistClick: (() -> Unit)? = null,
@@ -191,6 +193,8 @@ fun MiniPlayer(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     /** Auralis Connect: the device line and button; null when signed out or nothing to connect. */
     connect: com.auralis.music.ui.connect.MiniConnect? = null,
+    /** False while the full player is up; the pill's play/pause fades 5s after this turns true. */
+    isFullyCollapsed: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (track == null && queue.isEmpty()) return
@@ -241,7 +245,7 @@ fun MiniPlayer(
 
     val currentSafeIndexState = rememberUpdatedState(safeCurrentIndex)
     val currentQueueTracksState = rememberUpdatedState(queueTracks)
-    val currentOnSelectQueueTrackState = rememberUpdatedState(onSelectQueueTrack)
+    val currentOnSwipeToQueueTrackState = rememberUpdatedState(onSwipeToQueueTrack)
     val currentOnNextClickState = rememberUpdatedState(onNextClick)
     val currentOnPreviousClickState = rememberUpdatedState(onPreviousClick)
 
@@ -326,11 +330,14 @@ fun MiniPlayer(
     LaunchedEffect(pagerState) {
         snapshotFlow { Pair(pagerState.isScrollInProgress, pagerState.settledPage) }
             .distinctUntilChanged()
-            .collect { (isScrolling, newPage) ->
+            .collectLatest { (isScrolling, newPage) ->
                 val curSafeIndex = currentSafeIndexState.value
                 val curTracks = currentQueueTracksState.value
                 if (!isScrolling) {
                     if (userSwipedPager && !isProgrammaticScroll) {
+                        // Swiping through several songs only plays the one they stop on: a new
+                        // swipe cancels this wait, so the song, colours and background change once.
+                        kotlinx.coroutines.delay(SWIPE_SETTLE_MS)
                         userSwipedPager = false
                         if (curTracks.isNotEmpty() && newPage in curTracks.indices && newPage != curSafeIndex) {
                             pendingTargetIndex = newPage
@@ -339,7 +346,7 @@ fun MiniPlayer(
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                                 com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, targetTrack)
                             }
-                            val onSelect = currentOnSelectQueueTrackState.value
+                            val onSelect = currentOnSwipeToQueueTrackState.value
                             if (onSelect != null) {
                                 onSelect(newPage)
                             } else if (newPage > curSafeIndex) {
@@ -446,6 +453,7 @@ fun MiniPlayer(
         PlayerBackgroundStyle.LIVE_MESH -> 18.dp
         PlayerBackgroundStyle.GLOW_MOTION -> 16.dp
         PlayerBackgroundStyle.GRADIENT -> 16.dp
+        else -> 16.dp // Full-player-only backgrounds are never offered in this picker.
     }
 
     val spotShadowColor: Color = when (activeStyle) {
@@ -565,6 +573,7 @@ fun MiniPlayer(
                 onArtistClick = onArtistClick,
                 onClick = onClick,
                 connect = connect,
+                isFullyCollapsed = isFullyCollapsed,
                 modifier = miniPlayerModifier
             )
         }
@@ -1158,6 +1167,7 @@ private fun NewMiniPlayerPillView(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     hazeState: HazeState? = null,
+    isFullyCollapsed: Boolean = true,
     onPlayPauseClick: () -> Unit,
     onFavoriteToggle: (() -> Unit)?,
     onAddToPlaylist: (() -> Unit)?,
@@ -1243,6 +1253,7 @@ private fun NewMiniPlayerPillView(
             PlayerBackgroundStyle.LIVE_MESH -> Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), pillShape)
             PlayerBackgroundStyle.GLOW_MOTION -> Modifier.border(1.dp, Color.White.copy(alpha = 0.18f), pillShape)
             PlayerBackgroundStyle.FOLLOW_THEME -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
+            else -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
         }
     }
 
@@ -1345,6 +1356,7 @@ private fun NewMiniPlayerPillView(
                             isLiquidGlass = !isPureBlack && (activeStyle == PlayerBackgroundStyle.APPLE_MUSIC),
                             sharedTransitionScope = if (isSharedActive) sharedTransitionScope else null,
                             animatedVisibilityScope = if (isSharedActive) animatedVisibilityScope else null,
+                            isFullyCollapsed = isFullyCollapsed,
                             onPlayPauseClick = onPlayPauseClick
                         )
 
@@ -1483,6 +1495,7 @@ private fun MiniPlayerArtworkDisc(
     isLiquidGlass: Boolean = false,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
+    isFullyCollapsed: Boolean = true,
     onPlayPauseClick: () -> Unit
 ) {
     val sharedArtwork = playerSharedArtwork(
@@ -1494,6 +1507,24 @@ private fun MiniPlayerArtworkDisc(
     val playIconExit = auralisIconSwapExit()
 
     val strokeWidth = 3.dp
+
+    // The button rests out of sight during playback so the cover shows. It stays up while paused,
+    // and every play/pause or close of the full player brings it back for 5s. The disc's whole
+    // tap target keeps working while it is hidden.
+    var controlRevealed by remember { mutableStateOf(true) }
+    LaunchedEffect(isPlaying, isFullyCollapsed) {
+        controlRevealed = true
+        if (isFullyCollapsed) {
+            kotlinx.coroutines.delay(5_000L)
+            controlRevealed = false
+        }
+    }
+    val controlAlpha = animateFloatAsState(
+        targetValue = if (controlRevealed || !isPlaying) 1f else 0f,
+        animationSpec = if (com.auralis.music.ui.theme.LocalReducedMotion.current) androidx.compose.animation.core.snap()
+            else tween(600),
+        label = "miniPlayPauseReveal"
+    )
 
     Box(
         contentAlignment = Alignment.Center,
@@ -1585,6 +1616,7 @@ private fun MiniPlayerArtworkDisc(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer { alpha = controlAlpha.value }
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.35f)),
                 contentAlignment = Alignment.Center

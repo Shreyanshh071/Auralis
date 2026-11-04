@@ -1,5 +1,7 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.data.download.DownloadTrackOrder
+import com.auralis.music.data.download.downloadedFolderMembership
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -51,6 +53,7 @@ private data class DownloadFolderItem(
     val status: String,
     val completedCount: Int,
     val failedCount: Int,
+    val worthRetrying: Boolean = true,
     val jobId: String? = null,
     val coverUrl: String? = null,
     val isAllSongs: Boolean = false,
@@ -71,41 +74,65 @@ fun DownloadedHubView(
     onDeleteJob: (String) -> Unit,
     onRetryJob: (String) -> Unit,
     onClearAllDownloads: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    downloadTrackOrders: Map<String, List<String>> = emptyMap()
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
     var jobToDelete by remember { mutableStateOf<String?>(null) }
 
-    // Build the list of folders
-    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists) {
+    // A download keeps the song list from when it started, so songs added to the playlist later
+    // were never fetched and its folder read as complete, 2 songs short.
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    androidx.compose.runtime.LaunchedEffect(downloadedJobs, userPlaylists) {
+        downloadedJobs.filter { it.status == "COMPLETE" && it.offlineEnabled }.forEach { job ->
+            val playlist = userPlaylists.firstOrNull { it.id == job.playlistId } ?: return@forEach
+            val saved = PlaylistDownloadCoordinator.tracks(job).mapTo(mutableSetOf()) { it.id }
+            if (playlist.tracks.any { it.id !in saved && !it.id.startsWith("unavailable:") }) {
+                PlaylistDownloadCoordinator.enqueue(appContext, job.playlistId, playlist.title, playlist.tracks, askFirst = false)
+            }
+        }
+    }
+
+    val orderedDownloads = remember(downloadedTracks, downloadTrackOrders) {
+        DownloadTrackOrder.apply(downloadedTracks, downloadTrackOrders["smart_downloaded_all"])
+    }
+
+    val individualIds by AuralisDownloadManager.individualDownloadIds.collectAsState()
+    // Build the list of folders from verified live downloads, not historical job counts.
+    val folders = remember(downloadedTracks, downloadedJobs, userPlaylists, downloadTrackOrders, individualIds) {
         val list = mutableListOf<DownloadFolderItem>()
         val accountedTrackIds = mutableSetOf<String>()
+        val downloadedIds = downloadedTracks.mapTo(mutableSetOf()) { it.id }
+        val downloadedById = downloadedTracks.associateBy { it.id }
 
-        // 1. Jobs from PlaylistDownloadCoordinator
-        for (job in downloadedJobs) {
+        // 1. Jobs from PlaylistDownloadCoordinator, newest first by when they started. Jobs arrive
+        // by last update, which made folders swap places every time one finished a song.
+        for (job in downloadedJobs.sortedWith(compareByDescending<PlaylistDownloadJobEntity> { it.createdAt }.thenBy { it.jobId })) {
             val allTracks = PlaylistDownloadCoordinator.tracks(job)
-            val successfulResults = PlaylistDownloadCoordinator.results(job)
-                .filter { it.outcome in com.auralis.music.data.download.PlaylistDownloadRepository.SUCCESS_OUTCOMES }
-                .associateBy { it.trackId }
+            val membership = downloadedFolderMembership(
+                allTracks.map { it.id }, PlaylistDownloadCoordinator.results(job),
+                downloadedIds, individualIds, job.status == "DOWNLOADING"
+            )
             val downloadedForJob = allTracks.filter { track ->
-                successfulResults.containsKey(track.id) && AuralisDownloadManager.isDownloaded(track.id)
-            }
+                track.id in membership.downloadedIds
+            }.map { downloadedById[it.id] ?: it }
 
-            val isJobActive = job.status == "DOWNLOADING"
-            val hasDownloadedTracks = downloadedForJob.isNotEmpty() || (job.completedCount > 0 && job.status != "FAILED" && job.status != "CANCELLED")
-
-            if (isJobActive || hasDownloadedTracks) {
+            val notOnYouTube = PlaylistDownloadCoordinator.results(job).count { AuralisDownloadManager.isNotOnYouTubeError(it.error) }
+            if (membership.visible) {
                 // Every downloaded song of this playlist belongs to it, even before the job has
                 // recorded its result: a song is saved a moment before the job copies it to the
                 // public folder and records it, and in that gap it showed up as a one-song
                 // "Individual Songs" folder that flashed in and out for every track.
-                allTracks.forEach { if (AuralisDownloadManager.isDownloaded(it.id)) accountedTrackIds.add(it.id) }
+                accountedTrackIds.addAll(membership.accountedIds)
                 val originalPlaylist = userPlaylists.firstOrNull {
                     it.id == job.playlistId || it.title.equals(job.playlistName, ignoreCase = true)
                 }
-                val resolvedCoverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
+                val resolvedCoverUrl = if (downloadedForJob.any { it.thumbnail == com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }) {
+                    downloadedForJob.firstOrNull { it.thumbnail.isNotBlank() && it.thumbnail != com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }?.thumbnail
+                        ?: com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN
+                } else originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() }
 
                 list.add(
                     DownloadFolderItem(
@@ -113,14 +140,20 @@ fun DownloadedHubView(
                         title = job.playlistName,
                         subtitle = when (job.status) {
                             "DOWNLOADING" -> str(R.string.downloading_x_of_x_songs, job.completedCount, allTracks.size)
-                            "PARTIAL_FAILURE" -> str(R.string.x_of_x_downloaded_x_failed, downloadedForJob.size, allTracks.size, job.failedCount)
+                            "PARTIAL_FAILURE" -> when {
+                                notOnYouTube == 0 -> str(R.string.x_of_x_downloaded_x_failed, downloadedForJob.size, allTracks.size, job.failedCount)
+                                notOnYouTube >= job.failedCount -> str(R.string.x_of_x_downloaded_x_not_on_youtube, downloadedForJob.size, allTracks.size, notOnYouTube)
+                                else -> str(R.string.x_of_x_downloaded_x_failed_x_not_on_youtube, downloadedForJob.size, allTracks.size, job.failedCount - notOnYouTube, notOnYouTube)
+                            }
                             else -> "${downloadedForJob.size} songs • Offline"
                         },
                         totalCount = allTracks.size,
-                        downloadedTracks = downloadedForJob,
+                        downloadedTracks = DownloadTrackOrder.apply(
+                            downloadedForJob, downloadTrackOrders["smart_downloaded_folder_${job.jobId}"]),
                         status = job.status,
                         completedCount = job.completedCount,
                         failedCount = job.failedCount,
+                        worthRetrying = job.failedCount > notOnYouTube,
                         jobId = job.jobId,
                         coverUrl = resolvedCoverUrl
                     )
@@ -137,7 +170,8 @@ fun DownloadedHubView(
                     title = str(R.string.individual_songs),
                     subtitle = str(R.string.x_songs_downloaded_directly, individualTracks.size),
                     totalCount = individualTracks.size,
-                    downloadedTracks = individualTracks,
+                    downloadedTracks = DownloadTrackOrder.apply(
+                        individualTracks, downloadTrackOrders["smart_downloaded_folder_individual_downloads"]),
                     status = "COMPLETE",
                     completedCount = individualTracks.size,
                     failedCount = 0,
@@ -169,39 +203,11 @@ fun DownloadedHubView(
             .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ── TOP APP BAR ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            com.auralis.music.ui.glass.PageHeading(
+                title = str(R.string.downloaded),
+                onBack = onBack,
+                subtitle = str(R.string.x_offline_songs_x_folders, downloadedTracks.size, folders.size)
             ) {
-                IconButton(onClick = onBack, modifier = Modifier.tactileBounce()) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = str(R.string.back),
-                        tint = MaterialTheme.dynamicOnBackground
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
-                ) {
-                    Text(
-                        text = str(R.string.downloaded),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.dynamicOnBackground
-                    )
-                    Text(
-                        text = str(R.string.x_offline_songs_x_folders, downloadedTracks.size, folders.size),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.dynamicOnBackground.copy(alpha = 0.6f)
-                    )
-                }
-
                 // Search Toggle
                 IconButton(onClick = {
                     isSearchActive = !isSearchActive
@@ -224,7 +230,7 @@ fun DownloadedHubView(
                             tint = MaterialTheme.dynamicOnBackground
                         )
                     }
-                    DropdownMenu(
+                    com.auralis.music.ui.components.AuralisDropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
@@ -240,6 +246,7 @@ fun DownloadedHubView(
                         )
                     }
                 }
+            
             }
 
             // ── SEARCH BAR (if active) ──
@@ -308,12 +315,12 @@ fun DownloadedHubView(
                             AllDownloadedSongsCard(
                                 totalTracks = downloadedTracks.size,
                                 onPlayAll = {
-                                    downloadedTracks.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, downloadedTracks)
+                                    orderedDownloads.firstOrNull()?.let { first ->
+                                        onPlayTracks(first, orderedDownloads)
                                     }
                                 },
                                 onShuffle = {
-                                    val shuffled = downloadedTracks.shuffled()
+                                    val shuffled = orderedDownloads.shuffled()
                                     shuffled.firstOrNull()?.let { first ->
                                         onPlayTracks(first, shuffled)
                                     }
@@ -325,7 +332,7 @@ fun DownloadedHubView(
                                             title = str(R.string.all_downloaded_songs),
                                             description = str(R.string.x_offline_songs, downloadedTracks.size),
                                             coverUrl = null,
-                                            tracks = downloadedTracks
+                                            tracks = orderedDownloads
                                         )
                                     )
                                 }
@@ -400,51 +407,29 @@ fun DownloadedHubView(
 
     // ── CLEAR ALL DOWNLOADS DIALOG ──
     if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text(str(R.string.clear_all_downloads_2)) },
-            text = { Text(str(R.string.this_will_remove_all_downloaded_offline)) },
-            confirmButton = {
-                Button(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.clear_all_downloads_2),
+            message = str(R.string.this_will_remove_all_downloaded_offline),
+            confirmLabel = str(R.string.clear_all),
+            onDismiss = { showClearDialog = false },
+            onConfirm = {
                         showClearDialog = false
                         onClearAllDownloads()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(str(R.string.clear_all))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text(str(R.string.cancel))
-                }
-            }
         )
     }
 
     // ── DELETE SINGLE PLAYLIST FOLDER DIALOG ──
     jobToDelete?.let { jobId ->
-        AlertDialog(
-            onDismissRequest = { jobToDelete = null },
-            title = { Text(str(R.string.delete_playlist_downloads)) },
-            text = { Text(str(R.string.remove_downloaded_tracks_for_this_playli)) },
-            confirmButton = {
-                Button(
-                    onClick = {
+        com.auralis.music.ui.components.AuralisConfirmDialog(
+            title = str(R.string.delete_playlist_downloads),
+            message = str(R.string.remove_downloaded_tracks_for_this_playli),
+            confirmLabel = str(R.string.delete),
+            onDismiss = { jobToDelete = null },
+            onConfirm = {
                         onDeleteJob(jobId)
                         jobToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(str(R.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { jobToDelete = null }) {
-                    Text(str(R.string.cancel))
-                }
-            }
         )
     }
 }
@@ -614,7 +599,7 @@ private fun FolderCardItem(
                         contentAlignment = Alignment.Center
                     ) {
                         val displayArt = folder.coverUrl
-                            ?: folder.downloadedTracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+                            ?: folder.downloadedTracks.firstOrNull { it.thumbnail.isNotBlank() && it.thumbnail != com.auralis.music.data.download.DownloadArtworkPolicy.HIDDEN }?.thumbnail
                         if (!displayArt.isNullOrBlank()) {
                             ArtworkCard(
                                 url = displayArt,
@@ -663,7 +648,7 @@ private fun FolderCardItem(
                         Text(
                             text = folder.subtitle,
                             fontSize = 12.sp,
-                            color = if (isFailedOrPartial) MaterialTheme.colorScheme.error
+                            color = if (isFailedOrPartial && folder.worthRetrying) MaterialTheme.colorScheme.error
                             else if (isDownloading) MaterialTheme.dynamicPrimary
                             else MaterialTheme.dynamicOnBackground.copy(alpha = 0.65f),
                             maxLines = 1,
@@ -683,7 +668,7 @@ private fun FolderCardItem(
                                 .size(22.dp)
                                 .rotate(rotation)
                         )
-                    } else if (isFailedOrPartial && folder.jobId != null) {
+                    } else if (isFailedOrPartial && folder.worthRetrying && folder.jobId != null) {
                         IconButton(onClick = onRetry, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -705,7 +690,7 @@ private fun FolderCardItem(
                             )
                         }
 
-                        DropdownMenu(
+                        com.auralis.music.ui.components.AuralisDropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {

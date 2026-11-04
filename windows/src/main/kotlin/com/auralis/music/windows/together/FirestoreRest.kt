@@ -102,6 +102,14 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
     private val firestoreHttp = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
+    /** The signed-in account's ID token, refreshed when asked; null with no account, never an anonymous one. */
+    @Synchronized fun accountIdToken(forceRefresh: Boolean): String? {
+        if (anonymous || refresh.isEmpty()) return null
+        if (forceRefresh) expiresAt = 0
+        authenticate()
+        return token.ifEmpty { null }
+    }
+
     @Synchronized fun authenticate() {
         if (token.isNotEmpty() && System.currentTimeMillis() < expiresAt) return
         if (refresh.isNotEmpty()) {
@@ -205,9 +213,7 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
         } catch (e: ServiceException) { if (e.status == 404) null else throw e }
     }
 
-    fun accountList(path: String): List<Pair<String, JSONObject>> { authenticateAccount(); return list(path) }
 
-    fun accountDelete(path: String) { authenticateAccount(); request("$endpoint/$path", "DELETE") }
 
     /** Commits [writes] atomically and returns the server's commit time in epoch milliseconds. */
     fun accountCommit(writes: JSONArray): Long {

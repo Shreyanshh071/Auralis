@@ -111,6 +111,63 @@ test('leases cannot be set far into the future, and documents stay small', async
   await assertSucceeds(setDoc(doc(db, `users/${ALICE}/connect/queue`), { rev: 1, offset: 0, tracks: tracks.slice(0, 100) }));
 });
 
+const intentRef = (db, uid) => doc(db, `users/${uid}/connect/intent`);
+const intent = (extra = {}) => ({ version: 5, epoch: 2, at: Date.now(), by: 'phone', ...extra });
+
+test('a session keeps exactly the released format', async () => {
+  const db = account(ALICE);
+  await assertSucceeds(setDoc(sessionRef(db, ALICE), session()));
+  await env.clearFirestore();
+  await assertFails(setDoc(sessionRef(db, ALICE), session({ intent: { seq: 1, at: 1, by: 'phone' } })));
+});
+
+test('the account records and reads its last playback action', async () => {
+  const db = account(ALICE);
+  await assertSucceeds(setDoc(intentRef(db, ALICE), intent()));
+  await assertSucceeds(getDoc(intentRef(db, ALICE)));
+  await assertSucceeds(setDoc(intentRef(db, ALICE), intent({ version: 6 })));
+  await assertSucceeds(setDoc(intentRef(db, ALICE), intent({ version: 6, by: 'pc' })));
+});
+
+test('the playback action never goes backwards, so a replayed write cannot undo a newer one', async () => {
+  const db = account(ALICE);
+  await assertSucceeds(setDoc(intentRef(db, ALICE), intent({ version: 6 })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ version: 5 })));
+});
+
+test('another account, anonymous guests and signed-out clients get nothing from it', async () => {
+  await seed(`users/${ALICE}/connect/intent`, intent());
+  await assertFails(getDoc(intentRef(account(BOB), ALICE)));
+  await assertFails(setDoc(intentRef(account(BOB), ALICE), intent({ version: 9 })));
+  await assertFails(deleteDoc(intentRef(account(BOB), ALICE)));
+  await assertFails(getDoc(intentRef(anonymous(ALICE), ALICE)));
+  await assertFails(setDoc(intentRef(anonymous(ALICE), ALICE), intent({ version: 9 })));
+  await assertFails(getDoc(intentRef(env.unauthenticatedContext().firestore(), ALICE)));
+  await assertFails(setDoc(intentRef(env.unauthenticatedContext().firestore(), ALICE), intent({ version: 9 })));
+});
+
+test('the playback action has a fixed shape and no room for anything else', async () => {
+  const db = account(ALICE);
+  await assertFails(setDoc(intentRef(db, ALICE), { version: 1, epoch: 1, at: 1 }));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ version: 'one' })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ epoch: 1.5 })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ at: 'later' })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ at: Date.now() + 3_600_000 })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ by: 'x'.repeat(65) })));
+  await assertFails(setDoc(intentRef(db, ALICE), intent({ note: 'free text' })));
+});
+
+test('only the known connect documents exist', async () => {
+  const db = account(ALICE);
+  await assertFails(setDoc(doc(db, `users/${ALICE}/connect/other`), intent()));
+  await assertFails(getDoc(doc(db, `users/${ALICE}/connect/other`)));
+});
+
+test('deleting the account can remove the playback action', async () => {
+  await seed(`users/${ALICE}/connect/intent`, intent());
+  await assertSucceeds(deleteDoc(intentRef(account(ALICE), ALICE)));
+});
+
 test('signing out removes the registration', async () => {
   const db = account(ALICE);
   await assertSucceeds(setDoc(doc(db, `users/${ALICE}/connectDevices/phone`), device('phone')));

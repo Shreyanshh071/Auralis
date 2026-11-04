@@ -14,6 +14,35 @@ import org.junit.rules.TemporaryFolder
 class PlayerPreferencesPersistenceTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
 
+    @Test fun `audio transition choices persist and modes exclude one another`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            val store = SettingsDataStore(PreferenceDataStoreFactory.create(scope = scope) {
+                temporaryFolder.root.resolve("transitions.preferences_pb")
+            })
+            store.setCrossfadeSeconds(12f)
+            store.setCrossfadeEnabled(true)
+            store.setSkipGaplessAlbums(false)
+            store.setSkipSilence(true)
+            assertTrue(store.settingsFlow.first().crossfadeEnabled)
+            store.setAutomixEnabled(true)
+            val automatic = store.settingsFlow.first()
+            assertTrue(automatic.automixEnabled)
+            assertFalse(automatic.crossfadeEnabled)
+            assertEquals(12f, automatic.crossfadeSeconds, 0f)
+            assertFalse(automatic.skipGaplessAlbums)
+            assertTrue(automatic.skipSilence)
+            store.setCrossfadeEnabled(true)
+            assertFalse(store.settingsFlow.first().automixEnabled)
+            store.setCrossfadeSeconds(Float.NaN)
+            assertEquals(12f, store.settingsFlow.first().crossfadeSeconds, 0f)
+            store.setCrossfadeSeconds(100f)
+            assertEquals(12f, store.settingsFlow.first().crossfadeSeconds, 0f)
+            store.setCrossfadeSeconds(0f)
+            assertEquals(1f, store.settingsFlow.first().crossfadeSeconds, 0f)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
     @Test fun `new preferences preserve existing playback defaults`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         try {
@@ -35,6 +64,7 @@ class PlayerPreferencesPersistenceTest {
             writer.setPauseOnMediaMute(enabled)
             writer.setResumeOnBluetoothConnect(enabled)
             writer.setKeepScreenOn(enabled)
+            writer.setPermanentShuffle(enabled)
             writer.setAudioQuality(AudioQuality.LOW)
             writerScope.coroutineContext[Job]!!.cancelAndJoin()
             val readerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -47,6 +77,7 @@ class PlayerPreferencesPersistenceTest {
                 assertEquals(enabled, settings.pauseOnMediaMute)
                 assertEquals(enabled, settings.resumeOnBluetoothConnect)
                 assertEquals(enabled, settings.keepScreenOn)
+                assertEquals(enabled, settings.permanentShuffle)
                 assertEquals(AudioQuality.LOW, settings.audioQuality)
             } finally { readerScope.coroutineContext[Job]!!.cancelAndJoin() }
         }

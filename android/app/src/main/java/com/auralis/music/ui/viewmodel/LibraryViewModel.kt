@@ -1,5 +1,6 @@
 package com.auralis.music.ui.viewmodel
 
+import com.auralis.music.data.download.DownloadTrackOrder
 import com.auralis.music.R
 import com.auralis.music.ui.i18n.str
 
@@ -46,6 +47,7 @@ data class LibraryUiState(
     val playlists: List<Playlist> = emptyList(),
     val favorites: List<Track> = emptyList(),
     val downloadedTracks: List<Track> = emptyList(),
+    val downloadTrackOrders: Map<String, List<String>> = emptyMap(),
     val downloadedJobs: List<com.auralis.music.data.download.PlaylistDownloadJobEntity> = emptyList(),
     val savedArtists: List<SavedArtist> = emptyList(),
     val savedAlbums: List<SavedAlbum> = emptyList(),
@@ -65,19 +67,26 @@ data class LibraryUiState(
     val spotifyImportMessage: String? = null
 )
 
+private const val ALBUM_PLAYLIST_PREFIX = "album:"
+
 class LibraryViewModel(
     private val libraryRepository: LibraryRepository,
     private val youtubeImporter: YouTubePlaylistImporter = YouTubePlaylistImporter(),
     private val spotifyImporter: SpotifyPlaylistImporter = SpotifyPlaylistImporter(),
     private val historyRepository: HistoryRepository? = null,
     private val matchReviewPrefs: android.content.SharedPreferences? = null,
-    private val statsRepository: com.auralis.music.domain.repository.StatsRepository? = null
+    private val statsRepository: com.auralis.music.domain.repository.StatsRepository? = null,
+    private val downloadOrderPrefs: android.content.SharedPreferences? = null
 ) : ViewModel() {
 
     var syncOnImport: Boolean = false
     var onPlaylistImported: (suspend (String) -> Unit)? = null
 
-    private val _uiState = MutableStateFlow(LibraryUiState())
+    private val _uiState = MutableStateFlow(LibraryUiState(
+        downloadTrackOrders = DownloadTrackOrder.decode(
+            downloadOrderPrefs?.getString("track_orders", null)
+        )
+    ))
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
     /** Bumped by [refresh]: recomputes the "last 7 / 30 days" windows from the current time. */
@@ -256,7 +265,7 @@ class LibraryViewModel(
                             updated.copy(
                                 selectedPlaylist = current.copy(
                                     description = "${downloaded.size} offline songs",
-                                    tracks = downloaded
+                                    tracks = DownloadTrackOrder.apply(downloaded, state.downloadTrackOrders[current.id])
                                 )
                             )
                         } else updated
@@ -287,7 +296,7 @@ class LibraryViewModel(
                                 selectedPlaylist = current.copy(
                                     description = "${downloadedForJob.size} of ${allTracks.size} offline songs",
                                     coverUrl = originalPlaylist?.coverUrl?.takeIf { it.isNotBlank() },
-                                    tracks = downloadedForJob
+                                    tracks = DownloadTrackOrder.apply(downloadedForJob, state.downloadTrackOrders[current.id])
                                 )
                             )
                         } else updated
@@ -322,13 +331,25 @@ class LibraryViewModel(
         }
     }
 
-    fun toggleSaveAlbum(album: SavedAlbum) {
+    /** Library lists playlists, so a saved album also gets one, under an id tied to the album. */
+    fun toggleSaveAlbum(album: SavedAlbum, loadTracks: suspend () -> List<Track> = { emptyList() }) {
         viewModelScope.launch {
-            val isSaved = _uiState.value.savedAlbums.any { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
-            if (isSaved) {
-                libraryRepository.removeAlbum(album.id)
-            } else {
-                libraryRepository.saveAlbum(album)
+            // The same album can be saved under another id, so remove what matched rather than album.id.
+            val saved = libraryRepository.getSavedAlbums().first()
+                .filter { it.id == album.id || it.title.equals(album.title, ignoreCase = true) }
+            if (saved.isNotEmpty()) {
+                saved.forEach {
+                    libraryRepository.removeAlbum(it.id)
+                    libraryRepository.deletePlaylist(ALBUM_PLAYLIST_PREFIX + it.id)
+                }
+                return@launch
+            }
+            libraryRepository.saveAlbum(album)
+            val tracks = runCatching { loadTracks() }.getOrDefault(emptyList())
+            if (tracks.isNotEmpty()) {
+                val id = ALBUM_PLAYLIST_PREFIX + album.id
+                libraryRepository.restorePlaylist(id, album.title, "Album by ${album.artist ?: "Various Artists"}", album.thumbnail)
+                libraryRepository.replacePlaylistTracks(id, tracks)
             }
         }
     }
@@ -655,7 +676,7 @@ class LibraryViewModel(
     }
 
     fun reorderPlaylistTracks(playlistId: String, fromIndex: Int, toIndex: Int) {
-        if (playlistId.startsWith("smart_")) return
+        if (playlistId.startsWith("smart_") && !DownloadTrackOrder.supports(playlistId)) return
         val currentPlaylist = _uiState.value.selectedPlaylist?.takeIf { it.id == playlistId }
             ?: _uiState.value.playlists.firstOrNull { it.id == playlistId }
             ?: return
@@ -666,6 +687,16 @@ class LibraryViewModel(
 
         val reordered = com.auralis.music.domain.library.PlaylistManager.reorderTracks(currentPlaylist.tracks, fromIndex, toIndex)
         val updatedPlaylist = currentPlaylist.copy(tracks = reordered)
+
+        if (DownloadTrackOrder.supports(playlistId)) {
+            val orders = _uiState.value.downloadTrackOrders + (playlistId to reordered.map { it.id })
+            downloadOrderPrefs?.edit()?.putString("track_orders",
+                DownloadTrackOrder.encode(orders))?.apply()
+            _uiState.update { state ->
+                state.copy(downloadTrackOrders = orders, selectedPlaylist = updatedPlaylist)
+            }
+            return
+        }
 
         _uiState.update { state ->
             state.copy(
@@ -687,6 +718,9 @@ class LibraryViewModel(
         if (playlistId.startsWith("smart_")) return
         viewModelScope.launch {
             libraryRepository.deletePlaylist(playlistId)
+            if (playlistId.startsWith(ALBUM_PLAYLIST_PREFIX)) {
+                libraryRepository.removeAlbum(playlistId.removePrefix(ALBUM_PLAYLIST_PREFIX))
+            }
             if (_uiState.value.selectedPlaylist?.id == playlistId) {
                 _uiState.update { it.copy(selectedPlaylist = null, selectedSmartCollection = null) }
             }
@@ -706,7 +740,9 @@ class LibraryViewModel(
             return
         }
         if (initialPlaylist != null && initialPlaylist.id.startsWith("smart_downloaded_")) {
-            _uiState.update { it.copy(selectedPlaylist = initialPlaylist, selectedSmartCollection = SmartCollectionType.DOWNLOADED) }
+            _uiState.update { it.copy(selectedPlaylist = initialPlaylist.copy(tracks =
+                DownloadTrackOrder.apply(initialPlaylist.tracks, it.downloadTrackOrders[playlistId])),
+                selectedSmartCollection = SmartCollectionType.DOWNLOADED) }
             return
         }
         val cached = initialPlaylist ?: _uiState.value.playlists.find { it.id == playlistId }
@@ -902,6 +938,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             var imported = 0
             var failed = 0
+            var failureReason: String? = null
             for ((index, item) in selected.withIndex()) {
                 _uiState.update { it.copy(importMessage = str(R.string.importing_x_of_x_x, index + 1, selected.size, item.title)) }
                 try {
@@ -921,21 +958,26 @@ class LibraryViewModel(
                             description = remote.description,
                             coverUrl = cover
                         )
+                        val twin = twinPlaylist(remote.title, remote.tracks, playlist.id, libraryRepository.getPlaylists().firstOrNull().orEmpty())
                         libraryRepository.replacePlaylistTracks(playlist.id, remote.tracks)
+                        twin?.let { replaceTwin(it, playlist.id) }
                         importedSync?.invoke(playlist.id)
                     }
                     imported++
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    android.util.Log.w("YouTubeImport", "Failed to import ${item.title}: ${e.message}")
                     failed++
+                    failureReason = e.message
                 }
             }
             val noun = if (imported == 1) "playlist" else "playlists"
             _uiState.update {
                 it.copy(
                     isImporting = false,
-                    importMessage = if (failed == 0) str(R.string.imported_x_x, imported, noun) else str(R.string.imported_x_x_x_couldn_t_be_read, imported, noun, failed)
+                    importMessage = if (failed == 0) str(R.string.imported_x_x, imported, noun)
+                    else str(R.string.imported_x_x_x_couldn_t_be_read, imported, noun, failed) + failureReason?.let { reason -> ". $reason" }.orEmpty()
                 )
             }
         }
@@ -945,30 +987,47 @@ class LibraryViewModel(
         _uiState.update { it.copy(importMessage = null) }
     }
 
-    /** Imports only Spotify playlists that do not have a local imported ID yet. */
+    /** The user's own or link-imported copy of this playlist, which the import should become. */
+    private fun twinPlaylist(title: String, tracks: List<Track>, importedId: String, playlists: Collection<Playlist>): Playlist? =
+        playlists.firstOrNull { local ->
+            local.id != importedId && !local.id.startsWith("imported:") && !local.id.startsWith("smart_") &&
+                com.auralis.music.data.network.SpotifyIncrementalImport.isSamePlaylist(
+                    title, tracks, local, com.auralis.music.data.network.AudioStreamResolver::getMatchedVideoId)
+        }
+
+    /** One playlist from two: [twin]'s place in the library moves to the imported playlist. */
+    private suspend fun replaceTwin(twin: Playlist, importedId: String) {
+        libraryRepository.setPlaylistCreatedAt(importedId, twin.createdAt)
+        libraryRepository.deletePlaylist(twin.id)
+    }
+
+    private fun seenSpotifySongs(key: String): Set<String> =
+        matchReviewPrefs?.getStringSet(key, null).orEmpty()
+
+    private fun rememberSpotifySongs(key: String, tracks: List<Track>) {
+        matchReviewPrefs?.edit()?.putStringSet(key, seenSpotifySongs(key) + tracks.map { it.id })?.apply()
+    }
+
+    /**
+     * Imports the picked Spotify lists. A list already in Auralis only gains what is new since the
+     * last import: its order and matches stay, and songs removed here stay removed.
+     */
     fun importSpotifyLibraryPlaylists(selected: List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) {
         val importedSync = onPlaylistImported.takeIf { syncOnImport }
-        if (_uiState.value.isImportingSpotify) return
+        if (selected.isEmpty() || _uiState.value.isImportingSpotify) return
         _uiState.update { it.copy(isImportingSpotify = true, spotifyImportMessage = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            val existingIds = libraryRepository.getPlaylists().firstOrNull().orEmpty().map { it.id }.toSet()
-            val likedSongsKey = "spotify_liked_songs_imported:${com.auralis.music.data.network.SpotifySession.userId}"
-            val hasImportedLikedSongs = matchReviewPrefs?.getBoolean(likedSongsKey, false) == true ||
-                libraryRepository.getFavoriteTracks().firstOrNull().orEmpty().any { it.id.startsWith("sp_") }
-            if (hasImportedLikedSongs) matchReviewPrefs?.edit()?.putBoolean(likedSongsKey, true)?.apply()
-            val toImport = selected.filter { item ->
-                if (item.isLikedSongs) !hasImportedLikedSongs
-                else "imported:spotify:${item.id}" !in existingIds
-            }
-            if (toImport.isEmpty()) {
-                _uiState.update { it.copy(isImportingSpotify = false, spotifyImportMessage = "All Spotify playlists are already imported.") }
-                return@launch
-            }
-            var imported = 0
-            var failed = 0
+            val localPlaylists = libraryRepository.getPlaylists().firstOrNull().orEmpty().associateBy { it.id }
+            val userId = com.auralis.music.data.network.SpotifySession.userId
+            val matchedId: (String) -> String? = com.auralis.music.data.network.AudioStreamResolver::getMatchedVideoId
+            var newPlaylists = 0
+            var newSongs = 0
+            var skipped = 0
+            var failureReason: String? = null
             val failedTitles = mutableListOf<String>()
-            for ((index, item) in toImport.withIndex()) {
-                _uiState.update { it.copy(spotifyImportMessage = str(R.string.importing_x_of_x_x, index + 1, toImport.size, item.title)) }
+            for ((index, item) in selected.withIndex()) {
+                _uiState.update { it.copy(spotifyImportMessage = str(R.string.importing_x_of_x_x, index + 1, selected.size, item.title)) }
+                val seenKey = "spotify_seen:$userId:${item.id}"
                 try {
                     if (item.isLikedSongs) {
                         var tracks = emptyList<Track>()
@@ -980,18 +1039,21 @@ class LibraryViewModel(
                                     onProgress = { progressText ->
                                         _uiState.update { it.copy(spotifyImportMessage = progressText) }
                                     },
-                                    matchTracks = false
+                                    matchTracks = false,
+                                    onSkipped = { skipped += it }
                                 )
                             }
                         }
-                        if (tracks.isNotEmpty()) {
-                            tracks.forEach { libraryRepository.setFavorite(it, true) }
-                            matchReviewPrefs?.edit()?.putBoolean(likedSongsKey, true)?.apply()
-                            imported++
-                        } else {
-                            failed++
+                        if (tracks.isEmpty()) {
                             failedTitles.add(item.title)
+                            continue
                         }
+                        val liked = libraryRepository.getFavoriteTracks().firstOrNull().orEmpty()
+                        val added = com.auralis.music.data.network.SpotifyIncrementalImport
+                            .newTracks(tracks, liked, seenSpotifySongs(seenKey), matchedId)
+                        added.forEach { libraryRepository.setFavorite(it, true) }
+                        rememberSpotifySongs(seenKey, tracks)
+                        newSongs += added.size
                     } else {
                         var remote: Playlist? = null
                         repeat(2) { attempt ->
@@ -1003,17 +1065,19 @@ class LibraryViewModel(
                                     onProgress = { progressText ->
                                         _uiState.update { it.copy(spotifyImportMessage = progressText) }
                                     },
-                                    matchTracks = false
+                                    matchTracks = false,
+                                    onSkipped = { skipped += it }
                                 )
                             }
                         }
-                        if (remote == null) {
-                            failed++
+                        val importedPlaylist = remote
+                        if (importedPlaylist == null) {
                             failedTitles.add(item.title)
                             continue
                         }
-                        val importedPlaylist = remote ?: continue
                         val cover = importedPlaylist.coverUrl?.ifBlank { null } ?: item.thumbnail?.ifBlank { null }
+                        val existing = localPlaylists["imported:spotify:${item.id}"]
+                        val twin = twinPlaylist(importedPlaylist.title, importedPlaylist.tracks, "imported:spotify:${item.id}", localPlaylists.values)
                         val playlist = libraryRepository.upsertImportedPlaylist(
                             source = "spotify",
                             remoteId = importedPlaylist.id.removePrefix("sp_"),
@@ -1021,26 +1085,52 @@ class LibraryViewModel(
                             description = importedPlaylist.description,
                             coverUrl = cover
                         )
-                        libraryRepository.replacePlaylistTracks(playlist.id, importedPlaylist.tracks)
-                        importedSync?.invoke(playlist.id)
-                        imported++
+                        // The same list already here: it becomes the Spotify one, with its matches and order.
+                        if (twin != null) {
+                            if (existing == null) libraryRepository.replacePlaylistTracks(playlist.id, twin.tracks)
+                            replaceTwin(twin, playlist.id)
+                            importedSync?.invoke(playlist.id)
+                        }
+                        val base = existing ?: twin
+                        if (base == null) {
+                            libraryRepository.replacePlaylistTracks(playlist.id, importedPlaylist.tracks)
+                            importedSync?.invoke(playlist.id)
+                            newPlaylists++
+                        } else {
+                            val added = com.auralis.music.data.network.SpotifyIncrementalImport
+                                .newTracks(importedPlaylist.tracks, base.tracks, seenSpotifySongs(seenKey), matchedId)
+                            if (added.isNotEmpty()) {
+                                libraryRepository.replacePlaylistTracks(playlist.id, base.tracks + added)
+                                importedSync?.invoke(playlist.id)
+                                newSongs += added.size
+                            }
+                        }
+                        rememberSpotifySongs(seenKey, importedPlaylist.tracks)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     android.util.Log.e("SpotifyLibrary", "Failed to import ${item.title}: ${e.message}")
-                    failed++
+                    failureReason = e.message
                     failedTitles.add(item.title)
                 }
             }
-            val noun = if (imported == 1) "playlist" else "playlists"
-            _uiState.update {
-                it.copy(
-                    isImportingSpotify = false,
-                    spotifyImportMessage = if (failed == 0) str(R.string.imported_x_x, imported, noun)
-                    else "Imported $imported/${toImport.size} playlists. Failed: ${failedTitles.take(3).joinToString()}${if (failedTitles.size > 3) " (+${failedTitles.size - 3} more)" else ""}. Tap Import all to retry."
-                )
+            val addedParts = buildList {
+                if (newPlaylists > 0) add("$newPlaylists new ${if (newPlaylists == 1) "playlist" else "playlists"}")
+                if (newSongs > 0) add("$newSongs new ${if (newSongs == 1) "song" else "songs"}")
             }
+            val summary = buildList {
+                if (addedParts.isNotEmpty()) add("Added ${addedParts.joinToString(" and ")}.")
+                else if (failedTitles.isEmpty()) add("Nothing new to import. You're up to date.")
+                if (skipped > 0) add("Skipped $skipped local files, podcasts or removed songs.")
+                if (failedTitles.isNotEmpty()) {
+                    val more = if (failedTitles.size > 3) " (+${failedTitles.size - 3} more)" else ""
+                    add("Failed: ${failedTitles.take(3).joinToString()}$more.")
+                    failureReason?.let(::add)
+                    add("Import again to retry.")
+                }
+            }.joinToString(" ")
+            _uiState.update { it.copy(isImportingSpotify = false, spotifyImportMessage = summary) }
         }
     }
 
@@ -1065,14 +1155,18 @@ class LibraryViewModel(
                 )
                 if (imported != null && (imported.tracks.isNotEmpty() || imported.title.isNotBlank())) {
                     // 1. Immediately create the playlist in Room DB so user has 0ms wait time
+                    val remoteId = imported.id.removePrefix("sp_")
+                    val twin = twinPlaylist(imported.title, imported.tracks, "imported:spotify:$remoteId",
+                        libraryRepository.getPlaylists().firstOrNull().orEmpty())
                     val playlist = libraryRepository.upsertImportedPlaylist(
                         source = "spotify",
-                        remoteId = imported.id.removePrefix("sp_"),
+                        remoteId = remoteId,
                         title = imported.title,
                         description = imported.description,
                         coverUrl = imported.coverUrl
                     )
                     libraryRepository.replacePlaylistTracks(playlist.id, imported.tracks)
+                    twin?.let { replaceTwin(it, playlist.id) }
                     importedSync?.invoke(playlist.id)
                     val successMsg = str(R.string.imported_x_x_songs, imported.title, imported.tracks.size)
                     android.util.Log.i("SpotifyImporter", successMsg)

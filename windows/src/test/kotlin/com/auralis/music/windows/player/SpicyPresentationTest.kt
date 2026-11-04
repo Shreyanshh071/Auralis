@@ -21,6 +21,24 @@ import java.io.File
 import kotlin.test.*
 
 class SpicyPresentationTest {
+    @Test fun completedLeadStaysHighlightedUntilTheNextLineStarts() {
+        val lines = listOf(
+            LyricLine(100, "First", words = listOf(LyricWord("First", 100, 100))),
+            LyricLine(150, "Backing", isBackground = true, endTime = 250),
+            LyricLine(1000, "Next", endTime = 1200)
+        )
+        val timeline = SpicyVocalTimeline(lines)
+        assertTrue(timeline.highlightedIndices(99).isEmpty())
+        assertEquals(setOf(0, 1), timeline.highlightedIndices(199))
+        assertEquals(setOf(0, 1), timeline.highlightedIndices(200))
+        assertTrue(timeline.activeIndices(250).isEmpty())
+        assertEquals(setOf(0), timeline.highlightedIndices(250))
+        assertEquals(setOf(0), timeline.highlightedIndices(999))
+        assertEquals(setOf(2), timeline.highlightedIndices(1000))
+        assertTrue(timeline.highlightedIndices(1200).isEmpty())
+        assertEquals(setOf(0), timeline.highlightedIndices(500), "Seeking back restores the highlight")
+    }
+
     @Test fun lineSyncedSongsHighlightWithoutEndTimestamps() {
         val lines = listOf(LyricLine(35670, "First"), LyricLine(39660, "Second"), LyricLine(46740, "Last"))
         assertTrue(SpicyLyricsPresentation.activeIndices(lines, 35669).isEmpty())

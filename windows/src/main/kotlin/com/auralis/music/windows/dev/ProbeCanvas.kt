@@ -18,7 +18,7 @@ fun main(rawArgs: Array<String>) = runBlocking {
     // libVLC from the installed VLC (the app finds its bundled copy the same way).
     checkNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull()) { "No libVLC" }
     var url: String? = null
-    for (source in listOf(CanvasSource.APPLE, CanvasSource.TIDAL, CanvasSource.VIVI)) {
+    for (source in listOf(CanvasSource.APPLE, CanvasSource.TIDAL, CanvasSource.CURATED)) {
         val found = CanvasLookup.find(track.copy(id = "probe-${source.name}"), source)
         println("SOURCE ${source.label}: ${found ?: "none"}")
         if (url == null) url = found

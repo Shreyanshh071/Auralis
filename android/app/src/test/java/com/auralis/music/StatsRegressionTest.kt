@@ -97,7 +97,7 @@ class StatsRegressionTest {
                 vm.selectOption(option)
                 vm.selectChip(1)
                 testDispatcher.scheduler.runCurrent()
-                assertNull("Each selected period starts in loading", vm.statsContent.value)
+                org.junit.Assert.assertNotNull("The last values stay up until the new period arrives", vm.statsContent.value)
                 testDispatcher.scheduler.advanceTimeBy(300)
                 testDispatcher.scheduler.runCurrent()
                 assertEquals(option, vm.statsContent.value?.option)
