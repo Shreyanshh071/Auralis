@@ -283,10 +283,19 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
-                        // Fit the portrait clip to the screen height, and fade its actual edge.
                         val videoWidth = minOf(size.width, size.height * bitmap.width / bitmap.height)
-                        drawRect(Brush.horizontalGradient(.68f to Color.Black, 1f to Color.Transparent,
-                            endX = videoWidth), blendMode = BlendMode.DstIn)
+                        // Ease the blend across the frame and reach zero before the video's edge.
+                        drawRect(
+                            Brush.horizontalGradient(
+                                .42f to Color.Black,
+                                .55f to Color.Black.copy(alpha = .84f),
+                                .68f to Color.Black.copy(alpha = .5f),
+                                .81f to Color.Black.copy(alpha = .16f),
+                                .94f to Color.Transparent,
+                                endX = videoWidth
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
                     } else Modifier
                 Image(bitmap, null, Modifier.matchParentSize().alpha(shown).then(presentation),
                     contentScale = if (canvasOnly) ContentScale.Fit else ContentScale.Crop,
