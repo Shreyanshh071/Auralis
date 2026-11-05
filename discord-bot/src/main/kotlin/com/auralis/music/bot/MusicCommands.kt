@@ -84,10 +84,13 @@ class MusicCommands(
         when (command.name) {
             "commands", "help" -> request.show(helpEmbed())
             "play", "playnext", "playlist" -> {
-                if (args.isBlank()) return request.say(usage(command.name))
-                val findPlaylist = command.name == "playlist"
+                if (args.isBlank() && command.name != "play") return request.say(usage(command.name))
                 queueFromChat(request, next = command.name == "playnext") {
-                    if (findPlaylist) catalog.findPlaylist(args) else catalog.select(args)
+                    when {
+                        args.isBlank() -> catalog.randomMix()
+                        command.name == "playlist" -> catalog.findPlaylist(args)
+                        else -> catalog.select(args)
+                    }
                 }
             }
             "search" -> {

@@ -43,6 +43,7 @@ Type these in any channel the bot can read. Upper or lower case both work.
 
 | Command | What it does |
 | --- | --- |
+| `auplay` | Play or queue a random mix of up to 10 songs from YouTube Music |
 | `auplay <song or link>` | Play or queue a song, or a whole playlist or album link |
 | `auplay shuffle <link>` | Same, with the playlist or album shuffled; a single song just plays |
 | `auplaynext <song or link>` | Play next, at the front of the queue; also takes `shuffle` |
