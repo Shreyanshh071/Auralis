@@ -16,6 +16,7 @@ import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.domain.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -58,6 +59,9 @@ data class LyricsProviderPicks(
 )
 
 /** Keep the best timed lyrics already displayed when the search settles. */
+/** How long a faster provider's lyrics wait for a Spicy lookup still in flight. */
+internal const val SPICY_WAIT_MS = 5_000L
+
 internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, result: LyricsData?, preferSpicy: Boolean = false): LyricsData? {
     val cachedTier = lyricsTier(cached)
     val displayedTier = lyricsTier(displayed)
@@ -1424,7 +1428,13 @@ class PlayerViewModel(
             if (cached != null && lyricsTier(cached) >= 2 && isActive()) {
                 _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
             }
-            launch { upgradeSpicy() }
+            // Spicy runs beside the normal race. Its answer usually lands 2-3s after a faster
+            // provider's, so the race's pick is held back (up to SPICY_WAIT_MS from here) while
+            // Spicy is still looking, instead of showing one source and swapping to Spicy.
+            val spicyStartedAt = android.os.SystemClock.elapsedRealtime()
+            val spicyJob = async { upgradeSpicy() }
+            fun spicyPending() = spicyJob.isActive &&
+                android.os.SystemClock.elapsedRealtime() - spicyStartedAt < SPICY_WAIT_MS
             // Non-Musixmatch word sync can settle from cache. Musixmatch remains
             // visible while the other word sources get one chance to replace it.
             if (cached != null && lyricsTier(cached) == 3 && cached.provider != LyricsProvider.MUSIXMATCH) {
@@ -1522,7 +1532,7 @@ class PlayerViewModel(
                                 // A prior plain/empty result may be cached; retry the sources.
                                 forceRefresh = true,
                                 onInterim = { interim ->
-                                    if (!finalDelivered.get() && lyricsTier(interim) >= 2 && isActive()) {
+                                    if (!finalDelivered.get() && lyricsTier(interim) >= 2 && isActive() && !spicyPending()) {
                                         _uiState.update { state ->
                                             if (!finalDelivered.get() && lyricsTier(state.lyrics) < 2) {
                                                 state.copy(lyrics = interim, isLoadingLyrics = false)
@@ -1535,6 +1545,12 @@ class PlayerViewModel(
                     }
                 )
                 finalDelivered.set(true)
+                // Let a Spicy lookup still in flight answer first; past the wait, the race's pick
+                // shows and a late Spicy result can still replace it.
+                if (spicyPending()) {
+                    val left = SPICY_WAIT_MS - (android.os.SystemClock.elapsedRealtime() - spicyStartedAt)
+                    kotlinx.coroutines.withTimeoutOrNull(left.coerceAtLeast(0L)) { spicyJob.await() }
+                }
 
                 if (isActive()) {
                     _uiState.update { state ->
