@@ -408,6 +408,25 @@ class PlayerViewModel(
                 }
             }
 
+            // A saved song with no cover (Spotify imports without art) gets the cover the player
+            // finds for it: the matched recording's own art, checked against its title and artist.
+            // Only empty covers are filled, so a release cover is never replaced.
+            viewModelScope.launch(Dispatchers.IO) {
+                player.currentTrack.map { it?.id }.distinctUntilChanged().collectLatest { id ->
+                    val playing = player.currentTrack.value?.takeIf { it.id == id } ?: return@collectLatest
+                    // Give the YouTube match a moment to land for Spotify-catalog songs.
+                    delay(4_000)
+                    try {
+                        val art = playing.thumbnail.takeIf { it.isNotBlank() }
+                            ?: com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(playing.id)
+                                ?.let { matched -> com.auralis.music.data.network.ArtworkResolver.resolveArtwork(playing.copy(id = matched)) }
+                        if (!art.isNullOrBlank()) libraryRepository.fillMissingTrackThumbnail(playing.id, art)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    }
+                }
+            }
+
             viewModelScope.launch {
                 player.currentTrack.collectLatest { activeTrack ->
                     if (activeTrack != null) {

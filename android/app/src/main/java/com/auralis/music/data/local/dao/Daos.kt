@@ -15,6 +15,10 @@ interface TrackDao {
     @Query("UPDATE tracks SET thumbnail = :thumbnail WHERE id = :id")
     suspend fun updateThumbnail(id: String, thumbnail: String)
 
+    /** Fills a cover only where the row has none, so a release cover is never replaced. */
+    @Query("UPDATE tracks SET thumbnail = :thumbnail WHERE id = :id AND (thumbnail IS NULL OR thumbnail = '')")
+    suspend fun fillMissingThumbnail(id: String, thumbnail: String): Int
+
     @Query("""UPDATE tracks SET album = :album, thumbnail = :thumbnail
         WHERE id = :id AND thumbnail = :expectedThumbnail
           AND (album = :expectedAlbum OR (album IS NULL AND :expectedAlbum IS NULL))""")

@@ -224,7 +224,8 @@ object AudioStreamResolver {
         if (track.id.startsWith("unavailable:")) return null
         getMatchedVideoId(track.id)?.let { return it }
         // A music video plays its audio-only release when Settings asks for it (see AudioVersionPreference).
-        if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return AudioVersionPreference.audioVersionFor(track) ?: track.id
+        // Playback never waits for that lookup: an undecided song starts now and is looked up behind it.
+        if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return AudioVersionPreference.decidedAudioVersionFor(track) ?: track.id
         return withContext(Dispatchers.IO) {
             isPlaybackResolving = true
             try {

@@ -8,6 +8,7 @@ import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -82,27 +83,74 @@ object AudioVersionPreference {
         }
     }
 
-    private fun remember(videoId: String, audioId: String, audioDurationSec: Long = 0L) {
+    private val durations = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * [apply] false saves the decision only: a background lookup can finish while that same song
+     * plays, and swapping its recording then would move its lyrics onto the other recording's timing.
+     */
+    private fun remember(videoId: String, audioId: String, audioDurationSec: Long = 0L, apply: Boolean = true) {
         decisions[videoId] = audioId
+        if (audioDurationSec > 0L) durations[videoId] = audioDurationSec
         prefs?.edit()?.putString(DECISION_PREFIX + videoId, audioId)?.apply()
-        if (audioId.isNotEmpty() && _enabled.value) {
-            AudioStreamResolver.invalidateStream(videoId)
-            RecordingMatches.matchedVideoIds[videoId] = audioId
-            if (audioDurationSec > 0L) RecordingMatches.matchedDurations[videoId] = audioDurationSec
-        }
+        if (apply) applySwap(videoId, audioId)
+    }
+
+    private fun applySwap(videoId: String, audioId: String) {
+        if (audioId.isEmpty() || !_enabled.value || RecordingMatches.matchedVideoIds[videoId] == audioId) return
+        AudioStreamResolver.invalidateStream(videoId)
+        RecordingMatches.matchedVideoIds[videoId] = audioId
+        durations[videoId]?.let { RecordingMatches.matchedDurations[videoId] = it }
     }
 
     private fun isYouTubeId(id: String) = Regex("[A-Za-z0-9_-]{11}").matches(id)
 
+    private val backgroundScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * For playback, which never waits on this: the remembered audio release for [track], or null
+     * to play its own id now. An undecided song starts as it is while the lookup runs in the
+     * background, so its next play (and the queue's next song, which playback prepares ahead)
+     * gets the audio release.
+     */
+    fun decidedAudioVersionFor(track: Track): String? {
+        if (!_enabled.value || !isYouTubeId(track.id)) return null
+        decisions[track.id]?.let { decided ->
+            // A swap saved by a background lookup takes effect here, as the song starts.
+            applySwap(track.id, decided)
+            return decided.ifEmpty { null }
+        }
+        if (inFlight.add(track.id)) {
+            backgroundScope.launch {
+                try {
+                    lookUpSafely(track, InnerTubeClient(), apply = false)
+                    // Any song but the one playing (the queue's next, prepared ahead) can swap now.
+                    if (com.auralis.music.data.service.AuralisAudioPlayer.playingTrackId() != track.id) {
+                        decisions[track.id]?.let { applySwap(track.id, it) }
+                    }
+                } finally { inFlight.remove(track.id) }
+            }
+        }
+        return null
+    }
+
     /**
      * The audio-only release to play for [track] instead of its music video, or null to play the
-     * track's own id. Never throws; a slow or failed lookup plays the video this time.
+     * track's own id. Waits for the lookup (downloads); never throws.
      */
     suspend fun audioVersionFor(track: Track, client: InnerTubeClient = InnerTubeClient()): String? {
         if (!_enabled.value || !isYouTubeId(track.id)) return null
-        decisions[track.id]?.let { return it.ifEmpty { null } }
+        decisions[track.id]?.let { decided ->
+            applySwap(track.id, decided)
+            return decided.ifEmpty { null }
+        }
+        return lookUpSafely(track, client, apply = true)
+    }
+
+    private suspend fun lookUpSafely(track: Track, client: InnerTubeClient, apply: Boolean): String? {
         return try {
-            withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookUp(track, client) }
+            withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookUp(track, client, apply) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -111,7 +159,7 @@ object AudioVersionPreference {
         }
     }
 
-    private suspend fun lookUp(track: Track, client: InnerTubeClient): String? = withContext(Dispatchers.IO) {
+    private suspend fun lookUp(track: Track, client: InnerTubeClient, apply: Boolean): String? = withContext(Dispatchers.IO) {
         val entry = client.getQueueEntries(listOf(track.id)).firstOrNull()
             ?: return@withContext null // Unknown: ask again next time.
         if (entry.musicVideoType != MUSIC_VIDEO) {
@@ -136,7 +184,7 @@ object AudioVersionPreference {
             return@withContext null
         }
         Log.d(TAG, "'${video.title}' plays its audio release ${audio.id} (${audio.duration}s) instead of video ${track.id} (${video.duration}s)")
-        remember(track.id, audio.id, audio.duration)
+        remember(track.id, audio.id, audio.duration, apply)
         audio.id
     }
 

@@ -2298,6 +2298,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         @Volatile
         private var instance: AuralisAudioPlayer? = null
 
+        /** The song playing now, for lookups that must not swap its recording mid-play. */
+        fun playingTrackId(): String? = instance?.currentTrack?.value?.id
+
         fun getInstance(context: Context): AuralisAudioPlayer {
             return instance ?: synchronized(this) {
                 instance ?: AuralisAudioPlayer(context).also { instance = it }
