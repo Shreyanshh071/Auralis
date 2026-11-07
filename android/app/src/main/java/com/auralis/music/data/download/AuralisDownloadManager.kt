@@ -325,7 +325,10 @@ object AuralisDownloadManager {
 
             val isSpotifyId = track.id.startsWith("sp_") || track.id.startsWith("spotify:")
             var searchFinished = false
-            val mappedId = if (!isSpotifyId) AudioStreamResolver.getMatchedVideoId(track.id) else try {
+            // A music video downloads its audio-only release when Settings asks for it, as playback does.
+            val audioVersionId = if (isSpotifyId) null else
+                com.auralis.music.data.network.AudioVersionPreference.audioVersionFor(track)
+            val mappedId = if (!isSpotifyId) audioVersionId ?: AudioStreamResolver.getMatchedVideoId(track.id) else try {
                 withTimeoutOrNull(15000L) { AudioStreamResolver.matchSpotifyRecording(track).also { searchFinished = true } }
             } catch (e: CancellationException) {
                 throw e
@@ -333,13 +336,14 @@ object AuralisDownloadManager {
                 Log.w(TAG, "Spotify match notice for '${track.title}': ${e.message}")
                 null
             }
-            val youtubeId = if (isSpotifyId) mappedId else track.id
+            val youtubeId = if (isSpotifyId) mappedId else audioVersionId ?: track.id
             var ageRestricted = false
             var signedInStreamTried = false
 
             val sources = listOf(
                 StreamSource("memory cache", 1000L) {
-                    listOfNotNull(track.id, mappedId).firstNotNullOfOrNull { id ->
+                    // A swapped video's own cached stream is the video's sound: skip it.
+                    listOfNotNull(audioVersionId ?: track.id, mappedId).distinct().firstNotNullOfOrNull { id ->
                         AudioStreamResolver.getCachedStream(id)
                             ?: AudioStreamResolver.getCachedStream("${id}_HIGH")
                             ?: AudioStreamResolver.getCachedStream("${id}_AUTO")

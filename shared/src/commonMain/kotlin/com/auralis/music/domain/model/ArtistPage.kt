@@ -22,7 +22,18 @@ data class ArtistPage(
     val latestRelease: ArtistLatestRelease? = null,
     val radioPlaylistId: String? = null,
     val radioBrowseId: String? = null,
-    val radioParams: String? = null
+    val radioParams: String? = null,
+    /** The full discography behind the Albums row's "more" link, when the row is a preview. */
+    val albumsMore: ArtistReleasesEndpoint? = null,
+    /** The same for Singles & EPs. */
+    val singlesMore: ArtistReleasesEndpoint? = null
+)
+
+/** A YouTube Music browse request that lists every release of one kind for an artist. */
+@Serializable
+data class ArtistReleasesEndpoint(
+    val browseId: String,
+    val params: String? = null
 )
 
 @Serializable

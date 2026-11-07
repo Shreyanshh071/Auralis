@@ -1137,4 +1137,8 @@
     <string name="provider_status_x_y">%1$s · %2$s</string>
     <string name="tap_to_use">ਵਰਤਣ ਲਈ ਟੈਪ ਕਰੋ</string>
     <string name="instrumental_break">ਸਾਜ਼ ਸੰਗੀਤ</string>
+    <string name="show_all">ਸਾਰੇ ਵੇਖੋ</string>
+    <string name="artist_releases_load_failed">ਪੂਰੀ ਸੂਚੀ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀ</string>
+    <string name="prefer_audio_only_versions">ਸਿਰਫ਼ ਆਡੀਓ ਵਰਜ਼ਨ ਨੂੰ ਤਰਜੀਹ ਦਿਓ</string>
+    <string name="prefer_audio_only_versions_description">ਮਿਊਜ਼ਿਕ ਵੀਡੀਓ ਦੀ ਥਾਂ ਗੀਤ ਦੀ ਰਿਲੀਜ਼ ਚਲਾਓ, ਵੀਡੀਓ ਦੇ ਇੰਟਰੋ ਜਾਂ ਆਉਟਰੋ ਤੋਂ ਬਿਨਾਂ</string>
 </resources>
