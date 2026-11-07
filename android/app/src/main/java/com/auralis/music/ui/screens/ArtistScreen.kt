@@ -187,6 +187,7 @@ fun ArtistScreen(
             onBack = { allReleases = null },
             onClick = onAlbumClick,
             onLongClick = { selectedAlbumForMenu = it to shown.isSingles },
+            topInset = statusBarHeight,
             modifier = modifier
         )
     }
@@ -944,6 +945,8 @@ private fun ArtistAllReleasesPage(
     onBack: () -> Unit,
     onClick: (PlaylistResult) -> Unit,
     onLongClick: (PlaylistResult) -> Unit,
+    /** The page runs behind the status bar, where the system inset is already used up. */
+    topInset: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     var releases by remember(endpoint) { mutableStateOf<List<PlaylistResult>?>(null) }
@@ -964,7 +967,7 @@ private fun ArtistAllReleasesPage(
 
     OptionalGlassPage(background = background, accent = accent,
         modifier = modifier.underStatusBar().fillMaxSize().background(background)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().padding(top = topInset)) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
