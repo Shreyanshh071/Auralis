@@ -121,7 +121,9 @@ class DiscordGatewayManager private constructor(private val context: Context) {
                     dataStore.setEnableRichPresence(true)
                     pushPresence()
                 }
-                onResult(success, username, detail)
+                // The caller updates the screen and shows a toast: off the main thread that
+                // closed the app as soon as Discord sign-in finished.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { onResult(success, username, detail) }
             }
         }
     }
