@@ -40,6 +40,16 @@ class AuralisCatalog {
 
     private fun List<Track>.preferSongs(): List<Track> = filterNot { it.isMusicVideo }.ifEmpty { this }
 
+    suspend fun randomMix(): Selection? {
+        val (_, sections) = innerTube.getHome()
+        val songs = sections.flatMap { it.items }
+            .filterNot { it.isMusicVideo }
+            .distinctBy { it.id }
+            .shuffled()
+            .take(10)
+        return songs.takeIf { it.isNotEmpty() }?.let { Selection(it, playlistTitle = "Random mix") }
+    }
+
     /**
      * What `auplay` text means: a playlist link, a song link, or a search. Null when a search found
      * nothing; throws when YouTube Music is unreachable or a playlist link can't be read.
