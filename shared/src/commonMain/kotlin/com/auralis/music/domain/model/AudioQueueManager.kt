@@ -46,17 +46,14 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         state = state.copy(listenedIndices = indices.filter { it in state.queue.indices }.toSet())
     }
 
-    fun selectIndex(index: Int, retainUnplayed: Boolean = true): QueueState {
+    /**
+     * Plays the song at [index] in place. Songs jumped over stay where they are, behind it: Up next
+     * continues from the chosen song (tap the 4th of 6 and 5, 6 follow). They aren't history either,
+     * since History lists only songs that actually played.
+     */
+    fun selectIndex(index: Int): QueueState {
         if (index !in state.queue.indices) return state
-        val previousIndex = state.currentIndex
         state = state.copy(currentIndex = index)
-        if (retainUnplayed && index > previousIndex + 1) {
-            val heard = (0 until index).filter { it in state.listenedIndices }
-            val pending = (0 until index).filter { it !in state.listenedIndices }
-            val order = heard + index + pending + (index + 1 until state.queue.size)
-            state = state.copy(queue = order.map { state.queue[it] }, currentIndex = heard.size,
-                listenedIndices = order.indices.filter { order[it] in state.listenedIndices }.toSet())
-        }
         syncUserQueuesWithUpcoming()
         return state
     }

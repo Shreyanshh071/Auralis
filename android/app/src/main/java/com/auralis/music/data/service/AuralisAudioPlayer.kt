@@ -1751,7 +1751,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
         val qState = if (isSameQueue && preserveQueueSource) {
-            queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder && !isGuestListenTogether.value)
+            queueManager.selectIndex(targetIndex)
         } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = isUserQueue, keepShuffle = runtimeSettings.permanentShuffle)
         _queueState.value = qState
 

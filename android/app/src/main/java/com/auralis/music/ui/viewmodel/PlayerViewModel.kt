@@ -840,7 +840,7 @@ class PlayerViewModel(
         } else {
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
-            val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder)
+            val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex)
                 else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = effectiveIsUserQueue, keepShuffle = _playerSettings.value.permanentShuffle)
             _uiState.update {
                 it.copy(

@@ -38,16 +38,6 @@ class DesktopPlaybackController(
             return copy(tracks = order.map { tracks[it] }, index = order.indexOf(index),
                 listenedIndices = order.indices.filter { order[it] in listenedIndices }.toSet())
         }
-        /** Move unheard songs skipped over to after the selection, preserving heard-song order. */
-        fun retainUnplayed(): Queue {
-            if (current == null) return this
-            val heard = (0 until index).filter { it in listenedIndices }
-            val pending = (0 until index).filter { it !in listenedIndices }
-            val order = heard + index + pending + (index + 1 until tracks.size)
-            val heardPositions = order.withIndex().filter { it.value in listenedIndices }.map { it.index }.toSet()
-            return copy(tracks = order.map { tracks[it] }, index = heard.size, listenedIndices = heardPositions)
-        }
-
         fun withoutHistory(): Queue {
             if (current == null) return this
             val keep = tracks.indices.filter { it == index || it !in listenedIndices }
@@ -479,7 +469,8 @@ class DesktopPlaybackController(
         consecutiveFailures = 0
         pendingResumeMs = null
         val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
-        load(withCurrentHeard.copy(index = index), jumpWithinQueue = true)
+        // Songs jumped over stay behind the selection, out of Up next; History lists only heard songs.
+        load(withCurrentHeard.copy(index = index))
     }
 
     /** Removes a song that isn't the one playing. */
@@ -530,20 +521,10 @@ class DesktopPlaybackController(
         player.release()
     }
 
-    private fun shouldRetainUnplayed(current: Queue, requested: Queue): Boolean {
-        if (current.tracks.size != requested.tracks.size) return false
-        if (current.current == null || requested.current == null) return false
-        return requested.index > current.index + 1
-    }
-
-    private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false, jumpWithinQueue: Boolean = false) {
+    private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
         val current = _queue.value
-        // Retain unplayed songs only when jumping ahead by 2 or more tracks over unheard songs in
-        // the queue itself. A song started from a list is a new queue in that list's order: judged
-        // by length alone, picking the 27th song of the 100-song playlist already playing moved the
-        // first 26 after it, so "next" became the playlist's first song.
-        // Sequential advancement (next, finished) and stepping back (previous) never reorder tracks.
-        val q = if (jumpWithinQueue && roomControl == null && shouldRetainUnplayed(current, requested)) requested.retainUnplayed() else requested
+        // The queue plays in its own order: next, previous and jumps never move songs.
+        val q = requested
         val track = q.current ?: return
         if (!isRetry) startRequested = track.id to System.nanoTime()
         if (!isRetry) _session.value++
