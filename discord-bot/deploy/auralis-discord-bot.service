@@ -1,0 +1,29 @@
+# Runs the Auralis Discord bot around the clock and restarts it if it stops.
+# install-server.sh puts this in /etc/systemd/system/ and the jar in /opt/auralis-discord-bot/.
+[Unit]
+Description=Auralis Discord music bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=auralis-bot
+Group=auralis-bot
+WorkingDirectory=/var/lib/auralis-discord-bot
+# DISCORD_BOT_TOKEN and JAVA_OPTS. Readable by root only; systemd reads it before dropping to the bot user.
+EnvironmentFile=/etc/auralis-discord-bot.env
+ExecStart=/bin/sh -c 'exec /usr/bin/java $JAVA_OPTS -jar /opt/auralis-discord-bot/auralis-discord-bot.jar'
+Restart=always
+RestartSec=10
+# The bot says goodbye in its channels on shutdown; give it time before killing it.
+TimeoutStopSec=20
+
+# Hardening: the bot only needs the network and its own state folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/auralis-discord-bot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+# These files run on Linux, so they keep LF line endings even in a Windows checkout.
+*.sh text eol=lf
+*.service text eol=lf
+*.env.example text eol=lf
+Dockerfile text eol=lf
+compose.yaml text eol=lf
