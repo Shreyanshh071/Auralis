@@ -62,8 +62,8 @@ android {
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"$spotifyClientSecret\"")
         val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
-        require(realtimeUrl.isEmpty() || (realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !realtimeUrl.contains("staging", ignoreCase = true))) {
-            "Connect requires a production WSS endpoint."
+        require(realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !realtimeUrl.contains("staging", ignoreCase = true)) {
+            "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         buildConfigField("String", "CONNECT_REALTIME_URL", "\"$realtimeUrl\"")
     }

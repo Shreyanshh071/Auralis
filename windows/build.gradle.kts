@@ -126,12 +126,12 @@ compose.desktop {
             "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
             "-Dauralis.cdsArchive=$cdsArchive"
         )
-        providers.gradleProperty("connect.realtime.url").orNull?.takeIf { it.isNotBlank() }?.let { url ->
-            require(url.startsWith("wss://") && url.none { it.isWhitespace() } && !url.contains("staging", ignoreCase = true)) {
-                "Connect requires a production WSS endpoint."
-            }
-            jvmArgs("-Dauralis.connectRealtimeUrl=$url")
+        val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
+        require(realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !realtimeUrl.contains("staging", ignoreCase = true)) {
+            "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
+        jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 
