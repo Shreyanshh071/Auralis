@@ -1,12 +1,32 @@
 package com.auralis.music.windows.immersive
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -22,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,12 +79,17 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -80,8 +106,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.auralis.music.desktop.lyrics.DesktopLyricsController
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
@@ -91,6 +120,9 @@ import com.auralis.music.ui.i18n.desktopText
 import com.auralis.music.ui.lyrics.ExperimentalLyricsLine
 import com.auralis.music.ui.lyrics.lyricsBlurLayer
 import com.auralis.music.ui.lyrics.rememberLyricsClock
+import com.auralis.music.ui.player.ClassicPauseGlyph
+import com.auralis.music.ui.player.ClassicPlayGlyph
+import com.auralis.music.ui.player.ClassicSkipGlyph
 import com.auralis.music.ui.theme.ArtworkPalette
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 import com.auralis.music.windows.LiquidPopupSurface
@@ -199,10 +231,33 @@ internal fun ImmersiveScreen(
                         0f to Color.Black.copy(alpha = .28f), .55f to Color.Black.copy(alpha = .12f), 1f to Color.Black.copy(alpha = .5f))))
                 }
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        when {
-                            shown == ImmersiveView.CLOCK -> ClockView(shape, track, playback, lyrics, inlineLyric)
-                            shown == ImmersiveView.LYRICS && track != null -> LyricsView(playback, lyrics)
+                    AnimatedContent(
+                        targetState = shown,
+                        transitionSpec = {
+                            if (targetState == ImmersiveView.LYRICS) {
+                                (fadeIn(animationSpec = tween(320, easing = FastOutSlowInEasing)) +
+                                    slideInHorizontally(animationSpec = tween(320, easing = FastOutSlowInEasing)) { it / 8 })
+                                    .togetherWith(
+                                        fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                                            slideOutHorizontally(animationSpec = tween(220, easing = FastOutSlowInEasing)) { -it / 8 }
+                                    )
+                            } else {
+                                (fadeIn(animationSpec = tween(320, easing = FastOutSlowInEasing)) +
+                                    slideInHorizontally(animationSpec = tween(320, easing = FastOutSlowInEasing)) { -it / 8 })
+                                    .togetherWith(
+                                        fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                                            slideOutHorizontally(animationSpec = tween(220, easing = FastOutSlowInEasing)) { it / 8 }
+                                    )
+                            }
+                        },
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        label = "ImmersiveViewSwitch"
+                    ) { targetView ->
+                        Box(Modifier.fillMaxSize()) {
+                            when {
+                                targetView == ImmersiveView.CLOCK -> ClockView(shape, track, playback, lyrics, inlineLyric)
+                                targetView == ImmersiveView.LYRICS && track != null -> LyricsView(playback, lyrics)
+                            }
                         }
                     }
                     CompositionLocalProvider(LocalPopupGlassSource provides dockBackdrop) {
@@ -215,19 +270,28 @@ internal fun ImmersiveScreen(
                         )
                     }
                 }
-                if (shown == ImmersiveView.LYRICS && track != null) {
-                    Row(
-                        Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 16.dp)
-                            .fillMaxWidth(.28f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        DesktopArtwork(highRes, Modifier.size(52.dp), 8.dp, track.title)
-                        Column(Modifier.weight(1f)) {
-                            Text(track.title, fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                                color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(track.artist, fontSize = 11.sp, color = Color.White.copy(alpha = .75f),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                AnimatedVisibility(
+                    visible = shown == ImmersiveView.LYRICS && track != null,
+                    enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
+                        slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it / 3 },
+                    exit = fadeOut(tween(200, easing = FastOutSlowInEasing)) +
+                        slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 3 },
+                    modifier = Modifier.align(Alignment.BottomStart)
+                ) {
+                    if (track != null) {
+                        Row(
+                            Modifier.padding(start = 24.dp, bottom = 16.dp)
+                                .fillMaxWidth(.28f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            DesktopArtwork(highRes, Modifier.size(52.dp), 8.dp, track.title)
+                            Column(Modifier.weight(1f)) {
+                                Text(track.title, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                                    color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(track.artist, fontSize = 11.sp, color = Color.White.copy(alpha = .75f),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
@@ -276,15 +340,15 @@ private fun BoxScope.CornerClock() {
 
 @Composable
 private fun SongText(track: Track, width: Dp, titleSize: Int, align: TextAlign = TextAlign.Start) {
-    Text(track.title, Modifier.width(width), fontSize = titleSize.sp, lineHeight = (titleSize * 1.2f).sp, fontWeight = FontWeight.Bold, color = Color.White,
+    Text(track.title, Modifier.width(width), fontSize = titleSize.sp, lineHeight = (titleSize * 1.15f).sp, fontWeight = FontWeight.Bold, color = Color.White,
         maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
-    Spacer(Modifier.height(2.dp))
-    Text(track.artist, Modifier.width(width), fontSize = (titleSize * 2 / 3).sp, lineHeight = (titleSize * .85f).sp, color = Color.White.copy(alpha = .75f),
+    Spacer(Modifier.height(1.dp))
+    Text(track.artist, Modifier.width(width), fontSize = (titleSize * 2 / 3).sp, lineHeight = (titleSize * .8f).sp, color = Color.White.copy(alpha = .75f),
         maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align)
 }
 
 @Composable
-private fun ImmersiveProgress(playback: DesktopPlaybackController, track: Track, width: Dp) {
+private fun ImmersiveProgress(playback: DesktopPlaybackController, track: Track, modifier: Modifier = Modifier) {
     val remote by playback.connectRemote.collectAsState()
     val length by playback.lengthMs.collectAsState()
     val position by rememberShownPosition(playback, remote)
@@ -293,7 +357,9 @@ private fun ImmersiveProgress(playback: DesktopPlaybackController, track: Track,
     var dragging by remember(track.id) { mutableStateOf(false) }
     var draft by remember(track.id) { mutableFloatStateOf(0f) }
     val shownPosition = if (dragging) (draft * duration).toLong() else position
-    Column(Modifier.width(width)) {
+    // Times at the ends of the bar, so the card stays one compact block under the clock.
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ImmersiveTime(shownPosition, Modifier.widthIn(min = 34.dp), TextAlign.End)
         com.auralis.music.windows.player.HoverSlider(
             value = if (dragging) draft else fraction,
             onValueChange = { draft = it; dragging = true },
@@ -304,20 +370,19 @@ private fun ImmersiveProgress(playback: DesktopPlaybackController, track: Track,
             enabled = duration > 0,
             thin = 4.dp,
             thick = 6.dp,
-            hitSize = 24.dp,
-            modifier = Modifier.fillMaxWidth()
+            hitSize = 16.dp,
+            modifier = Modifier.weight(1f)
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            ImmersiveTime(shownPosition)
-            ImmersiveTime(duration)
-        }
+        ImmersiveTime(duration, Modifier.widthIn(min = 34.dp))
     }
 }
 
 @Composable
-private fun ImmersiveTime(ms: Long) {
+private fun ImmersiveTime(ms: Long, modifier: Modifier = Modifier, align: TextAlign = TextAlign.Start) {
     val seconds = (ms / 1000).coerceAtLeast(0)
-    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 12.sp, lineHeight = 15.sp, color = Color.White.copy(alpha = .7f))
+    Text("%d:%02d".format(seconds / 60, seconds % 60), modifier, fontSize = 11.sp, lineHeight = 13.sp,
+        color = Color.White.copy(alpha = .62f), textAlign = align,
+        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"))
 }
 
 private val ClockLyricRowHeight = 58.dp
@@ -346,21 +411,37 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
     }
 
     val breaks = remember(lines) { com.auralis.music.ui.lyrics.phoneInstrumentalBreaks(lines) }
-    val gap by remember(lines, breaks, position) {
+    // As in the full player, each break is a row of its own after its line: the sung line scrolls
+    // up and the dots arrive in the centre. Hiding the line under dots that popped in on top of it
+    // looked broken mid-entry. Rows are positioned by slot, where a break takes one slot.
+    val slots = remember(lines, breaks) {
+        var extra = 0
+        IntArray(lines.size) { index -> (index + extra).also { if (index in breaks) extra++ } }
+    }
+    val target by remember(lines, breaks, slots, confirmedPosition) {
         derivedStateOf {
-            val now = position.value
-            val firstStart = lines.firstOrNull()?.time ?: 0L
-            if (firstStart >= 1_500L && now < firstStart) 0L to firstStart
-            else breaks.values.firstOrNull { (start, end) -> now >= start && now < end }
+            val now = confirmedPosition.value
+            val sung = lines.indexOfLast { it.time <= now }
+            when {
+                sung < 0 -> -1f
+                breaks[sung]?.let { (start, end) -> now >= start && now < end } == true -> slots[sung] + 1f
+                else -> slots[sung].toFloat()
+            }
         }
     }
-    val scroll = remember(state.trackId, lines) { Animatable(latest.toFloat()) }
-    LaunchedEffect(scroll, latest) {
-        val target = latest.toFloat()
+    // The break after the current line (or the intro before the first), with the slot its dots occupy.
+    val rest = when {
+        latest < 0 -> lines.first().time.takeIf { it >= 1_500L }?.let { Triple(0L, it, -1f) }
+        else -> breaks[latest]?.let { (start, end) -> Triple(start, end, slots[latest] + 1f) }
+    }
+    val scroll = remember(state.trackId, lines) { Animatable(target) }
+    LaunchedEffect(scroll, target) {
         if (abs(scroll.value - target) > 2f) scroll.snapTo(target)
         else scroll.animateTo(target, tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing))
     }
-    val firstVisible by remember(scroll) { derivedStateOf { floor(scroll.value).toInt() - 1 } }
+    val visibleRows by remember(slots, scroll) {
+        derivedStateOf { slots.indices.filter { abs(slots[it] - scroll.value) < 2f } }
+    }
     val appearance = rememberPlayerLyricsAppearance()
     val spicy = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation) ==
         com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
@@ -384,10 +465,10 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                 },
             contentAlignment = Alignment.Center
         ) {
-            for (index in firstVisible..firstVisible + 3) {
-                val line = lines.getOrNull(index) ?: continue
+            for (index in visibleRows) {
+                val line = lines[index]
                 key(state.trackId, index) {
-                    val distance = abs(index - scroll.value).coerceAtMost(1f)
+                    val distance = abs(slots[index] - scroll.value).coerceAtMost(1f)
                     // Spicy already animates glyph scale. A second row zoom compounds
                     // that motion as the line arrives at the center.
                     val scale = if (spicy) 1f else 1f - .20f * distance
@@ -395,10 +476,10 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                     Box(
                         Modifier.widthIn(max = 760.dp).fillMaxWidth(.92f).height(ClockLyricRowHeight)
                             .graphicsLayer {
-                                translationY = (index - scroll.value) * ClockLyricRowHeight.toPx()
+                                translationY = (slots[index] - scroll.value) * ClockLyricRowHeight.toPx()
                                 scaleX = scale
                                 scaleY = scale
-                                alpha = if (gap != null && index == latest) 0f else 1f - .46f * distance
+                                alpha = 1f - .46f * distance
                             }.lyricsBlurLayer(true, false, overflow = 20.dp) { blur.dp.toPx() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -452,34 +533,127 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                     }
                 }
             }
-            val rest = gap
-            if (rest != null) {
-                com.auralis.music.ui.lyrics.LyricsIntervalIndicator(
-                    gapStartMs = rest.first,
-                    gapEndMs = rest.second,
-                    currentPositionMs = position.value,
-                    visible = true,
-                    isMetroLyrics = true,
-                    dotSize = 10.dp,
-                    compact = true,
-                    onSkip = { playback.seekTo(rest.second) },
-                    modifier = Modifier.align(Alignment.Center)
-                )
+            if (rest != null) key(state.trackId, rest.first) {
+                val (start, end, slot) = rest
+                ClockRestDots(start, end, position, lead = if (spicy) 0L else 300L,
+                    onSkip = { playback.seekTo(end) },
+                    modifier = Modifier.align(Alignment.Center).graphicsLayer {
+                        val offset = slot - scroll.value
+                        translationY = offset * ClockLyricRowHeight.toPx()
+                        alpha = 1f - .46f * abs(offset).coerceAtMost(1f)
+                    })
             }
         }
     }
 }
 
+/**
+ * The full player's break dots: composed ahead of the break and kept through it, so the dots
+ * play their own clock-driven entry and exit. The per-frame clock read stays in this scope.
+ */
+@Composable
+private fun ClockRestDots(start: Long, end: Long, position: androidx.compose.runtime.State<Long>, lead: Long,
+    onSkip: () -> Unit, modifier: Modifier) {
+    val visible by remember(start, end, lead, position) { derivedStateOf { position.value in (start - lead) until end } }
+    val shown by remember(start, end, lead, position) { derivedStateOf { position.value.coerceIn(start - lead, end + 1L) } }
+    com.auralis.music.ui.lyrics.LyricsIntervalIndicator(
+        gapStartMs = start,
+        gapEndMs = end,
+        currentPositionMs = shown,
+        visible = visible,
+        isMetroLyrics = true,
+        dotSize = 10.dp,
+        compact = true,
+        onSkip = onSkip,
+        modifier = modifier
+    )
+}
+
+/** Width of the dock card's content: the now-playing row, the divider and the tabs line up to it. */
+private val DockWidth = 440.dp
+
 @Composable
 private fun NowPlayingRow(track: Track, artwork: String?, playback: DesktopPlaybackController) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        DesktopArtwork(artwork, Modifier.size(48.dp), 8.dp, track.title, highRes = true)
-        Column {
-            SongText(track, 300.dp, 16)
-            Spacer(Modifier.height(2.dp))
-            ImmersiveProgress(playback, track, 300.dp)
+    Column(Modifier.width(DockWidth).padding(start = 6.dp, end = 6.dp, top = 8.dp, bottom = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            DesktopArtwork(artwork, Modifier.size(56.dp), 12.dp, track.title, highRes = true)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(track.title, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.artist, fontSize = 13.sp, lineHeight = 16.sp, color = Color.White.copy(alpha = .68f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            TransportControls(playback, emphasized = true)
+        }
+        Spacer(Modifier.height(10.dp))
+        ImmersiveProgress(playback, track, Modifier.fillMaxWidth())
+    }
+}
+
+/** Previous, play/pause and next. Emphasized puts play in a solid white circle, the card's focal point. */
+@Composable
+private fun TransportControls(playback: DesktopPlaybackController, emphasized: Boolean, modifier: Modifier = Modifier) {
+    val queue by playback.queue.collectAsState()
+    val hasNext = queue.hasNext
+    val state by playback.state.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    val isPlaying = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING)
+    val skipWidth = if (emphasized) 38.dp else 44.dp
+    val skipGlyph = if (emphasized) DpSize(24.dp, 15.dp) else DpSize(28.dp, 17.dp)
+    Row(
+        modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (emphasized) 6.dp else 16.dp, Alignment.CenterHorizontally)
+    ) {
+        TransportButton(onClick = playback::previous, width = skipWidth) { hovered ->
+            ClassicSkipGlyph(forward = false, color = Color.White.copy(alpha = if (hovered) 1f else .86f),
+                modifier = Modifier.size(skipGlyph))
+        }
+        if (emphasized) {
+            TransportButton(onClick = playback::togglePlayPause, width = 44.dp, height = 44.dp, filled = true) {
+                val ink = Color(0xFF111114)
+                if (isPlaying) ClassicPauseGlyph(color = ink, modifier = Modifier.size(width = 15.dp, height = 18.dp))
+                else ClassicPlayGlyph(color = ink, modifier = Modifier.offset(x = 1.5.dp).size(width = 16.dp, height = 19.dp))
+            }
+        } else {
+            TransportButton(onClick = playback::togglePlayPause, width = 50.dp, height = 36.dp) { hovered ->
+                val ink = Color.White.copy(alpha = if (hovered) 1f else .95f)
+                if (isPlaying) ClassicPauseGlyph(color = ink, modifier = Modifier.size(width = 22.dp, height = 26.dp))
+                else ClassicPlayGlyph(color = ink, modifier = Modifier.size(width = 23.dp, height = 27.dp))
+            }
+        }
+        TransportButton(onClick = playback::next, width = skipWidth, enabled = hasNext) { hovered ->
+            ClassicSkipGlyph(forward = true,
+                color = Color.White.copy(alpha = if (hasNext) (if (hovered) 1f else .86f) else .35f),
+                modifier = Modifier.size(skipGlyph))
         }
     }
+}
+
+/** One transport button: swells on hover, dips on press; [filled] draws the white play circle. */
+@Composable
+private fun TransportButton(
+    onClick: () -> Unit, width: Dp, height: Dp = 32.dp, enabled: Boolean = true, filled: Boolean = false,
+    content: @Composable (hovered: Boolean) -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) .90f else if (hovered && enabled) 1.08f else 1f,
+        spring(stiffness = Spring.StiffnessMediumLow)
+    )
+    Box(
+        Modifier
+            .size(width = width, height = height)
+            .scale(scale)
+            .then(if (filled) Modifier.background(Color.White.copy(alpha = if (hovered) 1f else .94f), CircleShape) else Modifier)
+            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { content(hovered) }
 }
 
 @Composable
@@ -530,46 +704,61 @@ private fun ImmersiveControls(
 ) {
     val playing = rememberPlaying(playback)
     LiquidPopupSurface(modifier, frosted = false) {
-        Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (dockTrack != null) {
-                NowPlayingRow(dockTrack, artwork, playback)
-                Spacer(Modifier.height(2.dp))
-            }
-            if (track != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ControlIcon(Icons.Rounded.SkipPrevious, "Previous", playback::previous)
-                    ControlIcon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", playback::togglePlayPause)
-                    ControlIcon(Icons.Rounded.SkipNext, "Next", playback::next)
-                }
-                Spacer(Modifier.height(2.dp))
-            }
-            Row(
-                Modifier.width(360.dp).selectableGroup(),
-                verticalAlignment = Alignment.CenterVertically
+        Column(
+            Modifier
+                .animateContentSize(tween(260, easing = FastOutSlowInEasing))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AnimatedVisibility(
+                visible = dockTrack != null,
+                enter = expandVertically(tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(200)),
+                exit = shrinkVertically(tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(160))
             ) {
-                ImmersiveView.entries.forEach { option ->
-                    val selected = option == view
-                    DockTile(
-                        icon = if (option == ImmersiveView.CLOCK) Icons.Rounded.Schedule else Icons.AutoMirrored.Rounded.Subject,
-                        label = option.label,
-                        modifier = Modifier.weight(1f),
-                        selected = selected,
-                        onClick = { onView(option) }
-                    )
-                    Box(Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = .28f)))
+                if (dockTrack != null) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        NowPlayingRow(dockTrack, artwork, playback)
+                        Spacer(Modifier.height(1.dp))
+                    }
                 }
-                DockTile(Icons.Rounded.Close, "Close", Modifier.weight(1f), onClick = onLeave)
             }
+            AnimatedVisibility(
+                visible = track != null && dockTrack == null,
+                enter = expandVertically(tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(200)),
+                exit = shrinkVertically(tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(160))
+            ) {
+                TransportControls(playback, emphasized = false, Modifier.padding(vertical = 1.dp))
+            }
+            LiquidGlassBar(
+                Modifier
+                    .width(DockWidth)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+            ImmersiveTabBar(
+                selectedView = view,
+                onSelectView = onView,
+                onLeave = onLeave,
+                modifier = Modifier.width(DockWidth)
+            )
             if (displays.size > 1) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
                     displays.forEachIndexed { index, display ->
                         val on = display in shownDisplays
-                        Surface(onClick = { onToggleDisplay(index) }, shape = CircleShape,
+                        Surface(
+                            onClick = { onToggleDisplay(index) },
+                            shape = CircleShape,
                             color = if (on) Color.White.copy(alpha = .20f) else Color.Transparent,
-                            contentColor = if (on) Color.White else Color.White.copy(alpha = .55f)) {
+                            contentColor = if (on) Color.White else Color.White.copy(alpha = .55f)
+                        ) {
                             Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-                                Text("${index + 1}", fontSize = 12.sp, fontWeight = if (display == thisDisplay) FontWeight.Bold else FontWeight.Normal)
+                                Text(
+                                    "${index + 1}",
+                                    fontSize = 12.sp,
+                                    fontWeight = if (display == thisDisplay) FontWeight.Bold else FontWeight.Normal
+                                )
                             }
                         }
                     }
@@ -580,32 +769,224 @@ private fun ImmersiveControls(
 }
 
 @Composable
-private fun ControlIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun LiquidGlassBar(modifier: Modifier = Modifier) {
     Box(
-        Modifier.size(width = 44.dp, height = 36.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, desktopText(label), tint = Color.White, modifier = Modifier.size(25.dp))
-    }
+        modifier
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    0.0f to Color.White.copy(alpha = 0.02f),
+                    0.20f to Color.White.copy(alpha = 0.18f),
+                    0.50f to Color.White.copy(alpha = 0.30f),
+                    0.80f to Color.White.copy(alpha = 0.18f),
+                    1.0f to Color.White.copy(alpha = 0.02f)
+                )
+            )
+    )
 }
 
 @Composable
-private fun DockTile(
-    icon: ImageVector,
-    label: String,
-    modifier: Modifier,
-    selected: Boolean? = null,
-    onClick: () -> Unit
+private fun ImmersiveTabBar(
+    selectedView: ImmersiveView,
+    onSelectView: (ImmersiveView) -> Unit,
+    onLeave: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier.height(32.dp).clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = if (selected == true) .18f else 0f))
-            .then(if (selected == null) Modifier.clickable(role = Role.Button, onClick = onClick)
-                else Modifier.selectable(selected, role = Role.Tab, onClick = onClick)),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
-    ) {
-        Icon(icon, null, Modifier.size(17.dp), tint = Color.White)
-        Text(desktopText(label), fontSize = 12.sp, lineHeight = 14.sp, color = Color.White, maxLines = 1)
+    val selectedIndex = if (selectedView == ImmersiveView.CLOCK) 0 else 1
+    val animatedIndex by animateFloatAsState(
+        targetValue = selectedIndex.toFloat(),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "tab_pill_offset"
+    )
+
+    BoxWithConstraints(modifier.selectableGroup(), contentAlignment = Alignment.CenterStart) {
+        val tabWidth = maxWidth / 3
+        val tabHeight = 30.dp
+
+        // Smooth sliding liquid glass highlight pill behind the active tab (exact GlassDock recipe)
+        Box(
+            Modifier
+                .offset { IntOffset(x = (animatedIndex * tabWidth.toPx()).roundToInt(), y = 0) }
+                .width(tabWidth)
+                .height(tabHeight)
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .drawBehind {
+                    val stroke = 1.dp.toPx()
+                    val radius = CornerRadius(size.height / 2f)
+                    // GlassDock pill fill
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.16f),
+                                Color.White.copy(alpha = 0.06f)
+                            )
+                        ),
+                        cornerRadius = radius
+                    )
+                    // Specular top sheen
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.08f),
+                            0.45f to Color.Transparent
+                        ),
+                        cornerRadius = radius
+                    )
+                    // GlassDock specular rim
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.22f),
+                                Color.White.copy(alpha = 0.06f)
+                            )
+                        ),
+                        topLeft = Offset(stroke / 2f, stroke / 2f),
+                        size = Size(size.width - stroke, size.height - stroke),
+                        cornerRadius = CornerRadius(size.height / 2f - stroke / 2f),
+                        style = Stroke(stroke)
+                    )
+                }
+        )
+
+        // The 3 tabs in a Row over the sliding pill
+        Row(
+            Modifier.fillMaxWidth().height(tabHeight),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ImmersiveView.entries.forEach { option ->
+                val isSelected = option == selectedView
+                val interactionSource = remember { MutableInteractionSource() }
+                val isHovered by interactionSource.collectIsHoveredAsState()
+                val isPressed by interactionSource.collectIsPressedAsState()
+
+                val textAlpha by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else if (isHovered) 0.90f else 0.65f,
+                    animationSpec = tween(140),
+                    label = "tab_text_alpha_${option.name}"
+                )
+                val hoverAlpha by animateFloatAsState(
+                    targetValue = if (!isSelected && isHovered) 0.07f else 0f,
+                    animationSpec = tween(120),
+                    label = "tab_hover_${option.name}"
+                )
+                val scale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.96f else 1.0f,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "tab_scale_${option.name}"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(tabHeight)
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .scale(scale)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .drawBehind {
+                            if (hoverAlpha > 0f) {
+                                drawRoundRect(
+                                    color = Color.White.copy(alpha = hoverAlpha),
+                                    cornerRadius = CornerRadius(size.height / 2f)
+                                )
+                            }
+                        }
+                        .selectable(
+                            selected = isSelected,
+                            interactionSource = interactionSource,
+                            indication = null,
+                            role = Role.Tab,
+                            onClick = { onSelectView(option) }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+                    ) {
+                        val icon = if (option == ImmersiveView.CLOCK) Icons.Rounded.Schedule else Icons.AutoMirrored.Rounded.Subject
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White.copy(alpha = textAlpha)
+                        )
+                        Text(
+                            text = desktopText(option.label),
+                            fontSize = 12.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = Color.White.copy(alpha = textAlpha),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            // Close tab / button
+            val closeInteractionSource = remember { MutableInteractionSource() }
+            val closeHovered by closeInteractionSource.collectIsHoveredAsState()
+            val closePressed by closeInteractionSource.collectIsPressedAsState()
+            val closeHoverAlpha by animateFloatAsState(
+                targetValue = if (closeHovered) 0.08f else 0f,
+                animationSpec = tween(120),
+                label = "close_hover"
+            )
+            val closeScale by animateFloatAsState(
+                targetValue = if (closePressed) 0.96f else 1.0f,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                label = "close_scale"
+            )
+            val closeTextAlpha by animateFloatAsState(
+                targetValue = if (closeHovered) 1f else 0.65f,
+                animationSpec = tween(140),
+                label = "close_alpha"
+            )
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(tabHeight)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .scale(closeScale)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .drawBehind {
+                        if (closeHoverAlpha > 0f) {
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = closeHoverAlpha),
+                                cornerRadius = CornerRadius(size.height / 2f)
+                            )
+                        }
+                    }
+                    .clickable(
+                        interactionSource = closeInteractionSource,
+                        indication = null,
+                        role = Role.Button,
+                        onClick = onLeave
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.White.copy(alpha = closeTextAlpha)
+                    )
+                    Text(
+                        text = desktopText("Close"),
+                        fontSize = 12.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = if (closeHovered) FontWeight.SemiBold else FontWeight.Normal,
+                        color = Color.White.copy(alpha = closeTextAlpha),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
     }
 }
