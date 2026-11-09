@@ -957,12 +957,18 @@ fun animateDynamicPalette(targetPalette: AuralisDynamicPalette): AuralisDynamicP
     }
 }
 
-private const val ThemeFadeSteps = 8
-private const val ThemeFadeStepMillis = 70L
+// Each step recomposes nearly the whole app. A 144 Hz trace of a song change measured each step at
+// 40-78ms, so 8 steps 70ms apart left no free frames: ~0.6s at ~15fps, right over the cover slide
+// and backdrop crossfade. Fewer steps after a short head start keep them smooth; a longer start
+// (450ms, 140ms steps) made the colours lag a swipe by ~1s.
+private const val ThemeFadeSteps = 4
+private const val ThemeFadeStepMillis = 100L
+private const val ThemeFadeStartDelayMillis = 200L
 
 /**
- * Walks to [target] in [ThemeFadeSteps] steps. A new target starts from the colours on screen.
- * Light and dark never blend: the mid-grays between them have no contrast.
+ * Walks to [target] in [ThemeFadeSteps] steps, after [ThemeFadeStartDelayMillis]. A new target
+ * starts from the colours on screen. Light and dark never blend: the mid-grays between them have
+ * no contrast.
  */
 @Composable
 private fun <T> rememberThemeFade(
@@ -976,6 +982,7 @@ private fun <T> rememberThemeFade(
         val from = shown
         if (from == target) return@LaunchedEffect
         if (!reducedMotion && !isModeChange(from, target)) {
+            kotlinx.coroutines.delay(ThemeFadeStartDelayMillis)
             for (step in 1 until ThemeFadeSteps) {
                 kotlinx.coroutines.delay(ThemeFadeStepMillis)
                 shown = lerp(from, target, FastOutSlowInEasing.transform(step / ThemeFadeSteps.toFloat()))
@@ -1096,14 +1103,6 @@ fun AuralisTheme(
     // Honour the system "remove animations" accessibility preference app-wide
     val reducedMotion = rememberReducedMotion()
 
-    // 4. The theme fades to the new song's colours in a few steps. Fading on every frame
-    //    recomposed nearly the whole app for the length of the fade: measured on device as ~650ms
-    //    of 25-60ms frames on each song change, which made the queue's slide-up stutter. The steps
-    //    leave free frames between those recompositions.
-    val colorScheme = rememberThemeFade(rawTargetScheme, reducedMotion, ::lerpColorScheme) { from, to ->
-        (from.background.luminance() < 0.5f) != (to.background.luminance() < 0.5f)
-    }
-
     // Dynamic artwork ambient tints for LocalAuralisDynamicPalette
     val rawDynamicPalette = remember(activeArtworkPalette, isDark, artworkDominantColor, hasSongArtwork, rawTargetScheme) {
         if (!hasSongArtwork) {
@@ -1131,9 +1130,23 @@ fun AuralisTheme(
         }
     }
 
-    val dynamicPalette = rememberThemeFade(rawDynamicPalette, reducedMotion, ::lerpDynamicPalette) { from, to ->
-        from.isDark != to.isDark
+    // 4. The theme fades to the new song's colours in a few steps. Fading on every frame
+    //    recomposed nearly the whole app for the length of the fade: measured on device as ~650ms
+    //    of 25-60ms frames on each song change, which made the queue's slide-up stutter. The steps
+    //    leave free frames between those recompositions. The colour scheme and the ambient tints
+    //    step together: as two fades they rebuilt the app twice per step (traced: 7-8 per song).
+    val themeColors = rememberThemeFade(
+        rawTargetScheme to rawDynamicPalette,
+        reducedMotion,
+        { from, to, fraction ->
+            lerpColorScheme(from.first, to.first, fraction) to lerpDynamicPalette(from.second, to.second, fraction)
+        }
+    ) { from, to ->
+        (from.first.background.luminance() < 0.5f) != (to.first.background.luminance() < 0.5f) ||
+            from.second.isDark != to.second.isDark
     }
+    val colorScheme = themeColors.first
+    val dynamicPalette = themeColors.second
 
 
     // Calculate display density scaling (including responsive landscape scaling)

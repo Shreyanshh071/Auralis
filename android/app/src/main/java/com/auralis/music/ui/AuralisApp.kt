@@ -198,7 +198,14 @@ fun AuralisApp(
     // when the ViewModel mirror transiently becomes null during lifecycle gaps or rapid transitions.
     val audioPlayerTrack by viewModelProvider.audioPlayer.currentTrack.collectAsState()
     val audioPlayerIsPlaying by viewModelProvider.audioPlayer.isPlaying.collectAsState()
-    val playerUiState = playerViewModelState?.uiState?.collectAsState()?.value ?: com.auralis.music.ui.viewmodel.PlayerUiState()
+    // The app shell reads only the fields it uses, so lyrics, buffering, duration or favourite
+    // changes don't recompose the whole app: traced on a 144 Hz phone, each such change rebuilt the
+    // app root (and the Home screen behind the player) in 80-90ms, several times per song change.
+    // The full player, mini player and ambient screen read the complete state in their own scope.
+    val playerUiStateHolder = playerViewModelState?.uiState?.collectAsState() ?: EmptyPlayerUiState
+    val playerUiState by remember(playerUiStateHolder) {
+        androidx.compose.runtime.derivedStateOf { playerUiStateHolder.value.appShellFields() }
+    }
     val playerSettings = playerViewModelState?.playerSettings?.collectAsState()?.value ?: com.auralis.music.domain.model.PlayerSettings()
     val inlineLyricsDesign = com.auralis.music.domain.model.PlayerDesign.fromDisplayName(appearanceSettings.playerDesign)
     val inlineLyricsShown = appearanceSettings.inlineLyricsFor(inlineLyricsDesign)
@@ -2230,130 +2237,132 @@ fun AuralisApp(
                                         }
                                     }
                                 }
-                                NowPlayingSheet(
-                                    followHostOnly = isGuestInRoom && !guestCanSwipe,
-                                    uiState = playerUiState,
-                                    playbackPositionState = modalPositionState,
-                                    lyricsClockSource = currentPV.playbackClockSource,
-                                    userPlaylists = libraryUiState.playlists,
-                                    renderBackground = false,
-                                    onPlayPauseClick = {
-                                        if (guestControlBlocked()) notifyGuestControlBlocked()
-                                        else currentPV.togglePlayPause()
-                                    },
-                                    onSeekTo = { posMs ->
-                                        if (guestControlBlocked()) {
-                                            notifyGuestControlBlocked()
-                                        } else {
-                                            // Host seeks reach the room through the player's userSeekEvents.
-                                            currentPV.seekTo(posMs)
-                                        }
-                                    },
-                                    onNextClick = {
-                                        if (guestSkipBlocked()) notifyGuestSkipBlocked()
-                                        else if (!skipLocked()) currentPV.next()
-                                    },
-                                    onPreviousClick = {
-                                        if (guestSkipBlocked()) notifyGuestSkipBlocked()
-                                        else if (!skipLocked()) currentPV.previous()
-                                    },
-                                    onToggleShuffle = {
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else currentPV.toggleShuffle()
-                                    },
-                                    onToggleRepeat = {
-                                        if (isGuestInRoom) notifyGuestControlBlocked()
-                                        else currentPV.toggleRepeat()
-                                    },
-                                    onToggleFavorite = { currentPV.toggleFavorite() },
-                                    onToggleLyricsView = { currentPV.toggleLyricsView() },
-                                    onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
-                                    onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
-                                    onSleepTimerSelect = { currentPV.setSleepTimer(it) },
-                                    onSelectQueueTrack = { selectQueueTrack(it, false) },
-                                    onSwipeToQueueTrack = { selectQueueTrack(it, true) },
-                                    onRemoveQueueItem = { index ->
-                                        if (guestNow()) {
-                                            obtainListenTogetherViewModel().requestQueueEdit(index)
-                                        } else {
-                                            currentPV.removeQueueItem(index)
-                                            if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
-                                                val updated = currentPV.uiState.value
-                                                updated.currentTrack?.let { trk ->
-                                                    obtainListenTogetherViewModel().broadcastHostPlayback(
-                                                        currentTrack = trk,
-                                                        isPlaying = updated.isPlaying,
-                                                        playbackPositionMs = currentPV.playbackPositionMs.value,
-                                                        queue = updated.queue,
-                                                        queueIndex = updated.currentIndex
-                                                    )
+                                WithPlayerUiState(playerUiStateHolder) { fullPlayerUiState ->
+                                    NowPlayingSheet(
+                                        followHostOnly = isGuestInRoom && !guestCanSwipe,
+                                        uiState = fullPlayerUiState,
+                                        playbackPositionState = modalPositionState,
+                                        lyricsClockSource = currentPV.playbackClockSource,
+                                        userPlaylists = libraryUiState.playlists,
+                                        renderBackground = false,
+                                        onPlayPauseClick = {
+                                            if (guestControlBlocked()) notifyGuestControlBlocked()
+                                            else currentPV.togglePlayPause()
+                                        },
+                                        onSeekTo = { posMs ->
+                                            if (guestControlBlocked()) {
+                                                notifyGuestControlBlocked()
+                                            } else {
+                                                // Host seeks reach the room through the player's userSeekEvents.
+                                                currentPV.seekTo(posMs)
+                                            }
+                                        },
+                                        onNextClick = {
+                                            if (guestSkipBlocked()) notifyGuestSkipBlocked()
+                                            else if (!skipLocked()) currentPV.next()
+                                        },
+                                        onPreviousClick = {
+                                            if (guestSkipBlocked()) notifyGuestSkipBlocked()
+                                            else if (!skipLocked()) currentPV.previous()
+                                        },
+                                        onToggleShuffle = {
+                                            if (isGuestInRoom) notifyGuestControlBlocked()
+                                            else currentPV.toggleShuffle()
+                                        },
+                                        onToggleRepeat = {
+                                            if (isGuestInRoom) notifyGuestControlBlocked()
+                                            else currentPV.toggleRepeat()
+                                        },
+                                        onToggleFavorite = { currentPV.toggleFavorite() },
+                                        onToggleLyricsView = { currentPV.toggleLyricsView() },
+                                        onLyricsOffsetChange = { currentPV.setLyricsOffset(it) },
+                                        onSearchLyricsManually = { title, artist -> currentPV.searchLyricsManually(title, artist) },
+                                        onSleepTimerSelect = { currentPV.setSleepTimer(it) },
+                                        onSelectQueueTrack = { selectQueueTrack(it, false) },
+                                        onSwipeToQueueTrack = { selectQueueTrack(it, true) },
+                                        onRemoveQueueItem = { index ->
+                                            if (guestNow()) {
+                                                obtainListenTogetherViewModel().requestQueueEdit(index)
+                                            } else {
+                                                currentPV.removeQueueItem(index)
+                                                if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                                                    val updated = currentPV.uiState.value
+                                                    updated.currentTrack?.let { trk ->
+                                                        obtainListenTogetherViewModel().broadcastHostPlayback(
+                                                            currentTrack = trk,
+                                                            isPlaying = updated.isPlaying,
+                                                            playbackPositionMs = currentPV.playbackPositionMs.value,
+                                                            queue = updated.queue,
+                                                            queueIndex = updated.currentIndex
+                                                        )
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                    onReorderQueue = { fromIndex, toIndex ->
-                                        if (guestNow()) {
-                                            obtainListenTogetherViewModel().requestQueueEdit(fromIndex, toIndex)
-                                        } else {
-                                            currentPV.moveQueueItem(fromIndex, toIndex)
-                                            if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
-                                                val reordered = currentPV.uiState.value
-                                                reordered.currentTrack?.let { trk ->
-                                                    obtainListenTogetherViewModel().broadcastHostPlayback(
-                                                        currentTrack = trk,
-                                                        isPlaying = reordered.isPlaying,
-                                                        playbackPositionMs = currentPV.playbackPositionMs.value,
-                                                        queue = reordered.queue,
-                                                        queueIndex = reordered.currentIndex
-                                                    )
+                                        },
+                                        onReorderQueue = { fromIndex, toIndex ->
+                                            if (guestNow()) {
+                                                obtainListenTogetherViewModel().requestQueueEdit(fromIndex, toIndex)
+                                            } else {
+                                                currentPV.moveQueueItem(fromIndex, toIndex)
+                                                if (listenTogetherUiState.isHost && listenTogetherUiState.activeRoom != null) {
+                                                    val reordered = currentPV.uiState.value
+                                                    reordered.currentTrack?.let { trk ->
+                                                        obtainListenTogetherViewModel().broadcastHostPlayback(
+                                                            currentTrack = trk,
+                                                            isPlaying = reordered.isPlaying,
+                                                            playbackPositionMs = currentPV.playbackPositionMs.value,
+                                                            queue = reordered.queue,
+                                                            queueIndex = reordered.currentIndex
+                                                        )
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                    onAddToPlaylist = { plId, track -> currentLibVM.addTrackToPlaylist(plId, track) },
-                                    onCreatePlaylistAndAdd = { title, track -> currentLibVM.createPlaylistAndAddTrack(title, track) },
-                                    onPlayNextTrack = { track ->
-                                        when {
-                                            guestMay { it.guestsMayAddSongs } -> obtainListenTogetherViewModel().recommendSong(track)
-                                            guestNow() -> notifyGuestControlBlocked()
-                                            else -> currentPV.playNext(track)
-                                        }
-                                    },
-                                    onAddToQueueTrack = { track ->
-                                        when {
-                                            guestMay { it.guestsMayAddSongs } -> obtainListenTogetherViewModel().recommendSong(track)
-                                            guestNow() -> notifyGuestControlBlocked()
-                                            else -> currentPV.addToQueue(listOf(track))
-                                        }
-                                    },
-                                    onToggleFavoriteTrack = { track -> currentPV.toggleFavorite(track) },
-                                    isFavoriteTrack = { trackId -> libraryUiState.favorites.any { it.id == trackId } },
-                                    onStartRadioTrack = { track ->
-                                        playOrRequest(track) { currentPV.playTrack(track, listOf(track), 0) }
-                                    },
-                                    onAlbumClick = { album ->
-                                        collapsePlayer()
-                                        openAlbumDetail(album)
-                                    },
-                                    onArtistClick = { artist ->
-                                        collapsePlayer()
-                                        openArtistDetail(artist)
-                                    },
-                                    onDismiss = { collapsePlayer() },
-                                    sharedTransitionScope = null,
-                                    animatedVisibilityScope = null,
-                                    currentQuality = currentPV.playerSettings.collectAsState().value.audioQuality,
-                                    onAudioQualityChange = { currentPV.updateAudioQuality(it) },
-                                    isTrackPinned = { homeViewModel.isTrackPinned(it) },
-                                    onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
-                                    onOpenListenTogether = {
-                                        collapsePlayer()
-                                        isListenTogetherOpen = true
-                                    },
-                                    lyricsProviders = remember(currentPV) { currentPV.selectableLyricsProviders() },
-                                    lyricsProviderPicks = currentPV.lyricsProviderPicks.collectAsState().value,
-                                    onPickLyricsProvider = { currentPV.pickLyricsProvider(it) }
-                                )
+                                        },
+                                        onAddToPlaylist = { plId, track -> currentLibVM.addTrackToPlaylist(plId, track) },
+                                        onCreatePlaylistAndAdd = { title, track -> currentLibVM.createPlaylistAndAddTrack(title, track) },
+                                        onPlayNextTrack = { track ->
+                                            when {
+                                                guestMay { it.guestsMayAddSongs } -> obtainListenTogetherViewModel().recommendSong(track)
+                                                guestNow() -> notifyGuestControlBlocked()
+                                                else -> currentPV.playNext(track)
+                                            }
+                                        },
+                                        onAddToQueueTrack = { track ->
+                                            when {
+                                                guestMay { it.guestsMayAddSongs } -> obtainListenTogetherViewModel().recommendSong(track)
+                                                guestNow() -> notifyGuestControlBlocked()
+                                                else -> currentPV.addToQueue(listOf(track))
+                                            }
+                                        },
+                                        onToggleFavoriteTrack = { track -> currentPV.toggleFavorite(track) },
+                                        isFavoriteTrack = { trackId -> libraryUiState.favorites.any { it.id == trackId } },
+                                        onStartRadioTrack = { track ->
+                                            playOrRequest(track) { currentPV.playTrack(track, listOf(track), 0) }
+                                        },
+                                        onAlbumClick = { album ->
+                                            collapsePlayer()
+                                            openAlbumDetail(album)
+                                        },
+                                        onArtistClick = { artist ->
+                                            collapsePlayer()
+                                            openArtistDetail(artist)
+                                        },
+                                        onDismiss = { collapsePlayer() },
+                                        sharedTransitionScope = null,
+                                        animatedVisibilityScope = null,
+                                        currentQuality = currentPV.playerSettings.collectAsState().value.audioQuality,
+                                        onAudioQualityChange = { currentPV.updateAudioQuality(it) },
+                                        isTrackPinned = { homeViewModel.isTrackPinned(it) },
+                                        onPinTrackToSpeedDial = { homeViewModel.togglePinTrack(it) },
+                                        onOpenListenTogether = {
+                                            collapsePlayer()
+                                            isListenTogetherOpen = true
+                                        },
+                                        lyricsProviders = remember(currentPV) { currentPV.selectableLyricsProviders() },
+                                        lyricsProviderPicks = currentPV.lyricsProviderPicks.collectAsState().value,
+                                        onPickLyricsProvider = { currentPV.pickLyricsProvider(it) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -2592,32 +2601,34 @@ fun AuralisApp(
                             },
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        MiniPlayerHost(
-                            playerViewModel = activePV,
-                            playerUiState = playerUiState,
-                            audioPlayerFallbackTrack = audioPlayerTrack,
-                            audioPlayerIsPlaying = audioPlayerIsPlaying,
-                            isGuestInRoom = isGuestInRoom,
-                            guestCanSwipe = guestCanSwipe,
-                            guestControlBlocked = { guestControlBlocked() },
-                            guestSkipBlocked = { guestSkipBlocked() },
-                            isFullyCollapsed = isFullyCollapsed,
-                            appearanceSettings = appearanceSettings,
-                            hazeState = hazeState,
-                            onOpenNowPlaying = { expandPlayer() },
-                            onOpenArtist = {
-                                val track = playerUiState.currentTrack ?: audioPlayerTrack
-                                if (track != null) {
-                                    openArtistDetail(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
-                                }
-                            },
-                            onAddToPlaylist = {
-                                showMiniPlayerTrackOptions = true
-                            },
-                            notifyGuestControlBlocked = { notifyGuestControlBlocked() },
-                            skipLocked = { skipLocked() },
-                            requestGuestPlay = { track -> playOrRequest(track) {} }
-                        )
+                        WithPlayerUiState(playerUiStateHolder) { fullPlayerUiState ->
+                            MiniPlayerHost(
+                                playerViewModel = activePV,
+                                playerUiState = fullPlayerUiState,
+                                audioPlayerFallbackTrack = audioPlayerTrack,
+                                audioPlayerIsPlaying = audioPlayerIsPlaying,
+                                isGuestInRoom = isGuestInRoom,
+                                guestCanSwipe = guestCanSwipe,
+                                guestControlBlocked = { guestControlBlocked() },
+                                guestSkipBlocked = { guestSkipBlocked() },
+                                isFullyCollapsed = isFullyCollapsed,
+                                appearanceSettings = appearanceSettings,
+                                hazeState = hazeState,
+                                onOpenNowPlaying = { expandPlayer() },
+                                onOpenArtist = {
+                                    val track = playerUiState.currentTrack ?: audioPlayerTrack
+                                    if (track != null) {
+                                        openArtistDetail(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
+                                    }
+                                },
+                                onAddToPlaylist = {
+                                    showMiniPlayerTrackOptions = true
+                                },
+                                notifyGuestControlBlocked = { notifyGuestControlBlocked() },
+                                skipLocked = { skipLocked() },
+                                requestGuestPlay = { track -> playOrRequest(track) {} }
+                            )
+                        }
                     }
                 }
             }
@@ -3077,18 +3088,20 @@ fun AuralisApp(
         if (isAmbientOpen) {
             val vm = obtainPlayerViewModel()
             val ambientPosition = vm.playbackPositionMs.collectAsState()
-            com.auralis.music.ui.player.AmbientModeScreen(
-                uiState = playerUiState,
-                positionState = ambientPosition,
-                clockSource = vm.playbackClockSource,
-                onDismiss = { isAmbientOpen = false },
-                onSeekTo = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.seekTo(it) },
-                onPlayPause = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.togglePlayPause() },
-                onPrevious = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.previous() },
-                onNext = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.next() },
-                onShuffle = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleShuffle() },
-                onRepeat = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleRepeat() }
-            )
+            WithPlayerUiState(playerUiStateHolder) { fullPlayerUiState ->
+                com.auralis.music.ui.player.AmbientModeScreen(
+                    uiState = fullPlayerUiState,
+                    positionState = ambientPosition,
+                    clockSource = vm.playbackClockSource,
+                    onDismiss = { isAmbientOpen = false },
+                    onSeekTo = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.seekTo(it) },
+                    onPlayPause = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.togglePlayPause() },
+                    onPrevious = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.previous() },
+                    onNext = { if (guestSkipBlocked()) notifyGuestControlBlocked() else if (!skipLocked()) vm.next() },
+                    onShuffle = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleShuffle() },
+                    onRepeat = { if (guestControlBlocked()) notifyGuestControlBlocked() else vm.toggleRepeat() }
+                )
+            }
         }
 
         if (showUpdaterFromNav) {
@@ -3270,4 +3283,22 @@ private fun DeferredVisibility(
     content: @Composable AnimatedVisibilityScope.() -> Unit
 ) {
     AnimatedVisibility(visible = visible(), modifier = modifier, enter = enter, exit = exit, content = content)
+}
+
+private val EmptyPlayerUiState: State<PlayerUiState> = mutableStateOf(PlayerUiState())
+
+/** The fields [AuralisApp] itself reads; equal projections skip recomposing the app root. */
+private fun PlayerUiState.appShellFields() = PlayerUiState(
+    currentTrack = currentTrack,
+    isPlaying = isPlaying,
+    playbackPositionMs = playbackPositionMs,
+    queue = queue,
+    currentIndex = currentIndex,
+    showInlineLyrics = showInlineLyrics
+)
+
+/** Reads the full player state in its own recompose scope, so only [content] rebuilds on a change. */
+@Composable
+private fun WithPlayerUiState(state: State<PlayerUiState>, content: @Composable (PlayerUiState) -> Unit) {
+    content(state.value)
 }

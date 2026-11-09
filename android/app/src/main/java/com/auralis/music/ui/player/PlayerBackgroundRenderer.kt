@@ -923,6 +923,15 @@ private fun SeamlessArtworkBlurLayer(
     // fill the screen; half-size (2x) still cuts the blur's GPU cost by ~75% while holding enough
     // detail that the upscale doesn't read as pixelated.
     val blurDownscale = if (isMiniPlayer) 1f else 2f
+    // The full player draws artwork blurred once in advance (see ArtworkPreBlur): a live blur
+    // cost more GPU per frame than a 144 Hz frame allows. Its radius, as a fraction of the shown
+    // artwork's side, is the old radius over the screen's long side (the artwork fills that side).
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val preBlur = if (isMiniPlayer) null else {
+        val longSideDp = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).coerceAtLeast(1)
+        val fraction = (blurRadius.value / longSideDp * 1000f).toInt() / 1000f
+        remember(fraction) { ArtworkPreBlur(fraction) }
+    }
 
     // Ping-pong layer slots: Slot 0 (base) and Slot 1 (overlay)
     // slot1Alpha: 0f = Slot 0 is fully visible; 1f = Slot 1 is fully visible.
@@ -966,7 +975,8 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(prim)
                         .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
-                        .allowHardware(true)
+                        .allowHardware(preBlur == null)
+                        .apply { preBlur?.let { transformations(it) } }
                         .crossfade(false)
                         .build()
                 }
@@ -985,7 +995,7 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha * (1f - swipeFraction)
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius / blurDownscale)
+                        .then(if (preBlur == null) Modifier.blur(radius = blurRadius / blurDownscale) else Modifier)
                 )
             }
 
@@ -993,7 +1003,8 @@ private fun SeamlessArtworkBlurLayer(
                 ImageRequest.Builder(context)
                     .data(secondaryArtworkUrl)
                     .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
-                    .allowHardware(true)
+                    .allowHardware(preBlur == null)
+                        .apply { preBlur?.let { transformations(it) } }
                     .crossfade(false)
                     .build()
             }
@@ -1012,7 +1023,7 @@ private fun SeamlessArtworkBlurLayer(
                         alpha = targetAlpha * swipeFraction
                         if (rotationZ != 0f) this.rotationZ = rotationZ
                     }
-                    .blur(radius = blurRadius / blurDownscale)
+                    .then(if (preBlur == null) Modifier.blur(radius = blurRadius / blurDownscale) else Modifier)
             )
         } else {
             // Stable Ping-Pong Dual-Layer: Slot 0 and Slot 1 persist seamlessly.
@@ -1023,7 +1034,8 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(u0)
                         .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
-                        .allowHardware(true)
+                        .allowHardware(preBlur == null)
+                        .apply { preBlur?.let { transformations(it) } }
                         .crossfade(false)
                         .build()
                 }
@@ -1043,7 +1055,7 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius / blurDownscale)
+                        .then(if (preBlur == null) Modifier.blur(radius = blurRadius / blurDownscale) else Modifier)
                 )
             }
 
@@ -1053,7 +1065,8 @@ private fun SeamlessArtworkBlurLayer(
                     ImageRequest.Builder(context)
                         .data(u1)
                         .size(if (isMiniPlayer) 128 else 512, if (isMiniPlayer) 128 else 512)
-                        .allowHardware(true)
+                        .allowHardware(preBlur == null)
+                        .apply { preBlur?.let { transformations(it) } }
                         .crossfade(false)
                         .build()
                 }
@@ -1073,7 +1086,7 @@ private fun SeamlessArtworkBlurLayer(
                             alpha = targetAlpha * slot1Alpha.value
                             if (rotationZ != 0f) this.rotationZ = rotationZ
                         }
-                        .blur(radius = blurRadius / blurDownscale)
+                        .then(if (preBlur == null) Modifier.blur(radius = blurRadius / blurDownscale) else Modifier)
                 )
             }
         }
