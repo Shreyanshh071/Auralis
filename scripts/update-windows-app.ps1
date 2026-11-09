@@ -30,6 +30,7 @@ $appExe = "$appLocalDir\Auralis.exe"
 $appCfg = "$appLocalDir\app\Auralis.cfg"
 $appDataDir = "$env:USERPROFILE\AppData\Roaming\Auralis"
 $backupBaseDir = "$env:USERPROFILE\Downloads\Auralis-checkpoints"
+$distributionDir = "$workspaceRoot\windows\build\compose\binaries\main\app\Auralis"
 
 Write-Host "==> Starting Windows app update workflow..." -ForegroundColor Cyan
 
@@ -59,8 +60,12 @@ if (-not $SkipBuild) {
 }
 
 # 3. Check paths
-if (-not (Test-Path $appCfg)) {
-    Write-Error "Could not find Auralis.cfg at $appCfg"
+if (-not (Test-Path $appLocalDir)) {
+    New-Item -ItemType Directory -Path $appLocalDir -Force | Out-Null
+}
+$distCfg = "$distributionDir\app\Auralis.cfg"
+if (-not (Test-Path $appCfg) -and -not (Test-Path $distCfg)) {
+    Write-Error "Could not find Auralis.cfg at $appCfg or in distribution ($distCfg)"
     exit 1
 }
 
@@ -114,6 +119,14 @@ if (-not (Test-Path -LiteralPath "$distributionDir\Auralis.exe")) {
 Write-Host "==> Updating installed application and runtime..." -ForegroundColor Cyan
 Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $appLocalDir -Recurse -Force
+}
+
+$packageCaches = Get-ChildItem -Path "$env:LOCALAPPDATA\Packages\*\LocalCache\Local\Auralis" -ErrorAction SilentlyContinue
+foreach ($pkgCache in $packageCaches) {
+    Write-Host "==> Syncing update to package virtualized cache: $($pkgCache.FullName)..." -ForegroundColor Cyan
+    Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $pkgCache.FullName -Recurse -Force
+    }
 }
 
 foreach ($sessionName in $sessionHashes.Keys) {
