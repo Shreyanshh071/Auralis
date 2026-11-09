@@ -429,18 +429,35 @@ class GoogleAccountSyncManager(
         val protected = com.auralis.music.data.playlistsync.AndroidPlaylistSync.protectedPlaylistIds(context)
         val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
         val doc = db.collection("users").document(uid)
-        val plan = db.runTransaction { tx ->
-            val snapshot = tx.get(doc)
-            val now = System.currentTimeMillis()
-            val merged = com.auralis.music.data.sync.AccountLibraryMerge.merge(
+        fun mergeWith(snapshot: com.google.firebase.firestore.DocumentSnapshot, now: Long) =
+            com.auralis.music.data.sync.AccountLibraryMerge.merge(
                 local, com.auralis.music.data.sync.CloudLibrary.parse(snapshot.data.orEmpty()).toSyncedLibrary(), baseline, now, protected)
-            // Signed out or switched while merging: never send this library to the account.
+        // Whether the account now holds the merged library. When it doesn't, the baseline must stay:
+        // recording a library the account never got would read its missing items as deletions.
+        var accountSaved = true
+        val plan = try {
+            db.runTransaction { tx ->
+                val snapshot = tx.get(doc)
+                val now = System.currentTimeMillis()
+                val merged = mergeWith(snapshot, now)
+                // Signed out or switched while merging: never send this library to the account.
+                check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
+                if (merged.accountChanged || !snapshot.exists()) {
+                    tx.set(doc, cloudDocument(merged.account, now), com.google.firebase.firestore.SetOptions.merge())
+                }
+                merged
+            }.await()
+        } catch (e: com.google.firebase.firestore.FirebaseFirestoreException) {
+            // The daily write quota is used up, but reads still work: bring the account's library
+            // onto this phone anyway, and send this phone's changes on a later sync.
+            if (e.code != com.google.firebase.firestore.FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) throw e
+            val snapshot = doc.get().await()
+            if (!snapshot.exists()) throw e
             check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
-            if (merged.accountChanged || !snapshot.exists()) {
-                tx.set(doc, cloudDocument(merged.account, now), com.google.firebase.firestore.SetOptions.merge())
-            }
-            merged
-        }.await()
+            accountSaved = false
+            android.util.Log.w("CloudSync", "[CloudSync] Write quota used up: applying the account's library here without saving")
+            mergeWith(snapshot, System.currentTimeMillis())
+        }
 
         inTransaction {
             plan.deletePlaylists.forEach { libraryRepository.deletePlaylist(it) }
@@ -457,7 +474,7 @@ class GoogleAccountSyncManager(
             plan.removeArtists.forEach { libraryRepository.removeArtist(it) }
         }
         pins.replace(context, plan.pins, plan.pinsAt)
-        prefs.edit().putString(baselineKey, plan.baseline.encode()).commit()
+        if (accountSaved) prefs.edit().putString(baselineKey, plan.baseline.encode()).commit()
         rememberAccountItems(uid, plan.addedPlaylistIds, plan.addFavorites.mapTo(HashSet()) { it.id })
         android.util.Log.d("CloudSync", "[CloudSync OK] ${plan.account.playlists.size} playlists, ${plan.account.favorites.size} liked; " +
             "${plan.writePlaylists.size} updated here, ${plan.deletePlaylists.size} removed, account changed=${plan.accountChanged}")
