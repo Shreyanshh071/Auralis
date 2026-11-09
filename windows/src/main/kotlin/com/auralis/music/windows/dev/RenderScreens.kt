@@ -130,6 +130,19 @@ fun main(args: Array<String>) {
                     onTrackClick = { _, _ -> }, onFavoriteToggle = {})
             }
         },
+        "library-home" to {
+            val fixtures = listOf("puchuk", "SONGS", "Nuh uh", "gili gili(old)", "Currents", "wan pisiuu", "Zup", "gili gili", "Angrezi", "acha", "bhenkar gaane", "game").mapIndexed { i, name ->
+                com.auralis.music.domain.model.Playlist("preview-$i", name, tracks = previewSongs.drop(i % 5).take(14), coverUrl = previewSongs.getOrNull(i)?.thumbnail)
+            }
+            com.auralis.music.windows.player.ArtworkAppBackground(previewSongs.firstOrNull()?.thumbnail, coverPalette) {
+                com.auralis.music.ui.library.LibraryScreen(
+                    currentTrackId = null, isPlaying = false, desktopBrowser = true,
+                    uiState = com.auralis.music.ui.viewmodel.LibraryUiState(favorites = previewSongs.take(6), playlists = fixtures,
+                        savedArtists = listOf(com.auralis.music.domain.model.SavedArtist("artist-preview", "Billy Idol", previewSongs.getOrNull(1)?.thumbnail, "1.23M subscribers"))),
+                    onFilterSelect = {}, onCreatePlaylist = {}, onDeletePlaylist = {}, onPlaylistSelect = {},
+                    onTrackClick = { _, _ -> }, onFavoriteToggle = {})
+            }
+        },
         "library-artists" to {
             com.auralis.music.ui.library.LibraryScreen(
                 currentTrackId = null, isPlaying = false,
