@@ -375,9 +375,7 @@ fun main(args: Array<String>) {
         DisposableEffect(components) {
             val comp = components
             val hotkeys = if (comp != null) com.auralis.music.windows.settings.DesktopGlobalHotkeys(comp.playback, openWindow) else null
-            val scrobbler = if (comp != null) com.auralis.music.windows.settings.DesktopScrobbler(comp.playback, comp.recorderScope) else null
-            val translator = comp?.lyrics?.let { com.auralis.music.windows.settings.DesktopAiLyrics(it, comp.stores.aiTranslation, comp.recorderScope) }
-            onDispose { hotkeys?.close(); scrobbler?.close(); translator?.close() }
+            onDispose { hotkeys?.close() }
         }
         LaunchedEffect(components) {
             val pb = components?.playback ?: return@LaunchedEffect

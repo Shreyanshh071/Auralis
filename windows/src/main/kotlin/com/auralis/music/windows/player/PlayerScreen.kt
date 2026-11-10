@@ -524,8 +524,9 @@ private fun CanvasPlayerDock(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     var focused by remember { mutableStateOf(false) }
-    Column(modifier, verticalArrangement = Arrangement.Bottom) {
-        Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()
+    // Centred along the bottom of the video and wide enough to read as its caption, not a corner tag.
+    Column(modifier, verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()
             .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
             .focusable(interactionSource = interaction)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

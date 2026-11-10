@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -54,11 +55,9 @@ internal enum class SettingsTab(val englishLabel: String, private val englishHin
     PLAYBACK("Playback", "Audio, queue behaviour and lyrics", Icons.Outlined.Headphones, "quality normalize volume crossfade speed autoplay shuffle video"),
     HOTKEYS("Global hotkeys", "Control Auralis while another app is in front", Icons.Outlined.Keyboard, "keyboard shortcuts bindings"),
     DISCORD("Discord", "Your Rich Presence card and live preview", Icons.Outlined.ChatBubbleOutline, "activity status clickable progress"),
-    SCROBBLING("Scrobbling", "Last.fm, ListenBrainz and metadata rules", Icons.Outlined.GraphicEq, "lastfm last.fm listenbrainz metadata"),
     DATA("Data & storage", "Network, downloads and caches", Icons.Outlined.Storage, "proxy folder cache downloads"),
     ABOUT("About", "Version, updates and diagnostics", Icons.Outlined.Info, "release beta logs export"),
     CONTENT("Content & region", "Regional catalogue and lyrics providers", Icons.Outlined.Language, "country language explicit"),
-    AI("AI translation", "Translation providers and credentials", Icons.Outlined.Translate, "api key translator"),
     PRIVACY("Privacy & history", "Control and clear recorded activity", Icons.Outlined.Shield, "clear delete search listening");
 
     val label: String get() = desktopText(englishLabel)
@@ -236,7 +235,10 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
                     Text(if (searching) desktopText("Search results") else selected.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(if (searching) desktopText(if (results.size == 1) "1 setting" else "%1\$s settings", results.size.toString()) else selected.hint,
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onDismiss, Modifier.size(36.dp).background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))) {
+                // Clipped before clickable so the hover and press glow fill the whole rounded square,
+                // not IconButton's circle.
+                Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onDismiss), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Close, desktopText("Close settings"), Modifier.size(18.dp))
                 }
             }
@@ -259,11 +261,9 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
                         SettingsTab.APPEARANCE -> { DesktopAppearanceExtras(); AppearanceSettingsPane(stores.appearance) }
                         SettingsTab.PLAYBACK -> PlaybackPane(stores)
                         SettingsTab.HOTKEYS -> HotkeysPane()
-                        SettingsTab.SCROBBLING -> ScrobblingPane()
                         SettingsTab.DATA -> DataPane(stores)
                         SettingsTab.ABOUT -> AboutPane()
                         SettingsTab.CONTENT -> ContentSettingsPane(stores.content)
-                        SettingsTab.AI -> AiTranslationSettingsPane(stores.aiTranslation)
                         SettingsTab.PRIVACY -> PrivacySettingsPane(stores.privacy, history, search)
                         else -> Unit
                     }
@@ -489,95 +489,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     Text(desktopText("Examples: Ctrl+Alt+P, Ctrl+Shift+F9. Clear a field and Apply to remove a binding."), style=MaterialTheme.typography.bodySmall)
     TextButton({ hotkeyActions.forEach { prefs.set("hotkey.${it.id}",it.default) } }) { Text(desktopText("Reset bindings")) }
-}
-
-@Composable private fun ScrobblingPane() {
-    val cfg by ScrobblePreferences.changes.collectAsState(); val scope = rememberCoroutineScope()
-    var message by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
-    fun action(block: () -> String) { busy=true; scope.launch { message=withContext(Dispatchers.IO) { runCatching(block).getOrElse { it.message ?: "Connection failed" } }; busy=false } }
-    fun set(key:String,value:Any) = ScrobblePreferences.set(key,value)
-    SettingsGroup("Last.fm") {
-        Text(desktopText("Use your Last.fm API application key and shared secret. Your credentials are protected by your Windows account."), style=MaterialTheme.typography.bodySmall)
-        SecretField("API key", "apiKey"); SecretField("Shared secret", "apiSecret")
-        if (ScrobblePreferences.text("session").isBlank()) {
-            Button({ action { val url=ScrobbleApi.beginLastfm(); java.awt.Desktop.getDesktop().browse(java.net.URI(url)); "Approve Auralis in your browser, then finish connecting." } }, enabled=!busy) { Text(desktopText("Connect in browser")) }
-            if (ScrobblePreferences.text("requestToken").isNotBlank()) Button({ action { ScrobbleApi.finishLastfm(); "Connected to Last.fm." } },enabled=!busy) { Text(desktopText("Finish connecting")) }
-        } else {
-            SettingToggle("Scrobble to Last.fm · ${ScrobblePreferences.text("lastfmUser")}", checked=ScrobblePreferences.bool("lastfmEnabled"), onChecked={set("lastfmEnabled",it)})
-            TextButton({set("lastfmEnabled",false);set("session","");set("lastfmUser","")}) {Text(desktopText("Disconnect Last.fm"))}
-        }
-    }
-    SettingsGroup("ListenBrainz") {
-        SecretField("User token from listenbrainz.org/profile", "lbToken")
-        Button({ action { val user=ScrobbleApi.validateListenBrainz(ScrobblePreferences.text("lbToken"));set("lbUser",user);set("lbEnabled",true);"Connected as $user." } },enabled=!busy) {Text(desktopText("Validate and connect"))}
-        SettingToggle("Scrobble to ListenBrainz", checked=ScrobblePreferences.bool("lbEnabled"), onChecked={set("lbEnabled",it)})
-        TextButton({set("lbEnabled",false);set("lbToken","");set("lbUser","")}) {Text(desktopText("Disconnect ListenBrainz"))}
-    }
-    SettingsGroup("Timing & metadata") {
-        SettingToggle("Send now playing", checked=ScrobblePreferences.bool("nowPlaying",true), onChecked={set("nowPlaying",it)})
-        SettingSlider("Track percentage", ScrobblePreferences.number("percent",50.0).toFloat(),50f..100f,{"${it.toInt()}%"}) {set("percent",it.toDouble())}
-        SettingToggle("Use a time threshold", "Turn off to use only the track percentage",ScrobblePreferences.number("minutes",4.0)>0) {set("minutes",if(it) 4.0 else 0.0)}
-        if(ScrobblePreferences.number("minutes",4.0)>0) SettingSlider("Maximum listening time", ScrobblePreferences.number("minutes",4.0).toFloat(),4f..30f,{"${it.toInt()} minutes"}) {set("minutes",it.toDouble())}
-        Text(desktopText("A play counts after the earlier threshold; paused time and seek jumps do not count. Tracks shorter than 30 seconds are excluded."),style=MaterialTheme.typography.bodySmall)
-        SettingToggle("Clean title labels", "Remove Official Audio, Music Video and lyrics suffixes",ScrobblePreferences.bool("cleanTitle",true)) {set("cleanTitle",it)}
-        SettingToggle("Remove artist Topic suffix", checked=ScrobblePreferences.bool("stripTopic",true),onChecked={set("stripTopic",it)})
-        SettingToggle("Split music video titles", "Read Artist - Title from video titles",ScrobblePreferences.bool("splitVideoTitles")) {set("splitVideoTitles",it)}
-        SettingToggle("Primary artist only", "Exclude featured artists from scrobbles",ScrobblePreferences.bool("primaryArtist")) {set("primaryArtist",it)}
-        if(ScrobblePreferences.bool("primaryArtist")) SettingToggle("Strict artist splitting", "Also split commas, ampersands and collaboration separators",ScrobblePreferences.bool("primaryStrict")) {set("primaryStrict",it)}
-        SettingToggle("Skip local files", checked=ScrobblePreferences.bool("skipLocal"),onChecked={set("skipLocal",it)})
-        val rules = runCatching { org.json.JSONArray(ScrobblePreferences.text("rules").ifBlank {"[]"}) }.getOrElse { org.json.JSONArray() }
-        for (index in 0 until rules.length()) {
-            val rule=rules.getJSONObject(index)
-            key(rule.optString("id",index.toString())) {
-                Column(Modifier.fillMaxWidth().border(1.dp,MaterialTheme.colorScheme.outlineVariant,RoundedCornerShape(12.dp)).padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    fun change(name:String,value:Any) {rule.put(name,value);set("rules",rules.toString())}
-                    SettingToggle("Rule ${index+1}",checked=rule.optBoolean("enabled",true),onChecked={change("enabled",it)})
-                    SettingChoice("Field",selected=rule.optString("field","title"),options=listOf("title","artist","album")) {change("field",it)}
-                    OutlinedTextField(rule.optString("find"),{change("find",it)},Modifier.fillMaxWidth(),label={Text(desktopText("Find"))},singleLine=true)
-                    OutlinedTextField(rule.optString("replace"),{change("replace",it)},Modifier.fillMaxWidth(),label={Text(desktopText("Replace with"))},singleLine=true)
-                    SettingToggle("Regular expression",checked=rule.optBoolean("regex"),onChecked={change("regex",it)})
-                    if(rule.optBoolean("regex") && runCatching {Regex(rule.optString("find"))}.isFailure) Text(desktopText("Invalid pattern; this rule is ignored."),color=MaterialTheme.colorScheme.error)
-                    TextButton({rules.remove(index);set("rules",rules.toString())}) {Text(desktopText("Remove rule"))}
-                }
-            }
-        }
-        TextButton({rules.put(org.json.JSONObject().put("id",java.util.UUID.randomUUID().toString()).put("field","title").put("find","").put("replace","").put("enabled",true));set("rules",rules.toString())}) {Text(desktopText("Add metadata rule"))}
-        TextButton({scope.launch {runCatching {
-            com.auralis.music.ui.components.WindowsFilePicker.choose("Export metadata rules", save = true, filterName = "JSON files", pattern = "*.json", defaultName = "auralis-scrobble-rules.json", defaultExtension = "json")?.writeText(rules.toString(2))
-        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Export rules"))}
-        TextButton({scope.launch {runCatching {
-            com.auralis.music.ui.components.WindowsFilePicker.choose("Import metadata rules", filterName = "JSON files", pattern = "*.json")?.let { val imported=org.json.JSONArray(it.readText());require(imported.length()<=100) {"Too many rules."};require((0 until imported.length()).all {index->imported.optJSONObject(index)?.optString("field") in setOf("title","artist","album")}) {"Each rule must have a title, artist or album field."};set("rules",imported.toString()) }
-        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Import rules"))}
-    }
-    val current = com.auralis.music.ui.settings.LocalSettingsPlatform.current.nowPlaying?.track?.collectAsState()?.value
-    if(current!=null) SettingsGroup("Current song preview & edit") {
-        val metadata=ScrobblePreferences.metadata(current)
-        Text("${metadata.first}\n${metadata.second}\n${metadata.third}")
-        var title by remember(current.id) {mutableStateOf(metadata.first)}
-        var artist by remember(current.id) {mutableStateOf(metadata.second)}
-        var album by remember(current.id) {mutableStateOf(metadata.third)}
-        OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text(desktopText("Title"))})
-        OutlinedTextField(artist,{artist=it},Modifier.fillMaxWidth(),label={Text(desktopText("Artist"))})
-        OutlinedTextField(album,{album=it},Modifier.fillMaxWidth(),label={Text(desktopText("Album"))})
-        TextButton({val edits=org.json.JSONObject(ScrobblePreferences.text("edits").ifBlank {"{}"});edits.put(current.id,org.json.JSONObject().put("title",title).put("artist",artist).put("album",album));set("edits",edits.toString())}) {Text(desktopText("Save correction for this song"))}
-        TextButton({val edits=org.json.JSONObject(ScrobblePreferences.text("edits").ifBlank {"{}"});edits.remove(current.id);set("edits",edits.toString())}) {Text(desktopText("Remove song correction"))}
-        val edits=org.json.JSONObject(ScrobblePreferences.text("edits").ifBlank {"{}"})
-        SettingToggle("Skip this song",checked=edits.optJSONObject(current.id)?.optBoolean("skip") == true,onChecked={skip->val edit=edits.optJSONObject(current.id) ?: org.json.JSONObject();edit.put("skip",skip);edits.put(current.id,edit);set("edits",edits.toString())})
-    }
-    val savedEdits=org.json.JSONObject(ScrobblePreferences.text("edits").ifBlank {"{}"})
-    if(savedEdits.length()>0) SettingsGroup("Saved song corrections") {
-        savedEdits.keys().asSequence().toList().forEach {id->Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-            Text(savedEdits.getJSONObject(id).optString("title",id),Modifier.weight(1f))
-            TextButton({savedEdits.remove(id);set("edits",savedEdits.toString())}) {Text(desktopText("Remove"))}
-        }}
-    }
-    Text(desktopText(message), color=MaterialTheme.colorScheme.primary)
-    val status by DesktopScrobbler.status.collectAsState(); Text(desktopText(status),style=MaterialTheme.typography.bodySmall)
-}
-
-@Composable private fun SecretField(label:String,key:String) {
-    var value by remember(key) { mutableStateOf(ScrobblePreferences.text(key)) }
-    OutlinedTextField(value,{value=it;ScrobblePreferences.set(key,it.trim())},Modifier.fillMaxWidth(),label={Text(desktopText(label))},singleLine=true,visualTransformation=PasswordVisualTransformation())
 }
 
 @Composable private fun DataPane(stores:SettingsStores) {

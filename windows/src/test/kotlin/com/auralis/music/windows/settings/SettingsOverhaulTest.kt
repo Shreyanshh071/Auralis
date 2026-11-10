@@ -37,7 +37,10 @@ class SettingsOverhaulTest {
     @Test fun settingsSearchFindsControlsAndHandlesEmptyResults() {
         assertEquals(listOf(SettingsTab.GENERAL), matchingSettingsTabs("song notifications"))
         assertEquals(listOf(SettingsTab.PLAYBACK), matchingSettingsTabs("crossfade"))
-        assertEquals(listOf(SettingsTab.SCROBBLING), matchingSettingsTabs(" Last.FM "))
+        assertEquals(listOf(SettingsTab.DATA), matchingSettingsTabs(" PROXY "))
+        // Scrobbling and AI translation were removed from the PC app.
+        assertTrue(matchingSettingsTabs("last.fm").isEmpty())
+        assertTrue(matchingSettingsTabs("openrouter").isEmpty())
         assertEquals(SettingsTab.entries.toList(), matchingSettingsTabs("  "))
         assertTrue(matchingSettingsTabs("something nonexistent").isEmpty())
     }
@@ -114,17 +117,6 @@ class SettingsOverhaulTest {
         assertFailsWith<IllegalStateException> {parseHotkey("Ctrl+Banana")}
         assertNotEquals(parseHotkey("Ctrl+Alt+P"),parseHotkey("Ctrl+Alt+Shift+P"))
     }
-    @Test fun scrobblingUsesRulesCorrectionsAndListeningThresholds() {
-        val track=Track("id","Song (Official Audio)","Artist - Topic",album="Album")
-        val config=JSONObject().put("rules","""[{"field":"title","find":"Song","replace":"Corrected"}]""")
-        assertEquals(Triple("Corrected","Artist","Album"),scrobbleMetadata(track,config))
-        config.put("edits","""{"id":{"title":"Override","artist":"Correct artist"}}""")
-        assertEquals(Triple("Override","Correct artist","Album"),scrobbleMetadata(track,config))
-        assertEquals(90_000,scrobbleThreshold(180_000,50.0,4.0))
-        assertEquals(240_000,scrobbleThreshold(900_000,50.0,4.0))
-        assertEquals(120_000,scrobbleThreshold(180_000,66.6666667,4.0))
-        assertEquals(ScrobbleApi.signature(mapOf("b" to "2","a" to "1"),"secret"),ScrobbleApi.signature(mapOf("a" to "1","b" to "2"),"secret"))
-    }
     @Test fun allSectionsRenderAtSmallAndLargeSizesAndCloseWorks() {
         val dir=kotlin.io.path.createTempDirectory("settings-render-test").toFile()
         val stores=DesktopDataStores(dir)
@@ -149,7 +141,7 @@ class SettingsOverhaulTest {
             }
             try {
                 repeat(3) {scene.render(it*16_666_667L).close()}
-                if(tab in listOf(SettingsTab.GENERAL,SettingsTab.APPEARANCE,SettingsTab.PLAYBACK,SettingsTab.SCROBBLING)) {
+                if(tab in listOf(SettingsTab.GENERAL,SettingsTab.APPEARANCE,SettingsTab.PLAYBACK)) {
                     scene.render(50_000_000).use {image->image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.use {data->
                         File("build/screens/settings-${tab.name.lowercase()}-$width.png").apply {parentFile.mkdirs();writeBytes(data.bytes)}
                     }}

@@ -289,101 +289,6 @@ internal fun ContentSettingsPane(store: ContentSettingsDataStore) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 4. AI LYRICS TRANSLATION SETTINGS PANE
-// ═══════════════════════════════════════════════════════════════════════
-
-@Composable
-internal fun AiTranslationSettingsPane(store: AiTranslationDataStore) {
-    val settings by store.settingsFlow.collectAsState(AiTranslationSettings())
-    val scope = rememberCoroutineScope()
-    var draft by remember { mutableStateOf(settings) }
-    var dirty by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-    var models by remember(draft.provider) { mutableStateOf(emptyList<String>()) }
-    var loadingModels by remember { mutableStateOf(false) }
-    LaunchedEffect(settings) { if (!dirty) draft = settings }
-    fun update(transform: AiTranslationSettings.() -> AiTranslationSettings) {
-        draft = draft.transform(); dirty = true
-    }
-
-    SettingsGroup("AI translation engine") {
-        val enabled = DesktopPreferences.store.bool("aiLyricsEnabled")
-        SettingToggle("Enable AI lyric translation",
-            if (dirty) "Apply pending changes before enabling translation" else "Send loaded lyrics to your configured provider and show translated lines in the player",
-            enabled, enabled = enabled || !dirty) { DesktopPreferences.store.set("aiLyricsEnabled",it) }
-        val status by DesktopAiLyrics.status.collectAsState()
-        Text(desktopText(status), style = MaterialTheme.typography.bodySmall)
-        SettingChoice(
-            title = "AI provider",
-            description = "Language model service used for translating song lyrics",
-            selected = draft.provider,
-            options = listOf("OpenRouter", "Google Gemini", "OpenAI", "DeepSeek", "Custom")
-        ) { provider -> if (provider != draft.provider) update { copy(provider = provider, apiKey = "", model = "") } }
-
-        var showKey by remember { mutableStateOf(false) }
-        val clipboard = LocalClipboardManager.current
-        SettingTextField(
-            title = "API key",
-            description = "Your API key for the selected provider",
-            value = draft.apiKey,
-            isPassword = !showKey,
-            onValue = { update { copy(apiKey = it) } },
-            trailing = {
-                Row {
-                    IconButton(onClick = { showKey = !showKey }) {
-                        Icon(if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle visibility", Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = {
-                        val text = clipboard.getText()?.text
-                        if (!text.isNullOrBlank()) update { copy(apiKey = text.trim()) }
-                    }) {
-                        Icon(Icons.Outlined.ContentPaste, desktopText("Paste"), Modifier.size(18.dp))
-                    }
-                }
-            }
-        )
-
-        SettingTextField(
-            title = "Model name",
-            description = "Enter a model ID or load the models available from your provider",
-            value = draft.model,
-            onValue = { update { copy(model = it) } }
-        )
-        if (draft.provider == "Custom") SettingTextField("API base URL", "OpenAI-compatible API base URL", draft.customBaseUrl,
-            onValue = { update { copy(customBaseUrl=it) } })
-        TextButton(onClick = { val requestSettings=draft; loadingModels=true; scope.launch {
-            try { models=withContext(Dispatchers.IO) { DesktopAiLyricsClient().models(requestSettings) }; message="Loaded ${models.size} models from ${requestSettings.provider}." }
-            catch (error: Exception) { message=error.message.orEmpty() }
-            finally { loadingModels=false }
-        } }, enabled=!loadingModels) { Text(desktopText(if(loadingModels) "Loading…" else "Load available models")) }
-        if (models.isNotEmpty()) SettingSearchableChoice("Available models", selectedKey=draft.model, selectedDisplay=draft.model,
-            options=models.map { it to it }) { update { copy(model=it) } }
-        SettingChoice("Translation mode", selected=draft.translationMode, options=listOf("Translation","Transcription")) {
-            update { copy(translationMode=it) }
-        }
-
-        SettingChoice(
-            title = "Target translation language",
-            description = "Language into which lyrics will be rendered",
-            selected = draft.targetLanguage,
-            options = listOf("English (US)", "Spanish", "Hindi", "French", "Japanese", "German", "Chinese", "Korean", "Portuguese", "Italian", "Russian")
-        ) { update { copy(targetLanguage = it) } }
-
-        SettingTextField(
-            title = "System prompt style",
-            description = "Custom instruction prompt for artistic and rhythmic fidelity",
-            value = draft.systemPrompt,
-            onValue = { update { copy(systemPrompt = it) } }
-        )
-        Button(onClick = { scope.launch {
-            try { store.updateSettings(draft); dirty=false; message="Translation settings applied." }
-            catch(error: Exception) { message=error.message.orEmpty() }
-        } }, enabled=dirty) { Text(desktopText("Apply")) }
-        Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
 // 5. PRIVACY & HISTORY SETTINGS PANE
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -411,35 +316,16 @@ internal fun PrivacySettingsPane(store: PrivacyDataStore, history: HistoryReposi
     }
 
     SettingsGroup("History data cleanup") {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(desktopText("Clear listening history"), style = MaterialTheme.typography.titleMedium)
-                Text(desktopText("Deletes all recorded songs from your listening history"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            OutlinedButton(onClick = {
-                scope.launch {
-                    if (history != null) history.clearHistory() else platformHistory.clearListenHistory()
-                    message = "Listening history cleared."
-                }
-            }) {
-                Text(desktopText("Clear history"))
+        SettingButtonRow("Clear listening history", "Deletes all recorded songs from your listening history", "Clear history") {
+            scope.launch {
+                if (history != null) history.clearHistory() else platformHistory.clearListenHistory()
+                message = "Listening history cleared."
             }
         }
-
-        Spacer(Modifier.height(10.dp))
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(desktopText("Clear search queries"), style = MaterialTheme.typography.titleMedium)
-                Text(desktopText("Deletes all recent search history queries"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            OutlinedButton(onClick = {
-                scope.launch {
-                    if (search != null) search.clearSearchHistory() else platformHistory.clearSearchHistory()
-                    message = "Search history cleared."
-                }
-            }) {
-                Text(desktopText("Clear queries"))
+        SettingButtonRow("Clear search queries", "Deletes all recent search history queries", "Clear queries") {
+            scope.launch {
+                if (search != null) search.clearSearchHistory() else platformHistory.clearSearchHistory()
+                message = "Search history cleared."
             }
         }
 
@@ -483,6 +369,30 @@ internal fun SettingToggle(title: String, description: String? = null, checked: 
                 }
             }
             Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+        }
+    }
+}
+
+/** A setting row with a button on the right, in the same card as [SettingToggle]. */
+@Composable
+internal fun SettingButtonRow(title: String, description: String? = null, button: String, onClick: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().settingJumpTarget(title)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(desktopText(title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                if (!description.isNullOrBlank()) {
+                    Text(desktopText(description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            OutlinedButton(onClick = onClick) { Text(desktopText(button)) }
         }
     }
 }

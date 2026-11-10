@@ -27,12 +27,13 @@ class PlayFromListOrderTest {
             assertEquals(playlist.map { it.id }, queue.tracks.map { it.id })
             assertEquals("local:4", queue.current?.id)
             assertEquals("local:5", queue.tracks.getOrNull(queue.index + 1)?.id)
-            // Picking further down the queue itself still keeps the skipped, unheard songs.
+            // Jumping further down the queue keeps its order: skipped songs stay behind the chosen one.
             playback.playFrom(playlist[0], playlist, automatic = false)
             playback.playAt(3)
             val jumped = playback.queue.value
+            assertEquals(playlist.map { it.id }, jumped.tracks.map { it.id })
             assertEquals("local:3", jumped.current?.id)
-            assertEquals("local:1", jumped.tracks.getOrNull(jumped.index + 1)?.id)
+            assertEquals("local:4", jumped.tracks.getOrNull(jumped.index + 1)?.id)
         } finally { playback.release(); scope.coroutineContext[Job]?.cancelAndJoin(); dir.deleteRecursively() }
     }
 }
