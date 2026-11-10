@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.auralis.music.data.network.AlbumMetadataResolver
@@ -330,6 +331,8 @@ fun main(args: Array<String>) {
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
         var previousGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
+        var macPreviousPlacement by remember { mutableStateOf<WindowPlacement?>(null) }
+        var macImmersivePreviousPlacement by remember { mutableStateOf<WindowPlacement?>(null) }
         var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
         val embeddedDisplay = remember(immersive.trigger) {
@@ -345,6 +348,15 @@ fun main(args: Array<String>) {
             if (playerFullscreen == enabled) return
             nativeFrame?.fullscreen = enabled
             playerFullscreen = enabled
+            if (isMac) {
+                macPreviousPlacement = applyMacPlayerFullscreen(
+                    enabled = enabled,
+                    currentPlacement = windowState.placement,
+                    savedPlacement = macPreviousPlacement,
+                    onSetPlacement = { windowState.placement = it }
+                )
+                return
+            }
             if (enabled) {
                 val bounds = composeWindow?.graphicsConfiguration?.bounds
                     ?: java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration.bounds
@@ -586,15 +598,37 @@ fun main(args: Array<String>) {
             LaunchedEffect(embeddedImmersive) {
                 if (embeddedImmersive) {
                     nativeFrame?.fullscreen = true
-                    immersiveGeometry = windowState.enterBorderlessFullscreen(window.graphicsConfiguration.bounds)
-                } else immersiveGeometry?.let {
+                    if (isMac) {
+                        macImmersivePreviousPlacement = applyMacPlayerFullscreen(
+                            enabled = true,
+                            currentPlacement = windowState.placement,
+                            savedPlacement = macImmersivePreviousPlacement,
+                            onSetPlacement = { windowState.placement = it }
+                        )
+                    } else {
+                        immersiveGeometry = windowState.enterBorderlessFullscreen(window.graphicsConfiguration.bounds)
+                    }
+                } else {
                     nativeFrame?.fullscreen = playerFullscreen
-                    it.restore(windowState)
-                    // Keep the screensaver over the resize until the restored viewport is presented.
-                    repeat(2) { withFrameNanos { } }
-                    immersiveGeometry = null
-                    window.toFront()
-                    window.requestFocus()
+                    if (isMac) {
+                        if (!playerFullscreen) {
+                            macImmersivePreviousPlacement = applyMacPlayerFullscreen(
+                                enabled = false,
+                                currentPlacement = windowState.placement,
+                                savedPlacement = macImmersivePreviousPlacement,
+                                onSetPlacement = { windowState.placement = it }
+                            )
+                        } else {
+                            macImmersivePreviousPlacement = null
+                        }
+                    } else immersiveGeometry?.let {
+                        it.restore(windowState)
+                        // Keep the screensaver over the resize until the restored viewport is presented.
+                        repeat(2) { withFrameNanos { } }
+                        immersiveGeometry = null
+                        window.toFront()
+                        window.requestFocus()
+                    }
                 }
             }
             LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive) {
