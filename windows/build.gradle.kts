@@ -151,8 +151,6 @@ compose.desktop {
             "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
-        }
-        jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 
