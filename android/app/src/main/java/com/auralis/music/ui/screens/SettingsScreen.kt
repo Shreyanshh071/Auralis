@@ -205,6 +205,9 @@ fun SettingsScreen(
                                     SettingsSwitchRow(Icons.Default.SurroundSound, str(R.string.t_3d_spatial_soundstage), str(R.string.android_audio_virtualization_when_suppor), settings.spatialAudio, onToggleSpatialAudio)
                                     SettingsSwitchRow(Icons.Default.GraphicEq, str(R.string.gapless_playback), str(R.string.preload_the_next_track_for_smoother_tran), settings.gaplessPlayback, onToggleGaplessPlayback)
                                     SettingsSwitchRow(Icons.Default.FastForward, str(R.string.skip_silence), str(R.string.skip_quiet_passages_during_playback), settings.skipSilence, onToggleSkipSilence)
+                                    val preferAudioOnly by com.auralis.music.data.network.AudioVersionPreference.enabled.collectAsState()
+                                    SettingsSwitchRow(Icons.Default.MusicNote, str(R.string.prefer_audio_only_versions), str(R.string.prefer_audio_only_versions_description), preferAudioOnly,
+                                        com.auralis.music.data.network.AudioVersionPreference::setEnabled)
                                 }
                             }
                             item(key = "group_audio_transitions") {

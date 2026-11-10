@@ -36,7 +36,7 @@ import java.util.Locale
  */
 internal enum class ImmersiveTrigger { MANUAL, IDLE }
 
-internal enum class ImmersiveView(val label: String) { CLOCK("Clock"), LYRICS("Lyrics"), ARTWORK("Artwork") }
+internal enum class ImmersiveView(val label: String) { CLOCK("Clock"), LYRICS("Lyrics") }
 
 @Stable
 internal class ImmersiveSession {
@@ -72,10 +72,13 @@ internal fun connectedDisplays(appBounds: Rectangle?): List<ImmersiveDisplay> =
         ImmersiveDisplay("${bounds.x},${bounds.y}", Rectangle(bounds))
     }, appBounds)
 
-/** What each display shows, remembered per display; the first shows the clock, then lyrics, then artwork. */
+/** What each display shows, remembered per display; the first shows the clock, with lyrics on additional displays. */
 internal class ImmersivePreferences(private val prefs: DesktopPreferencesStore = DesktopPreferences.store) {
     fun view(display: ImmersiveDisplay, index: Int): ImmersiveView =
-        ImmersiveView.entries.firstOrNull { it.name == prefs.text("immersiveView.${display.key}") } ?: defaultView(index)
+        when (val saved = prefs.text("immersiveView.${display.key}")) {
+            "ARTWORK" -> ImmersiveView.CLOCK
+            else -> ImmersiveView.entries.firstOrNull { it.name == saved } ?: defaultView(index)
+        }
 
     fun setView(display: ImmersiveDisplay, view: ImmersiveView) = prefs.set("immersiveView.${display.key}", view.name)
 
@@ -95,7 +98,7 @@ internal class ImmersivePreferences(private val prefs: DesktopPreferencesStore =
 internal fun defaultView(index: Int) = when (index) {
     0 -> ImmersiveView.CLOCK
     1 -> ImmersiveView.LYRICS
-    else -> ImmersiveView.ARTWORK
+    else -> ImmersiveView.LYRICS
 }
 
 internal val ImmersiveIdleChoices = listOf(0, 2, 5, 10)

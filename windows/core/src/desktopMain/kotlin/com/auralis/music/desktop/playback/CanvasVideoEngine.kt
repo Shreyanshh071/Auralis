@@ -25,17 +25,25 @@ object CanvasVideoEngine {
      */
     private const val FRAME_SHORT_SIDE = 960
 
-    /** Starts [url] looping; frames (at most ~30 a second) go to [onFrame]. Returns a stop function. */
-    fun play(url: String, clock: com.auralis.music.data.service.PlaybackClockSource? = null, onFrame: (ImageBitmap) -> Unit): (() -> Unit)? {
+    /** Plays [url] and returns a stop function. A looping video follows the clock's play state only. */
+    fun play(
+        url: String,
+        clock: com.auralis.music.data.service.PlaybackClockSource? = null,
+        frameShortSide: Int = FRAME_SHORT_SIDE,
+        loop: Boolean = clock == null,
+        onFrame: (ImageBitmap) -> Unit
+    ): (() -> Unit)? {
+        require(frameShortSide in 1..2160)
         val factory = factory ?: return null
         val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
         var width = 0; var height = 0; var lastFrame = 0L
+        val firstFrameShown = java.util.concurrent.atomic.AtomicBoolean(false)
         // One copy buffer per player: Skia copies the pixels into each frame's own image.
         var bytes = ByteArray(0)
         val surface = factory.videoSurfaces().newVideoSurface(
             object : uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback {
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat {
-                    val scale = minOf(1f, FRAME_SHORT_SIDE.toFloat() / minOf(sourceWidth, sourceHeight).coerceAtLeast(1))
+                    val scale = minOf(1f, frameShortSide.toFloat() / minOf(sourceWidth, sourceHeight).coerceAtLeast(1))
                     width = (sourceWidth * scale).toInt().coerceAtLeast(1); height = (sourceHeight * scale).toInt().coerceAtLeast(1)
                     return uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat(width, height)
                 }
@@ -54,19 +62,23 @@ object CanvasVideoEngine {
                         org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.OPAQUE),
                         bytes, width * 4)
                     onFrame(image.toComposeImageBitmap())
+                    firstFrameShown.set(true)
                 }
             },
             true)
         player.videoSurface().set(surface)
         val active = java.util.concurrent.atomic.AtomicBoolean(true)
-        player.controls().setRepeat(clock == null)
+        player.controls().setRepeat(loop)
         player.media().play(url, ":no-audio")
         if (clock != null) Thread({
             while (active.get()) {
                 runCatching {
-                    val position = clock.rawPositionMs()
-                    if (kotlin.math.abs(player.status().time() - position) > 600) player.controls().setTime(position)
-                    player.controls().setPause(!clock.isPlaying())
+                    if (!loop) {
+                        val position = clock.rawPositionMs()
+                        if (kotlin.math.abs(player.status().time() - position) > 600) player.controls().setTime(position)
+                    }
+                    // Even when the song is already paused, render a frame before holding the loop.
+                    if (!loop || firstFrameShown.get()) player.controls().setPause(!clock.isPlaying())
                 }
                 Thread.sleep(200)
             }

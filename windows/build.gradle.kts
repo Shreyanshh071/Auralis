@@ -126,7 +126,10 @@ compose.desktop {
         mainClass = "com.auralis.music.windows.MainKt"
         if (osName.contains("win")) {
             jvmArgs(
+                // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
+                // only cost ~0.7s of the first frame (measured with the startup sampler).
                 "-Dsun.java2d.d3d=false",
+                // Keep hardware acceleration and current-frame Windows screenshots.
                 "-Dskiko.renderApi=DIRECT3D",
                 "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
                 "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
@@ -142,12 +145,14 @@ compose.desktop {
                 "-Dio.netty.transport.noNative=true"
             )
         }
-        providers.gradleProperty("connect.realtime.url").orNull?.takeIf { it.isNotBlank() }?.let { url ->
-            require(url.startsWith("wss://") && url.none { it.isWhitespace() } && !url.contains("staging", ignoreCase = true)) {
-                "Connect requires a production WSS endpoint."
-            }
-            jvmArgs("-Dauralis.connectRealtimeUrl=$url")
+        val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
+        require(realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !realtimeUrl.contains("staging", ignoreCase = true)) {
+            "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
+        jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
+        }
+        jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 

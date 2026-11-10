@@ -101,7 +101,7 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
         if (prefs.enabled) {
             SettingChoice(
                 title = "Animated cover source",
-                description = "Service to query for canvas video loops",
+                description = "Source for animated album artwork",
                 selected = prefs.source.label,
                 options = CanvasSource.entries.map { it.label }
             ) { label ->
@@ -110,6 +110,16 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
                 }
             }
         }
+    }
+
+    SettingsGroup("Lyrics video loops") {
+        val prefs by CanvasSettings.prefs.collectAsState()
+        SettingToggle(
+            title = "Show video loops in Lyrics",
+            description = "Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art.",
+            checked = prefs.spotifyCanvas,
+            onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
+        )
     }
 
     SettingsGroup("Lyrics appearance") {

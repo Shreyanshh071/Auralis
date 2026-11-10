@@ -1423,4 +1423,8 @@
     <string name="metadata_ask_every_download">Ask before every download</string>
     <string name="metadata_ask_every_download_hint">Show the popup for songs and playlists. When off, the choices above are used.</string>
     <string name="metadata_settings_note">Song details are always embedded. When Cover artwork is off, the download shows a placeholder. When Lyrics is off, only stored lyrics can appear, with a brief cache notice. These choices apply to new downloads.</string>
+    <string name="show_all">Show all</string>
+    <string name="artist_releases_load_failed">Couldn\'t load the full list</string>
+    <string name="prefer_audio_only_versions">Prefer audio-only versions</string>
+    <string name="prefer_audio_only_versions_description">Play the song release instead of its music video, without video intros or outros</string>
 </resources>

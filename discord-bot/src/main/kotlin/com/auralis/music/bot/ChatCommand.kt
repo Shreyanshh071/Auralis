@@ -16,7 +16,7 @@ private fun music(name: String, args: String = "", vararg shown: String) =
 private fun misc(name: String, args: String = "") = CommandHelp(name, args, CommandSection.MISC, listOf(name))
 
 val COMMANDS = listOf(
-    music("play", "<song or link>", "play song", "play shuffle link"),
+    music("play", "<song or link>", "play", "play song", "play shuffle link"),
     music("playnext", "<song or link>", "playnext song"),
     music("playlist", "<name>", "playlist name"),
     music("search", "<song>", "search song"),

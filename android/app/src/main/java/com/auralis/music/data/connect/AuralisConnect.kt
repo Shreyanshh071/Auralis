@@ -131,8 +131,10 @@ object AuralisConnect : ConnectHook {
         if (started) return
         started = true
         appContext = context.applicationContext
-        _deviceSyncEnabled.value = appContext.getSharedPreferences("auralis_connect", Context.MODE_PRIVATE)
-            .getBoolean("realtime_transport", false)
+        // Device sync is per session: every launch starts with it off, whatever the last one chose.
+        _deviceSyncEnabled.value = false
+        appContext.getSharedPreferences("auralis_connect", Context.MODE_PRIVATE)
+            .edit().remove("realtime_transport").apply()
         player = AuralisAudioPlayer.getInstance(appContext)
         player.connectHook = this
         try {

@@ -49,6 +49,16 @@ class NewPipeDownloader(
             tokenCache.clear()
         }
 
+        /**
+         * Forgets YouTube's visitor session (its cookies and visitor_id), so the next extraction
+         * starts a new one. YouTube can cut off every stream of one session after the first
+         * megabyte, and the session otherwise lasts as long as the process.
+         */
+        fun resetSession() {
+            cookieMap.clear()
+            tokenCache.clear()
+        }
+
         val instance: NewPipeDownloader by lazy {
             val builder = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
                 .connectionPool(NetworkClientProvider.okHttpClient.connectionPool)

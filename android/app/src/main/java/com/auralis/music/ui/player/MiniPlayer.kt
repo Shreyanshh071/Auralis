@@ -57,6 +57,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -76,6 +77,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -83,6 +85,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -488,7 +492,7 @@ fun MiniPlayer(
                     isFavorite = isFavorite,
                     dominantColor = animGradMid,
                     isPureBlack = appearance.pureBlackMiniPlayer,
-                    hazeState = hazeState,
+                    palette = extractedColors,
                     onPlayPauseClick = onPlayPauseClick,
                     onPreviousClick = onPreviousClick,
                     onNextClick = onNextClick,
@@ -583,7 +587,7 @@ fun MiniPlayer(
 /**
  * Expanded Mini Player (Photo 4):
  * - Floating glassmorphic card with blurry transparent cover-synced background.
- * - Respects pure black setting when enabled, otherwise renders real-time frosted backdrop blur.
+ * - Respects pure black setting when enabled, otherwise renders a flowing cover-art aura.
  * - Top row: 10.dp rounded square artwork, bold title, artist with SpeakerBoxIcon, chevron down expand button.
  * - Bottom row: Artist navigation button (left), Playback Controls capsule [Prev | Play/Pause | Next] (center), Like button (right).
  * - Bottom edge: subtle cover-tinted progress line.
@@ -596,7 +600,7 @@ private fun ExpandedMiniPlayerView(
     isFavorite: Boolean,
     dominantColor: Color,
     isPureBlack: Boolean = false,
-    hazeState: HazeState? = null,
+    palette: ArtworkPalette,
     onPlayPauseClick: () -> Unit,
     onPreviousClick: (() -> Unit)?,
     onNextClick: (() -> Unit)?,
@@ -606,48 +610,15 @@ private fun ExpandedMiniPlayerView(
     connect: com.auralis.music.ui.connect.MiniConnect? = null,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(22.dp)
+    val cardShape = ExpandedMiniPlayerShape
+    val dockCollapse = com.auralis.music.ui.glass.LocalDockCollapse.current
+    val expandedAmount = remember(dockCollapse) {
+        derivedStateOf { 1f - (dockCollapse?.value ?: 0f).coerceIn(0f, 1f) }
+    }
     val favoriteEnter = auralisIconSwapEnter()
     val favoriteExit = auralisIconSwapExit()
 
-    val frosted = LocalFrostedMiniPlayer.current && !isPureBlack
-    val contentColor = if (frosted) frostedMiniPlayerContentColor() else Color.White
-    val backgroundModifier = if (frosted) {
-        Modifier.frostedMiniPlayer(hazeState, cardShape)
-    } else if (isPureBlack) {
-        Modifier.background(Color.Black)
-    } else if (hazeState != null) {
-        Modifier
-            .hazeEffect(
-                state = hazeState,
-                style = HazeStyle(
-                    backgroundColor = Color.Black.copy(alpha = 0.25f),
-                    tint = HazeTint(dominantColor.copy(alpha = 0.26f)),
-                    blurRadius = 26.dp,
-                    noiseFactor = 0.02f
-                )
-            )
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        dominantColor.copy(alpha = 0.46f),
-                        dominantColor.copy(alpha = 0.18f),
-                        Color(0xFF0C0D14).copy(alpha = 0.52f)
-                    )
-                )
-            )
-    } else {
-        Modifier
-            .background(Color(0xFF0C0D14))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        dominantColor.copy(alpha = 0.42f),
-                        Color(0xFF0C0D14).copy(alpha = 0.78f)
-                    )
-                )
-            )
-    }
+    val contentColor = Color.White
 
     val borderBrush = if (isPureBlack) {
         Brush.verticalGradient(
@@ -668,7 +639,7 @@ private fun ExpandedMiniPlayerView(
 
     Box(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .padding(horizontal = 10.dp, vertical = 5.dp)
             .shadow(
                 elevation = 16.dp,
@@ -677,17 +648,35 @@ private fun ExpandedMiniPlayerView(
                 spotColor = if (isPureBlack) Color.Black else dominantColor.copy(alpha = 0.50f)
             )
             .clip(cardShape)
-            .then(backgroundModifier)
+            .background(if (isPureBlack) Color.Black else Color(0xFF0C0D14))
             .border(
                 width = 1.dp,
                 brush = borderBrush,
                 shape = cardShape
             )
     ) {
+        if (!isPureBlack) {
+            ExpandedMiniPlayerAura(
+                artwork = com.auralis.music.data.download.AuralisDownloadManager
+                    .artworkForPlayback(track.id, track.thumbnail),
+                palette = palette,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 11.dp, start = 12.dp, end = 12.dp, bottom = 9.dp)
+                .fillMaxSize()
+                .layout { measurable, constraints ->
+                    val collapse = (dockCollapse?.value ?: 0f).coerceIn(0f, 1f)
+                    val horizontal = androidx.compose.ui.unit.lerp(12.dp, 8.dp, collapse).roundToPx()
+                    val top = androidx.compose.ui.unit.lerp(11.dp, 4.dp, collapse).roundToPx()
+                    val bottom = androidx.compose.ui.unit.lerp(9.dp, 4.dp, collapse).roundToPx()
+                    val child = measurable.measure(constraints.offset(-horizontal * 2, -top - bottom))
+                    layout(child.width + horizontal * 2, child.height + top + bottom) {
+                        child.placeRelative(horizontal, top)
+                    }
+                }
         ) {
             // Top row: Artwork + Title/Artist info + Expand Chevron
             Row(
@@ -703,7 +692,12 @@ private fun ExpandedMiniPlayerView(
                 // Album artwork (rounded square 10.dp)
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .layout { measurable, constraints ->
+                            val collapse = (dockCollapse?.value ?: 0f).coerceIn(0f, 1f)
+                            val side = androidx.compose.ui.unit.lerp(46.dp, 36.dp, collapse).roundToPx()
+                            val child = measurable.measure(Constraints.fixed(side, side))
+                            layout(side, side) { child.placeRelative(0, 0) }
+                        }
                         .clip(RoundedCornerShape(10.dp))
                 ) {
                     AsyncImage(
@@ -735,157 +729,179 @@ private fun ExpandedMiniPlayerView(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    if (connect?.outputLine != null) {
-                        com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(dominantColor), 13.sp)
-                    } else Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AirPlayAudioIcon(
-                            tint = dominantColor.copy(alpha = 0.95f),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontSize = 13.sp,
-                                color = contentColor.copy(alpha = 0.75f)
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Bottom row: Artist Button | Playback Controls Capsule | Like Button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left: Artist Button
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(contentColor.copy(alpha = 0.12f))
-                        .tactileBounce(scaleDown = 0.88f, onClick = { onArtistClick?.invoke() }),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = str(R.string.artist_x, track.artist),
-                        tint = contentColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Center: Playback Controls Capsule (Previous | Play/Pause | Next)
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(contentColor.copy(alpha = 0.14f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Previous
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .tactileBounce(scaleDown = 0.85f, onClick = onPreviousClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = str(R.string.previous_track),
-                            tint = contentColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    // Play / Pause (solid white circular button with black icon)
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .tactileBounce(scaleDown = 0.88f, onClick = onPlayPauseClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
-                            tint = Color.Black,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    // Next
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .tactileBounce(scaleDown = 0.85f, onClick = onNextClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = str(R.string.next_track),
-                            tint = contentColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-
-                // Right: Like Button
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(contentColor.copy(alpha = 0.12f))
-                        .tactileBounce(scaleDown = 0.88f, onClick = { onFavoriteToggle?.invoke() }),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AnimatedContent(
-                        targetState = isFavorite,
-                        transitionSpec = { favoriteEnter togetherWith favoriteExit },
-                        label = "expandedFavorite"
-                    ) { fav ->
-                        Icon(
-                            imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
-                            tint = if (fav) Color(0xFFFF4081) else contentColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Bottom Progress Indicator Line - draw-phase observation prevents recomposition & relayout
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.5.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .drawWithContent {
-                        drawRect(contentColor.copy(alpha = 0.15f))
-                        val progress = progressProvider().coerceIn(0f, 1f)
-                        if (progress > 0f) {
-                            drawRect(
-                                color = dominantColor.copy(alpha = 0.95f),
-                                size = Size(size.width * progress, size.height)
+                    Column(Modifier.miniPlayerDockReveal(dockCollapse, horizontal = false)) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        if (connect?.outputLine != null) {
+                            com.auralis.music.ui.connect.ConnectOutputSubtitle(connect, com.auralis.music.ui.connect.connectAccent(dominantColor), 13.sp)
+                        } else Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AirPlayAudioIcon(
+                                tint = dominantColor.copy(alpha = 0.95f),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = track.artist,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 13.sp,
+                                    color = contentColor.copy(alpha = 0.75f)
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-            )
+                }
+
+                Box(Modifier.miniPlayerDockReveal(expandedAmount, horizontal = true)) {
+                    IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(44.dp)) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
+                            tint = contentColor,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(
+                Modifier
+                    .miniPlayerDockReveal(dockCollapse, horizontal = false)
+                    .requiredHeight(56.dp)
+                    .graphicsLayer {
+                        alpha = (1f - (dockCollapse?.value ?: 0f) * 2f).coerceIn(0f, 1f)
+                    }
+            ) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Bottom row: Artist Button | Playback Controls Capsule | Like Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Left: Artist Button
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(contentColor.copy(alpha = 0.12f))
+                            .tactileBounce(scaleDown = 0.88f, onClick = { onArtistClick?.invoke() }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Person,
+                            contentDescription = str(R.string.artist_x, track.artist),
+                            tint = contentColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Center: Playback Controls Capsule (Previous | Play/Pause | Next)
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(contentColor.copy(alpha = 0.14f))
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Previous
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .tactileBounce(scaleDown = 0.85f, onClick = onPreviousClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = str(R.string.previous_track),
+                                tint = contentColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // Play / Pause (solid white circular button with black icon)
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .tactileBounce(scaleDown = 0.88f, onClick = onPlayPauseClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) str(R.string.pause) else str(R.string.play),
+                                tint = Color.Black,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // Next
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .tactileBounce(scaleDown = 0.85f, onClick = onNextClick),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = str(R.string.next_track),
+                                tint = contentColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    // Right: Like Button
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(contentColor.copy(alpha = 0.12f))
+                            .tactileBounce(scaleDown = 0.88f, onClick = { onFavoriteToggle?.invoke() }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = isFavorite,
+                            transitionSpec = { favoriteEnter togetherWith favoriteExit },
+                            label = "expandedFavorite"
+                        ) { fav ->
+                            Icon(
+                                imageVector = if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = if (fav) str(R.string.favorited) else str(R.string.favorite),
+                                tint = if (fav) Color(0xFFFF4081) else contentColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Bottom Progress Indicator Line - draw-phase observation prevents recomposition & relayout
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .drawWithContent {
+                            drawRect(contentColor.copy(alpha = 0.15f))
+                            val progress = progressProvider().coerceIn(0f, 1f)
+                            if (progress > 0f) {
+                                drawRect(
+                                    color = dominantColor.copy(alpha = 0.95f),
+                                    size = Size(size.width * progress, size.height)
+                                )
+                            }
+                        }
+                )
+            }
         }
     }
 }

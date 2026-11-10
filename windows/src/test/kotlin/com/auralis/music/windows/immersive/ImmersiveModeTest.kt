@@ -51,7 +51,7 @@ class ImmersiveModeTest {
         val preferences = ImmersivePreferences(store())
         assertEquals(ImmersiveView.CLOCK, preferences.view(first, 0))
         assertEquals(ImmersiveView.LYRICS, preferences.view(second, 1))
-        assertEquals(ImmersiveView.ARTWORK, preferences.view(leftOfMain, 2))
+        assertEquals(ImmersiveView.LYRICS, preferences.view(leftOfMain, 2))
         preferences.setView(second, ImmersiveView.CLOCK)
         assertEquals(ImmersiveView.CLOCK, preferences.view(second, 1))
         preferences.setOff(second, true)

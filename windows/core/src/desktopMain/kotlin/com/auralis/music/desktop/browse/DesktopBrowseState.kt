@@ -11,6 +11,9 @@ import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.SearchRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,11 +28,22 @@ sealed interface BrowsePage {
  * Album and artist pages, loaded the way the phone's search screen loads them (SearchViewModel's
  * openAlbum / openArtist), kept as a stack so back returns to the previous page.
  */
-class DesktopBrowseState(private val repository: SearchRepository, private val scope: CoroutineScope) {
+class DesktopBrowseState(
+    private val repository: SearchRepository,
+    private val scope: CoroutineScope,
+    private val resolveArtistPhoto: suspend (ArtistPage) -> String? = DesktopArtistPhotos::resolve
+) {
     val stack = mutableStateListOf<BrowsePage>()
     val top: BrowsePage? get() = stack.lastOrNull()
 
     private val artistPages = ConcurrentHashMap<String, ArtistPage>()
+    private val artistPhotos = mutableMapOf<String, String>()
+    private val photoRequests = mutableMapOf<String, Deferred<String?>>()
+
+    private fun ArtistPage.withKnownPhoto(): ArtistPage {
+        val photo = artistPhotos[artist.name.lowercase()] ?: return this
+        return copy(artist = artist.copy(thumbnail = photo), bannerUrl = photo)
+    }
 
     fun openAlbum(album: PlaylistResult, fromArtist: ArtistPage? = null) {
         val initialTracks = if (album.id.startsWith("artist_top_songs:")) fromArtist?.topSongs.orEmpty() else emptyList()
@@ -76,22 +90,53 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun openArtist(artist: Artist) {
         val cached = artistPages[artist.name.lowercase()]
-        var current = BrowsePage.Artist(cached ?: ArtistPage(artist = artist), isLoading = cached == null)
+        var current = BrowsePage.Artist((cached ?: ArtistPage(artist = artist)).withKnownPhoto(), isLoading = cached == null)
         stack += current
-        if (cached != null) return
+        var upgradeStarted = false
+        fun upgradePhoto(page: ArtistPage) {
+            val key = page.artist.name.lowercase()
+            // An overview with no catalogue cannot establish the identity of a same-named artist.
+            if (upgradeStarted || artistPhotos.containsKey(key) ||
+                (page.topSongs.isEmpty() && page.albums.isEmpty() && page.singles.isEmpty())) return
+            upgradeStarted = true
+            val request = photoRequests.getOrPut(key) { scope.async {
+                try { resolveArtistPhoto(page) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
+            } }
+            scope.launch {
+                val photo = try { request.await() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null }
+                if (photo == null) {
+                    if (photoRequests[key] === request) photoRequests.remove(key)
+                    return@launch
+                }
+                artistPhotos[key] = photo
+                replace({ it === current }) {
+                    current.copy(page = current.page.withKnownPhoto()).also { current = it }
+                }
+            }
+        }
+        if (cached != null) {
+            upgradePhoto(cached)
+            return
+        }
         scope.launch {
             val page = runCatching { LocalizedContent.run { repository.getArtistPage(artist) { preview ->
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     replace({ it === current }) {
-                        BrowsePage.Artist(preview, isLoading = true).also { current = it }
+                        BrowsePage.Artist(preview.withKnownPhoto(), isLoading = true).also { current = it }
                     }
+                    upgradePhoto(preview)
                 }
             } } }.getOrNull()
             if (page != null && page.topSongs.isNotEmpty() && !page.isFallback && !page.catalogueIncomplete) artistPages[artist.name.lowercase()] = page
             replace({ it === current }) {
-                BrowsePage.Artist(page ?: current.page, isLoading = false,
-                    loadFailed = page == null || page.topSongs.isEmpty() || page.isFallback)
+                BrowsePage.Artist((page ?: current.page).withKnownPhoto(), isLoading = false,
+                    loadFailed = page == null || page.topSongs.isEmpty() || page.isFallback).also { current = it }
             }
+            if (page != null) upgradePhoto(page)
         }
     }
 
@@ -113,6 +158,9 @@ class DesktopBrowseState(private val repository: SearchRepository, private val s
 
     fun clearCache() {
         artistPages.clear()
+        artistPhotos.clear()
+        photoRequests.values.forEach { it.cancel() }
+        photoRequests.clear()
     }
 
     private fun replace(match: (BrowsePage) -> Boolean, update: (BrowsePage) -> BrowsePage) {

@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -83,6 +84,11 @@ fun AuralisPlayerSlider(
     val density = LocalDensity.current
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(value) }
+    // The gesture handler below lives for the slider's whole life (pointerInput(Unit)), so it
+    // must read the latest callbacks. Captured directly, it kept the first song's lambdas, which
+    // scaled the drag by that song's length: seeks landed wrong and overshot into the next song.
+    val latestOnValueChange by rememberUpdatedState(onValueChange)
+    val latestOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
 
     val effectiveProgress = if (isDragging) dragProgress else value.coerceIn(0f, 1f)
 
@@ -165,15 +171,15 @@ fun AuralisPlayerSlider(
                                     // Discrete tap confirmed
                                     val tapProgress = (change.position.x / width).coerceIn(0f, 1f)
                                     dragProgress = tapProgress
-                                    onValueChange(tapProgress)
+                                    latestOnValueChange(tapProgress)
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                     change.consume()
-                                    onValueChangeFinished()
+                                    latestOnValueChangeFinished()
                                 } else {
                                     change.consume()
                                     isDragging = false
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                    onValueChangeFinished()
+                                    latestOnValueChangeFinished()
                                 }
                                 break
                             }
@@ -191,7 +197,7 @@ fun AuralisPlayerSlider(
                                     isDragging = true
                                     val progress = (change.position.x / width).coerceIn(0f, 1f)
                                     dragProgress = progress
-                                    onValueChange(progress)
+                                    latestOnValueChange(progress)
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                     change.consume()
                                 }
@@ -199,7 +205,7 @@ fun AuralisPlayerSlider(
                                 val newProgress = (change.position.x / width).coerceIn(0f, 1f)
                                 if (newProgress != dragProgress) {
                                     dragProgress = newProgress
-                                    onValueChange(newProgress)
+                                    latestOnValueChange(newProgress)
                                 }
                                 change.consume()
                             }
@@ -207,7 +213,7 @@ fun AuralisPlayerSlider(
 
                         if (dragStarted && isDragging) {
                             isDragging = false
-                            onValueChangeFinished()
+                            latestOnValueChangeFinished()
                         }
                     }
                 }
@@ -333,7 +339,7 @@ fun AuralisPlayerSlider(
                                 cachedWavePath.moveTo(startX, startY)
 
                                 var currentX = startX
-                                val step = 1.0f
+                                val step = WAVE_STEP_PX
                                 while (currentX <= thumbX) {
                                     val distFromStart = currentX - startX
                                     val distFromEnd = thumbX - currentX
@@ -447,7 +453,7 @@ fun AuralisPlayerSlider(
                             val flatFrom = (thumbX + transitionLength / 2f).coerceAtMost(endX)
                             var x = thumbX
                             while (x < flatFrom) {
-                                x = (x + 1f).coerceAtMost(flatFrom)
+                                x = (x + WAVE_STEP_PX).coerceAtMost(flatFrom)
                                 cachedInactiveWavePath.lineTo(x, waveY(x))
                             }
                             cachedInactiveWavePath.lineTo(endX, centerY)
@@ -460,7 +466,7 @@ fun AuralisPlayerSlider(
                             cachedWavePath.moveTo(startX, waveY(startX))
                             var x = startX
                             while (x < thumbX) {
-                                x = (x + 1f).coerceAtMost(thumbX)
+                                x = (x + WAVE_STEP_PX).coerceAtMost(thumbX)
                                 cachedWavePath.lineTo(x, waveY(x))
                             }
                             drawPath(cachedWavePath, activeTrackColor, style = waveStroke)
@@ -515,6 +521,11 @@ private fun formatDuration(millis: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%d:%02d", minutes, seconds)
 }
+
+// Wave paths are rebuilt every frame while playing. A point every pixel (~1000 per bar) made
+// stroking the path cost ~5.5ms of the render thread per frame, most of a 144 Hz frame. On 80-100px
+// waves a point every 6px strays from the curve by ~0.1px.
+private const val WAVE_STEP_PX = 6f
 
 // SquigglySlider constants (raw pixels, as in the original; see file header).
 private const val SQUIGGLY_WAVELENGTH_PX = 80f

@@ -1,0 +1,3 @@
+# The jar copied here for docker build, and the token file.
+*.jar
+.env

@@ -19,18 +19,21 @@ class QueueListeningHistoryTest {
         assertEquals(songs[4], manager.state.currentTrack)
     }
 
-    @Test fun jumpingAheadRetainsSkippedSongsAndNextPlaysTheFirstUnheardSong() {
+    @Test fun jumpingAheadContinuesFromTheChosenSongAndSkippedSongsAreNotHistory() {
+        // Playing the 1st of 6, tap the 4th: Up next is 5, 6 (not 2, 3, 5, 6).
+        val six = (1..6).map { Track("song$it", "Song $it", "Artist") }
         val manager = AudioQueueManager()
-        manager.setQueue(songs)
+        manager.setQueue(six)
         manager.markCurrentListened()
         val jumped = manager.selectIndex(3)
-        assertEquals(listOf(0, 3, 1, 2, 4).map { songs[it] }, jumped.queue)
-        assertEquals(1, jumped.currentIndex)
+        assertEquals(six, jumped.queue)
+        assertEquals(3, jumped.currentIndex)
+        assertEquals(listOf("song5", "song6"), jumped.queue.drop(jumped.currentIndex + 1).map { it.id })
         assertEquals(setOf(0), jumped.listenedIndices)
         manager.markCurrentListened()
         manager.advanceNext()
-        assertEquals(songs[1], manager.state.currentTrack)
-        assertEquals(setOf(0, 1), manager.state.listenedIndices)
+        assertEquals(six[4], manager.state.currentTrack)
+        assertEquals(setOf(0, 3), manager.state.listenedIndices)
     }
 
     @Test fun duplicateOccurrencesHaveIndependentHistoryAndCanBeSelected() {
@@ -38,7 +41,7 @@ class QueueListeningHistoryTest {
         manager.setQueue(listOf(songs[0], songs[0], songs[2], songs[3]))
         manager.markCurrentListened()
         manager.selectIndex(3)
-        assertEquals(listOf(songs[0], songs[3], songs[0], songs[2]), manager.state.queue)
+        assertEquals(listOf(songs[0], songs[0], songs[2], songs[3]), manager.state.queue)
         assertEquals(setOf(0), manager.state.listenedIndices)
         manager.selectIndex(2)
         assertEquals(2, manager.state.currentIndex)

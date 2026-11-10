@@ -345,7 +345,12 @@ open class InnerTubeClient(
      * Calls YouTube Music get_queue endpoint
      * to fetch verified authentic track metadata including real album, artist, and duration.
      */
-    open suspend fun getQueue(videoIds: List<String>): List<Track> = withContext(Dispatchers.IO) {
+    open suspend fun getQueue(videoIds: List<String>): List<Track> = getQueueEntries(videoIds).map { it.track }
+
+    /** A get_queue row: the song, and YouTube Music's kind for it (MUSIC_VIDEO_TYPE_ATV = song, _OMV = official video). */
+    data class QueueEntry(val track: Track, val musicVideoType: String?, val artists: List<String> = emptyList())
+
+    open suspend fun getQueueEntries(videoIds: List<String>): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (videoIds.isEmpty()) return@withContext emptyList()
         try {
             val validIds = videoIds.filter { it.isNotBlank() }.take(50)
@@ -368,6 +373,8 @@ open class InnerTubeClient(
             val queueDatas = json.optJSONArray("queueDatas") ?: return@withContext emptyList()
 
             val tracks = mutableListOf<Track>()
+            val videoTypes = mutableListOf<String?>()
+            val bylineArtists = mutableListOf<List<String>>()
             for (i in 0 until queueDatas.length()) {
                 val qObj = queueDatas.optJSONObject(i) ?: continue
                 val renderer = qObj.optJSONObject("content")?.optJSONObject("playlistPanelVideoRenderer") ?: continue
@@ -379,6 +386,7 @@ open class InnerTubeClient(
                 val longRuns = renderer.optJSONObject("longBylineText")?.optJSONArray("runs")
 
                 var artistName = ""
+                val allArtists = mutableListOf<String>()
                 var albumName: String? = null
                 var albumId: String? = null
 
@@ -396,6 +404,7 @@ open class InnerTubeClient(
 
                         if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || (bId != null && bId.startsWith("UC"))) {
                             if (artistName.isBlank()) artistName = text
+                            allArtists += text
                         } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM" || (bId != null && (bId.startsWith("MPRE") || bId.startsWith("OLAK") || bId.startsWith("FEmusic")))) {
                             albumName = text
                             albumId = bId
@@ -424,10 +433,15 @@ open class InnerTubeClient(
                         source = TrackSource.YOUTUBE
                     )
                 )
+                videoTypes.add(renderer.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")
+                    ?.optJSONObject("watchEndpointMusicSupportedConfigs")?.optJSONObject("watchEndpointMusicConfig")
+                    ?.optString("musicVideoType")?.takeIf { it.isNotBlank() })
+                bylineArtists.add(allArtists)
             }
             rememberQueueAlbums(tracks)
-            tracks
+            tracks.mapIndexed { index, track -> QueueEntry(track, videoTypes[index], bylineArtists[index]) }
         } catch (e: Exception) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             emptyList()
         }
     }
@@ -1166,6 +1180,8 @@ open class InnerTubeClient(
             val sectionList = artistSections(json)
 
             var albumShelvesSeen = 0
+            var albumsMore: com.auralis.music.domain.model.ArtistReleasesEndpoint? = null
+            var singlesMore: com.auralis.music.domain.model.ArtistReleasesEndpoint? = null
             for (i in 0 until sectionList.length()) {
                 val secObj = sectionList.optJSONObject(i) ?: continue
                 val shelf = secObj.optJSONObject("musicShelfRenderer")
@@ -1183,6 +1199,14 @@ open class InnerTubeClient(
                     ArtistShelfKind.ARTISTS -> "fans might also like"
                     ArtistShelfKind.RELEASES -> if (albumShelvesSeen++ == 0) "albums" else "singles"
                     ArtistShelfKind.OTHER -> rawShelfTitle
+                }
+
+                // Only shelves that hold albums: "Deep cuts" also contains "ep".
+                if (artistShelfKind(shelf) != ArtistShelfKind.RELEASES) Unit
+                else if (shelfTitle.contains("album")) {
+                    if (albumsMore == null) albumsMore = artistMoreEndpoint(shelf)
+                } else if (shelfTitle.contains("single") || shelfTitle.contains("ep")) {
+                    if (singlesMore == null) singlesMore = artistMoreEndpoint(shelf)
                 }
 
                 val contents = shelf.optJSONArray("contents") ?: JSONArray()
@@ -1311,7 +1335,9 @@ open class InnerTubeClient(
                         releaseYears[release.id]?.let { com.auralis.music.domain.model.ArtistLatestRelease(release, it, isAlbum) }
                     }
                     .maxByOrNull { it.year },
-                radioPlaylistId = radioPlaylistId
+                radioPlaylistId = radioPlaylistId,
+                albumsMore = albumsMore,
+                singlesMore = singlesMore
             )
         } catch (e: Exception) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -1326,6 +1352,36 @@ open class InnerTubeClient(
                 )
             } else null
         }
+    }
+
+    /**
+     * Every album (or single) behind an artist row's "more" link, in YouTube Music's order.
+     * Follows grid continuations for very long discographies, up to [maxPages] responses.
+     */
+    open suspend fun getArtistReleases(
+        endpoint: com.auralis.music.domain.model.ArtistReleasesEndpoint,
+        artistName: String,
+        maxPages: Int = 8
+    ): List<PlaylistResult> = withContext(Dispatchers.IO) {
+        val releases = mutableListOf<PlaylistResult>()
+        var body: JSONObject = createBrowseContext(endpoint.browseId, endpoint.params)
+        repeat(maxPages) {
+            val request = Request.Builder()
+                .url("$YT_MUSIC_API/browse?prettyPrint=false")
+                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", "https://music.youtube.com")
+                .build()
+            val page = JSONObject(client.searchBody(request, 10_000L))
+            val items = artistCatalogueItems(page)
+            for (i in 0 until items.length()) {
+                items.optJSONObject(i)?.let { artistReleaseFromItem(it, artistName) { thumbs -> getBestThumbnailUrl(thumbs, null) } }
+                    ?.let(releases::add)
+            }
+            val next = artistCatalogueContinuation(page) ?: return@withContext releases.distinctBy { it.id }
+            body = createContinuationContext(next)
+        }
+        releases.distinctBy { it.id }
     }
 
     fun artistSections(root: JSONObject): JSONArray {

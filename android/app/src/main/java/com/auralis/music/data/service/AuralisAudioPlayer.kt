@@ -105,7 +105,23 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     private fun transitionsEligible(): Boolean = isUsingExoPlayer && !stopAtEndOfTrack &&
         !isGuestListenTogether.value && !roomHoldActive && !synchronizedPlaybackActive() && connectHook?.remote() == null
 
+    private var lastPrefetchRetryMs = 0L
+
+    /** A preload skipped while the song was still buffering (or paused) is never retried by events alone. */
+    private fun retryMissedPrefetch() {
+        if (!isUsingExoPlayer || !_isPlaying.value || stopAtEndOfTrack || isGuestListenTogether.value) return
+        if (!(isGaplessEnabled || runtimeSettings.crossfadeEnabled || runtimeSettings.automixEnabled)) return
+        if (enqueuedNextTrack != null || exoPlayer.mediaItemCount != 1 || prefetchJob?.isActive == true) return
+        if (transitionController?.isMixing == true) return
+        val next = queueManager.gaplessNextTrack() ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastPrefetchRetryMs < 5_000L) return
+        lastPrefetchRetryMs = now
+        prefetchTrack(next)
+    }
+
     private fun updateAudioTransitions() {
+        retryMissedPrefetch()
         val current = _currentTrack.value ?: return
         if (!(runtimeSettings.crossfadeEnabled || runtimeSettings.automixEnabled) || !transitionsEligible()) {
             transitionController?.cancel()
@@ -1164,6 +1180,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                 val streamUrl = if (localFile != null && localFile.exists()) {
                     Uri.fromFile(localFile).toString()
                 } else {
+                    // Spotify-catalog songs carry a Spotify id; match the YouTube recording first, as play() does,
+                    // or the next song never preloads and crossfade/AutoMix/gapless have nothing to mix into.
+                    com.auralis.music.data.network.AudioStreamResolver.resolvePlaybackVideoId(track) ?: return@launch
                     com.auralis.music.data.network.AudioStreamResolver.resolveAudioStream(
                         videoId = track.id,
                         title = track.title,
@@ -1732,7 +1751,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
         val qState = if (isSameQueue && preserveQueueSource) {
-            queueManager.selectIndex(targetIndex, retainUnplayed = !keepQueueOrder && !isGuestListenTogether.value)
+            queueManager.selectIndex(targetIndex)
         } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = isUserQueue, keepShuffle = runtimeSettings.permanentShuffle)
         _queueState.value = qState
 
@@ -2278,6 +2297,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     companion object {
         @Volatile
         private var instance: AuralisAudioPlayer? = null
+
+        /** The song playing now, for lookups that must not swap its recording mid-play. */
+        fun playingTrackId(): String? = instance?.currentTrack?.value?.id
 
         fun getInstance(context: Context): AuralisAudioPlayer {
             return instance ?: synchronized(this) {

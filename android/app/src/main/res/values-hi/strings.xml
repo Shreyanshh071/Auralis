@@ -1137,4 +1137,8 @@
     <string name="provider_status_x_y">%1$s · %2$s</string>
     <string name="tap_to_use">इस्तेमाल के लिए टैप करें</string>
     <string name="instrumental_break">वाद्य संगीत</string>
+    <string name="show_all">सभी देखें</string>
+    <string name="artist_releases_load_failed">पूरी सूची लोड नहीं हो सकी</string>
+    <string name="prefer_audio_only_versions">केवल ऑडियो संस्करण पसंद करें</string>
+    <string name="prefer_audio_only_versions_description">म्यूज़िक वीडियो की जगह गाने का रिलीज़ चलाएँ, वीडियो के इंट्रो या आउट्रो के बिना</string>
 </resources>

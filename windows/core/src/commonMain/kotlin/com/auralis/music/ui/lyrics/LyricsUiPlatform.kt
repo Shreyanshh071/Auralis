@@ -62,3 +62,6 @@ val DefaultLyricsUi = LyricsUiPlatform(
 )
 
 val LocalLyricsUi = staticCompositionLocalOf { DefaultLyricsUi }
+
+/** Compact lyric hosts can own geometry while renderers retain timed fill and glow. */
+val LocalLyricsGlyphMotion = staticCompositionLocalOf { true }

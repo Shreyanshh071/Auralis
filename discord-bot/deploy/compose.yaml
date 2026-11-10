@@ -1,0 +1,15 @@
+# docker compose up -d --build   (from this folder, with auralis-discord-bot.jar and .env next to it)
+services:
+  bot:
+    build: .
+    image: auralis-discord-bot
+    container_name: auralis-discord-bot
+    restart: unless-stopped
+    # DISCORD_BOT_TOKEN (and optionally JAVA_OPTS); Git ignores .env. Start from bot.env.example.
+    env_file: .env
+    volumes:
+      - bot-data:/data
+    stop_grace_period: 20s
+
+volumes:
+  bot-data:

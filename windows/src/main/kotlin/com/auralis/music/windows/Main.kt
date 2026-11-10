@@ -80,6 +80,7 @@ fun main(args: Array<String>) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
     }
     val dataDir = desktopAppDataDir()
+    val newProfile = dataDir.listFiles()?.isNotEmpty() != true
     kotlinx.coroutines.runBlocking { com.auralis.music.windows.settings.InstallerDefaults.install(dataDir) }
     val windowTitle = if (dev) "Auralis Dev" else "Auralis"
     // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
@@ -108,6 +109,8 @@ fun main(args: Array<String>) {
         }
         Log.i(TAG, "Successfully acquired lock after zombie recovery. Launching Auralis window.")
     }
+
+    com.auralis.music.windows.player.CanvasSettings.initializeIntro(newProfile)
 
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         Log.e(TAG, "Fatal uncaught exception on thread '${thread.name}': ${throwable.message}", throwable)
@@ -326,24 +329,36 @@ fun main(args: Array<String>) {
         val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
-        var previousPlacement by remember { mutableStateOf(androidx.compose.ui.window.WindowPlacement.Floating) }
+        var previousGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
+        var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
+        val embeddedDisplay = remember(immersive.trigger) {
+            com.auralis.music.windows.immersive.connectedDisplays(null).singleOrNull()
+        }
+        val embeddedImmersive = immersive.trigger != null && embeddedDisplay != null
+        var immersiveGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
+        val embeddedCoverActive = embeddedImmersive || immersiveGeometry != null
+        val retainedAppConstraints = remember { java.util.concurrent.atomic.AtomicReference<androidx.compose.ui.unit.Constraints>() }
+        val mainWindowShown = windowVisible && immersive.trigger == null
         var playerRequests by remember { mutableStateOf(0) }
         fun setPlayerFullscreen(enabled: Boolean) {
             if (playerFullscreen == enabled) return
-            if (enabled) previousPlacement = windowState.placement
-            // Remove native work-area constraints before Compose requests the
-            // monitor bounds; doing this in a later effect can leave a border.
             nativeFrame?.fullscreen = enabled
             playerFullscreen = enabled
-            windowState.placement = if (enabled) androidx.compose.ui.window.WindowPlacement.Fullscreen else previousPlacement
+            if (enabled) {
+                val bounds = composeWindow?.graphicsConfiguration?.bounds
+                    ?: java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration.bounds
+                previousGeometry = windowState.enterBorderlessFullscreen(bounds)
+            } else {
+                previousGeometry?.restore(windowState)
+                previousGeometry = null
+            }
         }
         LaunchedEffect(Unit) { if (launchMinimized) windowState.isMinimized = true }
         // Connect polls less while nobody is looking at the window.
-        LaunchedEffect(windowVisible, windowState.isMinimized) {
-            com.auralis.music.windows.connect.DesktopConnect.windowShown = windowVisible && !windowState.isMinimized
+        LaunchedEffect(mainWindowShown, windowState.isMinimized) {
+            com.auralis.music.windows.connect.DesktopConnect.windowShown = mainWindowShown && !windowState.isMinimized
         }
-        var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         var components by remember { mutableStateOf<ReadyComponents?>(null) }
         // Shown again from the tray, the window stays cloaked until it has drawn (see setWindowCloaked).
         var revealPending by remember { mutableStateOf(false) }
@@ -353,6 +368,7 @@ fun main(args: Array<String>) {
         }
 
         val openWindow: () -> Unit = {
+            immersive.close()
             if (isMac && java.awt.Desktop.isDesktopSupported()) {
                 val desktop = java.awt.Desktop.getDesktop()
                 if (desktop.isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
@@ -551,7 +567,8 @@ fun main(args: Array<String>) {
 
         Window(
             onPreviewKeyEvent = {
-                if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                if (embeddedImmersive) false
+                else if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
                     setPlayerFullscreen(!playerFullscreen); true
                 } else shortcutHandler?.invoke(it) ?: false
             },
@@ -562,7 +579,27 @@ fun main(args: Array<String>) {
             icon = icon,
             state = windowState
         ) {
-            LaunchedEffect(playerFullscreen, nativeFrame) { nativeFrame?.fullscreen = playerFullscreen }
+            // Cloaking preserves the Compose scene while the screensaver owns the display.
+            LaunchedEffect(immersive.trigger, windowVisible, embeddedImmersive) {
+                setWindowCloaked(window.windowHandle, immersive.trigger != null && !embeddedImmersive)
+            }
+            LaunchedEffect(embeddedImmersive) {
+                if (embeddedImmersive) {
+                    nativeFrame?.fullscreen = true
+                    immersiveGeometry = windowState.enterBorderlessFullscreen(window.graphicsConfiguration.bounds)
+                } else immersiveGeometry?.let {
+                    nativeFrame?.fullscreen = playerFullscreen
+                    it.restore(windowState)
+                    // Keep the screensaver over the resize until the restored viewport is presented.
+                    repeat(2) { withFrameNanos { } }
+                    immersiveGeometry = null
+                    window.toFront()
+                    window.requestFocus()
+                }
+            }
+            LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive) {
+                nativeFrame?.fullscreen = playerFullscreen || embeddedImmersive
+            }
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var captionHover by remember { mutableStateOf(CaptionHover()) }
             DisposableEffect(window) {
@@ -716,7 +753,14 @@ fun main(args: Array<String>) {
                     drawContent()
                     com.auralis.music.windows.dev.FrameLog.drawFinished()
                 }) {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().layout { measurable, constraints ->
+                    val appConstraints = if (embeddedCoverActive) retainedAppConstraints.get() ?: constraints
+                        else constraints.also { retainedAppConstraints.set(it) }
+                    val content = measurable.measure(appConstraints)
+                    layout(constraints.maxWidth, constraints.maxHeight) {
+                        if (!embeddedCoverActive) content.place(0, 0)
+                    }
+                }) {
                 AuralisDesktopApp(
                     searchRepository = ready.searchRepository,
                     library = ready.library,
@@ -774,6 +818,17 @@ fun main(args: Array<String>) {
                     .graphicsLayer { alpha = coverAlpha }.background(Color(0xFF0F0E13))
                     // Clicks don't reach controls that aren't visible yet.
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = embeddedCoverActive,
+                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
+                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                ) {
+                    if (embeddedDisplay != null && ready.playback != null && ready.lyrics != null) {
+                        com.auralis.music.windows.immersive.EmbeddedImmersive(
+                            immersive, ready.playback, ready.lyrics, ready.stores, embeddedDisplay
+                        )
+                    }
+                }
             } else {
                 val placeholderChrome: @Composable () -> Unit = {
                     WindowTitleBar(
@@ -813,12 +868,11 @@ fun main(args: Array<String>) {
         val immersiveStores = components?.stores
         if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
             com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
-            com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
-                appBounds = { composeWindow?.takeIf { it.isVisible }?.bounds }, icon = icon,
+            if (!embeddedImmersive) com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
+                appBounds = { composeWindow?.takeIf { windowVisible && !windowState.isMinimized }?.bounds }, icon = icon,
                 onLeaveToPlayer = {
                     immersive.close()
                     openWindow()
-                    playerRequests++
                 })
         }
     }

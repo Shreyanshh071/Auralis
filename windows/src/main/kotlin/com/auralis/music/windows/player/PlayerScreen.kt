@@ -7,6 +7,7 @@ import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.clickable
 import androidx.compose.ui.draw.clip
@@ -51,6 +52,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -64,6 +66,8 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -110,15 +114,39 @@ fun PlayerScreen(
     val preferenceRevision by prefs.changes.collectAsState()
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
+    val lyricsState by lyrics.state.collectAsState()
+    val spotifyCanvasId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
+        ?: lyricsState.takeIf { it.trackId == track?.id }?.lyrics?.spotifyTrackId
+    val canvasPrefs by CanvasSettings.prefs.collectAsState()
+    val motionAura = rememberMotionAura(track?.id)
+    val canvasReady by remember(motionAura) {
+        derivedStateOf { motionAura.texture.value != null }
+    }
     val glassBackdrop = rememberLayerBackdrop()
     val lyricsBackdrop = rememberLayerBackdrop()
     val combinedBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
     val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
-    Box(Modifier.fillMaxSize().background(Color(0xFF050505))) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
+        val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
+            prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
+        if (canvasStage && canvasReady) {
+            CanvasIntro(playback)
+        }
         Box(Modifier.fillMaxSize().then(if (resyncSource.users.intValue > 0) Modifier.layerBackdrop(glassBackdrop) else Modifier)) {
-            PlayerBackdrop(appearance.playerBackgroundStyle, artworkUrl, palette)
+            PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
+                artworkUrl, palette, if (canvasStage) motionAura else null)
+            if (canvasStage) {
+                AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
+                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
+                    motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
+                    playbackClock = playback.clock) {}
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = .18f),
+                    .6f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = .55f))))
+            }
         }
 
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
@@ -135,35 +163,39 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
-                    Box(Modifier.offset(y = 12.dp)) {
-                        CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                    if (canvasStage && canvasReady) {
+                        CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
+                    } else {
+                        Box(Modifier.offset(y = 12.dp)) {
+                            CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                        }
+                        Spacer(Modifier.height(22.dp))
+                        PlayerSeekBar(playback, Modifier.width(coverSize))
+                        Spacer(Modifier.height(18.dp))
+                        Text(
+                            text = track?.title.orEmpty(),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.width(coverSize)
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = track?.artist.orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 22.sp,
+                            color = Color.White.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.width(coverSize)
+                        )
+                        PlayerConnectRow()
                     }
-                    Spacer(Modifier.height(22.dp))
-                    PlayerSeekBar(playback, Modifier.width(coverSize))
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        text = track?.title.orEmpty(),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontSize = 34.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.width(coverSize)
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = track?.artist.orEmpty(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 22.sp,
-                        color = Color.White.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.width(coverSize)
-                    )
-                    PlayerConnectRow()
                 }
                 if (wide) {
                     Column(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -197,7 +229,7 @@ fun PlayerScreen(
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
-private fun PlayerConnectRow() {
+private fun PlayerConnectRow(compact: Boolean = false, iconOnly: Boolean = false) {
     val connect = com.auralis.music.windows.connect.DesktopConnect.current ?: return
     val ui by connect.ui.collectAsState()
     if (!ui.enabled) return
@@ -208,19 +240,21 @@ private fun PlayerConnectRow() {
     val focused by interaction.collectIsFocusedAsState()
     val highlight by androidx.compose.animation.core.animateFloatAsState(
         if (hovered || focused || menu) .12f else 0f, tween(140), label = "connectRowHover")
-    Spacer(Modifier.height(10.dp))
+    if (!compact) Spacer(Modifier.height(10.dp))
     Box {
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clip(RoundedCornerShape(12.dp))
                 .background(Color.White.copy(alpha = highlight))
                 .hoverable(interaction)
                 .clickable { menu = true }
-                .padding(horizontal = 12.dp, vertical = 10.dp)) {
+                .padding(horizontal = if (compact) 2.dp else 12.dp, vertical = if (compact) 2.dp else 10.dp)) {
                 Icon(com.auralis.music.windows.connect.connectIcon(elsewhere?.type ?: com.auralis.music.data.connect.ConnectDeviceType.COMPUTER),
-                    desktopText("Connect to a device"), modifier = Modifier.size(24.dp),
+                    desktopText("Connect to a device"), modifier = Modifier.size(if (compact) 16.dp else 24.dp),
                     tint = if (elsewhere != null) com.auralis.music.windows.connect.ConnectAccent else Color.White.copy(alpha = .8f))
-            if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
-            com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false) { menu = true }
+            if (!iconOnly) {
+                if (elsewhere != null || ui.transfer != null) Spacer(Modifier.width(8.dp))
+                com.auralis.music.windows.connect.ConnectOutputLabel(showIcon = false, interactive = false, compact = compact) { menu = true }
+            }
         }
         com.auralis.music.windows.connect.ConnectDeviceMenu(expanded = menu, onDismiss = { menu = false })
     }
@@ -275,8 +309,52 @@ internal fun rememberPlayerLyricsAppearance(): AppearanceSettings {
 }
 
 @Composable
-internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyricsController) {
-    val appearance = rememberPlayerLyricsAppearance()
+private fun CanvasIntro(playback: DesktopPlaybackController) {
+    val session by playback.session.collectAsState()
+    val state by playback.state.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    val playing = remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING)
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(session, playing) {
+        if (playing) show = CanvasSettings.shouldOfferIntro(session)
+    }
+    if (show) {
+        val keepLoops = {
+            CanvasSettings.finishIntro(useCovers = false)
+            show = false
+        }
+        com.auralis.music.ui.components.GlassAlertDialog(
+            onDismissRequest = keepLoops,
+            title = { Text(desktopText("Keep video loops in Lyrics?")) },
+            text = {
+                Text(desktopText("You can keep video loops or switch to cover art. The sidebar shows an animated cover when available."))
+            },
+            confirmButton = {
+                com.auralis.music.ui.components.TextButton(onClick = keepLoops) {
+                    Text(desktopText("Keep video loops"))
+                }
+            },
+            dismissButton = {
+                com.auralis.music.ui.components.TextButton(onClick = {
+                    CanvasSettings.finishIntro(useCovers = true)
+                    show = false
+                }) {
+                    Text(desktopText("Use cover art"))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+internal fun LyricsPanel(
+    playback: DesktopPlaybackController,
+    lyrics: DesktopLyricsController,
+    showCredits: Boolean = true,
+    textScale: Float = 1f
+) {
+    val playerAppearance = rememberPlayerLyricsAppearance()
+    val appearance = playerAppearance.copy(lyricsTextSize = playerAppearance.lyricsTextSize * textScale)
     val state by lyrics.state.collectAsState()
     val queue by playback.queue.collectAsState()
     val playerState by playback.state.collectAsState()
@@ -309,14 +387,15 @@ internal fun LyricsPanel(playback: DesktopPlaybackController, lyrics: DesktopLyr
                 isBuffering = remote?.buffering ?: (playerState == VlcAudioPlayer.State.BUFFERING),
                 lyricsClockSource = playback.clock,
                 track = queue.current,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                showCredits = showCredits
             )
         }
     }
 }
 
 @Composable
-private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifier = Modifier) {
+private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifier = Modifier, compact: Boolean = false) {
     val appearanceStore = com.auralis.music.data.datastore.LocalSettingsStores.current.appearance
     val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
     val length by playback.lengthMs.collectAsState()
@@ -331,24 +410,46 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     )
     val queue by playback.queue.collectAsState()
     val duration = remote?.durationMs?.takeIf { it > 0 } ?: length.takeIf { it > 0 } ?: ((queue.current?.duration ?: 0L) * 1000L)
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    var dragFraction by remember(queue.current?.id) { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        PlayerTime(shown)
-        com.auralis.music.ui.components.AuralisPlayerSlider(
-            value = fraction,
-            onValueChange = { if (duration > 0) dragFraction = it },
-            onValueChangeFinished = {
-                dragFraction?.let { playback.seekTo((it * duration).toLong()) }
-                dragFraction = null
-            },
-            isPlaying = playing,
-            currentPosMs = shown, totalDurationMs = duration,
-            sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-        )
-        PlayerTime(duration)
+    if (compact) {
+        Column(modifier) {
+            com.auralis.music.ui.components.AuralisPlayerSlider(
+                value = fraction,
+                onValueChange = { if (duration > 0) dragFraction = it },
+                onValueChangeFinished = {
+                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+                    dragFraction = null
+                },
+                isPlaying = playing,
+                currentPosMs = shown, totalDurationMs = duration,
+                sliderStyle = "Slim", showTimestamps = false,
+                slimThicknessRest = 3.dp, slimThicknessHover = 5.dp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                PlayerTime(shown, 10)
+                PlayerTime(duration, 10)
+            }
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+            PlayerTime(shown)
+            com.auralis.music.ui.components.AuralisPlayerSlider(
+                value = fraction,
+                onValueChange = { if (duration > 0) dragFraction = it },
+                onValueChangeFinished = {
+                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+                    dragFraction = null
+                },
+                isPlaying = playing,
+                currentPosMs = shown, totalDurationMs = duration,
+                sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+            )
+            PlayerTime(duration)
+        }
     }
 }
 
@@ -368,9 +469,92 @@ internal fun rememberShownPosition(
 }
 
 @Composable
-private fun PlayerTime(ms: Long) {
+private fun PlayerTime(ms: Long, fontSize: Int = 17) {
     val seconds = (ms / 1000).coerceAtLeast(0)
-    Text(desktopText("%d:%02d").format(seconds / 60, seconds % 60), fontSize = 17.sp, color = Color.White.copy(alpha = .8f))
+    Text(desktopText("%d:%02d").format(seconds / 60, seconds % 60), fontSize = fontSize.sp, color = Color.White.copy(alpha = .8f))
+}
+
+@Composable
+private fun PlayerTransport(
+    playback: DesktopPlaybackController,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    val scale = if (compact) .45f else 1f
+    val state by playback.state.collectAsState()
+    val queue by playback.queue.collectAsState()
+    val repeat by playback.repeatMode.collectAsState()
+    val roomActive by playback.roomActive.collectAsState()
+    val remote by playback.connectRemote.collectAsState()
+    Row(modifier, horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically) {
+        val shuffleOn by playback.shuffleEnabled.collectAsState()
+        IconButton(onClick = playback::toggleShuffle, enabled = queue.current != null && !roomActive,
+            modifier = if (compact) Modifier.size(28.dp) else Modifier) {
+            Icon(Icons.Rounded.Shuffle, desktopText(if (remote?.shuffle ?: shuffleOn) "Turn shuffle off" else "Turn shuffle on"), tint = if (remote?.shuffle ?: shuffleOn) MaterialTheme.colorScheme.primary else Color.White, modifier = Modifier.size(28.dp * scale))
+        }
+        IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp * scale)) {
+            ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp * scale, height = 28.dp * scale))
+        }
+        IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(64.dp * scale)) {
+            if (remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING))
+                ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp * scale, height = 40.dp * scale))
+            else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp * scale, height = 42.dp * scale))
+        }
+        IconButton(onClick = playback::next, enabled = queue.hasNext, modifier = Modifier.size(56.dp * scale)) {
+            ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
+                modifier = Modifier.size(width = 46.dp * scale, height = 28.dp * scale))
+        }
+        IconButton(onClick = playback::cycleRepeatMode, enabled = !roomActive,
+            modifier = if (compact) Modifier.size(28.dp) else Modifier) {
+            Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
+                modifier = Modifier.size(28.dp * scale))
+        }
+    }
+}
+
+@Composable
+private fun CanvasPlayerDock(
+    playback: DesktopPlaybackController,
+    track: com.auralis.music.domain.model.Track,
+    modifier: Modifier = Modifier
+) {
+    val volume by playback.volume.collectAsState()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
+    Column(modifier, verticalArrangement = Arrangement.Bottom) {
+        Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()
+            .hoverable(interaction).onFocusChanged { focused = it.hasFocus }
+            .focusable(interactionSource = interaction)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(track.title, modifier = Modifier.weight(1f, fill = false),
+                    fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
+                    color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(4.dp))
+                PlayerPlaylistButton(track)
+            }
+            Text(track.artist, fontSize = 11.sp, lineHeight = 14.sp,
+                color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            PlayerSeekBar(playback, Modifier.fillMaxWidth(), compact = true)
+            Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlayerConnectRow(compact = true, iconOnly = true)
+                androidx.compose.animation.AnimatedVisibility(visible = hovered || focused, modifier = Modifier.weight(1f)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        PlayerTransport(playback, Modifier.weight(1f), compact = true)
+                        IconButton(onClick = playback::toggleMute, modifier = Modifier.size(24.dp)) {
+                            Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                                desktopText(if (volume > 0f) "Mute" else "Unmute"),
+                                tint = Color.White, modifier = Modifier.size(12.dp))
+                        }
+                        HoverSlider(value = volume, onValueChange = playback::setVolume,
+                            thin = 2.dp, thick = 3.dp, hitSize = 20.dp, modifier = Modifier.width(36.dp))
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** How long a still mouse rests on the cover before its controls and the cursor hide. */
@@ -385,7 +569,10 @@ private val BlankCursor: PointerIcon by lazy {
 /** The cover; hovering shows shuffle/previous/play/next/repeat along its bottom and volume on its right. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp, scale: ContentScale) {
+private fun CoverWithControls(
+    playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp,
+    scale: ContentScale
+) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
@@ -399,13 +586,10 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
     }
     val reveal by androidx.compose.animation.core.animateFloatAsState(if (hovered && !idle) 1f else 0f,
         tween(if (idle) 450 else 220), label = "coverControls")
-    val state by playback.state.collectAsState()
     val queue by playback.queue.collectAsState()
-    val repeat by playback.repeatMode.collectAsState()
-    val roomActive by playback.roomActive.collectAsState()
     val volume by playback.volume.collectAsState()
-    val remote by playback.connectRemote.collectAsState()
-    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).hoverable(hover)
+    Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp))
+        .clip(RoundedCornerShape(16.dp)).hoverable(hover)
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { event ->
             event.changes.firstOrNull()?.let { if (pointerActivity.moved(it.position)) lastMove = System.nanoTime() }
         }
@@ -413,38 +597,14 @@ private fun CoverWithControls(playback: DesktopPlaybackController, artworkUrl: S
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        AnimatedCover(queue.current, Modifier.fillMaxSize()) {
-            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-                contentDescription = title, contentScale = scale)
-        }
+        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+            contentDescription = title, contentScale = scale)
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
             if (reveal > 0f) {
-                Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    val shuffleOn by playback.shuffleEnabled.collectAsState()
-                    IconButton(onClick = playback::toggleShuffle, enabled = queue.current != null && !roomActive) {
-                        Icon(Icons.Rounded.Shuffle, desktopText(if (remote?.shuffle ?: shuffleOn) "Turn shuffle off" else "Turn shuffle on"), tint = if (remote?.shuffle ?: shuffleOn) MaterialTheme.colorScheme.primary else Color.White, modifier = Modifier.size(28.dp))
-                    }
-                    IconButton(onClick = playback::previous, modifier = Modifier.size(56.dp)) {
-                        ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
-                    }
-                    IconButton(onClick = playback::togglePlayPause, modifier = Modifier.size(64.dp)) {
-                        if (remote?.playing ?: (state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING))
-                            ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 40.dp))
-                        else ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 42.dp))
-                    }
-                    IconButton(onClick = playback::next, enabled = queue.hasNext, modifier = Modifier.size(56.dp)) {
-                        ClassicSkipGlyph(forward = true, color = Color.White.copy(alpha = if (queue.hasNext) 1f else .4f),
-                            modifier = Modifier.size(width = 46.dp, height = 28.dp))
-                    }
-                    IconButton(onClick = playback::cycleRepeatMode, enabled = !roomActive) {
-                        Icon(if (repeat == DesktopPlaybackController.RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                            "Repeat", tint = if (repeat == DesktopPlaybackController.RepeatMode.OFF) Color.White.copy(alpha = .7f) else Color.White,
-                            modifier = Modifier.size(28.dp))
-                    }
-                }
+                PlayerTransport(playback,
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp))
                 Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(size * .42f),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     HoverSlider(value = volume, onValueChange = playback::setVolume, vertical = true,

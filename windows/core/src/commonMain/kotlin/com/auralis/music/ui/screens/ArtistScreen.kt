@@ -205,23 +205,32 @@ fun ArtistScreen(
                         else -> rawBanner
                     }
                     if (!banner.isNullOrBlank()) {
-                        // Artist artwork can be a portrait or a wide banner. Album-art URL
-                        // upgrades request a square crop, so keep this image's original shape.
-                        LocalArtworkRenderer.current.Image(
-                            url = banner,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            crossfade = true,
-                            modifier = Modifier.fillMaxSize().blur(32.dp)
-                        )
-                        LocalArtworkRenderer.current.Image(
-                            url = banner,
-                            contentDescription = artistPage.artist.name,
-                            contentScale = ContentScale.Fit,
-                            crossfade = true,
+                        androidx.compose.animation.Crossfade(
+                            targetState = banner,
                             modifier = Modifier.fillMaxSize(),
-                            alignment = Alignment.Center
-                        )
+                            animationSpec = androidx.compose.animation.core.tween(600),
+                            label = "artistPhoto"
+                        ) { photo ->
+                            Box(Modifier.fillMaxSize()) {
+                                // Artist artwork can be a portrait or a wide banner. Album-art URL
+                                // upgrades request a square crop, so keep this image's original shape.
+                                LocalArtworkRenderer.current.Image(
+                                    url = photo,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    crossfade = true,
+                                    modifier = Modifier.fillMaxSize().blur(32.dp)
+                                )
+                                LocalArtworkRenderer.current.Image(
+                                    url = photo,
+                                    contentDescription = artistPage.artist.name,
+                                    contentScale = ContentScale.Fit,
+                                    crossfade = true,
+                                    modifier = Modifier.fillMaxSize(),
+                                    alignment = Alignment.Center
+                                )
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier
@@ -815,25 +824,8 @@ fun ArtistScreen(
             }
 
             // ================================================================
-            // 6. VIDEOS AND ARTIST PLAYLISTS
+            // 6. ARTIST PLAYLISTS
             // ================================================================
-            if (artistPage.videos.isNotEmpty()) {
-                item {
-                    Text("Videos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(artistPage.videos, key = { it.id }) { video ->
-                            Column(Modifier.width(210.dp).clip(RoundedCornerShape(12.dp))
-                                .clickable { onTrackClick(video, artistPage.videos) }.padding(4.dp)) {
-                                ArtworkCard(url = video.thumbnail, modifier = Modifier.width(202.dp).height(114.dp),
-                                    cornerRadius = 12.dp, contentDescription = video.title)
-                                Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                                Text(video.artist, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
-            }
             if (artistPage.playlists.isNotEmpty()) {
                 item {
                     Text("Playlists by ${artistPage.artist.name}", style = MaterialTheme.typography.titleLarge,

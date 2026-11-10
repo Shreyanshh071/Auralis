@@ -99,6 +99,8 @@ object AudioStreamResolver {
                     if (seconds > 0L) matchedDurationCache[id] = seconds
                 }
             }
+            // After the recording matches: its remembered swaps go on top of them.
+            AudioVersionPreference.init(context)
             NewPipeDownloader.init(context.cacheDir)
             PlayerJsCache.init(context)
             ensureNewPipeInitialized()
@@ -221,7 +223,9 @@ object AudioStreamResolver {
     suspend fun resolvePlaybackVideoId(track: com.auralis.music.domain.model.Track): String? {
         if (track.id.startsWith("unavailable:")) return null
         getMatchedVideoId(track.id)?.let { return it }
-        if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return track.id
+        // A music video plays its audio-only release when Settings asks for it (see AudioVersionPreference).
+        // Playback never waits for that lookup: an undecided song starts now and is looked up behind it.
+        if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return AudioVersionPreference.decidedAudioVersionFor(track) ?: track.id
         return withContext(Dispatchers.IO) {
             isPlaybackResolving = true
             try {

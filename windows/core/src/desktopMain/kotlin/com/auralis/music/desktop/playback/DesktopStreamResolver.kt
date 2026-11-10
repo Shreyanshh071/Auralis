@@ -219,9 +219,14 @@ object DesktopStreamResolver {
             .build()
     }
 
-    /** A new stream URL for [videoId], bypassing the cache (called from the relay's threads). */
+    /**
+     * A new stream URL for [videoId], bypassing the cache (called from the relay's threads once
+     * YouTube refused a piece). It comes from a new visitor session: when YouTube cuts a session's
+     * streams off after the first megabyte, every URL that session gets stops at the same byte.
+     */
     fun refreshBlocking(videoId: String): String? {
         invalidate(videoId)
+        NewPipeDownloader.resetSession()
         return kotlinx.coroutines.runBlocking { resolve(videoId) }
     }
 

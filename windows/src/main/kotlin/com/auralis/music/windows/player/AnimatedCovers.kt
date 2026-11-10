@@ -8,11 +8,20 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -34,7 +43,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** Where animated covers come from. Auto tries Apple Music, then Tidal, then the curated library. */
 internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), CURATED("Curated library") }
 
-internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO)
+internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO, val spotifyCanvas: Boolean = true)
 
 /** Appearance > Animated covers, kept in its own small file. */
 internal object CanvasSettings {
@@ -44,14 +53,45 @@ internal object CanvasSettings {
     private val mutable = MutableStateFlow(load())
     val prefs: StateFlow<CanvasPrefs> = mutable
 
+    private var introPlays = -1
+    private var lastIntroSession: Long? = null
+
+    fun initializeIntro(newProfile: Boolean) {
+        introPlays = runCatching {
+            val stored = store.getString("loopIntroPlays", "")?.toIntOrNull()
+            stored ?: if (newProfile) 0 else -1
+        }.getOrDefault(-1)
+        saveIntroProgress()
+    }
+
+    fun shouldOfferIntro(session: Long): Boolean {
+        if (introPlays < 0) return false
+        if (introPlays < 3 && session != lastIntroSession) {
+            lastIntroSession = session
+            introPlays++
+            saveIntroProgress()
+        }
+        return introPlays >= 3
+    }
+
+    fun finishIntro(useCovers: Boolean) {
+        introPlays = -1
+        if (useCovers) update(prefs.value.copy(spotifyCanvas = false, enabled = true)) else saveIntroProgress()
+    }
+
+    private fun saveIntroProgress() {
+        runCatching { store.putStrings(mapOf("loopIntroPlays" to introPlays.toString())) }
+    }
+
     private fun load() = runCatching {
         CanvasPrefs(store.getString("enabled", "true") != "false",
-            CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO)
+            CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO,
+            store.getString("spotifyCanvas", "true") != "false")
     }.getOrDefault(CanvasPrefs())
 
     fun update(prefs: CanvasPrefs) {
         mutable.value = prefs
-        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name)) }
+        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString(), "loopIntroPlays" to introPlays.toString())) }
     }
 }
 
@@ -217,32 +257,76 @@ internal object CanvasLookup {
  */
 @Composable
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
-    motionAura: MotionAura? = null, artwork: @Composable BoxScope.() -> Unit) {
+    motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
+    playbackClock: PlaybackClockSource? = null,
+    artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
-    var url by remember(track?.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track?.id, prefs) {
+    var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
         url = null
-        url = if (track != null && prefs.enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
-            com.auralis.music.desktop.playback.CanvasVideoEngine.available) CanvasLookup.find(track, prefs.source) else null
+        val enabled = if (canvasOnly) prefs.spotifyCanvas else prefs.enabled
+        if (track != null && enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+            com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
+            url = if (canvasOnly) SpotifyCanvasLookup.find(spotifyCanvasId) else CanvasLookup.find(track, prefs.source)
+        }
     }
     Box(modifier) {
         artwork()
         val video = url
         if (video != null) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-            DisposableEffect(video, motionAura) {
+            val firstFrame = remember { CompletableDeferred<Boolean>() }
+            DisposableEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(video) {
-                    synchronized(active) { if (active.get()) { frame = it; motionAura?.offer(it) } }
+                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
+                    video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
+                ) {
+                    synchronized(active) {
+                        if (active.get()) {
+                            // VLC can pad a portrait frame by a few pixels.
+                            val portrait = kotlin.math.abs(it.width.toDouble() / it.height - 9.0 / 16) < .02
+                            if (!canvasOnly || portrait) {
+                                if (!canvasOnly || firstFrame.complete(true) || frame != null) {
+                                    frame = it
+                                    motionAura?.offer(it)
+                                }
+                            } else firstFrame.complete(false)
+                        }
+                    }
                 }
+                if (stop == null) firstFrame.complete(false)
                 onDispose {
                     synchronized(active) { active.set(false); motionAura?.offer(null) }
                     stop?.invoke()
                 }
             }
+            if (canvasOnly && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
+                if (withTimeoutOrNull(12_000L) { firstFrame.await() } != true) {
+                    firstFrame.complete(false)
+                    url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
+                }
+            }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
-            frame?.let { Image(it, null, Modifier.matchParentSize().alpha(shown), contentScale = ContentScale.Crop,
-                filterQuality = androidx.compose.ui.graphics.FilterQuality.High) }
+            frame?.let { bitmap ->
+                val edgeBlend = if (canvasOnly) Modifier
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            Brush.horizontalGradient(
+                                .76f to Color.Black,
+                                .82f to Color.Black.copy(alpha = .86f),
+                                .88f to Color.Black.copy(alpha = .5f),
+                                .94f to Color.Black.copy(alpha = .14f),
+                                1f to Color.Transparent
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    } else Modifier
+                Image(bitmap, null, Modifier.matchParentSize().alpha(shown).then(edgeBlend),
+                    contentScale = ContentScale.Crop,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
+            }
         }
     }
 }

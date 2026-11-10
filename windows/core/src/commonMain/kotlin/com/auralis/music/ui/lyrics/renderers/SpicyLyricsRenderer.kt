@@ -275,6 +275,7 @@ fun SpicyLyricsLine(
     inactiveColor: Color = Color.White,
     nextLineTime: Long? = null
 ) {
+    val glyphMotion = com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion.current
     val displayText = remember(line.text, line.isBackground) { SpicyBackingText.displayText(line.text, line.isBackground) }
     val displayWords = remember(displayText, words, line.isBackground) {
         SpicyBackingText.displayWords(displayText, words, line.isBackground)
@@ -475,7 +476,7 @@ fun SpicyLyricsLine(
             joinedTranslations.fill(0f)
             // Pack ink by its measured advances, never by inserting spaces or
             // snapping it to a different origin when a syllable becomes active.
-            joinedRuns.forEach { run ->
+            if (glyphMotion) joinedRuns.forEach { run ->
                         var originalWidth = 0f
                         var scaledWidth = 0f
                         for (index in run) {
@@ -506,11 +507,13 @@ fun SpicyLyricsLine(
                 val fill = if (letterPose != null && letters != null) SpicyLyricsMotion.letterFill(letters[slice.letter], now)
                     else -.2f + 1.2f * word.progress(now)
                 withTransform({
-                    translate(left = joinedTranslations[index], top = wordPose.liftEm * fontPx)
-                    scale(wordPose.scale, wordPose.scale, pivot = pivot)
-                    if (letterPose != null) {
-                        translate(top = letterPose.liftEm * 2f * fontPx)
-                        scale(letterPose.scale, letterPose.scale, pivot = slice.bounds.center)
+                    if (glyphMotion) {
+                        translate(left = joinedTranslations[index], top = wordPose.liftEm * fontPx)
+                        scale(wordPose.scale, wordPose.scale, pivot = pivot)
+                        if (letterPose != null) {
+                            translate(top = letterPose.liftEm * 2f * fontPx)
+                            scale(letterPose.scale, letterPose.scale, pivot = slice.bounds.center)
+                        }
                     }
                 }) {
                     val strength = if (letterPose != null) letterPose.glow else wordPose.glow
@@ -532,7 +535,8 @@ fun SpicyLyricsLine(
 @Composable
 private fun SpicyLineSyncedText(line: LyricLine, positionMs: State<Long>, style: TextStyle,
     active: Boolean, modifier: Modifier, inactiveColor: Color, nextLineTime: Long?) {
-    val scale by animateFloatAsState(if (active) 1.05f else 1f,
+    val glyphMotion = com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion.current
+    val scale by animateFloatAsState(if (active && glyphMotion) 1.05f else 1f,
         tween(200, easing = CubicBezierEasing(.37f, 0f, .63f, 1f)), label = "spicyLineScale")
     val direction = LocalLayoutDirection.current
     val right = style.textAlign == TextAlign.Right ||

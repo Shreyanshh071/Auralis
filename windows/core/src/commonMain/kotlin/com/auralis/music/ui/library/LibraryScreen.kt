@@ -175,6 +175,9 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.hoverable
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
@@ -412,7 +415,7 @@ fun LibraryScreen(
     }
 
     com.auralis.music.ui.components.PlatformBackHandler(
-        enabled = (!desktopBrowser && uiState.selectedPlaylist != null) || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
+        enabled = uiState.selectedPlaylist != null || uiState.selectedSmartCollection == SmartCollectionType.DOWNLOADED || isSearchActive || showSortMenu || showCreateDialog || selectedPlaylistForMenu != null
     ) {
         if (selectedPlaylistForMenu != null) selectedPlaylistForMenu = null
         else if (showCreateDialog) showCreateDialog = false
@@ -474,59 +477,26 @@ fun LibraryScreen(
                     } }
             else emptyList()
 
-    // The right side always has something to show: Liked until another playlist is chosen.
-    if (desktopBrowser) LaunchedEffect(uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) {
-        if (uiState.selectedPlaylist == null && uiState.selectedSmartCollection == null) onSmartCollectionClick(SmartCollectionType.LIKED)
+    // Windows: the Library is one full-width page of covers; a playlist opens full width over it.
+    var paneQuery by remember { mutableStateOf("") }
+    var paneFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
+    val sourceLabel: (Playlist) -> String? = { playlist ->
+        when (playlistSource?.invoke(playlist)) {
+            LibrarySourceFilter.SPOTIFY -> "Spotify"
+            LibrarySourceFilter.YOUTUBE -> "YouTube Music"
+            else -> null
+        }
+    }
+    fun paneSubtitle(playlist: Playlist): String = when {
+        smartCollectionTypeFor(playlist.id) != null -> smartCollectionSubtitleFor(playlist, isJobDownloading)
+        // A saved album keeps no track list here, so its artist says more than "0 songs".
+        playlist.tracks.isEmpty() && isAlbumPlaylist(playlist, uiState.savedAlbums) -> playlist.description?.takeIf { it.isNotBlank() }
+            // Saved albums already describe themselves as "Album by …".
+            ?.let { if (it.startsWith("Album", ignoreCase = true)) it else "Album · $it" } ?: "Album"
+        else -> listOfNotNull(sourceLabel(playlist), str(Strings.x_songs, playlist.tracks.size)).joinToString(" · ")
     }
 
     Row(modifier.fillMaxSize()) {
-    if (desktopBrowser) {
-        var paneQuery by remember { mutableStateOf("") }
-        var paneFilter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<LibrarySourceFilter?>(null) }
-        val sourceLabel: (Playlist) -> String? = { playlist ->
-            when (playlistSource?.invoke(playlist)) {
-                LibrarySourceFilter.SPOTIFY -> "Spotify"
-                LibrarySourceFilter.YOUTUBE -> "YouTube Music"
-                else -> null
-            }
-        }
-        DesktopLibraryPane(
-            rows = libraryPlaylists(paneQuery, paneFilter).map { playlist ->
-                val isSmart = smartCollectionTypeFor(playlist.id) != null
-                LibraryPaneRow(
-                    playlist = playlist,
-                    subtitle = when {
-                        isSmart -> smartCollectionSubtitleFor(playlist, isJobDownloading)
-                        // A saved album keeps no track list here, so its artist says more than "0 songs".
-                        playlist.tracks.isEmpty() && isAlbumPlaylist(playlist, uiState.savedAlbums) -> playlist.description ?: "Album"
-                        else -> listOfNotNull(sourceLabel(playlist), str(Strings.x_songs, playlist.tracks.size)).joinToString(" \u00b7 ")
-                    },
-                    icon = if (isSmart) smartCollectionIconFor(playlist.id, isJobDownloading) else null
-                )
-            },
-            artists = libraryArtists(paneQuery, paneFilter),
-            selectedId = uiState.selectedPlaylist?.id,
-            query = paneQuery,
-            onQueryChange = { paneQuery = it },
-            filter = paneFilter,
-            onFilterChange = { paneFilter = it },
-            sortOrder = uiState.sortOrder,
-            sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count"),
-            onSortChange = onSortChange,
-            onNewPlaylist = { showCreateDialog = true },
-            onOpen = { playlist ->
-                val smartType = smartCollectionTypeFor(playlist.id)
-                if (smartType != null) onSmartCollectionClick(smartType) else onPlaylistSelect(playlist)
-            },
-            onMenu = { selectedPlaylistForMenu = it },
-            onOpenArtist = { artist ->
-                onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
-            },
-            empty = { emptyLibraryContent?.invoke(paneFilter, paneQuery) },
-            modifier = Modifier.width(300.dp)
-        )
-        Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 16.dp).background(MaterialTheme.colorScheme.onBackground.copy(alpha = .08f)))
-    }
     AnimatedContent(
         modifier = Modifier.weight(1f).fillMaxHeight(),
         targetState = when {
@@ -558,7 +528,7 @@ fun LibraryScreen(
                     isPlaying = isPlaying,
                     userName = userName,
                     userAvatarUrl = userAvatarUrl,
-                    showBack = !desktopBrowser,
+                    showBack = true,
                     onBack = { onPlaylistSelect(null) },
                     onPlayTrack = { track, list -> onTrackClick(track, list) },
                     onRemoveTrack = { trackId -> onRemoveFromPlaylist(selectedPl.id, trackId) },
@@ -1116,6 +1086,33 @@ fun LibraryScreen(
         )
     }
 
+    } else {
+        DesktopLibraryHome(
+            rows = libraryPlaylists(paneQuery, paneFilter).map { playlist ->
+                LibraryPaneRow(playlist, paneSubtitle(playlist),
+                    icon = if (smartCollectionTypeFor(playlist.id) != null) smartCollectionIconFor(playlist.id, isJobDownloading) else null)
+            },
+            artists = libraryArtists(paneQuery, paneFilter),
+            savedAlbums = uiState.savedAlbums,
+            query = paneQuery,
+            onQueryChange = { paneQuery = it },
+            filter = paneFilter,
+            onFilterChange = { paneFilter = it },
+            sortOrder = uiState.sortOrder,
+            sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count"),
+            onSortChange = onSortChange,
+            onNewPlaylist = { showCreateDialog = true },
+            onOpen = { playlist ->
+                val smartType = smartCollectionTypeFor(playlist.id)
+                if (smartType != null) onSmartCollectionClick(smartType) else onPlaylistSelect(playlist)
+            },
+            onPlay = { playlist -> playlist.tracks.firstOrNull()?.let { onTrackClick(it, playlist.tracks) } },
+            onMenu = { selectedPlaylistForMenu = it },
+            onOpenArtist = { artist ->
+                onOpenArtist(Artist(artist.id, artist.name, artist.thumbnail, artist.subscribers, artist.query ?: artist.name))
+            },
+            empty = { emptyLibraryContent?.invoke(paneFilter, paneQuery) }
+        )
     }
 } // SaveableStateProvider
 } // AnimatedContent lambda
@@ -2105,8 +2102,7 @@ private fun PlaylistDetailView(
                     ) {
                         if (wideTable) DesktopPlaylistHero(
                             playlist, savedAlbums,
-                            "${playlist.tracks.size} tracks • $durationFormatted",
-                            searchQuery, { searchQuery = it },
+                            owner = if (userName.isNotBlank() && !userName.contains("listener", ignoreCase = true)) userName else "You",
                             onPlay = { displayedTracks.firstOrNull()?.let { onPlayTrack(it, displayedTracks) } },
                             onShuffle = { displayedTracks.shuffled().let { tracks -> tracks.firstOrNull()?.let { onPlayTrack(it, tracks) } } },
                             onOptions = { showOptionsMenu = true }
@@ -2382,10 +2378,16 @@ private fun PlaylistDetailView(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = if (wideTable) 24.dp else 4.dp, vertical = 6.dp),
-                            horizontalArrangement = if (wideTable) Arrangement.End else Arrangement.SpaceBetween,
+                                .padding(horizontal = if (wideTable) 24.dp else 4.dp, vertical = if (wideTable) 2.dp else 6.dp),
+                            horizontalArrangement = if (wideTable) Arrangement.spacedBy(4.dp) else Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Wide: one toolbar over the table — find on the left, order on the right.
+                            if (wideTable) {
+                                DesktopPaneSearchField(searchQuery, { searchQuery = it }, "Search in ${playlist.title}",
+                                    Modifier.width(260.dp))
+                                Spacer(Modifier.weight(1f))
+                            }
                             // Sort Order Dropdown
                             Box {
                                 // Liquid glass: the same glass popup as long-pressing a song or playlist.
@@ -2495,15 +2497,16 @@ private fun PlaylistDetailView(
                 // 4. TRACKS LIST
                 // ================================================================
                 if (wideTable && displayedItems.isNotEmpty()) item(key = "track_table_header", contentType = "header") {
-                    // Cover (48) + gap (14) before the title; the menu button (48) after the clock.
-                    com.auralis.music.ui.components.TrackTableHeader(leading = 62.dp, trailing = 48.dp, showNumber = false,
-                        modifier = Modifier.padding(horizontal = 16.dp))
+                    // Number (32) + cover (40) + gap (14) before the title; the menu button (48) after the
+                    // clock. Rows sit 16dp in plus 8dp of hover padding.
+                    com.auralis.music.ui.components.TrackTableHeader(leading = 54.dp, trailing = 48.dp, showNumber = true,
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 6.dp))
                 }
                 itemsIndexed(
                     items = displayedItems,
                     key = { _, item -> item.instanceId },
                     contentType = { _, _ -> "song" }
-                ) { _, item ->
+                ) { index, item ->
                     val track = item.track
                     val isCurrent = track.id == currentTrackId
                     val isItemBeingDragged = draggingInstanceId == item.instanceId
@@ -2511,6 +2514,7 @@ private fun PlaylistDetailView(
                     PlaylistTrackRow(
                         track = track,
                         wide = wideTable,
+                        number = index + 1,
                         isCurrent = isCurrent,
                         isPlaying = isPlaying,
                         isCustomSort = canReorder,
@@ -2710,6 +2714,7 @@ private fun PlaylistDetailView(
 fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     track: Track,
     wide: Boolean = false,
+    number: Int = 0,
     isCurrent: Boolean,
     isPlaying: Boolean,
     isCustomSort: Boolean,
@@ -2743,6 +2748,16 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     val currentDrag by androidx.compose.runtime.rememberUpdatedState(onReorderDrag)
     val currentDragEnd by androidx.compose.runtime.rememberUpdatedState(onReorderDragEnd)
     val currentDragCancel by androidx.compose.runtime.rememberUpdatedState(onReorderDragCancel)
+    val rowHover = remember { MutableInteractionSource() }
+    val rowHovered by rowHover.collectIsHoveredAsState()
+    val rowFill by androidx.compose.animation.animateColorAsState(
+        when {
+            !wide -> Color.Transparent
+            rowHovered -> MaterialTheme.colorScheme.onBackground.copy(alpha = .09f)
+            isCurrent -> MaterialTheme.colorScheme.onBackground.copy(alpha = .05f)
+            else -> Color.Transparent
+        }, tween(110), label = "playlistRowFill"
+    )
 
     com.auralis.music.ui.components.SwipeableTrackContainer(
         onPlayNext = onPlayNext?.let { { it(track) } },
@@ -2772,7 +2787,9 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (!isCustomSort) Modifier.contextMenuAnchor { onPlayTrack(track) } else Modifier)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(if (wide) 8.dp else 12.dp))
+                .background(rowFill)
+                .hoverable(rowHover)
                 .combinedClickable(
                     onClick = {
                         if (!isDragging) {
@@ -2783,14 +2800,26 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                     // retain their normal tap behavior without starting a reorder.
                     onLongClick = if (!isCustomSort) { { onMenuClick(track) } } else null
                 )
-                .padding(vertical = 4.dp),
+                .padding(vertical = if (wide) 6.dp else 4.dp, horizontal = if (wide) 8.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (wide) {
+                // The number column: the playing song shows its bars, a hovered one a play glyph.
+                Box(Modifier.width(32.dp), contentAlignment = Alignment.CenterStart) {
+                    when {
+                        isCurrent -> EqualizerBars(isPlaying = isPlaying, modifier = Modifier.size(16.dp), color = LIME_TEXT)
+                        rowHovered -> Icon(Icons.Default.PlayArrow, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
+                        else -> Text("$number", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                }
+            }
             ArtworkCard(
                 sizeToConstraints = true,
                 url = track.thumbnail,
-                modifier = Modifier.size(48.dp),
-                cornerRadius = 8.dp,
+                modifier = Modifier.size(if (wide) 40.dp else 48.dp),
+                cornerRadius = if (wide) 6.dp else 8.dp,
                 contentDescription = track.title,
                 fallbackTrack = track
             )
@@ -2824,7 +2853,7 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 com.auralis.music.ui.components.TrackTimeCell(track.duration.takeIf { it != 210L } ?: 0L)
             }
 
-            if (isCurrent) {
+            if (isCurrent && !wide) {
                 EqualizerBars(
                     isPlaying = isPlaying,
                     modifier = Modifier.size(18.dp),
@@ -2866,9 +2895,10 @@ fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
 
             IconButton(onClick = { onMenuClick(track) }) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    imageVector = if (wide) Icons.Default.MoreHoriz else Icons.Default.MoreVert,
                     contentDescription = str(Strings.options),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // Wide tables show the menu only on the hovered row, so the column isn't a wall of dots.
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (!wide || rowHovered) 1f else 0f),
                     modifier = Modifier.size(20.dp)
                 )
             }

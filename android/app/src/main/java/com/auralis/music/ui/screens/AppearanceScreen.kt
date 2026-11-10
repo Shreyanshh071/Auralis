@@ -71,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
+import com.auralis.music.domain.model.MiniPlayerDesign
 import com.auralis.music.domain.model.AppearanceSettings
 import com.auralis.music.ui.player.PlayerBackgroundStyle
 import com.auralis.music.ui.theme.AuralisPushedPage
@@ -98,6 +99,7 @@ fun AppearanceScreen(
     val dataStore = remember { AppearanceSettingsDataStore(context.applicationContext) }
     val initialSettings = com.auralis.music.ui.theme.LocalAppearanceSettings.current
     val settings by dataStore.settingsFlow.collectAsState(initial = initialSettings)
+    val expandedMiniPlayer = settings.miniPlayerDesign == MiniPlayerDesign.EXPANDED.displayName
 
     fun update(transform: AppearanceSettings.() -> AppearanceSettings) {
         scope.launch {
@@ -195,17 +197,18 @@ fun AppearanceScreen(
                     isChecked = settings.pureBlackMiniPlayer,
                     onCheckedChange = { update { copy(pureBlackMiniPlayer = it) } }
                 )
-                val isPureBlackActive = settings.pureBlackMiniPlayer && settings.miniPlayerDesign != "Expanded mini player"
-                AppearanceClickableItem(
-                    icon = Icons.Default.GridView,
-                    title = str(R.string.mini_player_background_style),
-                    subtitle = if (isPureBlackActive) str(R.string.unavailable_when_pure_black_is_enabled) else com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
-                    onClick = {
-                        if (!isPureBlackActive) {
-                            activeDialog = AppearanceDialogType.MINI_PLAYER_BG
+                if (!expandedMiniPlayer) {
+                    AppearanceClickableItem(
+                        icon = Icons.Default.GridView,
+                        title = str(R.string.mini_player_background_style),
+                        subtitle = if (settings.pureBlackMiniPlayer) str(R.string.unavailable_when_pure_black_is_enabled) else com.auralis.music.ui.player.MiniPlayerBackgrounds.label(settings.miniPlayerBackgroundStyle),
+                        onClick = {
+                            if (!settings.pureBlackMiniPlayer) {
+                                activeDialog = AppearanceDialogType.MINI_PLAYER_BG
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
 
@@ -424,7 +427,7 @@ fun AppearanceScreen(
                 onDismiss = { activeDialog = null }
             )
         }
-        AppearanceDialogType.MINI_PLAYER_BG -> {
+        AppearanceDialogType.MINI_PLAYER_BG -> if (!expandedMiniPlayer) {
             val bgOptions = com.auralis.music.ui.player.MiniPlayerBackgrounds.options
             AppearanceOptionsDialog(
                 title = str(R.string.mini_player_background_style),

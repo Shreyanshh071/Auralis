@@ -147,6 +147,8 @@ fun ArtistScreen(
     val isSubscribed = savedArtists.any { it.id == artistPage.artist.id || it.name.equals(artistPage.artist.name, ignoreCase = true) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var selectedAlbumForMenu by remember { mutableStateOf<Pair<PlaylistResult, Boolean>?>(null) }
+    // "Show all" on the Albums or Singles row: the whole discography, over this page.
+    var allReleases by remember(artistPage.artist.id) { mutableStateOf<AllReleases?>(null) }
 
     val accent = MaterialTheme.dynamicPrimary
     val pageBackground = MaterialTheme.dynamicBackground
@@ -171,7 +173,26 @@ fun ArtistScreen(
 
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    OptionalGlassPage(background = pageBackground, accent = accent,
+    allReleases?.let { shown ->
+        // Registered after the page's own handler, so Back closes the grid first.
+        BackHandler { allReleases = null }
+        ArtistAllReleasesPage(
+            artistName = artistPage.artist.name,
+            title = str(if (shown.isSingles) R.string.singles_eps else R.string.albums),
+            endpoint = shown.endpoint,
+            preview = if (shown.isSingles) artistPage.singles else artistPage.albums,
+            fallbackSubtitle = str(if (shown.isSingles) R.string.single else R.string.album),
+            accent = accent,
+            background = pageBackground,
+            onBack = { allReleases = null },
+            onClick = onAlbumClick,
+            onLongClick = { selectedAlbumForMenu = it to shown.isSingles },
+            topInset = statusBarHeight,
+            modifier = modifier
+        )
+    }
+
+    if (allReleases == null) OptionalGlassPage(background = pageBackground, accent = accent,
         modifier = modifier.underStatusBar().fillMaxSize().background(pageBackground)) {
         LazyColumn(
             state = listState,
@@ -282,14 +303,16 @@ fun ArtistScreen(
             if (artistPage.albums.isNotEmpty()) {
                 item(key = "albums", contentType = "releases") {
                     ArtistReleaseShelf(str(R.string.albums), artistPage.albums, str(R.string.album), accent,
-                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to false })
+                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to false },
+                        onShowAll = artistPage.albumsMore?.let { more -> { allReleases = AllReleases(more, isSingles = false) } })
                 }
             }
 
             if (artistPage.singles.isNotEmpty()) {
                 item(key = "singles", contentType = "releases") {
                     ArtistReleaseShelf(str(R.string.singles_eps), artistPage.singles, str(R.string.single), accent,
-                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to true })
+                        onClick = onAlbumClick, onLongClick = { selectedAlbumForMenu = it to true },
+                        onShowAll = artistPage.singlesMore?.let { more -> { allReleases = AllReleases(more, isSingles = true) } })
                 }
             }
 
@@ -725,7 +748,9 @@ private fun ArtistSectionHeader(
     title: String,
     accent: Color,
     onClick: (() -> Unit)? = null,
-    actionDescription: String? = null
+    actionDescription: String? = null,
+    /** Spelled out before the chevron, for rows whose header would otherwise not read as a button. */
+    actionLabel: String? = null
 ) {
     Row(
         Modifier
@@ -744,6 +769,15 @@ private fun ArtistSectionHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+        if (onClick != null && actionLabel != null) {
+            Text(
+                text = actionLabel,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
         if (onClick != null) {
             Icon(
                 imageVector = Icons.Default.ChevronRight,
@@ -838,10 +872,13 @@ private fun ArtistReleaseShelf(
     fallbackSubtitle: String,
     accent: Color,
     onClick: (PlaylistResult) -> Unit,
-    onLongClick: ((PlaylistResult) -> Unit)?
+    onLongClick: ((PlaylistResult) -> Unit)?,
+    onShowAll: (() -> Unit)? = null
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ArtistSectionHeader(title, accent)
+        ArtistSectionHeader(title, accent, onClick = onShowAll,
+            actionDescription = onShowAll?.let { str(R.string.show_all) },
+            actionLabel = onShowAll?.let { str(R.string.show_all) })
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -881,6 +918,113 @@ private fun ArtistReleaseShelf(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Which full list is open over the artist page. */
+private data class AllReleases(val endpoint: com.auralis.music.domain.model.ArtistReleasesEndpoint, val isSingles: Boolean)
+
+/**
+ * Every album (or single) the artist has, as a grid. The row's preview shows at once and is
+ * replaced by the full list when it arrives; a failed load keeps the preview and offers Retry.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ArtistAllReleasesPage(
+    artistName: String,
+    title: String,
+    endpoint: com.auralis.music.domain.model.ArtistReleasesEndpoint,
+    preview: List<PlaylistResult>,
+    fallbackSubtitle: String,
+    accent: Color,
+    background: Color,
+    onBack: () -> Unit,
+    onClick: (PlaylistResult) -> Unit,
+    onLongClick: (PlaylistResult) -> Unit,
+    /** The page runs behind the status bar, where the system inset is already used up. */
+    topInset: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    var releases by remember(endpoint) { mutableStateOf<List<PlaylistResult>?>(null) }
+    var failed by remember(endpoint) { mutableStateOf(false) }
+    var attempt by remember(endpoint) { mutableIntStateOf(0) }
+    LaunchedEffect(endpoint, attempt) {
+        failed = false
+        val loaded = try {
+            com.auralis.music.data.network.LocalizedContent.run {
+                com.auralis.music.data.network.InnerTubeClient().getArtistReleases(endpoint, artistName)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { null }
+        if (loaded.isNullOrEmpty()) failed = true else releases = loaded
+    }
+    val shown = releases ?: preview
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+
+    OptionalGlassPage(background = background, accent = accent,
+        modifier = modifier.underStatusBar().fillMaxSize().background(background)) {
+        Column(Modifier.fillMaxSize().padding(top = topInset)) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), tint = MaterialTheme.colorScheme.onBackground)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                        color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(artistName, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (releases == null && !failed) {
+                    CircularProgressIndicator(color = accent, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+            if (failed && releases == null) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(str(R.string.artist_releases_load_failed), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { attempt++ }) { Text(str(R.string.retry)) }
+                }
+            }
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(150.dp),
+                state = gridState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = bottomChromePadding(start = 12.dp, end = 12.dp, top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(shown.size, key = { shown[it].id }, contentType = { "release" }) { index ->
+                    val release = shown[index]
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .contextMenuAnchor { onClick(release) }
+                            .clip(RoundedCornerShape(18.dp))
+                            .combinedClickable(onClick = { onClick(release) }, onLongClick = { onLongClick(release) })
+                            .padding(4.dp)
+                    ) {
+                        ArtworkCard(
+                            sizeToConstraints = true,
+                            url = release.thumbnail ?: "",
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                            cornerRadius = 16.dp,
+                            contentDescription = release.title
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(release.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(release.author ?: fallbackSubtitle, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

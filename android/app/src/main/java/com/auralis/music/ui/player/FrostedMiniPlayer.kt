@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
+import com.auralis.music.domain.model.MiniPlayerDesign
 import com.auralis.music.ui.theme.dynamicSurface
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -28,6 +29,7 @@ internal object MiniPlayerBackgrounds {
     /** The global glass theme controls app chrome, never the user's mini-player choice. */
     fun surface(settings: com.auralis.music.domain.model.AppearanceSettings): Surface = when {
         settings.pureBlackMiniPlayer -> Surface.PURE_BLACK
+        settings.miniPlayerDesign == MiniPlayerDesign.EXPANDED.displayName -> Surface.ARTWORK
         isFrosted(settings.miniPlayerBackgroundStyle) -> Surface.FROSTED
         PlayerBackgroundStyle.fromKey(settings.miniPlayerBackgroundStyle) == PlayerBackgroundStyle.APPLE_MUSIC -> Surface.LIQUID_GLASS
         else -> Surface.ARTWORK

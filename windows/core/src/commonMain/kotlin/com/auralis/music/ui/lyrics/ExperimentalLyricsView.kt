@@ -122,6 +122,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -480,8 +481,16 @@ fun ExperimentalPendingSeekTarget.hasReached(positionMs: Long, nowMs: Long, play
 /** Active Spicy glyphs swell beyond their measured row; an offscreen texture clips that ink
  * even with clip=false. Only the out-of-focus rows need a blur texture. */
 fun Modifier.lyricsBlurLayer(enabled: Boolean, activeSpicy: Boolean,
+    overflow: androidx.compose.ui.unit.Dp = 0.dp,
     radius: androidx.compose.ui.unit.Density.() -> Float): Modifier =
-    if (!enabled || activeSpicy) this else this.graphicsLayer {
+    if (!enabled || activeSpicy) this else this
+        .layout { measurable, constraints ->
+            val outset = overflow.roundToPx()
+            val content = measurable.measure(constraints.offset(horizontal = outset * 2, vertical = outset * 2))
+            layout((content.width - outset * 2).coerceAtLeast(0), (content.height - outset * 2).coerceAtLeast(0)) {
+                content.place(-outset, -outset)
+            }
+        }.graphicsLayer {
         compositingStrategy = CompositingStrategy.Offscreen
         val sigma = radius(this)
         renderEffect = if (sigma > .1f) androidx.compose.ui.graphics.BlurEffect(sigma, sigma,
@@ -490,7 +499,7 @@ fun Modifier.lyricsBlurLayer(enabled: Boolean, activeSpicy: Boolean,
     }.drawWithContent {
         drawRect(Color.Transparent, blendMode = BlendMode.Clear)
         drawContent()
-    }
+    }.padding(overflow)
 
 @Suppress("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
@@ -509,7 +518,8 @@ fun ExperimentalLyricsView(
     headerContent: (@Composable () -> Unit)? = null,
     footerContent: (@Composable () -> Unit)? = null,
     track: Track? = null,
-    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur
+    standardLyricsBlur: Boolean = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur,
+    showCredits: Boolean = true
 ) {
     val lyricsUi = LocalLyricsUi.current
     val density = LocalDensity.current
@@ -1296,7 +1306,9 @@ fun ExperimentalLyricsView(
             }
         }
     }
-    LyricsCredits(lyrics, Modifier.align(Alignment.Start).padding(horizontal = 16.dp, vertical = 4.dp))
+        if (showCredits) {
+            LyricsCredits(lyrics, Modifier.align(Alignment.Start).padding(horizontal = 16.dp, vertical = 4.dp))
+        }
     }
 
     val shareSheet = lyricsUi.shareSheet
@@ -1505,7 +1517,10 @@ fun ExperimentalLyricsLine(
 
             // Unbounded: the default (Rectangle) clips each line's blur to its own box, so every
             // blurred line read as a hard-edged smudge rectangle instead of soft out-of-focus text.
-            val blurModifier = Modifier.lyricsBlurLayer(standardBlur, (isSpicy) && isActiveLine) {
+            val blurModifier = Modifier.lyricsBlurLayer(
+                standardBlur, isSpicy && isActiveLine,
+                overflow = if (isSpicy) (lyricsTextSize * .5f).dp else 0.dp
+            ) {
                 animatedBlur.value.dp.toPx()
             }
 
@@ -1729,6 +1744,7 @@ fun ExperimentalWordLevelLyrics(
     focusedAlpha: Float,
     alignment: TextAlign
 ) {
+    val glyphMotion = LocalLyricsGlyphMotion.current
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val (effectiveWords, effectiveToOriginalIdx) = remember(words) {
@@ -2054,8 +2070,11 @@ fun ExperimentalWordLevelLyrics(
                             }
                         }
 
-                        translate(left = alignShift + lineCurrentPushes[lineIdx] + charBounds.left, top = charBounds.top + waveOffset)
-                        if (wordIdx != -1) {
+                        translate(
+                            left = charBounds.left + if (glyphMotion) alignShift + lineCurrentPushes[lineIdx] else 0f,
+                            top = charBounds.top + if (glyphMotion) waveOffset else 0f
+                        )
+                        if (glyphMotion && wordIdx != -1) {
                             scale(
                                 charScaleX,
                                 charScaleY,

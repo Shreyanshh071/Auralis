@@ -128,6 +128,7 @@ fun FluidLyricLine(
     isActive: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val glyphMotion = com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion.current
     if (!isActive) {
         // Full white: the row's alpha is the whole dimming ([FluidFalloffAlpha]), as in Metro.
         Text(
@@ -191,7 +192,7 @@ fun FluidLyricLine(
                 for (slice in row.slices) {
                     val word = slice.word
                     val lift = if (word != null && timing != null) timing.lift(word, pos) else 0f
-                    val offset = Offset(-images.pad, -images.pad - lift * peak)
+                    val offset = Offset(-images.pad, -images.pad - if (glyphMotion) lift * peak else 0f)
                     clipRect(slice.left, row.top - peak, slice.right, row.bottom) {
                         drawImage(images.text, topLeft = offset, alpha = UNSUNG_ALPHA)
                         if (edge > slice.left) {

@@ -114,7 +114,7 @@ object DesktopArtworkRenderer : ArtworkRenderer {
         val context = LocalPlatformContext.current
         AsyncImage(
             model = remember(url, crossfade) {
-                ImageRequest.Builder(context).data(model(url)).crossfade(crossfade).build()
+                ImageRequest.Builder(context).data(model(url)).size(LARGE_PX).crossfade(crossfade).build()
             },
             contentDescription = contentDescription,
             contentScale = contentScale,

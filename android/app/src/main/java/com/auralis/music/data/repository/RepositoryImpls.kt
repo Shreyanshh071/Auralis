@@ -242,6 +242,10 @@ class LibraryRepositoryImpl(
         trackDao.updateThumbnail(trackId, thumbnail)
     }
 
+    override suspend fun fillMissingTrackThumbnail(trackId: String, thumbnail: String) {
+        if (thumbnail.isNotBlank()) trackDao.fillMissingThumbnail(trackId, thumbnail)
+    }
+
     override suspend fun updateVerifiedTrackRelease(trackId: String, expectedAlbum: String?,
         expectedThumbnail: String, album: String?, thumbnail: String): Boolean =
         trackDao.updateVerifiedRelease(trackId, expectedAlbum, expectedThumbnail, album, thumbnail) > 0

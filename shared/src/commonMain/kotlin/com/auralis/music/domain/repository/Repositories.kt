@@ -24,6 +24,8 @@ interface LibraryRepository {
     suspend fun reorderPlaylist(playlistId: String, tracks: List<Track>)
     suspend fun replacePlaylistTracks(playlistId: String, tracks: List<Track>)
     suspend fun updateTrackThumbnail(trackId: String, thumbnail: String) {}
+    /** Sets the cover of a saved song that has none; leaves an existing cover alone. */
+    suspend fun fillMissingTrackThumbnail(trackId: String, thumbnail: String) {}
     suspend fun updateVerifiedTrackRelease(trackId: String, expectedAlbum: String?,
         expectedThumbnail: String, album: String?, thumbnail: String): Boolean = false
     suspend fun getAllTracks(): List<Track> = emptyList()

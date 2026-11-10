@@ -55,6 +55,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
+import com.auralis.music.ui.glass.underStatusBar
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -2045,11 +2049,15 @@ private fun PlaylistDetailView(
     val searchBarBacking by animateFloatAsState(if (glassHero && isSearchActive) 1f else 0f, tween(260), label = "searchBarBacking")
     val searchBarGap by animateDpAsState(if (glassHero && isSearchActive) 58.dp else 0.dp, tween(340, easing = FastOutSlowInEasing), label = "searchBarGap")
     val pageColor = MaterialTheme.dynamicBackground
+    // The page runs up behind the status bar so the cover continues under it (no band of page
+    // colour above the artwork); the buttons and the search bar stay below it.
+    val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val topBar: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .drawBehind { if (searchBarBacking > 0f) drawRect(pageColor.copy(alpha = searchBarBacking)) }
+                .padding(top = if (glassHero) statusBarInset else 0.dp)
                 .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -2092,6 +2100,7 @@ private fun PlaylistDetailView(
 
     Box(
         modifier = Modifier
+            .then(if (glassHero) Modifier.underStatusBar() else Modifier)
             .fillMaxSize()
             .background(MaterialTheme.dynamicBackground)
     ) {
@@ -2118,7 +2127,10 @@ private fun PlaylistDetailView(
                 contentPadding = bottomChromePadding()
             ) {
                 if (glassHero) {
-                    item(key = "search_bar_gap", contentType = "gap") { Spacer(Modifier.height(searchBarGap)) }
+                    // While searching, results start below the status bar as well as the search bar.
+                    item(key = "search_bar_gap", contentType = "gap") {
+                        Spacer(Modifier.height(searchBarGap + statusBarInset * (searchBarGap / 58.dp)))
+                    }
                 }
                 // Header Content
                 item(key = "playlist_header", contentType = "header") {

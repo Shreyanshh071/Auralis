@@ -84,6 +84,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
             }
         }
         item { AnimatedCoversSettings() }
+        item { LyricsVideoLoopsSettings() }
         item { Text(desktopText("Lyrics"), style = MaterialTheme.typography.titleLarge) }
         item {
             val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS,
@@ -164,7 +165,7 @@ private fun AnimatedCoversSettings() {
     val prefs by com.auralis.music.windows.player.CanvasSettings.prefs.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(desktopText("Animated covers"), style = MaterialTheme.typography.titleLarge)
-        Text(desktopText("Some songs have a short looping cover in the Now Playing sidebar. The main player shows the still artwork."),
+        Text(desktopText("Show animated album artwork in the Now Playing sidebar when available."),
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Toggle("Show animated covers", prefs.enabled) {
             com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(enabled = it))
@@ -176,6 +177,19 @@ private fun AnimatedCoversSettings() {
         }
         if (prefs.enabled && prefs.source == com.auralis.music.windows.player.CanvasSource.AUTO) Text(
             desktopText("Auto looks on Apple Music first, then Tidal, then the curated library."),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun LyricsVideoLoopsSettings() {
+    val prefs by com.auralis.music.windows.player.CanvasSettings.prefs.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(desktopText("Lyrics video loops"), style = MaterialTheme.typography.titleLarge)
+        Toggle("Show video loops in Lyrics", prefs.spotifyCanvas) {
+            com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyCanvas = it))
+        }
+        Text(desktopText("Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
