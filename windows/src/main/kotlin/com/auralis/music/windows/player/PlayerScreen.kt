@@ -129,7 +129,7 @@ fun PlayerScreen(
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
+        val canvasStage = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
             prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
