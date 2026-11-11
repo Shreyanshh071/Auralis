@@ -25,6 +25,7 @@ import androidx.compose.ui.window.*
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun SettingsOptionPopup(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val size = LocalWindowInfo.current.containerSize
     val density = LocalDensity.current
     val width = with(density) { size.width.toDp() }

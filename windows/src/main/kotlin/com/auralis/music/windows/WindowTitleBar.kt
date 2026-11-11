@@ -66,8 +66,17 @@ fun WindowTitleBar(
     captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
     captionHover: CaptionHover = CaptionHover(), searchBounds: (Rect) -> Unit = {}, brandBounds: (Rect) -> Unit = {}, systemDecorated: Boolean = false,
     minimizeBounds: (Rect) -> Unit = {}, closeBounds: (Rect) -> Unit = {},
+    trailingBounds: (Rect) -> Unit = {},
     dragArea: @Composable (Modifier, @Composable () -> Unit) -> Unit = { modifier, content -> Box(modifier) { content() } }
 ) {
+    DisposableEffect(Unit) {
+        onDispose {
+            brandBounds(Rect.Zero)
+            captionBounds(Rect.Zero)
+            trailingBounds(Rect.Zero)
+            searchBounds(Rect.Zero)
+        }
+    }
     // Where the left controls end and the right ones start, so the centred search never covers them.
     val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
     var leftEnd by remember { mutableStateOf(0f) }
@@ -75,6 +84,7 @@ fun WindowTitleBar(
     val density = androidx.compose.ui.platform.LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
         val barWidth = with(density) { maxWidth.toPx() }
+        val accountMaxWidth = (maxWidth - 560.dp).coerceIn(48.dp, 180.dp)
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             dragArea(Modifier.fillMaxHeight().onGloballyPositioned { brandBounds(it.boundsInWindow()) }) {
                 Row(
@@ -99,7 +109,7 @@ fun WindowTitleBar(
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 com.auralis.music.windows.profile.YouTubeAccountAvatar(actions.accountAvatar, Modifier.size(26.dp))
-                Text(actions.accountLabel, modifier = Modifier.widthIn(max = 180.dp),
+                Text(actions.accountLabel, modifier = Modifier.widthIn(max = accountMaxWidth),
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 18.sp,
                         fontWeight = FontWeight.Medium, letterSpacing = 0.sp),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color(0xFFE8E4EB))
@@ -125,7 +135,9 @@ fun WindowTitleBar(
                         Modifier.onGloballyPositioned { closeBounds(it.boundsInWindow()) })
                 }
             } else {
-                dragArea(Modifier.width(12.dp).fillMaxHeight()) { Box(Modifier.fillMaxSize()) }
+                dragArea(Modifier.width(12.dp).fillMaxHeight().onGloballyPositioned { trailingBounds(it.boundsInWindow()) }) {
+                    Box(Modifier.fillMaxSize())
+                }
             }
         }
         // Centred and up to 620dp when that clears both sides by 12dp; in a narrow window, the free
@@ -136,10 +148,13 @@ fun WindowTitleBar(
         val gap = with(density) { (rightStart - leftEnd - 24.dp.toPx()).toDp() }
         val centred = centredRoom >= minOf(desired, 360.dp)
         val searchWidth = if (centred) minOf(desired, centredRoom) else minOf(desired, gap)
-        if (actions.search != null && searchWidth >= 140.dp) Box((if (centred) Modifier.align(Alignment.Center)
-            else Modifier.align(Alignment.CenterStart).offset(x = gapStart)).width(searchWidth).height(34.dp)
-            .pointerInput(Unit) {}
-            .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
+        if (actions.search != null && searchWidth >= 140.dp) {
+            DisposableEffect(Unit) { onDispose { searchBounds(Rect.Zero) } }
+            Box((if (centred) Modifier.align(Alignment.Center)
+                else Modifier.align(Alignment.CenterStart).offset(x = gapStart)).width(searchWidth).height(34.dp)
+                .pointerInput(Unit) {}
+                .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
+        }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(Color(0xFF242026)))
     }
 }

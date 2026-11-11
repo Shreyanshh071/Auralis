@@ -90,6 +90,7 @@ internal fun DesktopSignInDialog(
         }
     }
 
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     Dialog(onDismissRequest = onDismiss) {
         SignInGlassSurface {
             Column(

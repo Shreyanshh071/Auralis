@@ -321,7 +321,7 @@ fun main(args: Array<String>) {
     CaptureFrameEcho.installForAllWindows()
     application {
         val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
-        remember(isMac) { if (isMac) MacWindowChrome.installIfMac() }
+        val macChromeInstalled = remember(isMac) { if (isMac) MacWindowChrome.installIfMac() else false }
         val systemSettings by com.auralis.music.windows.settings.DesktopSystemPreferences.store.settings.collectAsState()
         val nativeTitlebar = com.auralis.music.windows.settings.DesktopPreferences.store.bool("systemTitlebar")
         val launchMinimized = remember { "--autostart" in args && com.auralis.music.windows.settings.DesktopPreferences.store.bool("startMinimized") }
@@ -329,7 +329,14 @@ fun main(args: Array<String>) {
         var settingsRequestTrigger by remember { mutableStateOf(0) }
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
         val initialRawWindowState = remember { WindowStatePreferences.loadRaw() }
-        val savedWindowState = remember { resolveRestoredWindowState(initialRawWindowState, currentUsableScreenBounds()) }
+        val savedWindowState = remember {
+            resolveRestoredWindowState(
+                initialRawWindowState,
+                currentUsableScreenBounds(),
+                minWidth = minWindowWidth(isMac),
+                minHeight = minWindowHeight(isMac),
+            )
+        }
         val windowState = rememberWindowState(
             placement = if (isMac && savedWindowState.placement == WindowPlacement.Fullscreen) {
                 WindowPlacement.Floating
@@ -746,6 +753,62 @@ fun main(args: Array<String>) {
             }
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var captionHover by remember { mutableStateOf(CaptionHover()) }
+            val macWindowFrame = remember(window, isMac, macChromeInstalled) {
+                if (isMac && macChromeInstalled) MacWindowChrome.attachWindow(window) else null
+            }
+            DisposableEffect(macWindowFrame) {
+                onDispose { macWindowFrame?.close() }
+            }
+            LaunchedEffect(macWindowFrame, playerFullscreen, embeddedCoverActive) {
+                val active = !playerFullscreen && !embeddedCoverActive
+                macWindowFrame?.titleBarEnabled = active
+                if (!active) macWindowFrame?.clearBounds()
+            }
+            @Composable
+            fun ChromeTitleBar(actions: TitleBarActions) {
+                val density = androidx.compose.ui.platform.LocalDensity.current.density
+                WindowTitleBar(
+                    actions = actions,
+                    title = if (dev) "Auralis Dev" else "Auralis",
+                    icon = icon,
+                    systemDecorated = nativeTitlebar && nativeFrame != null,
+                    maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
+                    minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
+                    maximize = {
+                        nativeFrame?.toggleMaximize() ?: run {
+                            windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
+                                androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
+                        }
+                    },
+                    close = requestClose,
+                    captionBounds = {
+                        nativeFrame?.captionBounds = it
+                        macWindowFrame?.setCaptionBounds(it, density)
+                    },
+                    brandBounds = {
+                        nativeFrame?.brandBounds = it
+                        macWindowFrame?.setBrandBounds(it, density)
+                    },
+                    trailingBounds = {
+                        macWindowFrame?.setTrailingBounds(it, density)
+                    },
+                    maximizeBounds = { nativeFrame?.maximizeBounds = it },
+                    minimizeBounds = { nativeFrame?.minimizeBounds = it },
+                    closeBounds = { nativeFrame?.closeBounds = it },
+                    searchBounds = {
+                        nativeFrame?.searchBounds = it
+                        macWindowFrame?.setSearchBounds(it, density)
+                    },
+                    captionHover = captionHover,
+                    dragArea = { modifier, content ->
+                        if (nativeFrame == null && macWindowFrame == null) {
+                            WindowDraggableArea(modifier) { content() }
+                        } else {
+                            Box(modifier) { content() }
+                        }
+                    },
+                )
+            }
             DisposableEffect(window) {
                 composeWindow = window
                 if (isMac) {
@@ -772,7 +835,7 @@ fun main(args: Array<String>) {
                 // Before Compose paints its first frame the window shows its native background:
                 // make that the loading frame's colour rather than whatever was behind it.
                 java.awt.Color(0x0F, 0x0E, 0x13).let { window.background = it; window.contentPane.background = it }
-                window.minimumSize = java.awt.Dimension(900, 600)
+                window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
                 singleInstanceLock?.recordWindowHandle(window.windowHandle)
                 val frame = if (!isMac) {
                     runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
@@ -853,7 +916,7 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            window.minimumSize = java.awt.Dimension(900, 600)
+            window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
             LaunchedEffect(components?.playback) {
                 val pb = components?.playback
                 if (pb != null) {
@@ -935,25 +998,7 @@ fun main(args: Array<String>) {
                     playerRequests = playerRequests,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
-                            WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
-                                systemDecorated = nativeTitlebar && nativeFrame != null,
-                                maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
-                                minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
-                                maximize = {
-                                    nativeFrame?.toggleMaximize() ?: run {
-                                        windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
-                                            androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
-                                    }
-                                }, close = requestClose,
-                                captionBounds = { nativeFrame?.captionBounds = it },
-                                brandBounds = { nativeFrame?.brandBounds = it },
-                                maximizeBounds = { nativeFrame?.maximizeBounds = it },
-                                minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
-                                searchBounds = { nativeFrame?.searchBounds = it },
-                                captionHover = captionHover,
-                                dragArea = { modifier, content ->
-                                    if (nativeFrame == null) WindowDraggableArea(modifier) { content() } else Box(modifier) { content() }
-                                })
+                            ChromeTitleBar(actions)
                         }
                     }
                 )
@@ -975,30 +1020,7 @@ fun main(args: Array<String>) {
                 }
             } else {
                 val placeholderChrome: @Composable () -> Unit = {
-                    WindowTitleBar(
-                        systemDecorated = nativeTitlebar && nativeFrame != null,
-                        actions = TitleBarActions(),
-                        title = if (dev) "Auralis Dev" else "Auralis",
-                        icon = icon,
-                        maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
-                        minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
-                        maximize = {
-                            nativeFrame?.toggleMaximize() ?: run {
-                                windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
-                                    androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
-                            }
-                        },
-                        close = requestClose,
-                        captionBounds = { nativeFrame?.captionBounds = it },
-                        brandBounds = { nativeFrame?.brandBounds = it },
-                        maximizeBounds = { nativeFrame?.maximizeBounds = it },
-                        minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
-                        searchBounds = { nativeFrame?.searchBounds = it },
-                        captionHover = captionHover,
-                        dragArea = { modifier, content ->
-                            if (nativeFrame == null) WindowDraggableArea(modifier) { content() } else Box(modifier) { content() }
-                        }
-                    )
+                    ChromeTitleBar(TitleBarActions())
                 }
                 Box(
                     modifier = Modifier.fillMaxSize()

@@ -73,6 +73,7 @@ internal fun YouTubeAccountMenu(state: YouTubeLibraryState, onSelect: (String) -
     visibility.targetState = expanded
     LaunchedEffect(expanded) { if (expanded) manage = false }
     if (!visibility.currentState && !visibility.targetState) return
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val window = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
     val gap = with(density) { 8.dp.roundToPx() }

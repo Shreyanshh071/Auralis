@@ -99,6 +99,7 @@ fun DesktopSettingsDialog(stores: SettingsStores, history: HistoryRepository? = 
 /** Wait for a rendered popup frame before starting the entrance transition. */
 @Composable
 internal fun SettingsPopupOverlay(modifier: Modifier = Modifier, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val focus = remember { FocusRequester() }
     val opening = remember { Animatable(0f) }
     val firstDraw = remember { CompletableDeferred<Unit>() }

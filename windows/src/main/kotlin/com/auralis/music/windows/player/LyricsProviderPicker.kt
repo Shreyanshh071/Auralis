@@ -111,6 +111,7 @@ internal fun LyricsProviderPickerContent(providers: List<LyricsProvider>, state:
             }
         }
     }
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     Popup(alignment = Alignment.Center, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         if (glass) LiquidPopupSurface(tint = lerp(surface, accent, .10f).copy(alpha = .66f), content = content)
         else Surface(shape = RoundedCornerShape(18.dp), color = surface, shadowElevation = 12.dp, content = content)

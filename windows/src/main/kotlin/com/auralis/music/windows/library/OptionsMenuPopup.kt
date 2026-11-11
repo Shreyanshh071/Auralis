@@ -24,6 +24,7 @@ import java.awt.MouseInfo
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun OptionsMenuPopup(onDismiss: () -> Unit, anchorPosition: IntOffset? = null, content: @Composable () -> Unit) {
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val invocation = LocalMenuInvocationAnchor.current
     val point = remember(anchorPosition) { anchorPosition ?: invocation?.point ?: pointerInWindow() }
     val provider = remember(point) {

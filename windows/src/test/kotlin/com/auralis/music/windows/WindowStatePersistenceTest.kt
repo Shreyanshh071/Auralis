@@ -275,4 +275,88 @@ class WindowStatePersistenceTest {
             settledCustomShape
         )
     }
+
+    @Test
+    fun macOsAllowsHalfAndQuarterTiledSizesInPersistenceAndRestoration() {
+        assertEquals(600f, minWindowWidth(isMac = true))
+        assertEquals(380f, minWindowHeight(isMac = true))
+        assertEquals(900f, minWindowWidth(isMac = false))
+        assertEquals(600f, minWindowHeight(isMac = false))
+
+        val initial = PersistedWindowState(
+            placement = WindowPlacement.Floating,
+            width = 1200f,
+            height = 800f,
+            x = 120f,
+            y = 80f
+        )
+
+        val macHalfLeft = nextPersistedWindowState(
+            current = initial,
+            placement = WindowPlacement.Floating,
+            size = DpSize(756.dp, 940.dp),
+            position = WindowPosition.Absolute(0.dp, 38.dp),
+            isMinimized = false,
+            visible = true,
+            playerFullscreen = false,
+            embeddedImmersive = false,
+            isMac = true
+        )
+        assertEquals(
+            PersistedWindowState(
+                placement = WindowPlacement.Floating,
+                width = 756f,
+                height = 940f,
+                x = 0f,
+                y = 38f
+            ),
+            macHalfLeft
+        )
+
+        val macQuarter = nextPersistedWindowState(
+            current = initial,
+            placement = WindowPlacement.Floating,
+            size = DpSize(640.dp, 390.dp),
+            position = WindowPosition.Absolute(640.dp, 25.dp),
+            isMinimized = false,
+            visible = true,
+            playerFullscreen = false,
+            embeddedImmersive = false,
+            isMac = true
+        )
+        assertEquals(640f, macQuarter.width)
+        assertEquals(390f, macQuarter.height)
+
+        val macbookScreen = listOf(ScreenBounds(x = 0f, y = 25f, width = 1280f, height = 775f))
+        val restoredQuarter = resolveRestoredWindowState(
+            saved = macQuarter,
+            screens = macbookScreen,
+            minWidth = minWindowWidth(isMac = true),
+            minHeight = minWindowHeight(isMac = true)
+        )
+        assertEquals(DpSize(640.dp, 390.dp), restoredQuarter.size)
+        assertEquals(WindowPosition.Absolute(640.dp, 25.dp), restoredQuarter.position)
+
+        // Windows ignores floating bounds below 900x600 during persistence and clamps restored sizes to 900x600.
+        val windowsIgnored = nextPersistedWindowState(
+            current = initial,
+            placement = WindowPlacement.Floating,
+            size = DpSize(756.dp, 470.dp),
+            position = WindowPosition.Absolute(0.dp, 0.dp),
+            isMinimized = false,
+            visible = true,
+            playerFullscreen = false,
+            embeddedImmersive = false,
+            isMac = false
+        )
+        assertEquals(initial, windowsIgnored)
+
+        val windowsRestored = resolveRestoredWindowState(
+            saved = PersistedWindowState(WindowPlacement.Floating, width = 756f, height = 470f, x = 0f, y = 25f),
+            screens = macbookScreen,
+            minWidth = minWindowWidth(isMac = false),
+            minHeight = minWindowHeight(isMac = false)
+        )
+        assertEquals(DpSize(900.dp, 600.dp), windowsRestored.size)
+    }
 }

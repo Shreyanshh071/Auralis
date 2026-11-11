@@ -43,8 +43,16 @@ internal data class PersistedWindowState(
         const val DEFAULT_WINDOW_HEIGHT = 820f
         const val MIN_WINDOW_WIDTH = 900f
         const val MIN_WINDOW_HEIGHT = 600f
+        const val MAC_MIN_WINDOW_WIDTH = 600f
+        const val MAC_MIN_WINDOW_HEIGHT = 380f
     }
 }
+
+internal fun minWindowWidth(isMac: Boolean): Float =
+    if (isMac) PersistedWindowState.MAC_MIN_WINDOW_WIDTH else PersistedWindowState.MIN_WINDOW_WIDTH
+
+internal fun minWindowHeight(isMac: Boolean): Float =
+    if (isMac) PersistedWindowState.MAC_MIN_WINDOW_HEIGHT else PersistedWindowState.MIN_WINDOW_HEIGHT
 
 internal data class RestoredWindowState(
     val placement: WindowPlacement,
@@ -210,9 +218,11 @@ internal fun nextPersistedWindowState(
     }
     val width = size.width.value
     val height = size.height.value
+    val minWidth = minWindowWidth(isMac)
+    val minHeight = minWindowHeight(isMac)
     if (!width.isFinite() || !height.isFinite() ||
-        width < PersistedWindowState.MIN_WINDOW_WIDTH ||
-        height < PersistedWindowState.MIN_WINDOW_HEIGHT
+        width < minWidth ||
+        height < minHeight
     ) {
         return current.copy(placement = WindowPlacement.Floating)
     }
