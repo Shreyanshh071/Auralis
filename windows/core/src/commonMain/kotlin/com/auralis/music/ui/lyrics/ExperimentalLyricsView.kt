@@ -522,6 +522,7 @@ fun ExperimentalLyricsView(
     showCredits: Boolean = true
 ) {
     val lyricsUi = LocalLyricsUi.current
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val appearance = LocalAppearanceSettings.current
@@ -629,7 +630,8 @@ fun ExperimentalLyricsView(
     }
 
     // Continuous playback clock interpolator
-    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs, spicyStyle) {
+    LaunchedEffect(lyrics, effectiveLines, isPlaying, isBuffering, lyricsClockSource, offsetMs, spicyStyle, visualsActive) {
+        if (!visualsActive) return@LaunchedEffect
         if (effectiveLines.isEmpty()) {
             activeLineIndices = emptySet()
             return@LaunchedEffect

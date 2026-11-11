@@ -41,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import com.auralis.music.ui.components.handCursorRoot
 import androidx.compose.foundation.layout.offset
@@ -433,6 +434,7 @@ fun AuralisDesktopApp(
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
+    com.auralis.music.windows.player.PrepareQueuedAnimatedMedia(playback, lyrics)
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
 
@@ -667,6 +669,10 @@ fun AuralisDesktopApp(
         Surface(modifier = Modifier.fillMaxSize().handCursorRoot().then(
             if (showSignIn) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
+            CompositionLocalProvider(
+                com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+                    (com.auralis.music.ui.player.LocalPlaybackVisualsActive.current && !playerCoversHome)
+            ) {
             Column(Modifier.fillMaxSize().drawWithContent {
                 // Preserve Home's state/scroll position, but don't redraw its
                 // artwork, aura and second lyric renderer behind an opaque player.
@@ -1038,6 +1044,7 @@ fun AuralisDesktopApp(
                         com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS }
                 )
                 }
+            }
             }
             if (destination == DesktopDestination.WRAPPED) {
                 Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)) {

@@ -79,4 +79,45 @@ class SpotifyCanvasResolverTest {
         assertNotNull(cancellable.find(native, null))
         Unit
     }
+    @Test
+    fun persistedRecordingMatchFindsLocalCanvasAfterRestartAndLateLyricsHint() = runBlocking {
+        val folder = java.nio.file.Files.createTempDirectory("canvas-recordings").toFile()
+        val file = java.io.File(folder, "canvas.mp4").apply { writeBytes(byteArrayOf(1)) }
+        val index = java.io.File(folder, "recordings.properties")
+        try {
+            val store = com.auralis.music.util.PropertiesFileKeyValueStore(index, synchronous = true)
+            val first = SpotifyCanvasResolver({ file.absolutePath }, { _, _ -> equivalent }, mappings = store)
+            assertEquals(singleId, first.find(track, null)?.spotifyId)
+            val restarted = SpotifyCanvasResolver(
+                { error("A cached canvas must not contact its provider") },
+                { _, _ -> error("A persisted recording must not repeat metadata matching") },
+                cachedLookup = { if (it == singleId) file.absolutePath else null },
+                mappings = com.auralis.music.util.PropertiesFileKeyValueStore(index))
+            assertEquals(file.absolutePath, restarted.cached(track, null)?.path)
+            assertEquals(file.absolutePath, restarted.find(track, lyricsId)?.path,
+                "A late lyrics ID must retain the already verified canvas recording")
+            assertNull(restarted.cached(track.copy(title = "${track.title} (Live)"), null),
+                "Changed recording metadata must not reuse the saved match")
+            file.delete()
+            assertNull(restarted.cached(track, null), "Missing video files must not be exposed as cache hits")
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test
+    fun fastLyricsHintCacheHitAlsoPersistsItsRecordingMatch() = runBlocking {
+        val folder = java.nio.file.Files.createTempDirectory("canvas-hint").toFile()
+        val file = java.io.File(folder, "canvas.mp4").apply { writeBytes(byteArrayOf(1)) }
+        val index = java.io.File(folder, "recordings.properties")
+        try {
+            val store = com.auralis.music.util.PropertiesFileKeyValueStore(index, synchronous = true)
+            val resolver = SpotifyCanvasResolver({ error("Already downloaded") }, { _, _ -> error("Already identified") },
+                cachedLookup = { if (it == lyricsId) file.absolutePath else null }, mappings = store)
+            assertEquals(file.absolutePath, resolver.find(track, lyricsId)?.path)
+            val restarted = SpotifyCanvasResolver({ error("Must reuse disk") }, { _, _ -> error("Must reuse identity") },
+                cachedLookup = { if (it == lyricsId) file.absolutePath else null },
+                mappings = com.auralis.music.util.PropertiesFileKeyValueStore(index))
+            assertEquals(file.absolutePath, restarted.find(track, null)?.path)
+        } finally { folder.deleteRecursively() }
+    }
+
 }

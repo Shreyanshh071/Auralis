@@ -41,7 +41,9 @@ class SpotifyCanvasLookupTest {
         try {
             val path = assertNotNull(SpotifyCanvasClient(http, folder).find(first))
             assertContentEquals(mp4, java.io.File(path).readBytes())
-            assertEquals(path, SpotifyCanvasClient(http, folder).find(first))
+            val restarted = SpotifyCanvasClient(http, folder)
+            assertEquals(path, restarted.cached(first))
+            assertEquals(path, restarted.find(first))
             assertEquals(2, requests.size, "The next app session should use the downloaded canvas")
             assertFalse(folder.listFiles().orEmpty().any { it.name.endsWith("partial") })
         } finally { folder.deleteRecursively() }

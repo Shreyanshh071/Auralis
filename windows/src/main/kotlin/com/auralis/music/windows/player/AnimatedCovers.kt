@@ -105,11 +105,20 @@ internal object CanvasLookup {
         com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers.properties"))
     }
 
+    private fun cacheKey(track: Track, source: CanvasSource, preferTall: Boolean): String {
+        val version = if (preferTall) "v4" else "v3"
+        return "$version|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}|tall=$preferTall"
+    }
+
+    fun cached(track: Track, source: CanvasSource, preferTall: Boolean): String? {
+        val key = cacheKey(track, source, preferTall)
+        return (found[key] ?: disk.getString(key, "")?.substringBefore('\t'))?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun find(track: Track, source: CanvasSource, preferTall: Boolean = false): String? = withContext(Dispatchers.IO) {
         if (track.title.isBlank() || track.artist.isBlank()) return@withContext null
         // v3: version tags and the album count; v4 (preferTall) drops 3:4 / square assets from the stage.
-        val version = if (preferTall) "v4" else "v3"
-        val key = "$version|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}|tall=$preferTall"
+        val key = cacheKey(track, source, preferTall)
         found[key]?.let { return@withContext it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
@@ -274,15 +283,22 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     val latestStageUnavailable by rememberUpdatedState(onStageUnavailable)
-    var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
-    var resolvedSpotifyId by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track, prefs, spotifyCanvasId, canvasOnly, enabled) {
-        url = null
-        resolvedSpotifyId = null
-        val allowed = enabled && if (canvasOnly) (prefs.spotifyCanvas || prefs.enabled) else prefs.enabled
-        if (track != null && allowed && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
-            com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
+    val allowed = enabled && (if (canvasOnly) (prefs.spotifyCanvas || prefs.enabled) else prefs.enabled) &&
+        !com.auralis.music.windows.dev.PerfFlags.off("animatedcover")
+    val cachedCanvas = remember(track, prefs, canvasOnly, allowed) {
+        track?.takeIf { allowed && canvasOnly && prefs.spotifyCanvas }?.let { TrackCanvasLookup.cached(it, spotifyCanvasId) }
+    }
+    var url by remember(track, prefs, canvasOnly, allowed) {
+        mutableStateOf(cachedCanvas?.path ?: track?.takeIf { allowed && prefs.enabled }
+            ?.let { CanvasLookup.cached(it, prefs.source, canvasOnly) })
+    }
+    var resolvedSpotifyId by remember(track, prefs, canvasOnly, allowed) { mutableStateOf(cachedCanvas?.spotifyId) }
+    LaunchedEffect(track, prefs, spotifyCanvasId, canvasOnly, allowed) {
+        // Late lyrics metadata must not blank/restart a canvas already selected for this recording.
+        if (url != null && (!canvasOnly || !prefs.spotifyCanvas || resolvedSpotifyId != null)) return@LaunchedEffect
+        if (track != null && allowed) {
             val spotify = if (canvasOnly && prefs.spotifyCanvas) TrackCanvasLookup.find(track, spotifyCanvasId) else null
+            if (spotify == null && url != null) return@LaunchedEffect
             resolvedSpotifyId = spotify?.spotifyId
             val found = spotify?.path ?: if (prefs.enabled) CanvasLookup.find(track, prefs.source, preferTall = canvasOnly) else null
             url = found
@@ -294,28 +310,33 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     Box(modifier) {
         artwork()
         val video = url
-        if (video != null) key(track?.id, video) {
+        if (video != null && com.auralis.music.ui.player.LocalPlaybackVisualsActive.current) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
             val firstFrame = remember { CompletableDeferred<Boolean>() }
-            DisposableEffect(video, motionAura, canvasOnly, playbackClock) {
+            LaunchedEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
-                    video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
-                ) {
-                    synchronized(active) {
-                        if (active.get()) {
-                            // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
-                            if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
-                                if (!canvasOnly || firstFrame.complete(true) || frame != null) {
-                                    frame = it
-                                    motionAura?.offer(it)
+                var stop: (() -> Unit)? = null
+                try {
+                    withContext(Dispatchers.IO) {
+                        stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
+                            video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
+                        ) {
+                            synchronized(active) {
+                                if (active.get()) {
+                                    // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
+                                    if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
+                                        if (!canvasOnly || firstFrame.complete(true) || frame != null) {
+                                            frame = it
+                                            motionAura?.offer(it)
+                                        }
+                                    } else firstFrame.complete(false)
                                 }
-                            } else firstFrame.complete(false)
+                            }
                         }
                     }
-                }
-                if (stop == null) firstFrame.complete(false)
-                onDispose {
+                    if (stop == null) firstFrame.complete(false)
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
                     synchronized(active) { active.set(false); motionAura?.offer(null) }
                     stop?.invoke()
                 }
@@ -330,7 +351,7 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     if (replacement == null) latestStageUnavailable?.invoke()
                 }
             }
-            val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
+            val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(if (java.io.File(video).isFile) 150 else 450), label = "canvasFadeIn")
             frame?.let { bitmap ->
                 val edgeBlend = if (canvasOnly) Modifier
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }

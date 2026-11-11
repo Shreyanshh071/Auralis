@@ -25,6 +25,7 @@ internal object SpotifyCanvasLookup {
         SpotifyCanvasClient(NetworkClientProvider.okHttpClient, File(desktopAppDataDir(), "cache/spotify-canvas"))
     }
 
+    fun cached(trackId: String?): String? = client.cached(trackId)
     suspend fun find(trackId: String?): String? = client.find(trackId)
     suspend fun fallback(trackId: String, failedPath: String): String? = client.fallback(trackId, failedPath)
 }
@@ -51,7 +52,14 @@ internal class SpotifyCanvasClient(
         http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
     }
 
+    /** Cache hits must not wait behind an unrelated provider request/download. */
+    fun cached(trackId: String?): String? {
+        if (trackId == null || !trackPattern.matches(trackId)) return null
+        return indexedFileId(trackId)?.let(::cachedFile)?.absolutePath
+    }
+
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
+        cached(trackId)?.let { return@withContext it }
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
             indexedFileId(trackId)?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }

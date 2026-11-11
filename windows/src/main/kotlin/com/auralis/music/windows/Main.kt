@@ -971,6 +971,10 @@ fun main(args: Array<String>) {
                         if (!embeddedCoverActive) content.place(0, 0)
                     }
                 }) {
+                CompositionLocalProvider(
+                    com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+                        (windowVisible && !windowState.isMinimized && !embeddedCoverActive && immersive.trigger == null)
+                ) {
                 AuralisDesktopApp(
                     searchRepository = ready.searchRepository,
                     library = ready.library,
@@ -1015,6 +1019,7 @@ fun main(args: Array<String>) {
                         }
                     }
                 )
+                }
                 }
                 if (coverAlpha > 0f) Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)
                     .graphicsLayer { alpha = coverAlpha }.background(Color(0xFF0F0E13))

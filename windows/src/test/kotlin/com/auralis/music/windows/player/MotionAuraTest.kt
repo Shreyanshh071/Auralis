@@ -26,13 +26,14 @@ class MotionAuraTest {
         loadAuraTexture(still.absolutePath)
         val feed = MotionAura()
         val collector = launch { feed.collectFrames() }
-        val scene = ImageComposeScene(160, 100, coroutineContext = Dispatchers.Unconfined) {
+        val scene = ImageComposeScene(160, 100, coroutineContext = coroutineContext) {
             ArtworkAura(DefaultArtworkPalette, Modifier, still.absolutePath,
                 AuraPresentation.FULL_PLAYER, motionAura = feed)
         }
         var time = 0L
-        fun render(name: String): Int {
-            repeat(40) { scene.render(time).close(); time += 33_333_333L }
+        suspend fun render(name: String): Int {
+            // Keep timed visual effects and scene rendering on the same event loop.
+            repeat(40) { scene.render(time).close(); time += 33_333_333L; yield() }
             val bytes = scene.render(time).use { it.encodeToData(EncodedImageFormat.PNG)!!.use { data -> data.bytes } }
             File(output, "$name.png").writeBytes(bytes)
             return ImageIO.read(bytes.inputStream()).getRGB(80, 50)

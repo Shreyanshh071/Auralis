@@ -114,7 +114,9 @@ fun rememberLyricsClock(
 ): State<Long> {
     val clock = remember { mutableLongStateOf(fallbackPositionMs.value) }
 
-    LaunchedEffect(source, enabled, fallbackPositionMs) {
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
+    LaunchedEffect(source, enabled, fallbackPositionMs, visualsActive) {
+        if (!visualsActive) return@LaunchedEffect
         if (source == null || !enabled) {
             // Track the coarse mirror so seeks and ticker updates still land.
             snapshotFlow { fallbackPositionMs.value }.collect { clock.longValue = it }

@@ -29,14 +29,19 @@ import kotlinx.coroutines.withContext
             }.getOrNull()
         }
     }
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
+    var videoFrameVisible by remember(url, visualsActive) { mutableStateOf(false) }
     Box(modifier) {
-        fallback()
-        url?.let { video ->
+        CompositionLocalProvider(com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+            (visualsActive && !videoFrameVisible)) {
+            fallback()
+        }
+        url?.takeIf { com.auralis.music.ui.player.LocalPlaybackVisualsActive.current }?.let { video ->
             var frame by remember(video) { mutableStateOf<ImageBitmap?>(null) }
             val ambient = rememberUpdatedState(prefs.bool("ambientVideo",true))
             DisposableEffect(video,clock) {
                 val active=java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop=CanvasVideoEngine.play(video,clock) { image -> if(active.get()) {frame=image;if(ambient.value) aura?.offer(image)} }
+                val stop=CanvasVideoEngine.play(video,clock) { image -> if(active.get()) {frame=image;videoFrameVisible=true;if(ambient.value) aura?.offer(image)} }
                 onDispose { active.set(false);stop?.invoke();aura?.offer(null) }
             }
             // Over a dark backing and faded in, so the cover never shows around a letterboxed video.
