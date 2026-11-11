@@ -678,6 +678,7 @@ fun main(args: Array<String>) {
                     playback = ready.playback,
                     lyrics = ready.lyrics,
                     onShortcutHandler = { shortcutHandler = it },
+                    isTextInputActive = { isWindowTextInputActive(composeWindow) },
                     selfTest = selfTest,
                     onSelfTestDone = { passed ->
                         singleInstanceLock?.close()

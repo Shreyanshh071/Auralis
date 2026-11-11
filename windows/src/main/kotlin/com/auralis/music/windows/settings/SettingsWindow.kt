@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.components.reportTypingFocus
+
 import com.auralis.music.windows.player.BlurredArtworkBackground
 import com.auralis.music.windows.player.LocalArtworkBackdrop
 import com.auralis.music.windows.player.withArtworkSurfaces
@@ -315,6 +317,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
         cursorBrush = SolidColor(scheme.primary),
         modifier = Modifier.fillMaxWidth().height(40.dp)
+            .reportTypingFocus()
             // Enter opens the first result.
             .onPreviewKeyEvent { if (it.key == Key.Enter && it.type == KeyEventType.KeyDown) { onSubmit(); true } else false }
             .background(scheme.surfaceContainer, RoundedCornerShape(10.dp))
@@ -479,7 +482,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         var error by remember { mutableStateOf("") }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) { Text(desktopText(action.title)); Text(desktopText(error.ifBlank { errors[action.id].orEmpty() }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            OutlinedTextField(draft, { draft=it }, Modifier.width(220.dp), singleLine=true)
+            OutlinedTextField(draft, { draft=it }, Modifier.width(220.dp).reportTypingFocus(), singleLine=true)
             TextButton({ runCatching {
                 if (draft.isNotBlank()) { val parsed = parseHotkey(draft); require(hotkeyActions.filter { it.id != action.id }.none { other ->
                     runCatching { parseHotkey(prefs.text("hotkey.${other.id}",other.default)) == parsed }.getOrDefault(false) }) { "Binding already assigned." } }
@@ -497,7 +500,7 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     SettingsGroup("Network") {
         SettingToggle("Use proxy", "New connections use this proxy",content.proxyEnabled) {scope.launch {stores.content.update {s->s.copy(proxyEnabled=it)}}}
         SettingChoice("Proxy type",selected=content.proxyType.name,options=ProxyType.entries.map {it.name}) {scope.launch {stores.content.update {s->s.copy(proxyType=ProxyType.valueOf(it))}}}
-        OutlinedTextField(proxy,{proxy=it},Modifier.fillMaxWidth(),label={Text(desktopText("Proxy host:port"))},singleLine=true)
+        OutlinedTextField(proxy,{proxy=it},Modifier.fillMaxWidth().reportTypingFocus(),label={Text(desktopText("Proxy host:port"))},singleLine=true)
         var message by remember {mutableStateOf("")}
         Button({if(com.auralis.music.data.network.ContentProxy.parseHostPort(proxy)!=null) scope.launch {stores.content.update {it.copy(proxyUrl=proxy)};message="Proxy saved."} else message="Enter a valid host and port."}) {Text(desktopText("Save proxy"))}
         Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
