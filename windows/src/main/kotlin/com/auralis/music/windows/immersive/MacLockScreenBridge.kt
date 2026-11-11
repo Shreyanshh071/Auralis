@@ -8,7 +8,10 @@ import com.sun.jna.Memory
 import com.sun.jna.Native
 import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
+import com.sun.jna.Structure
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +21,38 @@ internal const val LOCK_SCREEN_SPACE_LEVEL = 400
 internal const val LOCK_SCREEN_COLLECTION_BEHAVIOR = 337L
 internal const val LOCK_SCREEN_WINDOW_LEVEL = Int.MAX_VALUE.toLong() - 2L
 
+internal data class LockScreenCocoaFrame(
+    val x: Double,
+    val y: Double,
+    val width: Double,
+    val height: Double
+)
+
+/** Converts top-down AWT display coordinates into AppKit bottom-up screen coordinates. */
+internal fun awtBoundsToCocoaFrame(
+    bounds: LockScreenOverlayBounds,
+    primaryScreenHeight: Int
+): LockScreenCocoaFrame = LockScreenCocoaFrame(
+    x = bounds.x.toDouble(),
+    y = (primaryScreenHeight - (bounds.y + bounds.height)).toDouble(),
+    width = bounds.width.toDouble(),
+    height = bounds.height.toDouble()
+)
+
 internal fun isMacLockScreenHost(osName: String? = System.getProperty("os.name")): Boolean =
     osName.orEmpty().lowercase().contains("mac")
+
+internal fun parseBioutilUnlockEnabled(output: String): Boolean? {
+    val line = output.lineSequence()
+        .firstOrNull { it.trim().startsWith("Effective biometrics for unlock:", ignoreCase = true) }
+        ?: output.lineSequence().firstOrNull { it.trim().startsWith("Biometrics for unlock:", ignoreCase = true) }
+        ?: return null
+    return when (line.substringAfter(':', "").trim().lowercase()) {
+        "1", "true", "yes" -> true
+        "0", "false", "no" -> false
+        else -> null
+    }
+}
 
 /**
  * macOS Lock Screen bridge using CoreFoundation distributed notifications (`screenIsLocked` /
@@ -34,6 +67,10 @@ internal object MacLockScreenBridge {
     private const val CF_STRING_ENCODING_UTF8 = 0x08000100
     private const val CF_NOTIFICATION_DELIVER_IMMEDIATELY = 4L
     private const val CF_NUMBER_SINT32_TYPE = 3L
+    private const val LA_POLICY_DEVICE_OWNER_AUTH_WITH_BIOMETRICS = 1L
+    private const val LA_BIOMETRY_TYPE_TOUCH_ID = 1L
+    private const val LOCAL_AUTH_PATH =
+        "/System/Library/Frameworks/LocalAuthentication.framework/LocalAuthentication"
     private const val SKY_LIGHT_PATH =
         "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight"
 
@@ -47,7 +84,8 @@ internal object MacLockScreenBridge {
     private val awtFirstMouseHooked = AtomicBoolean(false)
     private val wakeObserverRegistered = AtomicBoolean(false)
 
-    @Volatile private var activeNsWindowPtr: Long = 0L
+    private val activeNsWindowPtrs = ConcurrentHashMap.newKeySet<Long>()
+    private val windowTitleToPtr = ConcurrentHashMap<String, Long>()
     @Volatile private var originalAcceptsFirstMouseImp: Pointer? = null
     @Volatile private var skyLightConnection: Int = 0
     @Volatile private var skyLightSpace: Int = 0
@@ -130,6 +168,7 @@ internal object MacLockScreenBridge {
 
     private interface MsgByte : Library {
         fun objc_msgSend(receiver: Pointer?, selector: Pointer?, arg1: Pointer?): Byte
+        fun objc_msgSend(receiver: Pointer?, selector: Pointer?, arg1: Long, arg2: Pointer?): Byte
     }
 
     private interface MsgVoid : Library {
@@ -145,6 +184,18 @@ internal object MacLockScreenBridge {
             arg3: Pointer?,
             arg4: Pointer?
         )
+    }
+
+    @Structure.FieldOrder("x", "y", "width", "height")
+    internal class NSRectByValue(
+        @JvmField var x: Double = 0.0,
+        @JvmField var y: Double = 0.0,
+        @JvmField var width: Double = 0.0,
+        @JvmField var height: Double = 0.0
+    ) : Structure(), Structure.ByValue
+
+    private interface MsgRectVoid : Library {
+        fun objc_msgSend(receiver: Pointer?, selector: Pointer?, frame: NSRectByValue, display: Byte)
     }
 
     private interface AcceptsFirstMouseImp : Callback {
@@ -165,7 +216,9 @@ internal object MacLockScreenBridge {
         val msgLong: MsgLong,
         val msgByte: MsgByte,
         val msgVoid: MsgVoid,
-        val skyLight: SkyLightLib?
+        val msgRectVoid: MsgRectVoid,
+        val skyLight: SkyLightLib?,
+        val localAuthLoaded: Boolean
     )
 
     @Volatile private var cachedBindings: NativeBindings? = null
@@ -177,6 +230,10 @@ internal object MacLockScreenBridge {
             cachedBindings ?: runCatching {
                 val sysLib = NativeLibrary.getInstance("System.B")
                 val cfNative = NativeLibrary.getInstance("CoreFoundation")
+                val laLoaded = runCatching {
+                    NativeLibrary.getInstance(LOCAL_AUTH_PATH)
+                    true
+                }.getOrDefault(false)
                 NativeBindings(
                     libDispatch = Native.load("System.B", LibDispatch::class.java),
                     mainQueue = sysLib.getGlobalVariableAddress("_dispatch_main_q"),
@@ -187,11 +244,13 @@ internal object MacLockScreenBridge {
                     msgLong = Native.load("objc", MsgLong::class.java),
                     msgByte = Native.load("objc", MsgByte::class.java),
                     msgVoid = Native.load("objc", MsgVoid::class.java),
+                    msgRectVoid = Native.load("objc", MsgRectVoid::class.java),
                     skyLight = runCatching {
                         Native.load(SKY_LIGHT_PATH, SkyLightLib::class.java)
                     }.onFailure { err ->
                         Log.w(TAG, "SkyLight framework unavailable", err)
-                    }.getOrNull()
+                    }.getOrNull(),
+                    localAuthLoaded = laLoaded
                 )
             }.onFailure { err ->
                 Log.w(TAG, "Failed to bind macOS Lock Screen native libraries", err)
@@ -245,12 +304,11 @@ internal object MacLockScreenBridge {
 
     private val acceptsFirstMouseHook = object : AcceptsFirstMouseImp {
         override fun invoke(self: Pointer?, sel: Pointer?, event: Pointer?): Byte {
-            val targetPtr = activeNsWindowPtr
             val b = cachedBindings
-            if (targetPtr != 0L && self != null && b != null) {
+            if (activeNsWindowPtrs.isNotEmpty() && self != null && b != null) {
                 val selWindow = b.objc.sel_registerName("window")
                 val viewWindow = b.msgPtr.objc_msgSend(self, selWindow)
-                if (viewWindow != null && Pointer.nativeValue(viewWindow) == targetPtr) {
+                if (viewWindow != null && Pointer.nativeValue(viewWindow) in activeNsWindowPtrs) {
                     return 1.toByte()
                 }
             }
@@ -283,13 +341,17 @@ internal object MacLockScreenBridge {
         }
     }
 
-    fun promoteWindowToLockScreen(windowTitle: String) {
+    fun promoteWindowToLockScreen(windowTitle: String, cocoaFrame: LockScreenCocoaFrame? = null) {
         if (!isMacLockScreenHost()) return
         runOnCocoaMainThread { b ->
             ensureSkyLightSpace(b)
             ensureFirstMouseHook(b)
             val nsWindow = findNsWindowByTitle(b, windowTitle) ?: return@runOnCocoaMainThread
-            activeNsWindowPtr = Pointer.nativeValue(nsWindow)
+            val ptr = Pointer.nativeValue(nsWindow)
+            windowTitleToPtr.put(windowTitle, ptr)?.let { previous ->
+                if (previous != ptr) activeNsWindowPtrs.remove(previous)
+            }
+            activeNsWindowPtrs.add(ptr)
 
             val nsColorCls = b.objc.objc_getClass("NSColor")
             val clearColor = if (nsColorCls != null) {
@@ -321,6 +383,24 @@ internal object MacLockScreenBridge {
                 b.objc.sel_registerName("setLevel:"),
                 LOCK_SCREEN_WINDOW_LEVEL
             )
+            if (cocoaFrame != null) {
+                runCatching {
+                    val frame = NSRectByValue(
+                        x = cocoaFrame.x,
+                        y = cocoaFrame.y,
+                        width = cocoaFrame.width,
+                        height = cocoaFrame.height
+                    )
+                    b.msgRectVoid.objc_msgSend(
+                        nsWindow,
+                        b.objc.sel_registerName("setFrame:display:"),
+                        frame,
+                        1.toByte()
+                    )
+                }.onFailure { err ->
+                    Log.w(TAG, "Failed to update Cocoa lock screen frame", err)
+                }
+            }
             b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("invalidateShadow"))
             b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("orderFrontRegardless"))
 
@@ -340,9 +420,50 @@ internal object MacLockScreenBridge {
         }
     }
 
-    fun clearActiveLockScreenWindow() {
-        activeNsWindowPtr = 0L
+    fun clearActiveLockScreenWindow(windowTitle: String? = null) {
+        if (windowTitle == null) {
+            activeNsWindowPtrs.clear()
+            windowTitleToPtr.clear()
+        } else {
+            windowTitleToPtr.remove(windowTitle)?.let { activeNsWindowPtrs.remove(it) }
+        }
     }
+
+    internal fun isTouchIdAvailableForUnlock(): Boolean {
+        if (!isMacLockScreenHost()) return false
+        val b = bindings() ?: return false
+        if (!b.localAuthLoaded) return false
+        val laCls = b.objc.objc_getClass("LAContext") ?: return false
+        val alloced = b.msgPtr.objc_msgSend(laCls, b.objc.sel_registerName("alloc")) ?: return false
+        val ctx = b.msgPtr.objc_msgSend(alloced, b.objc.sel_registerName("init")) ?: return false
+        val canEvaluateTouchId = try {
+            val ok = b.msgByte.objc_msgSend(
+                ctx,
+                b.objc.sel_registerName("canEvaluatePolicy:error:"),
+                LA_POLICY_DEVICE_OWNER_AUTH_WITH_BIOMETRICS,
+                null
+            ) != 0.toByte()
+            val biometryType = b.msgLong.objc_msgSend(ctx, b.objc.sel_registerName("biometryType"))
+            ok && biometryType == LA_BIOMETRY_TYPE_TOUCH_ID
+        } finally {
+            b.msgVoid.objc_msgSend(ctx, b.objc.sel_registerName("release"))
+        }
+        if (!canEvaluateTouchId) return false
+        return readBioutilUnlockEnabled() != false
+    }
+
+    private fun readBioutilUnlockEnabled(): Boolean? = runCatching {
+        val process = ProcessBuilder("/usr/bin/bioutil", "-r")
+            .redirectErrorStream(true)
+            .start()
+        val finished = process.waitFor(1500L, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            return null
+        }
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (process.exitValue() != 0) null else parseBioutilUnlockEnabled(output)
+    }.getOrNull()
 
     internal fun verifyNativeSymbolsLoaded(): Boolean {
         if (!isMacLockScreenHost()) return false

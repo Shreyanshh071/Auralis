@@ -21,9 +21,6 @@ import java.awt.event.KeyEvent.VK_SPACE
 import java.awt.event.KeyEvent.VK_V
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
-import java.time.format.FormatStyle
-import java.time.chrono.IsoChronology
 import java.util.Locale
 
 /**
@@ -166,10 +163,19 @@ internal fun handleImmersiveKey(code: Int, ctrl: Boolean, shift: Boolean, action
     return true
 }
 
-/** "9:41" in the locale's 12- or 24-hour style, without AM/PM, as on a lock screen. */
-internal fun clockText(now: LocalDateTime, locale: Locale = Locale.getDefault()): String {
-    val pattern = DateTimeFormatterBuilder.getLocalizedDateTimePattern(null, FormatStyle.SHORT, IsoChronology.INSTANCE, locale)
-    val hour = if (pattern.any { it == 'H' || it == 'k' }) now.hour else (now.hour % 12).let { if (it == 0) 12 else it }
+/** "9:41" (12-hour) or "09:41" (24-hour) matching the system clock style, without AM/PM. */
+internal fun clockText(now: LocalDateTime): String =
+    clockText(now, SystemClockFormat.current())
+
+internal fun clockText(now: LocalDateTime, locale: Locale): String =
+    clockText(now, localeTimeFormatSpec(locale))
+
+internal fun clockText(now: LocalDateTime, format: TimeFormatSpec): String {
+    if (format.use24Hour) {
+        return if (format.zeroPadHour) "%02d:%02d".format(now.hour, now.minute)
+        else "%d:%02d".format(now.hour, now.minute)
+    }
+    val hour = (now.hour % 12).let { if (it == 0) 12 else it }
     return "%d:%02d".format(hour, now.minute)
 }
 

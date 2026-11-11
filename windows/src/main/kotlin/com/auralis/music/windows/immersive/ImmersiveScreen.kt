@@ -225,11 +225,12 @@ internal fun ImmersiveScreen(
                 val shade = 1f - reveal.value
                 if (shade > 0f) drawRect(Color.Black.copy(alpha = shade))
             }) {
-                Box(Modifier.matchParentSize().recordPopupGlass(dockBackdrop).background(Color.Black)) {
-                    PlayerBackdrop(backgroundStyle, highRes, palette)
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = .28f), .55f to Color.Black.copy(alpha = .12f), 1f to Color.Black.copy(alpha = .5f))))
-                }
+                ImmersiveBackdropLayer(
+                    backgroundStyle = backgroundStyle,
+                    artwork = highRes,
+                    palette = palette,
+                    modifier = Modifier.matchParentSize().recordPopupGlass(dockBackdrop)
+                )
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                     AnimatedContent(
                         targetState = shown,
@@ -300,8 +301,30 @@ internal fun ImmersiveScreen(
     }
 }
 
+/** Song-synced full-screen backdrop with the contrast gradient shared by Immersive and Lock Screen modes. */
 @Composable
-private fun rememberNow() = produceState(LocalDateTime.now()) {
+internal fun ImmersiveBackdropLayer(
+    backgroundStyle: String,
+    artwork: String?,
+    palette: ArtworkPalette,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier.background(Color.Black)) {
+        PlayerBackdrop(backgroundStyle, artwork, palette)
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = .28f),
+                    .55f to Color.Black.copy(alpha = .12f),
+                    1f to Color.Black.copy(alpha = .5f)
+                )
+            )
+        )
+    }
+}
+
+@Composable
+internal fun rememberNow() = produceState(LocalDateTime.now()) {
     while (true) {
         val now = LocalDateTime.now()
         value = now
@@ -318,10 +341,10 @@ private fun rememberPlaying(playback: DesktopPlaybackController): Boolean {
 }
 
 @Composable
-private fun BigClock(fontSize: Int, modifier: Modifier = Modifier) {
+internal fun BigClock(fontSize: Int, modifier: Modifier = Modifier, dateFontSize: Int = fontSize / 8) {
     val now by rememberNow()
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(dateText(now), fontSize = (fontSize / 8).sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = .82f))
+        Text(dateText(now), fontSize = dateFontSize.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = .82f))
         Text(clockText(now), fontSize = fontSize.sp, lineHeight = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
             style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"), maxLines = 1)
     }
