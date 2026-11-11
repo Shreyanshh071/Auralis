@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 internal const val LOCK_SCREEN_SPACE_LEVEL = 400
 internal const val LOCK_SCREEN_COLLECTION_BEHAVIOR = 337L
 internal const val LOCK_SCREEN_WINDOW_LEVEL = Int.MAX_VALUE.toLong() - 2L
+internal const val LOCK_SCREEN_PREVIEW_FULLSCREEN_LEVEL = 25L
+internal const val LOCK_SCREEN_PREVIEW_COMPACT_LEVEL = 3L
 
 internal data class LockScreenCocoaFrame(
     val x: Double,
@@ -353,19 +355,7 @@ internal object MacLockScreenBridge {
             }
             activeNsWindowPtrs.add(ptr)
 
-            val nsColorCls = b.objc.objc_getClass("NSColor")
-            val clearColor = if (nsColorCls != null) {
-                b.msgPtr.objc_msgSend(nsColorCls, b.objc.sel_registerName("clearColor"))
-            } else null
-
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setOpaque:"), 0.toByte())
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setHasShadow:"), 0.toByte())
-            if (clearColor != null) {
-                b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setBackgroundColor:"), clearColor)
-            }
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setMovable:"), 0.toByte())
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setHidesOnDeactivate:"), 0.toByte())
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setIgnoresMouseEvents:"), 0.toByte())
+            configureTransparentWindowFlags(b, nsWindow)
 
             val selCanBecomeVisible = b.objc.sel_registerName("setCanBecomeVisibleWithoutLogin:")
             val selResponds = b.objc.sel_registerName("respondsToSelector:")
@@ -378,31 +368,7 @@ internal object MacLockScreenBridge {
                 b.objc.sel_registerName("setCollectionBehavior:"),
                 LOCK_SCREEN_COLLECTION_BEHAVIOR
             )
-            b.msgVoid.objc_msgSend(
-                nsWindow,
-                b.objc.sel_registerName("setLevel:"),
-                LOCK_SCREEN_WINDOW_LEVEL
-            )
-            if (cocoaFrame != null) {
-                runCatching {
-                    val frame = NSRectByValue(
-                        x = cocoaFrame.x,
-                        y = cocoaFrame.y,
-                        width = cocoaFrame.width,
-                        height = cocoaFrame.height
-                    )
-                    b.msgRectVoid.objc_msgSend(
-                        nsWindow,
-                        b.objc.sel_registerName("setFrame:display:"),
-                        frame,
-                        1.toByte()
-                    )
-                }.onFailure { err ->
-                    Log.w(TAG, "Failed to update Cocoa lock screen frame", err)
-                }
-            }
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("invalidateShadow"))
-            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("orderFrontRegardless"))
+            presentWindowAtLevel(b, nsWindow, LOCK_SCREEN_WINDOW_LEVEL, cocoaFrame)
 
             val winNumber = b.msgLong.objc_msgSend(nsWindow, b.objc.sel_registerName("windowNumber")).toInt()
             val sid = skyLightSpace
@@ -418,6 +384,69 @@ internal object MacLockScreenBridge {
                 }
             }
         }
+    }
+
+    /**
+     * Configures an unlocked preview window on the user's normal desktop Space so screen
+     * recorders (QuickTime, Screenshot, OBS) can capture the Lock Screen overlay UI.
+     */
+    fun configurePreviewWindow(
+        windowTitle: String,
+        cocoaFrame: LockScreenCocoaFrame? = null,
+        fullScreen: Boolean = true
+    ) {
+        if (!isMacLockScreenHost()) return
+        runOnCocoaMainThread { b ->
+            val nsWindow = findNsWindowByTitle(b, windowTitle) ?: return@runOnCocoaMainThread
+            configureTransparentWindowFlags(b, nsWindow)
+            val level = if (fullScreen) LOCK_SCREEN_PREVIEW_FULLSCREEN_LEVEL else LOCK_SCREEN_PREVIEW_COMPACT_LEVEL
+            presentWindowAtLevel(b, nsWindow, level, cocoaFrame)
+        }
+    }
+
+    private fun configureTransparentWindowFlags(b: NativeBindings, nsWindow: Pointer) {
+        val nsColorCls = b.objc.objc_getClass("NSColor")
+        val clearColor = if (nsColorCls != null) {
+            b.msgPtr.objc_msgSend(nsColorCls, b.objc.sel_registerName("clearColor"))
+        } else null
+
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setOpaque:"), 0.toByte())
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setHasShadow:"), 0.toByte())
+        if (clearColor != null) {
+            b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setBackgroundColor:"), clearColor)
+        }
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setMovable:"), 0.toByte())
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setHidesOnDeactivate:"), 0.toByte())
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setIgnoresMouseEvents:"), 0.toByte())
+    }
+
+    private fun presentWindowAtLevel(
+        b: NativeBindings,
+        nsWindow: Pointer,
+        level: Long,
+        cocoaFrame: LockScreenCocoaFrame?
+    ) {
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("setLevel:"), level)
+        if (cocoaFrame != null) {
+            runCatching {
+                val frame = NSRectByValue(
+                    x = cocoaFrame.x,
+                    y = cocoaFrame.y,
+                    width = cocoaFrame.width,
+                    height = cocoaFrame.height
+                )
+                b.msgRectVoid.objc_msgSend(
+                    nsWindow,
+                    b.objc.sel_registerName("setFrame:display:"),
+                    frame,
+                    1.toByte()
+                )
+            }.onFailure { err ->
+                Log.w(TAG, "Failed to update Cocoa lock screen frame", err)
+            }
+        }
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("invalidateShadow"))
+        b.msgVoid.objc_msgSend(nsWindow, b.objc.sel_registerName("orderFrontRegardless"))
     }
 
     fun clearActiveLockScreenWindow(windowTitle: String? = null) {

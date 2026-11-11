@@ -11,15 +11,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.auralis.music.ui.theme.DesktopTypography
 import com.auralis.music.util.KeyValueStore
 import com.auralis.music.windows.settings.DesktopPreferencesStore
 import java.awt.Rectangle
@@ -57,6 +62,8 @@ class MacLockScreenOverlayTest {
         assertEquals(400, LOCK_SCREEN_SPACE_LEVEL)
         assertEquals(337L, LOCK_SCREEN_COLLECTION_BEHAVIOR)
         assertEquals(Int.MAX_VALUE.toLong() - 2L, LOCK_SCREEN_WINDOW_LEVEL)
+        assertEquals(25L, LOCK_SCREEN_PREVIEW_FULLSCREEN_LEVEL)
+        assertEquals(3L, LOCK_SCREEN_PREVIEW_COMPACT_LEVEL)
     }
 
     @Test
@@ -78,7 +85,7 @@ class MacLockScreenOverlayTest {
             assertTrue(bounds.height in 260..340)
             assertTrue(bounds.y >= (height * 0.30f).toInt(), "Must stay below lock clock on ${width}x$height")
             assertTrue(
-                bounds.y + bounds.height <= (height * 0.77f).toInt(),
+                bounds.y + bounds.height <= (height * 0.79f).toInt(),
                 "Must stay above avatar/password area on ${width}x$height"
             )
         }
@@ -374,6 +381,200 @@ class MacLockScreenOverlayTest {
             assertTrue(hActive > hInactive, "Touch ID active subtitle should only render when Touch ID is active")
         } finally {
             scene.close()
+        }
+    }
+
+    @Test
+    fun previewFlagAndVisibilityRulesWorkWithAndWithoutLocking() {
+        assertFalse(isLockScreenPreviewRequested(emptyArray(), sysProp = null, env = null))
+        assertTrue(isLockScreenPreviewRequested(arrayOf("--lock-screen-preview"), sysProp = null, env = null))
+        assertTrue(isLockScreenPreviewRequested(emptyArray(), sysProp = "true", env = null))
+        assertTrue(isLockScreenPreviewRequested(emptyArray(), sysProp = null, env = "1"))
+        assertFalse(isLockScreenPreviewRequested(emptyArray(), sysProp = "false", env = "0"))
+
+        assertFalse(shouldShowMacLockScreenOverlay(enabled = true, locked = false, previewActive = false, hasTrack = true))
+        assertTrue(shouldShowMacLockScreenOverlay(enabled = true, locked = true, previewActive = false, hasTrack = true))
+        assertFalse(shouldShowMacLockScreenOverlay(enabled = false, locked = true, previewActive = false, hasTrack = true))
+        assertTrue(shouldShowMacLockScreenOverlay(enabled = false, locked = false, previewActive = true, hasTrack = true))
+        assertFalse(shouldShowMacLockScreenOverlay(enabled = true, locked = false, previewActive = true, hasTrack = false))
+    }
+
+    @OptIn(InternalComposeUiApi::class)
+    @Test
+    fun previewKeyHandlerDismissesTogglesPlaybackAndCollapsesBackdrop() {
+        var dismissCount = 0
+        var playPauseCount = 0
+        var collapseCount = 0
+        val isMac = isMacLockScreenHost()
+
+        fun dispatch(
+            key: Key,
+            meta: Boolean = false,
+            ctrl: Boolean = false,
+            shift: Boolean = false,
+            type: KeyEventType = KeyEventType.KeyDown
+        ) = handleLockScreenPreviewKey(
+            event = KeyEvent(
+                key = key,
+                type = type,
+                isCtrlPressed = ctrl,
+                isMetaPressed = meta,
+                isShiftPressed = shift
+            ),
+            onDismiss = { dismissCount++ },
+            onTogglePlayPause = { playPauseCount++ },
+            onToggleCollapsed = { collapseCount++ }
+        )
+
+        assertFalse(dispatch(Key.Escape, type = KeyEventType.KeyUp))
+        assertTrue(dispatch(Key.Escape))
+        assertTrue(dispatch(Key.L, meta = isMac, ctrl = !isMac, shift = true))
+        assertEquals(2, dismissCount)
+
+        assertTrue(dispatch(Key.Spacebar))
+        assertTrue(dispatch(Key.K))
+        assertEquals(2, playPauseCount)
+
+        assertTrue(dispatch(Key.C))
+        assertEquals(1, collapseCount)
+
+        assertFalse(dispatch(Key.A))
+    }
+
+    @Test
+    fun fullScreenClockSpecScalesToNativeMacOsLevelAcrossDisplays() {
+        val mbpScaled = computeFullScreenLockClockSpec(1169)
+        assertEquals(106, mbpScaled.topPaddingDp)
+        assertEquals(161, mbpScaled.clockSizeSp)
+        assertEquals(24, mbpScaled.dateSizeSp)
+
+        val mbpDefault = computeFullScreenLockClockSpec(982)
+        assertEquals(89, mbpDefault.topPaddingDp)
+        assertEquals(135, mbpDefault.clockSizeSp)
+        assertEquals(20, mbpDefault.dateSizeSp)
+
+        val mba = computeFullScreenLockClockSpec(800)
+        assertEquals(72, mba.topPaddingDp)
+        assertEquals(110, mba.clockSizeSp)
+        assertEquals(16, mba.dateSizeSp)
+    }
+
+    @Test
+    fun fullScreenPillAlignsWithCollapsedOverlayAndClockSitsAtNativeLevel() {
+        val width = 1800
+        val height = 1169
+        var fullPillBounds by mutableStateOf<Rect?>(null)
+        var collapsedPillBounds by mutableStateOf<Rect?>(null)
+        var clockBounds by mutableStateOf<Rect?>(null)
+
+        val fullScene = ImageComposeScene(
+            width = width,
+            height = height,
+            density = Density(1f),
+            coroutineContext = Dispatchers.Unconfined
+        ) {
+            MaterialTheme(colorScheme = darkColorScheme(), typography = DesktopTypography) {
+                FullScreenLockScreenScaffold(
+                    compactLyrics = false,
+                    background = { _ -> Box(Modifier.fillMaxSize()) },
+                    clock = { clockSize, dateSize ->
+                        BigClock(
+                            fontSize = clockSize,
+                            dateFontSize = dateSize,
+                            timeSpacing = fullScreenClockTimeSpacing(clockSize),
+                            modifier = Modifier.onGloballyPositioned { clockBounds = it.boundsInRoot() }
+                        )
+                    },
+                    lyricsSlot = { rowHeight ->
+                        Box(Modifier.fillMaxWidth().height(rowHeight * 3))
+                    },
+                    playerPill = {
+                        Box(
+                            Modifier
+                                .size(width = 468.dp, height = 110.dp)
+                                .onGloballyPositioned { fullPillBounds = it.boundsInRoot() }
+                        )
+                    },
+                    onRevealPassword = {},
+                    touchIdActive = true
+                )
+            }
+        }
+        val overlayBounds = computeLockScreenOverlayBounds(0, 0, width, height)
+        val collapsedScene = ImageComposeScene(
+            width = overlayBounds.width,
+            height = overlayBounds.height,
+            density = Density(1f),
+            coroutineContext = Dispatchers.Unconfined
+        ) {
+            MaterialTheme(colorScheme = darkColorScheme(), typography = DesktopTypography) {
+                LockScreenOverlayLayout(
+                    compactLyrics = false,
+                    lyricsSlot = { rowHeight ->
+                        Box(Modifier.fillMaxWidth().height(rowHeight * 3))
+                    },
+                    playerPill = {
+                        Box(
+                            Modifier
+                                .size(width = 468.dp, height = 110.dp)
+                                .onGloballyPositioned { collapsedPillBounds = it.boundsInRoot() }
+                        )
+                    }
+                )
+            }
+        }
+        try {
+            val rendered = fullScene.render(0L)
+            val pixmap = assertNotNull(rendered.peekPixels())
+            val segments = mutableListOf<IntRange>()
+            var segStart: Int? = null
+            for (y in 0 until 400) {
+                var rowMaxLum = 0
+                for (x in 650 until 1150) {
+                    val color = pixmap.getColor(x, y)
+                    val r = (color shr 16) and 0xFF
+                    val g = (color shr 8) and 0xFF
+                    val b = color and 0xFF
+                    val lum = maxOf(r, g, b)
+                    if (lum > rowMaxLum) rowMaxLum = lum
+                }
+                if (rowMaxLum > 80 && segStart == null) {
+                    segStart = y
+                } else if (rowMaxLum <= 80 && segStart != null) {
+                    if (y - segStart >= 3) segments += segStart until y
+                    segStart = null
+                }
+            }
+            rendered.close()
+            collapsedScene.render(0L).close()
+
+            assertEquals(2, segments.size, "Expected rendered date and time glyph bands, got $segments")
+            assertTrue(segments[0].first in 106..118, "Date top ${segments[0].first} should align with macOS clock (~112dp on 1169dp)")
+            assertTrue(segments[0].last in 128..144, "Date bottom ${segments[0].last} should align with macOS clock (~135dp on 1169dp)")
+            assertTrue(segments[1].first in 154..168, "Time top ${segments[1].first} should align with macOS clock (~162dp on 1169dp)")
+            assertTrue(segments[1].last in 270..284, "Time bottom ${segments[1].last} should align with macOS clock (~278dp on 1169dp)")
+
+            val fullPill = assertNotNull(fullPillBounds)
+            val collapsedPill = assertNotNull(collapsedPillBounds)
+            val clock = assertNotNull(clockBounds)
+            assertEquals(
+                overlayBounds.y + collapsedPill.top,
+                fullPill.top,
+                "Full-screen pill top must match collapsed overlay pill top"
+            )
+            assertEquals(
+                overlayBounds.y + collapsedPill.bottom,
+                fullPill.bottom,
+                "Full-screen pill bottom must match collapsed overlay pill bottom"
+            )
+            assertEquals(
+                computeFullScreenLockClockSpec(height).topPaddingDp.toFloat(),
+                clock.top
+            )
+            assertTrue(clock.bottom < fullPill.top)
+        } finally {
+            fullScene.close()
+            collapsedScene.close()
         }
     }
 

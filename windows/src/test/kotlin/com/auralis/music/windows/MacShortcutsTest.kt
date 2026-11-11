@@ -20,6 +20,7 @@ class MacShortcutsTest {
         var searchFocusCount = 0
         var togglePlayerCount = 0
         var lyricsCount = 0
+        var lockScreenPreviewCount = 0
         var queueCount = 0
         var playerClosed = false
         var settingsOpened = false
@@ -40,6 +41,7 @@ class MacShortcutsTest {
         override fun openSettings() { settingsOpened = true }
         override fun closeWindow() { windowClosed = true }
         override fun minimizeWindow() { windowMinimized = true }
+        override fun toggleLockScreenPreview() { lockScreenPreviewCount++ }
     }
 
     private fun keyEvent(
@@ -96,6 +98,12 @@ class MacShortcutsTest {
         // ⌘L -> Lyrics
         assertTrue(handleShortcut(keyEvent(Key.L, meta = true), typing = false, actions = actions))
         assertEquals(1, actions.lyricsCount)
+        assertEquals(0, actions.lockScreenPreviewCount)
+
+        // ⌘⇧L -> Lock Screen preview
+        assertTrue(handleShortcut(keyEvent(Key.L, meta = true, shift = true), typing = false, actions = actions))
+        assertEquals(1, actions.lockScreenPreviewCount)
+        assertEquals(1, actions.lyricsCount)
 
         // ⌘Up / ⌘Down -> Volume
         assertTrue(handleShortcut(keyEvent(Key.DirectionUp, meta = true), typing = false, actions = actions))
@@ -135,10 +143,12 @@ class MacShortcutsTest {
         assertFalse(handleShortcut(keyEvent(Key.K), typing = true, actions = actions))
         assertEquals(0, actions.playPauseCount)
 
-        // But ⌘F and ⌘, still work while typing
+        // But ⌘F, ⌘,, and ⌘⇧L still work while typing
         assertTrue(handleShortcut(keyEvent(Key.F, meta = true), typing = true, actions = actions))
         assertEquals(1, actions.searchFocusCount)
         assertTrue(handleShortcut(keyEvent(Key.Comma, meta = true), typing = true, actions = actions))
         assertTrue(actions.settingsOpened)
+        assertTrue(handleShortcut(keyEvent(Key.L, meta = true, shift = true), typing = true, actions = actions))
+        assertEquals(1, actions.lockScreenPreviewCount)
     }
 }

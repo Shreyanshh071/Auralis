@@ -38,6 +38,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
@@ -72,6 +81,11 @@ import com.auralis.music.windows.settings.DesktopThemeOverrides
 import com.auralis.music.windows.settings.rememberArtworkPalette
 import java.awt.GraphicsEnvironment
 import java.awt.Rectangle
+import java.awt.event.KeyEvent.VK_C
+import java.awt.event.KeyEvent.VK_ESCAPE
+import java.awt.event.KeyEvent.VK_K
+import java.awt.event.KeyEvent.VK_L
+import java.awt.event.KeyEvent.VK_SPACE
 import javax.swing.JComponent
 import javax.swing.RootPaneContainer
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +102,31 @@ internal data class LockScreenOverlayBounds(
     val height: Int
 )
 
+internal data class FullScreenLockClockSpec(
+    val topPaddingDp: Int,
+    val clockSizeSp: Int,
+    val dateSizeSp: Int
+)
+
+/**
+ * Aligns the full-screen Lock Screen clock with the native macOS Lock Screen clock vertical band
+ * (~9.6%..23.8% of display height) so toggling "Unlock with password" keeps the clock on the
+ * same level as the macOS clock.
+ */
+internal fun computeFullScreenLockClockSpec(screenHeightDp: Int): FullScreenLockClockSpec {
+    val safeH = screenHeightDp.coerceAtLeast(320)
+    val topPaddingDp = (safeH * 0.091f).toInt().coerceAtLeast(56)
+    val clockSizeSp = (safeH * 0.138f).toInt().coerceIn(72, 180)
+    val dateSizeSp = (clockSizeSp / 6.5f).toInt().coerceIn(16, 26)
+    return FullScreenLockClockSpec(
+        topPaddingDp = topPaddingDp,
+        clockSizeSp = clockSizeSp,
+        dateSizeSp = dateSizeSp
+    )
+}
+
+internal fun fullScreenClockTimeSpacing(clockSizeSp: Int): Dp = -(clockSizeSp * 0.13f).dp
+
 /**
  * Places the collapsed Lock Screen overlay in the middle open band on macOS: clear of the top
  * lock clock and clear of the bottom user avatar / Touch ID / password field.
@@ -103,8 +142,8 @@ internal fun computeLockScreenOverlayBounds(
     val width = 580.coerceAtMost((safeW - 32).coerceAtLeast(320))
     val height = minOf(340, (safeH * 0.38f).toInt().coerceAtLeast(260)).coerceAtMost(safeH)
     val x = screenX + (safeW - width) / 2
-    val maxTop = screenY + (safeH * 0.76f).toInt() - height
-    val preferredTop = screenY + (safeH * 0.41f).toInt()
+    val maxTop = screenY + (safeH * 0.79f).toInt() - height
+    val preferredTop = screenY + (safeH * 0.46f).toInt()
     val y = minOf(preferredTop, maxTop).coerceAtLeast(screenY + (safeH * 0.30f).toInt())
     return LockScreenOverlayBounds(x = x, y = y, width = width, height = height)
 }
@@ -148,9 +187,58 @@ internal fun connectedLockScreenDisplays(): List<ImmersiveDisplay> {
     return orderLockScreenDisplays(all, primaryBounds)
 }
 
+internal fun isLockScreenPreviewRequested(
+    args: Array<String>,
+    sysProp: String? = System.getProperty("auralis.lockScreenPreview"),
+    env: String? = System.getenv("AURALIS_LOCK_SCREEN_PREVIEW")
+): Boolean {
+    fun isTruthy(value: String?): Boolean =
+        value?.trim()?.let { it.equals("true", ignoreCase = true) || it == "1" } == true
+
+    return "--lock-screen-preview" in args || isTruthy(sysProp) || isTruthy(env)
+}
+
+internal fun shouldShowMacLockScreenOverlay(
+    enabled: Boolean,
+    locked: Boolean,
+    previewActive: Boolean,
+    hasTrack: Boolean
+): Boolean = hasTrack && ((enabled && locked) || previewActive)
+
+internal fun handleLockScreenPreviewKey(
+    event: KeyEvent,
+    onDismiss: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onToggleCollapsed: () -> Unit
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val code = runCatching { event.key.nativeKeyCode }.getOrDefault(0)
+    val cmdOrCtrl = if (isMacLockScreenHost()) event.isMetaPressed || event.isCtrlPressed else event.isCtrlPressed
+    return when {
+        code == VK_ESCAPE || event.key == Key.Escape -> {
+            onDismiss()
+            true
+        }
+        cmdOrCtrl && event.isShiftPressed && code == VK_L -> {
+            onDismiss()
+            true
+        }
+        code == VK_SPACE || code == VK_K -> {
+            onTogglePlayPause()
+            true
+        }
+        code == VK_C -> {
+            onToggleCollapsed()
+            true
+        }
+        else -> false
+    }
+}
+
 /**
  * Application-scope macOS Lock Screen Now Playing & Live Synced Lyrics overlay.
- * Only activates on macOS hosts when enabled in Settings and a track is loaded while locked.
+ * Only activates on macOS hosts when enabled in Settings and a track is loaded while locked,
+ * or when unlocked preview mode is active (`⌘⇧L` / `--lock-screen-preview`) for recording.
  * Opens as a full-screen song-synced screensaver on lock/wake and collapses to the middle-band
  * compact overlay when the user clicks "Unlock with password".
  */
@@ -158,7 +246,9 @@ internal fun connectedLockScreenDisplays(): List<ImmersiveDisplay> {
 internal fun MacLockScreenOverlay(
     playback: DesktopPlaybackController,
     lyrics: DesktopLyricsController,
-    stores: DesktopDataStores
+    stores: DesktopDataStores,
+    previewActive: Boolean = false,
+    onDismissPreview: () -> Unit = {}
 ) {
     if (!isMacLockScreenHost()) return
 
@@ -172,11 +262,18 @@ internal fun MacLockScreenOverlay(
     val wakeEpoch by MacLockScreenBridge.wakeEpoch.collectAsState()
     val queue by playback.queue.collectAsState()
     val track = queue.current
+    val isPreview = previewActive && !locked
+
+    LaunchedEffect(locked) {
+        if (locked && previewActive) {
+            onDismissPreview()
+        }
+    }
 
     var backdropCollapsed by remember { mutableStateOf(false) }
     var touchIdActive by remember { mutableStateOf(false) }
-    LaunchedEffect(locked, wakeEpoch) {
-        if (locked) {
+    LaunchedEffect(locked, wakeEpoch, isPreview) {
+        if (locked || isPreview) {
             backdropCollapsed = false
             touchIdActive = withContext(Dispatchers.IO) {
                 MacLockScreenBridge.isTouchIdAvailableForUnlock()
@@ -186,23 +283,24 @@ internal fun MacLockScreenOverlay(
         }
     }
 
-    if (!enabled || !locked || track == null) return
+    if (!shouldShowMacLockScreenOverlay(enabled, locked, previewActive, track != null)) return
+    val activeTrack = track ?: return
 
-    val displays = remember(locked, wakeEpoch) { connectedLockScreenDisplays() }
+    val displays = remember(locked, wakeEpoch, isPreview) { connectedLockScreenDisplays() }
     val primaryDisplay = displays.firstOrNull() ?: return
     val primaryHeight = primaryDisplay.bounds.height
     val shownDisplays = if (backdropCollapsed) listOf(primaryDisplay) else displays
 
     val appearance by stores.appearance.settingsFlow.collectAsState(stores.appearance.getInitialSettings())
-    val rawArtwork = track.thumbnail?.takeIf { it.isNotBlank() }
-        ?: track.id.takeIf { it.length in 8..15 && !it.startsWith("local:") }
+    val rawArtwork = activeTrack.thumbnail?.takeIf { it.isNotBlank() }
+        ?: activeTrack.id.takeIf { it.length in 8..15 && !it.startsWith("local:") }
             ?.let { "https://i.ytimg.com/vi/$it/hq720.jpg" }
     val artwork = rawArtwork?.let { getHighResArtworkUrl(it) ?: it }
     val palette = rememberArtworkPalette(artwork)
     val platformActions = remember { DesktopPlatformActions { Log.i("MacLockScreenOverlay", it) } }
 
     shownDisplays.forEach { display ->
-        key(display.key) {
+        key(display.key, locked) {
             val isPrimary = display == primaryDisplay
             val windowTitle = if (isPrimary) LOCK_SCREEN_WINDOW_TITLE else "$LOCK_SCREEN_WINDOW_TITLE [${display.key}]"
             val collapsedForDisplay = isPrimary && backdropCollapsed
@@ -228,14 +326,26 @@ internal fun MacLockScreenOverlay(
             }
 
             Window(
-                onCloseRequest = {},
+                onCloseRequest = { if (!locked) onDismissPreview() },
                 state = windowState,
                 title = windowTitle,
                 undecorated = true,
                 transparent = true,
                 resizable = false,
-                focusable = false,
-                alwaysOnTop = true
+                focusable = !locked,
+                alwaysOnTop = true,
+                onPreviewKeyEvent = { event ->
+                    if (!locked) {
+                        handleLockScreenPreviewKey(
+                            event = event,
+                            onDismiss = onDismissPreview,
+                            onTogglePlayPause = playback::togglePlayPause,
+                            onToggleCollapsed = { backdropCollapsed = !backdropCollapsed }
+                        )
+                    } else {
+                        false
+                    }
+                }
             ) {
                 DisposableEffect(window, windowTitle) {
                     configureTransparentAwtWindow(window)
@@ -244,15 +354,34 @@ internal fun MacLockScreenOverlay(
                     }
                 }
 
-                LaunchedEffect(window, windowTitle, locked, wakeEpoch, cocoaFrame) {
+                LaunchedEffect(window, windowTitle, locked, wakeEpoch, cocoaFrame, backdropCollapsed) {
                     configureTransparentAwtWindow(window)
-                    MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
-                    delay(60L)
-                    MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
-                    delay(190L)
-                    MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
-                    delay(450L)
-                    MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
+                    if (locked) {
+                        MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
+                        delay(60L)
+                        MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
+                        delay(190L)
+                        MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
+                        delay(450L)
+                        MacLockScreenBridge.promoteWindowToLockScreen(windowTitle, cocoaFrame)
+                    } else {
+                        MacLockScreenBridge.clearActiveLockScreenWindow(windowTitle)
+                        MacLockScreenBridge.configurePreviewWindow(
+                            windowTitle = windowTitle,
+                            cocoaFrame = cocoaFrame,
+                            fullScreen = !collapsedForDisplay
+                        )
+                        if (isPrimary) {
+                            window.toFront()
+                            window.requestFocus()
+                        }
+                        delay(60L)
+                        MacLockScreenBridge.configurePreviewWindow(
+                            windowTitle = windowTitle,
+                            cocoaFrame = cocoaFrame,
+                            fullScreen = !collapsedForDisplay
+                        )
+                    }
                 }
 
                 CompositionLocalProvider(
@@ -274,7 +403,7 @@ internal fun MacLockScreenOverlay(
                                     onRevealPassword = { backdropCollapsed = true }
                                 )
                                 !backdropCollapsed -> FullScreenLockScreenContent(
-                                    track = track,
+                                    track = activeTrack,
                                     artwork = artwork,
                                     palette = palette,
                                     backgroundStyle = appearance.playerBackgroundStyle,
@@ -285,7 +414,7 @@ internal fun MacLockScreenOverlay(
                                     onRevealPassword = { backdropCollapsed = true }
                                 )
                                 else -> LockScreenOverlayContent(
-                                    track = track,
+                                    track = activeTrack,
                                     artwork = artwork,
                                     playback = playback,
                                     lyrics = lyrics,
@@ -366,24 +495,33 @@ internal fun FullScreenLockScreenScaffold(
 ) {
     val dockBackdrop = rememberPopupGlassSource()
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val clockSize = (maxHeight.value * 0.12f).toInt().coerceIn(72, 124)
-        val dateSize = (clockSize / 5).coerceIn(16, 24)
+        val screenW = maxWidth.value.toInt().coerceAtLeast(320)
+        val screenH = maxHeight.value.toInt().coerceAtLeast(320)
+        val clockSpec = computeFullScreenLockClockSpec(screenH)
+        val overlayBounds = computeLockScreenOverlayBounds(0, 0, screenW, screenH)
         Box(modifier = Modifier.fillMaxSize()) {
             background(dockBackdrop)
         }
         CompositionLocalProvider(LocalPopupGlassSource provides dockBackdrop) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(Modifier.height(12.dp))
-                clock(clockSize, dateSize)
+            Box(modifier = Modifier.fillMaxSize()) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                        .align(Alignment.TopCenter)
+                        .padding(
+                            top = clockSpec.topPaddingDp.dp,
+                            start = 32.dp,
+                            end = 32.dp
+                        ),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    clock(clockSpec.clockSizeSp, clockSpec.dateSizeSp)
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = overlayBounds.y.dp)
+                        .fillMaxWidth()
+                        .height(overlayBounds.height.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     LockScreenOverlayLayout(
@@ -395,6 +533,9 @@ internal fun FullScreenLockScreenScaffold(
                 UnlockWithPasswordAction(
                     touchIdActive = touchIdActive,
                     onClick = onRevealPassword,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 32.dp, vertical = 28.dp),
                     buttonModifier = unlockButtonModifier
                 )
             }
@@ -427,7 +568,11 @@ private fun FullScreenLockScreenContent(
             )
         },
         clock = { clockSize, dateSize ->
-            BigClock(fontSize = clockSize, dateFontSize = dateSize)
+            BigClock(
+                fontSize = clockSize,
+                dateFontSize = dateSize,
+                timeSpacing = fullScreenClockTimeSpacing(clockSize)
+            )
         },
         lyricsSlot = { lyricRowHeight ->
             ClockLyrics(

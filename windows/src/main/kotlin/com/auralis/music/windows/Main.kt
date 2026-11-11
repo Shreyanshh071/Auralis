@@ -368,6 +368,9 @@ fun main(args: Array<String>) {
         var macImmersivePreviousPlacement by remember { mutableStateOf<WindowPlacement?>(null) }
         var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
+        var lockScreenPreview by remember {
+            mutableStateOf(isMac && com.auralis.music.windows.immersive.isLockScreenPreviewRequested(args))
+        }
         val embeddedDisplay = remember(immersive.trigger) {
             com.auralis.music.windows.immersive.connectedDisplays(null).singleOrNull()
         }
@@ -996,6 +999,15 @@ fun main(args: Array<String>) {
                     onMinimizeWindow = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
                     openSettingsTrigger = settingsRequestTrigger,
                     onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
+                    onToggleLockScreenPreview = {
+                        if (isMac) {
+                            lockScreenPreview = if (lockScreenPreview) {
+                                false
+                            } else {
+                                ready.playback?.queue?.value?.current != null
+                            }
+                        }
+                    },
                     playerRequests = playerRequests,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
@@ -1039,7 +1051,13 @@ fun main(args: Array<String>) {
         if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
             com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
             if (isMac) {
-                com.auralis.music.windows.immersive.MacLockScreenOverlay(immersivePlayback, immersiveLyrics, immersiveStores)
+                com.auralis.music.windows.immersive.MacLockScreenOverlay(
+                    playback = immersivePlayback,
+                    lyrics = immersiveLyrics,
+                    stores = immersiveStores,
+                    previewActive = lockScreenPreview,
+                    onDismissPreview = { lockScreenPreview = false }
+                )
             }
             if (!embeddedImmersive) com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
                 appBounds = { composeWindow?.takeIf { windowVisible && !windowState.isMinimized }?.bounds }, icon = icon,

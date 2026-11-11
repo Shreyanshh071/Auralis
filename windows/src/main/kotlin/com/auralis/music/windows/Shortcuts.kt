@@ -44,6 +44,7 @@ interface ShortcutActions {
     fun closeWindow() {}
     fun minimizeWindow() {}
     fun openImmersive() {}
+    fun toggleLockScreenPreview() {}
 }
 
 /**
@@ -65,6 +66,7 @@ interface ShortcutActions {
  * | ⌘W / ⌘M | Close window to tray / Minimize (macOS) |
  * | Ctrl+P / ⌘P | Open / close the player |
  * | Ctrl+L / ⌘L | Player with lyrics |
+ * | ⌘⇧L | Preview Lock Screen overlay (macOS) |
  * | Ctrl+Q / ⌘U | Player with queue |
  * | I | Immersive mode |
  * | Esc | Close the player, otherwise return to the previous page |
@@ -85,7 +87,10 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
             VK_F, VK_K -> { actions.focusSearch(); return true }
             VK_COMMA -> { actions.openSettings(); return true }
             VK_P -> { actions.togglePlayer(); return true }
-            VK_L -> { actions.showLyrics(); return true }
+            VK_L -> {
+                if (event.isShiftPressed) actions.toggleLockScreenPreview() else actions.showLyrics()
+                return true
+            }
             else -> {}
         }
     }

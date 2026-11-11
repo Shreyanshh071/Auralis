@@ -341,9 +341,18 @@ private fun rememberPlaying(playback: DesktopPlaybackController): Boolean {
 }
 
 @Composable
-internal fun BigClock(fontSize: Int, modifier: Modifier = Modifier, dateFontSize: Int = fontSize / 8) {
+internal fun BigClock(
+    fontSize: Int,
+    modifier: Modifier = Modifier,
+    dateFontSize: Int = fontSize / 8,
+    timeSpacing: Dp = 0.dp
+) {
     val now by rememberNow()
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(timeSpacing)
+    ) {
         Text(dateText(now), fontSize = dateFontSize.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = .82f))
         Text(clockText(now), fontSize = fontSize.sp, lineHeight = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
             style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"), maxLines = 1)

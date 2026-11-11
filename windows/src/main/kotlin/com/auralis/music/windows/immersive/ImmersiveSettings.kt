@@ -20,7 +20,7 @@ internal fun ImmersiveSettings() {
     if (isMac) {
         com.auralis.music.windows.settings.SettingToggle(
             title = "Show on Lock Screen",
-            description = "Show live lyrics and playback controls on the macOS Lock Screen while music plays.",
+            description = "Show live lyrics and playback controls on the macOS Lock Screen while music plays. Press ⌘⇧L to preview and record while unlocked.",
             checked = preferences.macLockScreenOverlay,
             onChecked = { preferences.macLockScreenOverlay = it }
         )

@@ -120,6 +120,7 @@ fun AuralisDesktopApp(
     onMinimizeWindow: () -> Unit = {},
     openSettingsTrigger: Int = 0,
     onOpenImmersive: () -> Unit = {},
+    onToggleLockScreenPreview: () -> Unit = {},
     /** Bumped when immersive mode steps back to the player. */
     playerRequests: Int = 0,
 ) {
@@ -435,6 +436,7 @@ fun AuralisDesktopApp(
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
 
+    val currentToggleLockScreenPreview = androidx.compose.runtime.rememberUpdatedState(onToggleLockScreenPreview)
     val actions = remember(playback) {
         object : ShortcutActions {
             override fun togglePlayPause() { playback?.togglePlayPause() }
@@ -462,6 +464,7 @@ fun AuralisDesktopApp(
                 return handleEscapeBack(showPlayer) { showPlayer = false }
             }
             override fun openImmersive() = onOpenImmersive()
+            override fun toggleLockScreenPreview() = currentToggleLockScreenPreview.value()
         }
     }
     if (selfTest != null) {
