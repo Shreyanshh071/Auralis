@@ -141,6 +141,8 @@ fun PlayerScreen(
             stagePlayer = prefs.bool("stagePlayer", true),
             tabbedPlayer = prefs.bool("tabbedPlayer", true)
         )
+        // Wait for the stage canvas check to decline before starting a 1:1 cover decoder in CoverWithControls.
+        var stageDeclined by remember(track?.id, canvasStage, canvasPrefs, spotifyCanvasId) { mutableStateOf(false) }
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
         }
@@ -151,7 +153,8 @@ fun PlayerScreen(
                 AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
                     .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
                     motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
-                    playbackClock = playback.clock) {}
+                    playbackClock = playback.clock,
+                    onStageUnavailable = { stageDeclined = true }) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .18f),
                     .6f to Color.Transparent,
@@ -177,7 +180,14 @@ fun PlayerScreen(
                         CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
                     } else {
                         Box(Modifier.offset(y = 12.dp)) {
-                            CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                            CoverWithControls(
+                                playback = playback,
+                                track = track,
+                                artworkUrl = artworkUrl,
+                                size = coverSize,
+                                scale = ContentScale.Crop,
+                                animateCover = !canvasStage || stageDeclined
+                            )
                         }
                         Spacer(Modifier.height(22.dp))
                         PlayerSeekBar(playback, Modifier.width(coverSize))
@@ -608,8 +618,8 @@ private val BlankCursor: PointerIcon by lazy {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun CoverWithControls(
-    playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp,
-    scale: ContentScale
+    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?,
+    artworkUrl: String?, size: Dp, scale: ContentScale, animateCover: Boolean = true
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
@@ -635,8 +645,15 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-            contentDescription = title, contentScale = scale)
+        AnimatedCover(
+            track = track,
+            modifier = Modifier.fillMaxSize(),
+            playbackClock = playback.clock,
+            enabled = animateCover
+        ) {
+            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+                contentDescription = track?.title, contentScale = scale)
+        }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))

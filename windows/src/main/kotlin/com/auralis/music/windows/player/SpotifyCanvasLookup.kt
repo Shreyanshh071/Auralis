@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
@@ -20,19 +21,32 @@ import java.nio.file.StandardCopyOption
 
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
-    private const val MAX_BYTES = 64L * 1024 * 1024
-    // Small direct MP4s are typically mobile previews. Prefer the manifest for those clips.
-    private const val MIN_DIRECT_BYTES = 1_500_000L
-    private const val MIN_CACHE_BYTES = 64L * 1024
-    private const val DAY_MS = 86_400_000L
+    private val client by lazy {
+        SpotifyCanvasClient(NetworkClientProvider.okHttpClient, File(desktopAppDataDir(), "cache/spotify-canvas"))
+    }
+
+    suspend fun find(trackId: String?): String? = client.find(trackId)
+    suspend fun fallback(trackId: String, failedPath: String): String? = client.fallback(trackId, failedPath)
+}
+
+/** Injectable transport/cache for exercising real provider responses without Spotify or VLC. */
+internal class SpotifyCanvasClient(
+    private val http: OkHttpClient,
+    private val folder: File,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
+    private companion object {
+        private const val MAX_BYTES = 64L * 1024 * 1024
+        private const val MIN_CACHE_BYTES = 64L * 1024
+        private const val DAY_MS = 86_400_000L
+    }
     private val trackPattern = Regex("[A-Za-z0-9]{22}")
     private val filePattern = Regex("[a-fA-F0-9]{32}")
-    private val folder by lazy { File(desktopAppDataDir(), "cache/spotify-canvas") }
     private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
     private val misses = mutableMapOf<String, Long>()
+    private val failures = mutableMapOf<String, Long>()
     private val lock = Mutex()
     private var retryAt = 0L
-    private val http get() = NetworkClientProvider.okHttpClient
     private val directHttp by lazy {
         http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
     }
@@ -41,8 +55,8 @@ internal object SpotifyCanvasLookup {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
             indexedFileId(trackId)?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
-            val now = System.currentTimeMillis()
-            if (now < retryAt || now < (misses[trackId] ?: 0L)) return@withLock null
+            val now = clock()
+            if (now < retryAt || now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L)) return@withLock null
             try {
                 val request = Request.Builder()
                     .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
@@ -51,7 +65,8 @@ internal object SpotifyCanvasLookup {
                     if (!response.isSuccessful) {
                         com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId: HTTP ${response.code}")
                         val pause = response.header("Retry-After")?.toLongOrNull()?.coerceIn(60, 1800) ?: 60L
-                        retryAt = now + pause * 1000
+                        if (response.code == 429 || response.header("Retry-After") != null) retryAt = now + pause * 1000
+                        else failures[trackId] = now + 60_000L
                         return@withLock null
                     }
                     val data = JSONObject(response.body?.string().orEmpty()).getJSONObject("data")
@@ -60,6 +75,7 @@ internal object SpotifyCanvasLookup {
                 }
                 check(item?.has("error") != true)
                 if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+                    com.auralis.music.util.Log.i("SpotifyCanvas", "No video canvas for $trackId")
                     misses[trackId] = now + DAY_MS
                     return@withLock null
                 }
@@ -73,7 +89,7 @@ internal object SpotifyCanvasLookup {
                 throw cancelled
             } catch (error: Exception) {
                 com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId failed: $error")
-                retryAt = now + 60_000L
+                failures[trackId] = now + 60_000L
                 null
             }
         }
@@ -104,8 +120,7 @@ internal object SpotifyCanvasLookup {
         diskIndex.getString(trackId, "")?.takeIf(filePattern::matches)
 
     private fun usable(file: File): Boolean {
-        val minimum = if (file.extension == "mp4") MIN_DIRECT_BYTES else MIN_CACHE_BYTES
-        return file.isFile && file.length() in minimum..MAX_BYTES &&
+        return file.isFile && file.length() in MIN_CACHE_BYTES..MAX_BYTES &&
             diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
     }
 
@@ -123,7 +138,8 @@ internal object SpotifyCanvasLookup {
                 if (response.code != 200) return null
                 val body = response.body ?: return null
                 val length = body.contentLength()
-                if (length >= 0 && length !in MIN_DIRECT_BYTES..MAX_BYTES) return null
+                // Encoded size is not resolution: a legitimate short HD loop can be under 1.5 MB.
+                if (length >= 0 && length !in MIN_CACHE_BYTES..MAX_BYTES) return null
                 var bytes = 0L
                 temporary.outputStream().use { output ->
                     body.byteStream().use { input ->
@@ -137,7 +153,7 @@ internal object SpotifyCanvasLookup {
                         }
                     }
                 }
-                if (bytes < MIN_DIRECT_BYTES || length >= 0 && bytes != length) return null
+                if (bytes < MIN_CACHE_BYTES || length >= 0 && bytes != length) return null
             }
             publish(temporary, target)
             return target.absolutePath
