@@ -389,7 +389,12 @@ private val ClockLyricRowHeight = 58.dp
 
 /** Three slots centered on the lead vocal, using the same line renderer as the player. */
 @Composable
-private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, modifier: Modifier = Modifier) {
+internal fun ClockLyrics(
+    playback: DesktopPlaybackController,
+    lyrics: DesktopLyricsController,
+    modifier: Modifier = Modifier,
+    rowHeight: Dp = ClockLyricRowHeight
+) {
     val state by lyrics.state.collectAsState()
     val data = state.lyrics ?: return
     val lines = remember(data.lines, data.provider) {
@@ -451,7 +456,7 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
         com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion provides true
     ) {
         Box(
-            modifier.height(ClockLyricRowHeight * 3).clipToBounds()
+            modifier.height(rowHeight * 3).clipToBounds()
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
@@ -474,9 +479,9 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                     val scale = if (spicy) 1f else 1f - .20f * distance
                     val blur = 1.4f * distance
                     Box(
-                        Modifier.widthIn(max = 760.dp).fillMaxWidth(.92f).height(ClockLyricRowHeight)
+                        Modifier.widthIn(max = 760.dp).fillMaxWidth(.92f).height(rowHeight)
                             .graphicsLayer {
-                                translationY = (slots[index] - scroll.value) * ClockLyricRowHeight.toPx()
+                                translationY = (slots[index] - scroll.value) * rowHeight.toPx()
                                 scaleX = scale
                                 scaleY = scale
                                 alpha = 1f - .46f * distance
@@ -490,7 +495,7 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                             // Match the renderer's typography and subtract its 24dp side padding.
                             // Swelling glyphs need additional room beyond the static paragraph.
                             val measureWidth = ((constraints.maxWidth - with(density) { 48.dp.toPx() }) / 1.15f).toInt().coerceAtLeast(1)
-                            val measureHeight = (with(density) { (ClockLyricRowHeight - 16.dp).toPx() } / 1.15f).toInt().coerceAtLeast(1)
+                            val measureHeight = (with(density) { (rowHeight - 16.dp).toPx() } / 1.15f).toInt().coerceAtLeast(1)
                             val fontSize = remember(measurer, line.text, fontFamily, density, measureWidth, measureHeight) {
                                 (27 downTo 8).firstOrNull { size ->
                                     val layout = measurer.measure(
@@ -539,7 +544,7 @@ private fun ClockLyrics(playback: DesktopPlaybackController, lyrics: DesktopLyri
                     onSkip = { playback.seekTo(end) },
                     modifier = Modifier.align(Alignment.Center).graphicsLayer {
                         val offset = slot - scroll.value
-                        translationY = offset * ClockLyricRowHeight.toPx()
+                        translationY = offset * rowHeight.toPx()
                         alpha = 1f - .46f * abs(offset).coerceAtMost(1f)
                     })
             }
@@ -573,7 +578,7 @@ private fun ClockRestDots(start: Long, end: Long, position: androidx.compose.run
 private val DockWidth = 440.dp
 
 @Composable
-private fun NowPlayingRow(track: Track, artwork: String?, playback: DesktopPlaybackController) {
+internal fun NowPlayingRow(track: Track, artwork: String?, playback: DesktopPlaybackController) {
     Column(Modifier.width(DockWidth).padding(start = 6.dp, end = 6.dp, top = 8.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DesktopArtwork(artwork, Modifier.size(56.dp), 12.dp, track.title, highRes = true)

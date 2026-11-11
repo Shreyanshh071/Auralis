@@ -93,6 +93,10 @@ internal class ImmersivePreferences(private val prefs: DesktopPreferencesStore =
     var idleMinutes: Int
         get() = prefs.number("immersiveIdleMinutes", 0.0).toInt()
         set(value) = prefs.set("immersiveIdleMinutes", value)
+
+    var macLockScreenOverlay: Boolean
+        get() = prefs.bool("macLockScreenOverlay", default = true)
+        set(value) = prefs.set("macLockScreenOverlay", value)
 }
 
 internal fun defaultView(index: Int) = when (index) {

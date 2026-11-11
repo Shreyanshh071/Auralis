@@ -16,6 +16,15 @@ private fun idleLabel(minutes: Int) = if (minutes == 0) "Never" else "After $min
 internal fun ImmersiveSettings() {
     val revision by DesktopPreferences.store.changes.collectAsState()
     val preferences = remember(revision) { ImmersivePreferences() }
+    val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
+    if (isMac) {
+        com.auralis.music.windows.settings.SettingToggle(
+            title = "Show on Lock Screen",
+            description = "Show live lyrics and playback controls on the macOS Lock Screen while music plays.",
+            checked = preferences.macLockScreenOverlay,
+            onChecked = { preferences.macLockScreenOverlay = it }
+        )
+    }
     SettingChoice(
         title = "Start when idle",
         description = "While music plays and nothing is fullscreen. Any input leaves. Press I to start it yourself.",

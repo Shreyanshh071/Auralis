@@ -1038,6 +1038,9 @@ fun main(args: Array<String>) {
         val immersiveStores = components?.stores
         if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
             com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
+            if (isMac) {
+                com.auralis.music.windows.immersive.MacLockScreenOverlay(immersivePlayback, immersiveLyrics, immersiveStores)
+            }
             if (!embeddedImmersive) com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
                 appBounds = { composeWindow?.takeIf { windowVisible && !windowState.isMinimized }?.bounds }, icon = icon,
                 onLeaveToPlayer = {
