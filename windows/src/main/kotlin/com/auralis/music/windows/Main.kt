@@ -1056,6 +1056,12 @@ fun main(args: Array<String>) {
         if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
             com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
             if (isMac) {
+                com.auralis.music.windows.notch.AuralisNotch(
+                    playback = immersivePlayback,
+                    lockScreenPreview = lockScreenPreview,
+                    onOpenPlayer = { openWindow(); playerRequests++ },
+                    onOpenSettings = { openWindow(); settingsRequestTrigger++ }
+                )
                 com.auralis.music.windows.immersive.MacLockScreenOverlay(
                     playback = immersivePlayback,
                     lyrics = immersiveLyrics,

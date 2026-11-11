@@ -68,6 +68,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Tabbed player", "Switch between lyrics and queue; turn off to show both")
         }
         group("Immersive mode") {
+            if (isMacPlatform) row("Auralis notch", "An Auralis-only player at the top of your screen. Hover to expand. Hides after 10 seconds paused.", "boring notch island mac music")
             row("Start when idle", "While music plays and nothing is fullscreen. Any input leaves. Press I to start it yourself.", "clock screensaver fullscreen display monitor")
         }
         group("Typography") {

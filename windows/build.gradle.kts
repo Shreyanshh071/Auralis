@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 // The Windows app: a Compose Desktop app over its own core (windows/core). The Android app and
 // :shared are never changed for Windows.
@@ -117,6 +118,28 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
 }
 
+// Native Boring Notch music UI, built locally from the pinned GPL sources. No Xcode project,
+// package downloads, or separate user installation is needed. This feature targets Apple Silicon.
+val nativeNotchResources = layout.buildDirectory.dir("notch-resources")
+val nativeNotchApp = nativeNotchResources.map { it.dir("macos-arm64/auralis-notch/Auralis Notch.app") }
+val prepareMacNotch by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir("macos-notch")
+    inputs.file("icons/auralis.icns")
+    outputs.dir(nativeNotchApp)
+    commandLine("bash", project.file("macos-notch/build.sh").absolutePath, nativeNotchApp.get().asFile.absolutePath)
+    doFirst {
+        require(osArch in setOf("aarch64", "arm64")) { "Auralis Notch builds target Apple Silicon Macs." }
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacNotch)
+        systemProperty("auralis.notch.helper", nativeNotchApp.get().file("Contents/MacOS/AuralisNotch").asFile.absolutePath)
+    }
+}
+
 
 // One class-data archive per build (see the jvmArgs below).
 val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
@@ -168,6 +191,7 @@ compose.desktop {
                 appResourcesRootDir.set(bundledVlcRoot)
                 targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             } else if (osName.contains("mac")) {
+                appResourcesRootDir.set(nativeNotchResources)
                 targetFormats(TargetFormat.Dmg, TargetFormat.Pkg)
                 macOS {
                     bundleID = "com.auralis.music"
@@ -197,6 +221,35 @@ compose.desktop {
 
 tasks.matching { it.name == "prepareAppResources" }.configureEach {
     if (osName.contains("win")) dependsOn(prepareVlc)
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacNotch)
+        // Gradle's resource Sync normalizes regular files to 0644 unless told otherwise.
+        // A signed Mach-O copied as a resource must remain executable after packaging.
+        if (this is AbstractCopyTask) filesMatching("**/Contents/MacOS/AuralisNotch") {
+            permissions { unix("rwxr-xr-x") }
+        }
+    }
+}
+
+tasks.matching { it.name == "run" }.configureEach {
+    if (osName.contains("mac")) dependsOn(prepareMacNotch)
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    if (osName.contains("mac")) doLast {
+        val executable = layout.buildDirectory.file(
+            "compose/binaries/main/app/Auralis.app/Contents/app/resources/auralis-notch/Auralis Notch.app/Contents/MacOS/AuralisNotch"
+        ).get().asFile
+        check(executable.isFile) { "Packaged Auralis Notch is missing." }
+        // Compose/jpackage's second resource copy also drops the mode even when Sync preserves
+        // it. Repair the completed app image before DMG creation; this does not change signed bytes.
+        check(executable.setExecutable(true, false) && executable.canExecute()) { "Could not make packaged Auralis Notch executable." }
+        val nativeSmoke = ProcessBuilder(executable.absolutePath, "--self-test").inheritIO().start()
+        check(nativeSmoke.waitFor(10, TimeUnit.SECONDS) && nativeSmoke.exitValue() == 0) {
+            nativeSmoke.destroyForcibly()
+            "Packaged Auralis Notch failed its native smoke test."
+        }
+    }
 }
 
 // The installers keep gaming overlays (NVIDIA, RivaTuner) off Auralis (see scripts/add-msi-overlay-step.ps1).
