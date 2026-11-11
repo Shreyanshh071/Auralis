@@ -49,6 +49,7 @@ internal object SpotifyCanvasLookup {
                     .header("Accept", "application/json").build()
                 val item = http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
+                        com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId: HTTP ${response.code}")
                         val pause = response.header("Retry-After")?.toLongOrNull()?.coerceIn(60, 1800) ?: 60L
                         retryAt = now + pause * 1000
                         return@withLock null
@@ -70,7 +71,8 @@ internal object SpotifyCanvasLookup {
                     ?: downloadViaManifest(trackId, fileId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId failed: $error")
                 retryAt = now + 60_000L
                 null
             }

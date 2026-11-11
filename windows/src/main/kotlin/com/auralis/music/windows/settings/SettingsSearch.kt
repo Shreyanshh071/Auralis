@@ -112,7 +112,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
         }
         group("Queue") {
             row("Prevent duplicates", "Do not add the same song twice to the upcoming queue")
-            row("Sticky shuffle", "Keep shuffling when you start a different album or playlist")
             row("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track")
         }
         group("Video") {
@@ -152,29 +151,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Button 1"); row("Button 2")
         }
     }
-    tab(SettingsTab.SCROBBLING) {
-        group("Last.fm") {
-            other("Last.fm API key and shared secret", "Use your Last.fm API application key and shared secret.", "lastfm scrobble")
-            other("Connect to Last.fm", keywords = "lastfm scrobble sign in")
-        }
-        group("ListenBrainz") {
-            other("ListenBrainz user token", keywords = "scrobble")
-            row("Scrobble to ListenBrainz")
-        }
-        group("Timing & metadata") {
-            row("Send now playing")
-            row("Track percentage", keywords = "threshold")
-            row("Use a time threshold", "Turn off to use only the track percentage")
-            row("Maximum listening time")
-            row("Clean title labels", "Remove Official Audio, Music Video and lyrics suffixes")
-            row("Remove artist Topic suffix")
-            row("Split music video titles", "Read Artist - Title from video titles")
-            row("Primary artist only", "Exclude featured artists from scrobbles")
-            row("Strict artist splitting", "Also split commas, ampersands and collaboration separators")
-            row("Skip local files")
-            other("Metadata rules", "Find and replace in titles, artists and albums", "add export import rule regex")
-        }
-    }
     tab(SettingsTab.DATA) {
         group("Network") {
             row("Use proxy", "New connections use this proxy", "socks http")
@@ -211,17 +187,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Romanize lyrics", "Show pronunciation below supported lyrics", "romanisation pronunciation latin")
         }
         group("Playlists") { row("Add songs to playlist", "Position where newly saved tracks appear", "top bottom start end") }
-    }
-    tab(SettingsTab.AI) {
-        group("AI translation engine") {
-            row("Enable AI lyric translation", "Send loaded lyrics to your configured provider and show translated lines in the player")
-            row("AI provider", "Language model service used for translating song lyrics", "openrouter gemini openai deepseek")
-            row("API key", "Your API key for the selected provider", "token secret")
-            row("Model name", "Enter a model ID or load the models available from your provider")
-            row("Translation mode", keywords = "transcription")
-            row("Target translation language", "Language into which lyrics will be rendered")
-            row("System prompt style", "Custom instruction prompt for artistic and rhythmic fidelity")
-        }
     }
     tab(SettingsTab.PRIVACY) {
         group("Listening & search history") {

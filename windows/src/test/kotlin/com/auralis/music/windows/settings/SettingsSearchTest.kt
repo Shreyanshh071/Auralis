@@ -11,7 +11,6 @@ class SettingsSearchTest {
         assertEquals("Normalize volume", searchSettings("normalize").first().title)
         assertEquals(SettingsTab.GENERAL, searchSettings("tray").first().tab)
         assertEquals(SettingsTab.DISCORD, searchSettings("paused").first().tab)
-        assertEquals(SettingsTab.AI, searchSettings("api key").first().tab)
         // Every word has to match, in any field.
         assertTrue(searchSettings("lyrics font").any { it.title == "Lyrics font size" })
         assertTrue(searchSettings("zzzz").isEmpty())
@@ -22,7 +21,7 @@ class SettingsSearchTest {
         // A jump finds its row by title and falls back to its group heading, so both must be the
         // strings the panes pass to the setting rows and groups.
         val root = File("src/main/kotlin/com/auralis/music/windows")
-        val source = listOf("settings/SettingsWindow.kt", "settings/DesktopSettingsDialog.kt", "discord/DiscordSettingsPopup.kt")
+        val source = listOf("settings/SettingsWindow.kt", "settings/DesktopSettingsDialog.kt", "discord/DiscordSettingsPopup.kt", "immersive/ImmersiveSettings.kt")
             .joinToString("\n") { File(root, it).readText() }
         val missing = settingEntries.flatMap { entry ->
             listOfNotNull(entry.title.takeIf { entry.onRow }, entry.group.takeUnless { it == "Global hotkeys" || it == "Discord" })
