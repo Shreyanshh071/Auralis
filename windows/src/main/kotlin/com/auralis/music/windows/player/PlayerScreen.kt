@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -127,10 +128,19 @@ fun PlayerScreen(
     val combinedBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
     val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
-    // Opaque: the main window must never show through the player.
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        val canvasStage = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
-            prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
+    // Opaque: the main window must never show or receive pointer events through the player.
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF050505))
+            .blockUnderlyingPointerEvents()
+    ) {
+        val canvasStage = track != null && shouldShowCanvasStage(
+            canvasPrefs = canvasPrefs,
+            maxWidth = maxWidth,
+            stagePlayer = prefs.bool("stagePlayer", true),
+            tabbedPlayer = prefs.bool("tabbedPlayer", true)
+        )
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
         }
@@ -226,6 +236,34 @@ fun PlayerScreen(
 }
 
 }
+
+/**
+ * Stops pointer events on non-interactive regions of an overlay (clicks, hovers, drags, wheel
+ * scrolls) from passing through to siblings drawn underneath in the same [Box], while still
+ * letting this overlay's own children handle events first in the main pass.
+ */
+internal fun Modifier.blockUnderlyingPointerEvents(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent().changes.forEach { it.consume() }
+        }
+    }
+}
+
+/**
+ * Whether the full player's stage canvas layout (full-height animated video + bottom-left dock)
+ * should be active; persists across Lyrics and Queue tabs so switching tabs never tears down or
+ * restarts the canvas playback.
+ */
+internal fun shouldShowCanvasStage(
+    canvasPrefs: CanvasPrefs,
+    maxWidth: Dp,
+    stagePlayer: Boolean,
+    tabbedPlayer: Boolean
+): Boolean = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) &&
+    maxWidth > 964.dp &&
+    stagePlayer &&
+    tabbedPlayer
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
