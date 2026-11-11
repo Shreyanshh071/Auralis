@@ -1,5 +1,7 @@
 package com.auralis.music.windows.settings
 
+import com.auralis.music.ui.components.reportTypingFocus
+
 import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.animateColorAsState
@@ -528,7 +530,7 @@ internal fun SettingSearchableChoice(
                         value = filterText,
                         onValueChange = { filterText = it },
                         placeholder = { Text(desktopText("Search...")) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().reportTypingFocus(),
                         singleLine = true
                     )
                     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -598,7 +600,7 @@ internal fun SettingTextField(
                 singleLine = true,
                 visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
                 trailingIcon = trailing,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().reportTypingFocus()
             )
         }
     }

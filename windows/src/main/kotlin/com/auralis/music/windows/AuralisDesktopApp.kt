@@ -81,6 +81,17 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
     DISCORD("Discord", Icons.Outlined.Forum),
 }
 
+/**
+ * Returns `true` when keyboard shortcuts without command modifiers should yield to text entry.
+ * Tracked dialog/settings inputs and window IME focus still count when the player sheet is open.
+ */
+internal fun isShortcutTypingActive(
+    searchTyping: Boolean,
+    playerOpen: Boolean,
+    trackedInputActive: Boolean,
+    windowTextInputActive: Boolean,
+): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive
+
 @Composable
 fun AuralisDesktopApp(
     searchRepository: com.auralis.music.domain.repository.SearchRepository,
@@ -93,6 +104,8 @@ fun AuralisDesktopApp(
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
     onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
+    /** Live check for whether an editable text field holds input-method focus in the window. */
+    isTextInputActive: () -> Boolean = { false },
     selfTest: SelfTest? = null,
     onSelfTestDone: (Boolean) -> Unit = {},
     /** Discord status through the desktop Discord app; null when unavailable. */
@@ -134,6 +147,12 @@ fun AuralisDesktopApp(
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
     var searchFocusRequests by remember { mutableStateOf(0) }
     var typing by remember { mutableStateOf(false) }
+    val activeTextInputs = remember { mutableSetOf<Any>() }
+    val typingFocusTracker: (Any, Boolean) -> Unit = remember {
+        { token, focused ->
+            if (focused) activeTextInputs.add(token) else activeTextInputs.remove(token)
+        }
+    }
     var destination by remember { mutableStateOf(DesktopDestination.HOME) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
@@ -454,9 +473,19 @@ fun AuralisDesktopApp(
     // The player covers the search field, so it must not keep the keyboard.
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     androidx.compose.runtime.LaunchedEffect(showPlayer) { if (showPlayer) focusManager.clearFocus() }
-    val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing && !showPlayer)
+    val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing)
+    val currentShowPlayer = androidx.compose.runtime.rememberUpdatedState(showPlayer)
+    val currentIsTextInputActive = androidx.compose.runtime.rememberUpdatedState(isTextInputActive)
     androidx.compose.runtime.DisposableEffect(actions) {
-        onShortcutHandler { event -> handleShortcut(event, currentTyping.value, actions) }
+        onShortcutHandler { event ->
+            val typingNow = isShortcutTypingActive(
+                searchTyping = currentTyping.value,
+                playerOpen = currentShowPlayer.value,
+                trackedInputActive = activeTextInputs.isNotEmpty(),
+                windowTextInputActive = currentIsTextInputActive.value(),
+            )
+            handleShortcut(event, typingNow, actions)
+        }
         onDispose { onShortcutHandler(null) }
     }
 
@@ -538,6 +567,7 @@ fun AuralisDesktopApp(
         modifier = Modifier.recordPopupGlass(popupGlass).then(com.auralis.music.windows.library.menuInvocationRecorder(menuInvocation))) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalPopupGlassSource provides popupGlass,
+        com.auralis.music.ui.components.LocalTypingFocusTracker provides typingFocusTracker,
         com.auralis.music.ui.lyrics.LocalLyricsProviderPicker provides
             if (lyrics != null) ({ showLyricsProviders = true }) else null,
         com.auralis.music.ui.library.LocalPlaylistCreation provides { request -> playlistCreationRequest = request; showCreatePlaylist = true },
