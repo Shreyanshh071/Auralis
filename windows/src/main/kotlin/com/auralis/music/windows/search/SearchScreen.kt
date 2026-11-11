@@ -1,5 +1,7 @@
 package com.auralis.music.windows.search
 
+import androidx.compose.foundation.layout.fillMaxHeight
+
 import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.ui.draw.clip
@@ -138,16 +140,14 @@ fun FindMusicDropdown(
                 .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (state.query.isEmpty()) Text(desktopText("What do you want to play?"), fontSize = 14.sp,
-                        color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                     BasicTextField(
                         value = state.query,
                         onValueChange = { state.onQueryChange(it); if (!expanded) open() },
                         singleLine = true,
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                        modifier = Modifier.fillMaxSize().focusRequester(focus)
                             .onFocusChanged { f ->
                                 fieldFocused = f.isFocused
                                 if (f.isFocused) { open(); onTypingChange(true) }
@@ -161,7 +161,18 @@ fun FindMusicDropdown(
                                     androidx.compose.ui.input.key.Key.Escape -> { dismiss(); focusManager.clearFocus(); true }
                                     else -> false
                                 }
+                            },
+                        decorationBox = { innerTextField ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                                if (state.query.isEmpty()) Text(
+                                    desktopText("What do you want to play?"),
+                                    fontSize = 14.sp,
+                                    color = androidx.compose.ui.graphics.Color(0xFF9E98A6),
+                                    maxLines = 1
+                                )
+                                innerTextField()
                             }
+                        }
                     )
                 }
                 if (state.query.isNotEmpty()) Icon(Icons.Default.Close, desktopText("Clear search"), Modifier.size(16.dp)

@@ -321,13 +321,39 @@ fun main(args: Array<String>) {
     CaptureFrameEcho.installForAllWindows()
     application {
         val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
+        remember(isMac) { if (isMac) MacWindowChrome.installIfMac() }
         val systemSettings by com.auralis.music.windows.settings.DesktopSystemPreferences.store.settings.collectAsState()
         val nativeTitlebar = com.auralis.music.windows.settings.DesktopPreferences.store.bool("systemTitlebar")
         val launchMinimized = remember { "--autostart" in args && com.auralis.music.windows.settings.DesktopPreferences.store.bool("startMinimized") }
         var windowVisible by remember { mutableStateOf(true) }
         var settingsRequestTrigger by remember { mutableStateOf(0) }
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
-        val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        val initialRawWindowState = remember { WindowStatePreferences.loadRaw() }
+        val savedWindowState = remember { resolveRestoredWindowState(initialRawWindowState, currentUsableScreenBounds()) }
+        val windowState = rememberWindowState(
+            placement = if (isMac && savedWindowState.placement == WindowPlacement.Fullscreen) {
+                WindowPlacement.Floating
+            } else {
+                savedWindowState.placement
+            },
+            size = savedWindowState.size,
+            position = savedWindowState.position
+        )
+        var persistedWindowState by remember {
+            mutableStateOf(
+                initialRawWindowState.copy(
+                    width = savedWindowState.size.width.value,
+                    height = savedWindowState.size.height.value,
+                    x = (savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute)?.x?.value
+                        ?: initialRawWindowState.x,
+                    y = (savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute)?.y?.value
+                        ?: initialRawWindowState.y
+                )
+            )
+        }
+        var restoringInitialFullscreen by remember {
+            mutableStateOf(isMac && savedWindowState.placement == WindowPlacement.Fullscreen && !launchMinimized)
+        }
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
         var previousGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
@@ -344,6 +370,74 @@ fun main(args: Array<String>) {
         val retainedAppConstraints = remember { java.util.concurrent.atomic.AtomicReference<androidx.compose.ui.unit.Constraints>() }
         val mainWindowShown = windowVisible && immersive.trigger == null
         var playerRequests by remember { mutableStateOf(0) }
+        val computeLiveWindowState: (Boolean) -> PersistedWindowState = { commitFloatingBounds ->
+            val awtWindow = composeWindow
+            val livePlacement = (awtWindow as? androidx.compose.ui.awt.ComposeWindow)?.placement ?: windowState.placement
+            val liveFloating = awtWindow != null && awtWindow.isVisible && livePlacement == WindowPlacement.Floating
+            nextPersistedWindowState(
+                current = persistedWindowState,
+                placement = livePlacement,
+                size = if (liveFloating) DpSize(awtWindow.width.dp, awtWindow.height.dp) else windowState.size,
+                position = if (liveFloating) {
+                    androidx.compose.ui.window.WindowPosition.Absolute(awtWindow.x.dp, awtWindow.y.dp)
+                } else {
+                    windowState.position
+                },
+                isMinimized = windowState.isMinimized,
+                visible = windowVisible,
+                playerFullscreen = playerFullscreen,
+                embeddedImmersive = embeddedImmersive,
+                isMac = isMac,
+                macPrePlayerPlacement = macPreviousPlacement ?: macImmersivePreviousPlacement,
+                restoringInitialFullscreen = restoringInitialFullscreen,
+                commitFloatingBounds = commitFloatingBounds
+            )
+        }
+        val flushWindowState: () -> Unit = {
+            val latest = computeLiveWindowState(true)
+            persistedWindowState = latest
+            runCatching { WindowStatePreferences.save(latest) }
+        }
+        LaunchedEffect(
+            windowState.placement,
+            windowState.size,
+            windowState.position,
+            windowState.isMinimized,
+            windowVisible,
+            playerFullscreen,
+            embeddedImmersive,
+            restoringInitialFullscreen
+        ) {
+            if (!windowVisible || windowState.isMinimized || restoringInitialFullscreen) return@LaunchedEffect
+            val placementChanged = windowState.placement != persistedWindowState.placement
+            if (windowState.placement != WindowPlacement.Floating) {
+                val immediate = computeLiveWindowState(false)
+                if (immediate != persistedWindowState) {
+                    persistedWindowState = immediate
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { WindowStatePreferences.save(immediate) }
+                    }
+                }
+                return@LaunchedEffect
+            }
+            if (placementChanged) {
+                val quick = computeLiveWindowState(false)
+                if (quick != persistedWindowState) {
+                    persistedWindowState = quick
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { WindowStatePreferences.save(quick) }
+                    }
+                }
+            }
+            kotlinx.coroutines.delay(450)
+            val settled = computeLiveWindowState(true)
+            if (settled != persistedWindowState) {
+                persistedWindowState = settled
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { WindowStatePreferences.save(settled) }
+                }
+            }
+        }
         fun setPlayerFullscreen(enabled: Boolean) {
             if (playerFullscreen == enabled) return
             nativeFrame?.fullscreen = enabled
@@ -429,6 +523,7 @@ fun main(args: Array<String>) {
         }
 
         val closeApp: () -> Unit = {
+            runCatching { flushWindowState() }
             runCatching { systemTray?.close() }
             runCatching { composeWindow?.isVisible = false }
             runCatching { singleInstanceLock?.close() }
@@ -476,6 +571,7 @@ fun main(args: Array<String>) {
         }
         val requestClose: () -> Unit = {
             if (isMac || com.auralis.music.windows.media.shouldCloseToTray(systemSettings.closeToTray, systemTray?.available == true)) {
+                runCatching { flushWindowState() }
                 windowVisible = false
             } else closeApp()
         }
@@ -629,8 +725,24 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive) {
-                nativeFrame?.fullscreen = playerFullscreen || embeddedImmersive
+            LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive, windowState.placement) {
+                nativeFrame?.fullscreen = playerFullscreen ||
+                    embeddedImmersive ||
+                    windowState.placement == WindowPlacement.Fullscreen
+            }
+            LaunchedEffect(window) {
+                if (restoringInitialFullscreen) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    androidx.compose.runtime.withFrameNanos { }
+                    if (restoringInitialFullscreen) {
+                        windowState.placement = WindowPlacement.Fullscreen
+                    }
+                    kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                        androidx.compose.runtime.snapshotFlow { windowState.placement }
+                            .first { it == WindowPlacement.Fullscreen }
+                    }
+                    restoringInitialFullscreen = false
+                }
             }
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var captionHover by remember { mutableStateOf(CaptionHover()) }
@@ -823,7 +935,6 @@ fun main(args: Array<String>) {
                     playerRequests = playerRequests,
                     titleBar = { actions ->
                         if (!playerFullscreen) {
-                        val chrome: @Composable () -> Unit = {
                             WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
                                 systemDecorated = nativeTitlebar && nativeFrame != null,
                                 maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
@@ -839,9 +950,10 @@ fun main(args: Array<String>) {
                                 maximizeBounds = { nativeFrame?.maximizeBounds = it },
                                 minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
                                 searchBounds = { nativeFrame?.searchBounds = it },
-                                captionHover = captionHover)
-                        }
-                        if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
+                                captionHover = captionHover,
+                                dragArea = { modifier, content ->
+                                    if (nativeFrame == null) WindowDraggableArea(modifier) { content() } else Box(modifier) { content() }
+                                })
                         }
                     }
                 )
@@ -882,7 +994,10 @@ fun main(args: Array<String>) {
                         maximizeBounds = { nativeFrame?.maximizeBounds = it },
                         minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
                         searchBounds = { nativeFrame?.searchBounds = it },
-                        captionHover = captionHover
+                        captionHover = captionHover,
+                        dragArea = { modifier, content ->
+                            if (nativeFrame == null) WindowDraggableArea(modifier) { content() } else Box(modifier) { content() }
+                        }
                     )
                 }
                 Box(
@@ -890,7 +1005,7 @@ fun main(args: Array<String>) {
                         .background(Color(0xFF0F0E13))
                 ) {
                     // Only the chrome while components load: no centred logo flash before the real UI.
-                    if (nativeFrame == null) WindowDraggableArea { placeholderChrome() } else placeholderChrome()
+                    placeholderChrome()
                 }
             }
         }

@@ -1,5 +1,7 @@
 package com.auralis.music.windows
 
+import androidx.compose.ui.input.pointer.pointerInput
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 
@@ -63,7 +65,8 @@ fun WindowTitleBar(
     minimize: () -> Unit, maximize: () -> Unit, close: () -> Unit,
     captionBounds: (Rect) -> Unit = {}, maximizeBounds: (Rect) -> Unit = {},
     captionHover: CaptionHover = CaptionHover(), searchBounds: (Rect) -> Unit = {}, brandBounds: (Rect) -> Unit = {}, systemDecorated: Boolean = false,
-    minimizeBounds: (Rect) -> Unit = {}, closeBounds: (Rect) -> Unit = {}
+    minimizeBounds: (Rect) -> Unit = {}, closeBounds: (Rect) -> Unit = {},
+    dragArea: @Composable (Modifier, @Composable () -> Unit) -> Unit = { modifier, content -> Box(modifier) { content() } }
 ) {
     // Where the left controls end and the right ones start, so the centred search never covers them.
     val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
@@ -73,18 +76,25 @@ fun WindowTitleBar(
     BoxWithConstraints(Modifier.fillMaxWidth().height(TITLE_BAR_HEIGHT).background(Color(0xFF0D0B0E))) {
         val barWidth = with(density) { maxWidth.toPx() }
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.fillMaxHeight().onGloballyPositioned { brandBounds(it.boundsInWindow()) }.padding(start = if (isMac) 78.dp else 10.dp, end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The Auralis glyph (the header logo), tinted to the bar's text colour.
-                Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), null, Modifier.size(22.dp),
-                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE8E4EB)))
-                Text(title, color = Color(0xFFE8E4EB), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            dragArea(Modifier.fillMaxHeight().onGloballyPositioned { brandBounds(it.boundsInWindow()) }) {
+                Row(
+                    Modifier.fillMaxHeight().padding(start = if (isMac) 78.dp else 10.dp, end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // The Auralis glyph (the header logo), tinted to the bar's text colour.
+                    Image(com.auralis.music.ui.components.LocalBrandImages.current.headerLogo(), null, Modifier.size(22.dp),
+                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFE8E4EB)))
+                    Text(title, color = Color(0xFFE8E4EB), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
             }
             ChromeButton(Icons.Outlined.ChevronLeft, "Back", actions.back, actions.canGoBack, 34)
             ChromeButton(Icons.Outlined.ChevronRight, "Forward", actions.forward, actions.canGoForward, 34)
             ChromeButton(Icons.Outlined.Refresh, "Refresh", actions.refresh, enabled = actions.canRefresh, width = 34,
                 modifier = Modifier.onGloballyPositioned { leftEnd = it.boundsInParent().right })
-            Spacer(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { captionBounds(it.boundsInWindow()) })
+            dragArea(Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { captionBounds(it.boundsInWindow()) }) {
+                Box(Modifier.fillMaxSize())
+            }
             Box(Modifier.onGloballyPositioned { rightStart = it.boundsInParent().left }) {
             Row(Modifier.fillMaxHeight().clickable(onClick = actions.openAccount).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,7 +125,7 @@ fun WindowTitleBar(
                         Modifier.onGloballyPositioned { closeBounds(it.boundsInWindow()) })
                 }
             } else {
-                Spacer(Modifier.width(12.dp))
+                dragArea(Modifier.width(12.dp).fillMaxHeight()) { Box(Modifier.fillMaxSize()) }
             }
         }
         // Centred and up to 620dp when that clears both sides by 12dp; in a narrow window, the free
@@ -128,6 +138,7 @@ fun WindowTitleBar(
         val searchWidth = if (centred) minOf(desired, centredRoom) else minOf(desired, gap)
         if (actions.search != null && searchWidth >= 140.dp) Box((if (centred) Modifier.align(Alignment.Center)
             else Modifier.align(Alignment.CenterStart).offset(x = gapStart)).width(searchWidth).height(34.dp)
+            .pointerInput(Unit) {}
             .onGloballyPositioned { searchBounds(it.boundsInWindow()) }) { actions.search.invoke() }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(Color(0xFF242026)))
     }
