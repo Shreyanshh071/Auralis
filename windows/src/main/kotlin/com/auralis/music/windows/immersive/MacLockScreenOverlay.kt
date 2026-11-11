@@ -571,7 +571,8 @@ private fun FullScreenLockScreenContent(
             BigClock(
                 fontSize = clockSize,
                 dateFontSize = dateSize,
-                timeSpacing = fullScreenClockTimeSpacing(clockSize)
+                timeSpacing = fullScreenClockTimeSpacing(clockSize),
+                liquidGlass = true
             )
         },
         lyricsSlot = { lyricRowHeight ->
@@ -637,24 +638,28 @@ private fun SecondaryLockScreenContent(
     touchIdActive: Boolean,
     onRevealPassword: () -> Unit
 ) {
-    SecondaryLockScreenScaffold(
-        background = {
-            ImmersiveBackdropLayer(
-                backgroundStyle = backgroundStyle,
-                artwork = artwork,
-                palette = palette,
-                modifier = Modifier.fillMaxSize()
-            )
-        },
-        clock = { clockSize, dateSize ->
-            BigClock(
-                fontSize = clockSize,
-                dateFontSize = dateSize
-            )
-        },
-        touchIdActive = touchIdActive,
-        onRevealPassword = onRevealPassword
-    )
+    val clockBackdrop = rememberPopupGlassSource()
+    CompositionLocalProvider(LocalPopupGlassSource provides clockBackdrop) {
+        SecondaryLockScreenScaffold(
+            background = {
+                ImmersiveBackdropLayer(
+                    backgroundStyle = backgroundStyle,
+                    artwork = artwork,
+                    palette = palette,
+                    modifier = Modifier.fillMaxSize().recordPopupGlass(clockBackdrop)
+                )
+            },
+            clock = { clockSize, dateSize ->
+                BigClock(
+                    fontSize = clockSize,
+                    dateFontSize = dateSize,
+                    liquidGlass = true
+                )
+            },
+            touchIdActive = touchIdActive,
+            onRevealPassword = onRevealPassword
+        )
+    }
 }
 
 internal fun lockScreenTouchIdLabel(touchIdActive: Boolean): String? =

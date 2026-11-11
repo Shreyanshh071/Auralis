@@ -345,7 +345,8 @@ internal fun BigClock(
     fontSize: Int,
     modifier: Modifier = Modifier,
     dateFontSize: Int = fontSize / 8,
-    timeSpacing: Dp = 0.dp
+    timeSpacing: Dp = 0.dp,
+    liquidGlass: Boolean = false
 ) {
     val now by rememberNow()
     Column(
@@ -353,9 +354,19 @@ internal fun BigClock(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(timeSpacing)
     ) {
-        Text(dateText(now), fontSize = dateFontSize.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = .82f))
-        Text(clockText(now), fontSize = fontSize.sp, lineHeight = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-            style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"), maxLines = 1)
+        if (liquidGlass) {
+            LiquidClockText(dateText(now), MaterialTheme.typography.bodyLarge.copy(
+                fontSize = dateFontSize.sp, fontWeight = FontWeight.Medium
+            ))
+            LiquidClockText(clockText(now), MaterialTheme.typography.displayLarge.copy(
+                fontSize = fontSize.sp, lineHeight = fontSize.sp,
+                fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"
+            ))
+        } else {
+            Text(dateText(now), fontSize = dateFontSize.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = .82f))
+            Text(clockText(now), fontSize = fontSize.sp, lineHeight = fontSize.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"), maxLines = 1)
+        }
     }
 }
 
