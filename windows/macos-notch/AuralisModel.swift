@@ -20,6 +20,16 @@ struct PlayerSnapshot: Codable {
     var durationMs: Double = 0
     var canPrevious: Bool = false
     var canNext: Bool = false
+    var lyrics: NotchLyrics? = nil
+    var playbackRate: Double? = nil
+}
+
+struct LyricsFrame: Decodable {
+    var version: Int
+    var type: String
+    var trackId: String
+    var text: String
+    var png: String
 }
 
 struct PlayerCommand: Encodable {
@@ -44,7 +54,17 @@ struct PlayerCommand: Encodable {
     @Published var timestampDate = Date()
     @Published var canPrevious = false
     @Published var canNext = false
-    var playbackRate: Double { isPlaying && !isBuffering ? 1 : 0 }
+    @Published var lyrics: NotchLyrics? = nil
+    @Published var lyricFrame: NSImage? = nil
+    var lyricFrameText = ""
+    func applyFrame(_ frame: LyricsFrame) {
+        guard frame.trackId == trackId, frame.png.count <= 110_000,
+              let data = Data(base64Encoded: frame.png), let image = NSImage(data: data) else { return }
+        lyricFrameText = frame.text
+        lyricFrame = image
+    }
+    private var rate = 1.0
+    var playbackRate: Double { isPlaying && !isBuffering ? rate : 0 }
     let bundleIdentifier: String? = "com.auralis.music"
     var usingAppIconForArtwork = false
     private(set) var trackId = ""
@@ -53,6 +73,7 @@ struct PlayerCommand: Encodable {
 
     func apply(_ state: PlayerSnapshot) {
         let changedTrack = trackId != state.trackId
+        if changedTrack { lyricFrame = nil; lyricFrameText = "" }
         trackId = state.trackId
         songTitle = state.title
         artistName = state.artist
@@ -64,6 +85,8 @@ struct PlayerCommand: Encodable {
         timestampDate = Date()
         canPrevious = state.canPrevious
         canNext = state.canNext
+        lyrics = state.lyrics
+        rate = state.playbackRate.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? 1
         if changedTrack || artworkURL != state.artwork {
             artworkURL = state.artwork
             artworkTask?.cancel()
@@ -99,7 +122,11 @@ struct PlayerCommand: Encodable {
     func togglePlay() { command("playPause") }
     func previousTrack() { command("previous") }
     func nextTrack() { command("next") }
-    func seek(to seconds: Double) { command("seek", position: seconds) }
+    func seek(to seconds: Double) {
+        elapsedTime = min(max(0, seconds), songDuration)
+        timestampDate = Date()
+        command("seek", position: elapsedTime)
+    }
 }
 
 enum AuralisArtwork {

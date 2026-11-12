@@ -1629,77 +1629,9 @@ fun ExperimentalLyricsLine(
                     )
                 )
 
-                // Source-faithful RichSync timing. When unavailable, renderer creates presentation-only fallback tokens.
-                val genuineWords = remember(line.words, syncType) {
-                    resolveExperimentalWordTimestamps(line, syncType)
-                }
-                val effectiveWords = remember(genuineWords, mainText, line.time, isSynced) {
-                    if (genuineWords != null) {
-                        genuineWords
-                    } else {
-                        emptyList()
-                    }
-                }
-                val presentationWords = remember(effectiveWords) {
-                    presentationWordTimestamps(effectiveWords)
-                }
-
-                if (isSynced && isSpicy && mainText.isNotBlank()) {
-                    com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
-                        line = line.copy(text = mainText),
-                        words = if (syncType == SyncType.RICHSYNC) line.words else null,
-                        positionMs = currentPositionState, style = lyricStyle,
-                        nextLineTime = nextLineTime,
-                        isActive = isActiveLine, modifier = Modifier.fillMaxWidth(), inactiveColor = lineColor)
-                } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
-                    animationMode == com.auralis.music.domain.model.LyricsAnimationMode.FLUID) {
-                    // Auralis (Fluid), the phone's renderer: a feathered sweep, lifted words, glow on held notes.
-                    com.auralis.music.ui.lyrics.renderers.FluidLyricLine(
-                        line = line.copy(text = mainText),
-                        words = if (syncType == SyncType.RICHSYNC) line.words else null,
-                        positionMs = currentPositionState,
-                        style = lyricStyle,
-                        isActive = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
-                    animationMode == com.auralis.music.domain.model.LyricsAnimationMode.APPLE_MUSIC_V2) {
-                    // Apple Music (Letter by Letter), the phone's renderer: each letter brightens in turn.
-                    com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine(
-                        isV2 = true,
-                        line = line.copy(text = mainText),
-                        nextLineTime = line.effectiveEndTime,
-                        words = if (syncType == SyncType.RICHSYNC) line.words else null,
-                        isActive = true,
-                        effectivePlaybackPosition = currentPositionState.value,
-                        lineColor = lineColor,
-                        accentColor = expressiveAccent,
-                        textAlign = agentTextAlign,
-                        alignment = agentAlignment,
-                        fontSizeSp = lyricStyle.fontSize.value,
-                        lineSpacingMultiplier = lyricsLineSpacing,
-                        fontFamily = lyricStyle.fontFamily
-                    )
-                } else if (isSynced && isActiveLine && genuineWords != null && mainText.isNotBlank()) {
-                    ExperimentalWordLevelLyrics(
-                        mainText = mainText,
-                        words = presentationWords,
-                        isActiveLine = isActiveLine,
-                        currentPositionState = currentPositionState,
-                        lyricStyle = lyricStyle,
-                        lineColor = lineColor,
-                        expressiveAccent = expressiveAccent,
-                        isBackground = line.isBackground,
-                        focusedAlpha = focusedAlpha,
-                        alignment = agentTextAlign
-                    )
-                } else {
-                    Text(
-                        text = mainText,
-                        style = lyricStyle.copy(color = if (isActiveLine) expressiveAccent else lineColor),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                PlayerLyricsContent(line.copy(text = mainText), syncType, isSynced, isActiveLine,
+                    currentPositionState, lyricStyle, lineColor, expressiveAccent, focusedAlpha,
+                    agentTextAlign, agentAlignment, lyricsLineSpacing, nextLineTime)
 
                 LocalLyricsUi.current.romanizedLine(line.text, (if (isActiveLine) expressiveAccent else lineColor).copy(alpha = 0.65f), 13.sp, agentTextAlign, Modifier
                 )
@@ -2098,5 +2030,76 @@ fun ExperimentalWordLevelLyrics(
                 }
             }
         }
+    }
+}
+
+/** Shared lyric ink and motion, used by the player and the native notch's offscreen surface. */
+@Composable
+fun PlayerLyricsContent(
+    line: LyricLine, syncType: SyncType, isSynced: Boolean, isActiveLine: Boolean,
+    currentPositionState: State<Long>, lyricStyle: TextStyle, lineColor: Color,
+    expressiveAccent: Color, focusedAlpha: Float,
+    agentTextAlign: TextAlign, agentAlignment: Alignment.Horizontal,
+    lyricsLineSpacing: Float, nextLineTime: Long? = null
+) {
+    val animationMode = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(LocalAppearanceSettings.current.lyricsAnimation)
+    val mainText = line.text
+    val genuineWords = remember(line, syncType) { resolveExperimentalWordTimestamps(line, syncType) }
+    val presentationWords = remember(genuineWords) { presentationWordTimestamps(genuineWords.orEmpty()) }
+    if (isSynced && (animationMode == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS) && mainText.isNotBlank()) {
+        com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
+            line = line.copy(text = mainText),
+            words = if (syncType == SyncType.RICHSYNC) line.words else null,
+            positionMs = currentPositionState, style = lyricStyle,
+            nextLineTime = nextLineTime,
+            isActive = isActiveLine, modifier = Modifier.fillMaxWidth(), inactiveColor = lineColor)
+    } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
+        animationMode == com.auralis.music.domain.model.LyricsAnimationMode.FLUID) {
+        // Auralis (Fluid), the phone's renderer: a feathered sweep, lifted words, glow on held notes.
+        com.auralis.music.ui.lyrics.renderers.FluidLyricLine(
+            line = line.copy(text = mainText),
+            words = if (syncType == SyncType.RICHSYNC) line.words else null,
+            positionMs = currentPositionState,
+            style = lyricStyle,
+            isActive = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+    } else if (isSynced && isActiveLine && mainText.isNotBlank() &&
+        animationMode == com.auralis.music.domain.model.LyricsAnimationMode.APPLE_MUSIC_V2) {
+        // Apple Music (Letter by Letter), the phone's renderer: each letter brightens in turn.
+        com.auralis.music.ui.lyrics.renderers.AppleMusicLyricsLine(
+            isV2 = true,
+            line = line.copy(text = mainText),
+            nextLineTime = line.effectiveEndTime,
+            words = if (syncType == SyncType.RICHSYNC) line.words else null,
+            isActive = true,
+            effectivePlaybackPosition = currentPositionState.value,
+            lineColor = lineColor,
+            accentColor = expressiveAccent,
+            textAlign = agentTextAlign,
+            alignment = agentAlignment,
+            fontSizeSp = lyricStyle.fontSize.value,
+            lineSpacingMultiplier = lyricsLineSpacing,
+            fontFamily = lyricStyle.fontFamily
+        )
+    } else if (isSynced && isActiveLine && genuineWords != null && mainText.isNotBlank()) {
+        ExperimentalWordLevelLyrics(
+            mainText = mainText,
+            words = presentationWords,
+            isActiveLine = isActiveLine,
+            currentPositionState = currentPositionState,
+            lyricStyle = lyricStyle,
+            lineColor = lineColor,
+            expressiveAccent = expressiveAccent,
+            isBackground = line.isBackground,
+            focusedAlpha = focusedAlpha,
+            alignment = agentTextAlign
+        )
+    } else {
+        Text(
+            text = mainText,
+            style = lyricStyle.copy(color = if (isActiveLine) expressiveAccent else lineColor),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

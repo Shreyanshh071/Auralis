@@ -7,7 +7,7 @@ final class AuralisNotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 640, height: 210),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 640, height: notchCanvasHeight),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
         isOpaque = false
@@ -59,6 +59,7 @@ final class AuralisNotchPanel: NSPanel {
             state.visible = true; state.title = "Auralis"; state.artist = "Your music, in the notch"
             state.trackId = "preview"; state.playing = true; state.durationMs = 240_000; state.positionMs = 65_000
             state.canPrevious = true; state.canNext = true
+            state.positionMs = 66_500; state.lyrics = notchPreviewLyrics()
             apply(state)
             player.albumArt = AuralisArtwork.appIcon
             vm.open()
@@ -70,6 +71,7 @@ final class AuralisNotchPanel: NSPanel {
     func apply(_ state: PlayerSnapshot) {
         lastUpdate = Date()
         player.apply(state)
+        vm.lyricRowVisible = state.lyrics != nil
         if state.visible && !locked {
             if panel?.isVisible != true { positionPanel(); vm.reset(); panel?.orderFrontRegardless() }
         } else { hide() }
@@ -112,8 +114,8 @@ final class AuralisNotchPanel: NSPanel {
         vm.closedNotchSize = CGSize(width: notchWidth, height: selected.safeAreaInsets.top > 0 ? selected.safeAreaInsets.top : 32)
         vm.openWidth = min(640, selected.frame.width - 20)
         let rect = NSRect(x: selected.frame.midX - vm.openWidth / 2,
-                          y: preview ? selected.frame.midY - 105 : selected.frame.maxY - 210,
-                          width: vm.openWidth, height: 210)
+                          y: preview ? selected.frame.midY - notchCanvasHeight / 2 : selected.frame.maxY - notchCanvasHeight,
+                          width: vm.openWidth, height: notchCanvasHeight)
         panel.setFrame(rect, display: true)
     }
 
@@ -131,6 +133,9 @@ final class AuralisNotchPanel: NSPanel {
                     if let state = try? JSONDecoder().decode(PlayerSnapshot.self, from: line),
                        state.version == 1, state.type == "state", state.positionMs.isFinite, state.durationMs.isFinite {
                         DispatchQueue.main.async { self.apply(state) }
+                    } else if let frame = try? JSONDecoder().decode(LyricsFrame.self, from: line),
+                              frame.version == 1, frame.type == "lyricsFrame" {
+                        DispatchQueue.main.async { MusicManager.shared.applyFrame(frame) }
                     }
                 }
             }

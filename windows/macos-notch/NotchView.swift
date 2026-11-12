@@ -8,18 +8,27 @@ enum MusicPlayerImageSizes {
     static let cornerRadiusInset: (opened: CGFloat, closed: CGFloat) = (13, 4)
 }
 enum NotchState { case open, closed }
+let notchCanvasHeight: CGFloat = 238
 
 @MainActor final class BoringViewModel: ObservableObject {
-    @Published var notchState: NotchState = .closed
+    @Published var notchState: NotchState = .closed {
+        didSet {
+            let event: [String: Any] = ["version": 1, "type": "lyricsViewport", "expanded": notchState == .open]
+            if let data = try? JSONSerialization.data(withJSONObject: event) {
+                FileHandle.standardOutput.write(data + Data([10]))
+            }
+        }
+    }
     @Published var closedNotchSize = CGSize(width: 185, height: 32)
     @Published var openWidth: CGFloat = 640
     @Published var isHovering = false
+    @Published var lyricRowVisible = false
     private var hoverTask: Task<Void, Never>?
     var effectiveClosedNotchHeight: CGFloat { closedNotchSize.height }
     var contentWidth: CGFloat {
         notchState == .open ? openWidth : closedNotchSize.width + 2 * max(0, effectiveClosedNotchHeight - 12) + 38
     }
-    var contentHeight: CGFloat { notchState == .open ? 190 : effectiveClosedNotchHeight }
+    var contentHeight: CGFloat { notchState == .open ? 190 + (lyricRowVisible ? 28 : 0) : effectiveClosedNotchHeight }
 
     func open() {
         withAnimation(.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)) { notchState = .open }
@@ -87,7 +96,7 @@ struct AuralisNotchView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(width: vm.openWidth, height: 210, alignment: .top)
+        .frame(width: vm.openWidth, height: notchCanvasHeight, alignment: .top)
         .compositingGroup()
         .preferredColorScheme(.dark)
     }

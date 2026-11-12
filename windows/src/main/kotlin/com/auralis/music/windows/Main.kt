@@ -1061,6 +1061,8 @@ fun main(args: Array<String>) {
             if (isMac) {
                 com.auralis.music.windows.notch.AuralisNotch(
                     playback = immersivePlayback,
+                    lyrics = immersiveLyrics,
+                    appearanceStore = immersiveStores.appearance,
                     lockScreenPreview = lockScreenPreview,
                     onOpenPlayer = { openWindow(); playerRequests++ },
                     onOpenSettings = { openWindow(); settingsRequestTrigger++ }

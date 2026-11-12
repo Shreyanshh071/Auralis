@@ -22,6 +22,9 @@ struct MusicControlsView: View {
                             textColor: Color(nsColor: musicManager.avgColor).ensureMinimumBrightness(factor: 0.6),
                             frameWidth: geo.size.width)
                             .fontWeight(.medium)
+                        if musicManager.lyrics != nil {
+                            NotchLyricsView(width: geo.size.width)
+                        }
                     }
                     TimelineView(.animation(minimumInterval: 0.1)) { timeline in
                         MusicSliderView(sliderValue: $sliderValue, duration: $musicManager.songDuration,

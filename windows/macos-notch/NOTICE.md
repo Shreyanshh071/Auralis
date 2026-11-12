@@ -14,3 +14,5 @@ Modified for Auralis on **2026-11-11**:
 - Retained the default white slider, artwork tint, lighting effect, curved shape, hover timing and default previous/play/next control layout; these are fixed defaults rather than a settings system.
 
 The app's About this notch menu opens the bundled source and licenses. Auralis is separately licensed under GPL v3 as well.
+
+2026-11-12: restored the beta-style lyrics slot under the artist, powered entirely by Auralis’s existing lyrics controller. Added original CoreText karaoke rendering, a SpicyLyricsMotion-style letter lift/scale/glow, true provider syllables and word fallback, actual unsynced text, playback-rate handling, prefetching, and pause/buffer/seek/track-change behavior. No upstream lyrics scraping/service is included.

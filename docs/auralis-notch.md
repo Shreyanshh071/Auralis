@@ -43,3 +43,9 @@ bash windows/macos-notch/build.sh /tmp/AuralisNotch.app
 ```
 
 The interactive preview is centered away from the physical notch. Real-device checks of Spaces, fullscreen apps, sleep/wake and lock/unlock are still needed across supported OS releases. The Mac distribution now bundles Java, libVLC/codecs, the native notch, and a private Chromium fallback for YouTube sign-in; no separate applications or developer tools are required. The build remains ad-hoc signed rather than Developer ID signed/notarized. See `docs/macos-beta-distribution.md` for the packaged runtime check.
+
+## Syllable, word and static lyrics
+
+The expanded notch includes the beta-style lyrics row under the artist. It uses `DesktopLyricsController`, its selected provider/aligned timing, and the same smooth playback clock as the main player. The notch renders the same `PlayerLyricsContent` composable as the main player in a persistent offscreen Compose scene, following the selected animation style and bundled font. Genuine nested syllables produce the player’s karaoke sweep and rising/scaling/glowing letter animation; timed words work without inventing syllables. Line-only sources change on real line timestamps. Plain sources display their actual unsynced text with an indicator and no karaoke effect.
+
+Three upcoming/current lines are sent through the private pipe so the native timeline can cross boundaries between heartbeats. While expanded, the parent sends compact PNG frames over the existing private pipe at up to 60 fps; the Swift shell displays them without recreating the animation. The surface is disposed when collapsed and slows while paused. Provider whitespace and unknown durations remain unchanged. Vocal rests, pause/buffering, playback speed, backward seeks, loading, missing lyrics and track changes are handled explicitly. The compact notch is unchanged; the expanded panel gains 28 points of height to keep controls clear.

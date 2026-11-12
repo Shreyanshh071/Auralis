@@ -35,13 +35,20 @@ internal fun parseNotchCommand(line: String, trackId: String?, durationMs: Long)
 internal data class NotchSnapshot(
     val visible: Boolean, val trackId: String, val title: String, val artist: String, val artwork: String,
     val playing: Boolean, val buffering: Boolean, val positionMs: Long, val durationMs: Long,
-    val canPrevious: Boolean, val canNext: Boolean
+    val canPrevious: Boolean, val canNext: Boolean,
+    val lyrics: NotchLyrics? = null, val playbackRate: Double = 1.0
 ) {
     fun json(): String = JSONObject().put("version", 1).put("type", "state").put("visible", visible)
         .put("trackId", trackId.take(1024)).put("title", title.take(4096)).put("artist", artist.take(4096))
         .put("artwork", artwork.take(8192)).put("playing", playing).put("buffering", buffering)
         .put("positionMs", positionMs.coerceAtLeast(0)).put("durationMs", durationMs.coerceAtLeast(0))
-        .put("canPrevious", canPrevious).put("canNext", canNext).toString()
+        .put("canPrevious", canPrevious).put("canNext", canNext)
+        .put("playbackRate", playbackRate.takeIf { it.isFinite() && it >= 0 } ?: 1.0)
+        .apply { lyrics?.let { put("lyrics", it.json()) } }.let { payload ->
+            val encoded = payload.toString()
+            if (encoded.toByteArray(Charsets.UTF_8).size <= 120_000) encoded
+            else payload.put("lyrics", NotchLyrics("unavailable").json()).toString()
+        }
 }
 
 /** One private child, no ports/login items/global source selection. EOF also cleans up on a crash. */
@@ -51,6 +58,10 @@ internal class NativeNotchClient(private val onCommand: (String) -> Unit) : Auto
     private var writer: BufferedWriter? = null
     private var lastStartMs: Long? = null
     private var closed = false
+    @Volatile var lyricsWidth = 400
+        private set
+    @Volatile var lyricsExpanded = false
+        private set
 
     @Synchronized fun prepare(): Boolean {
         if (process?.isAlive == true) return true
@@ -77,7 +88,14 @@ internal class NativeNotchClient(private val onCommand: (String) -> Unit) : Auto
                         child.inputStream.bufferedReader(Charsets.UTF_8).use { input ->
                             while (true) {
                                 val line = input.readLine() ?: break
-                                if (line.length <= 16_384) onCommand(line)
+                                if (line.length <= 16_384) {
+                                    val event = runCatching { JSONObject(line) }.getOrNull()
+                                    if (event?.optInt("version") == 1 && event.optString("type") == "lyricsViewport")
+                                        lyricsExpanded = event.optBoolean("expanded", false)
+                                    else if (event?.optInt("version") == 1 && event.optString("type") == "lyricsSize")
+                                        lyricsWidth = event.optInt("width", 400).coerceIn(80, 640)
+                                    else onCommand(line)
+                                }
                             }
                         }
                     }
@@ -104,7 +122,19 @@ internal class NativeNotchClient(private val onCommand: (String) -> Unit) : Auto
         }
     }
 
+    @Synchronized fun lyricFrame(trackId: String, png: String, text: String) {
+        if (png.length > 110_000 || process?.isAlive != true) return
+        runCatching {
+            writer?.apply {
+                write(JSONObject().put("version", 1).put("type", "lyricsFrame")
+                    .put("trackId", trackId).put("png", png).put("text", text.take(4096)).toString())
+                newLine(); flush()
+            }
+        }
+    }
+
     @Synchronized fun stop() {
+        lyricsExpanded = false
         val child = process
         writer?.runCatching { close() }
         writer = null
@@ -120,6 +150,7 @@ internal class NativeNotchClient(private val onCommand: (String) -> Unit) : Auto
     @Synchronized override fun close() {
         if (closed) return
         closed = true
+        lyricsExpanded = false
         val child = process
         writer?.runCatching { close() }
         writer = null

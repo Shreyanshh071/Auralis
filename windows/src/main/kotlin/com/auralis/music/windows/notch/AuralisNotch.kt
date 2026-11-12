@@ -3,6 +3,7 @@ package com.auralis.music.windows.notch
 import androidx.compose.runtime.*
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
+import com.auralis.music.desktop.lyrics.DesktopLyricsController
 import com.auralis.music.util.Log
 import com.auralis.music.windows.immersive.MacLockScreenBridge
 import com.auralis.music.windows.settings.DesktopPreferences
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.swing.Swing
 
 internal class NotchPreferences(private val store: DesktopPreferencesStore = DesktopPreferences.store) {
     var enabled: Boolean
@@ -35,7 +37,8 @@ private data class NotchRequest(
 /** Common desktop player state stays in Kotlin; the macOS shell uses Boring Notch's SwiftUI. */
 @Composable
 internal fun AuralisNotch(
-    playback: DesktopPlaybackController, lockScreenPreview: Boolean = false,
+    playback: DesktopPlaybackController, lyrics: DesktopLyricsController,
+    appearanceStore: com.auralis.music.ui.theme.AppearanceSettingsStore, lockScreenPreview: Boolean = false,
     onOpenPlayer: () -> Unit, onOpenSettings: () -> Unit
 ) {
     val bridge = remember { MacNotchBridge.create() } ?: return
@@ -83,7 +86,7 @@ internal fun AuralisNotch(
                 // helper can never leave Boring Notch hidden with no replacement surface.
                 val canPresent = !wanted || withContext(Dispatchers.IO) { helper.prepare() }
                 val environment = bridge.update(wanted && canPresent, now)
-                val snapshot = playback.notchSnapshot(environment.allowed)
+                val snapshot = playback.notchSnapshot(environment.allowed, lyrics.state.value)
                 val healthy = withContext(Dispatchers.IO) {
                     if (!r.enabled) { helper.stop(); true }
                     else canPresent && helper.update(snapshot)
@@ -106,17 +109,63 @@ internal fun AuralisNotch(
             delay(250)
         }
     }
+    // This shell is composed outside AuralisDesktopApp's theme/settings providers.
+    // Read the actual store explicitly; a composition-local fallback silently chose MetroLyrics.
+    val appearance = rememberNotchAppearance(appearanceStore)
+    val currentAppearance by rememberUpdatedState(appearance)
+    val fallbackPosition = com.auralis.music.windows.player.rememberShownPosition(playback, remote)
+    val lyricPosition = com.auralis.music.ui.lyrics.rememberLyricsClock(
+        playback.clock, enabled && !locked && !lockScreenPreview && remote == null &&
+            state == VlcAudioPlayer.State.PLAYING && !resolving, fallbackPosition
+    )
+    LaunchedEffect(helper, enabled, locked, lockScreenPreview, remote != null) {
+        if (!enabled || locked || lockScreenPreview || remote != null) return@LaunchedEffect
+        withContext(Dispatchers.Swing) {
+            var surface: NotchLyricsSurface? = null
+            var lastMoving = System.nanoTime()
+            try {
+                while (isActive) {
+                    val data = lyrics.state.value
+                    val track = playback.queue.value.current?.id
+                    val position = lyricPosition.value
+                    val payload = notchLyrics(data, track, position)
+                    val active = payload.lines.lastOrNull { it.timeMs <= position && (it.endMs == null || position < it.endMs) }
+                    val original = data.lyrics?.lines?.firstOrNull { it.time == active?.timeMs && !it.isBackground }
+                    if (helper.lyricsExpanded && payload.status == "ready" && original != null && original.text.length <= 512 && track != null) {
+                        if (surface?.width != helper.lyricsWidth) {
+                            surface?.close()
+                            surface = NotchLyricsSurface(helper.lyricsWidth)
+                        }
+                        try {
+                            val nextTime = data.lyrics!!.lines.firstOrNull { !it.isBackground && it.time > original.time }?.time
+                            val png = surface!!.render(original, data.lyrics!!.syncType, position, currentAppearance, nextTime)
+                            withContext(Dispatchers.IO) { helper.lyricFrame(track, png, original.text) }
+                        } catch (cancel: kotlinx.coroutines.CancellationException) {
+                            throw cancel
+                        } catch (error: Exception) {
+                            Log.w("AuralisNotch", "Lyric surface unavailable", error)
+                            surface?.close(); surface = null
+                            delay(1000)
+                        }
+                    }
+                    if (!helper.lyricsExpanded) { surface?.close(); surface = null }
+                    if (playback.state.value == VlcAudioPlayer.State.PLAYING) lastMoving = System.nanoTime()
+                    delay(if (helper.lyricsExpanded && System.nanoTime() - lastMoving < 1_000_000_000L) 16 else 150)
+                }
+            } finally { surface?.close() }
+        }
+    }
     LaunchedEffect(enabled, locked, lockScreenPreview, remote != null) {
         if (!enabled || locked || lockScreenPreview || remote != null) withContext(Dispatchers.IO) {
-            helper.update(playback.notchSnapshot(false))
+            helper.update(playback.notchSnapshot(false, lyrics.state.value))
         }
     }
 }
 
-private fun DesktopPlaybackController.notchSnapshot(visible: Boolean): NotchSnapshot {
+private fun DesktopPlaybackController.notchSnapshot(visible: Boolean, lyrics: DesktopLyricsController.State): NotchSnapshot {
     val q = queue.value
     val track = q.current
-    val position = positionMs.value
+    val position = clock.rawPositionMs()
     return NotchSnapshot(
         visible = visible && track != null && connectRemote.value == null,
         trackId = track?.id.orEmpty(), title = track?.title.orEmpty(), artist = track?.artist.orEmpty(),
@@ -124,6 +173,12 @@ private fun DesktopPlaybackController.notchSnapshot(visible: Boolean): NotchSnap
         buffering = resolving.value || state.value == VlcAudioPlayer.State.BUFFERING,
         positionMs = position, durationMs = lengthMs.value.takeIf { it > 0 } ?: ((track?.duration ?: 0) * 1000),
         canPrevious = q.index > 0 || position > 3_000,
-        canNext = q.hasNext || (!roomActive.value && repeatMode.value == DesktopPlaybackController.RepeatMode.ALL)
+        canNext = q.hasNext || (!roomActive.value && repeatMode.value == DesktopPlaybackController.RepeatMode.ALL),
+        lyrics = notchLyrics(lyrics, track?.id, position), playbackRate = clock.speed().toDouble()
     )
 }
+
+/** The native shell lives outside the main window's composition locals. */
+@Composable
+internal fun rememberNotchAppearance(store: com.auralis.music.ui.theme.AppearanceSettingsStore): com.auralis.music.domain.model.AppearanceSettings =
+    store.settingsFlow.collectAsState(store.getInitialSettings()).value
