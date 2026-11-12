@@ -1,0 +1,5 @@
+# Private Chromium sign-in fallback
+
+Chromium by The Chromium Authors, distributed under the included BSD license and the third-party licenses available inside the browser at `chrome://credits`. The program code comes from an official Apple Silicon Chromium snapshot. Its local ad-hoc signatures are refreshed with the existing entitlements and sandbox/JIT metadata preserved. `chromium.json` pins the exact revision, official download URL and SHA-256. Source: https://chromium.googlesource.com/chromium/src/ . The official snapshot's revision metadata is available alongside the download as `REVISIONS`.
+
+This browser is bundled only to support Auralis's existing YouTube sign-in flow when no supported browser is installed. It runs with a separate Auralis-owned profile and is never installed as a system browser or made the default. No user profile, account, cookies, history, developer toolchain or build-host data is copied into this bundle. The browser is not launched on ordinary application startup or during music playback. Updates are delivered with Auralis builds; the pinned artifact is not an auto-updating browser for general use.

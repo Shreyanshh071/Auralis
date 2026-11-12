@@ -34,7 +34,20 @@ internal object YouTubeBrowserSignIn {
     private const val CHOOSER = "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F"
     private val root get() = File(com.auralis.music.util.desktopAppDataDir(), "youtube-signin-browser")
 
-    internal data class Browser(val exe: File, val chromium: Boolean, val name: String)
+    internal data class Browser(val exe: File, val chromium: Boolean, val name: String, val bundled: Boolean = false)
+
+    internal fun bundledMacBrowser(
+        resources: File? = System.getProperty("compose.application.resources.dir")?.let(::File),
+        development: Boolean = System.getProperty("jpackage.app-path") == null
+    ): Browser? {
+        val relative = "signin-browser/Chromium.app/Contents/MacOS/Chromium"
+        val candidates = listOfNotNull(
+            resources?.let { File(it, relative) },
+            if (development) File("windows/build", relative) else null,
+            if (development) File("build", relative) else null
+        )
+        return candidates.firstOrNull { it.isFile && it.canExecute() }?.let { Browser(it, true, "Auralis sign-in", bundled = true) }
+    }
 
     /** The browser to sign in with: any Chromium browser installed, else Firefox or Zen. */
     fun browser(): Browser? {
@@ -79,7 +92,7 @@ internal object YouTubeBrowserSignIn {
                     return Browser(file, false, name)
                 }
             }
-            return null
+            return bundledMacBrowser()
         }
 
         if (isWindows) {
@@ -123,7 +136,8 @@ internal object YouTubeBrowserSignIn {
 
     /** Opens the sign-in window and waits (up to 10 minutes) until YouTube Music is signed in there. */
     suspend fun signIn(onStatus: (String) -> Unit = {}): String = withContext(Dispatchers.IO) {
-        val browser = browser() ?: error("No browser found for signing in. Install Chrome, Edge or Firefox.")
+        val browser = browser() ?: error(if (System.getProperty("os.name").orEmpty().lowercase().contains("mac"))
+            "The sign-in browser is unavailable. Try reinstalling Auralis." else "No browser found for signing in. Install Chrome, Edge or Firefox.")
         onStatus("Sign in in the ${browser.name.replaceFirstChar { it.uppercase() }} window that opened…")
         val cookie = session(browser, headless = false, timeoutMs = 10 * 60_000L) { it != null }
         cookie ?: error("Sign-in didn't finish. The window was closed or took too long.")
@@ -145,7 +159,7 @@ internal object YouTubeBrowserSignIn {
         listOf("browser=${browser.exe}") + cookie.orEmpty().split("; ").map { it.substringBefore('=') }
     }
 
-    private fun profileDir(browser: Browser) = File(root, if (browser.chromium) "chromium" else "firefox")
+    private fun profileDir(browser: Browser) = File(root, if (browser.bundled) "bundled-chromium" else if (browser.chromium) "chromium" else "firefox")
 
     /** Runs the browser on the profile until [done] accepts the session (or [timeoutMs]), then closes it. */
     private suspend fun session(browser: Browser, headless: Boolean, timeoutMs: Long, settleMs: Long = 2_000L,

@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-The desktop version of Auralis is built using **Compose Multiplatform for Desktop (Kotlin 2.0 / JVM 21)**. Although the module is named `:windows` for historical reasons, it now builds and packages identical desktop binaries for both **Windows** (x86_64) and **macOS** (Apple Silicon `arm64` and Intel `x86_64`).
+The desktop version of Auralis is built using **Compose Multiplatform for Desktop (Kotlin 2.0 / JVM 21)**. Although the module is named `:windows` for historical reasons, it shares desktop UI and core logic across **Windows** (x86_64) and **macOS** (Apple Silicon `arm64`, macOS 14+). Intel Mac distribution is not a supported target.
 
 Any feature, screen, or bugfix committed to `:windows` or `:windows-core` is automatically synchronized across both operating systems.
 
@@ -32,7 +32,7 @@ Any feature, screen, or bugfix committed to `:windows` or `:windows-core` is aut
 
 ### C. Audio Engine (libVLC)
 - **Windows:** Discovers bundled VLC in resources or standard 64-bit VLC at `C:\Program Files\VideoLAN\VLC`.
-- **macOS:** Automatically detects `/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib` and plugins.
+- **macOS:** Ships libVLC, codecs and plugins inside Auralis. Dependencies use `@loader_path`; the actual native plugin environment points inside the app. A supplied release bundle never falls back to installed VLC. Standalone development without a bundle may discover `/Applications/VLC.app`.
 
 ### D. Session & Account Protection
 - **Windows:** Protects session tokens using Windows DPAPI (`Crypt32Util`).

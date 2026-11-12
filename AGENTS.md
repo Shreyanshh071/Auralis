@@ -56,7 +56,7 @@ val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
    - macOS uses standard AWT `java.awt.FileDialog(frame, title, mode)`.
 
 4. **Audio Engine / VLC Discovery (`VlcAudioPlayer.kt`):**
-   - On macOS: Discovers libVLC from `/Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib` and exports `VLC_PLUGIN_PATH`.
+   - On macOS: Release builds bundle Apple Silicon libVLC, codecs and plugins inside app resources. Resolve the bundled runtime first and set native `VLC_PLUGIN_PATH` using `setenv`; never hide a broken release by falling back to `/Applications/VLC.app`. Development without a supplied bundle may discover installed VLC. Keep dylib dependencies relocatable, ad-hoc signed, and plugin caching disabled inside the signed app.
    - On Windows: Uses bundled VLC or 64-bit VLC in `C:\Program Files\VideoLAN\VLC`.
 
 5. **Netty / gRPC SSL & Transport on macOS ARM64 (`Main.kt`, `build.gradle.kts`):**

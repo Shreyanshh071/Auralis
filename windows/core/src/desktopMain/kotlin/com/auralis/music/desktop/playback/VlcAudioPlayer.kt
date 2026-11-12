@@ -300,6 +300,8 @@ class VlcAudioPlayer private constructor(
          * older than any bundled file, this start rebuilds it; later starts load only what they use.
          */
         internal fun pluginCacheArgs(vlcDir: java.io.File): List<String> {
+            // This cache-rebuild policy is for Windows DLLs only. Never write into a signed Mac app.
+            if (!java.io.File(vlcDir, "libvlccore.dll").isFile) return emptyList()
             val plugins = java.io.File(vlcDir, "plugins")
             if (!plugins.isDirectory) return emptyList()
             val cache = java.io.File(plugins, "plugins.dat")
@@ -313,12 +315,16 @@ class VlcAudioPlayer private constructor(
         fun createOrNull(bundledVlcDir: java.io.File? = null): VlcAudioPlayer? {
             val started = System.currentTimeMillis()
             return try {
-                val macVlcLib = java.io.File("/Applications/VLC.app/Contents/MacOS/lib")
-                if (macVlcLib.isDirectory && java.io.File(macVlcLib, "libvlc.dylib").exists()) {
-                    System.setProperty("jna.library.path", macVlcLib.absolutePath)
-                    System.setProperty("VLC_PLUGIN_PATH", "/Applications/VLC.app/Contents/MacOS/plugins")
-                }
-                if (bundledVlcDir != null && (java.io.File(bundledVlcDir, "libvlc.dll").exists() || java.io.File(bundledVlcDir, "libvlc.dylib").exists())) {
+                val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+                if (isMac) {
+                    val paths = macVlcPaths(bundledVlcDir)
+                    if (paths == null) {
+                        Log.w(TAG, "Mac libVLC payload is missing or incomplete: $bundledVlcDir")
+                        return null
+                    }
+                    configureMacVlc(paths)
+                    loadedFrom = if (paths.bundled) "bundled (${paths.libraries.absolutePath})" else "installed VLC"
+                } else if (bundledVlcDir != null && java.io.File(bundledVlcDir, "libvlc.dll").exists()) {
                     System.setProperty("jna.library.path", bundledVlcDir.absolutePath)
                     loadedFrom = "bundled (${bundledVlcDir.absolutePath})"
                 } else if (NativeDiscovery().discover()) {
@@ -328,7 +334,7 @@ class VlcAudioPlayer private constructor(
                     return null
                 }
                 Log.i(TAG, "Using libVLC: $loadedFrom")
-                val cacheArgs = bundledVlcDir?.let(::pluginCacheArgs).orEmpty()
+                val cacheArgs = if (isMac) listOf("--no-plugins-cache") else bundledVlcDir?.let(::pluginCacheArgs).orEmpty()
                 val factory = MediaPlayerFactory("--no-video", "--quiet", "--intf=dummy", *cacheArgs.toTypedArray())
                 // libVLC's own errors (e.g. a stream it can't open) go to the app log.
                 // Kept in a field: libVLC calls back into it, so it must not be garbage collected.

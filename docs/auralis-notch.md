@@ -42,4 +42,4 @@ bash windows/macos-notch/build.sh /tmp/AuralisNotch.app
 /tmp/AuralisNotch.app/Contents/MacOS/AuralisNotch --render-preview /tmp/auralis-notch.png
 ```
 
-The interactive preview is centered away from the physical notch. Real-device checks of Spaces, fullscreen apps, sleep/wake and lock/unlock are still needed across supported OS releases. Existing distribution limitations remain: Mac audio currently needs installed VLC; the build is ad-hoc signed rather than Developer ID signed/notarized.
+The interactive preview is centered away from the physical notch. Real-device checks of Spaces, fullscreen apps, sleep/wake and lock/unlock are still needed across supported OS releases. The Mac distribution now bundles Java, libVLC/codecs, the native notch, and a private Chromium fallback for YouTube sign-in; no separate applications or developer tools are required. The build remains ad-hoc signed rather than Developer ID signed/notarized. See `docs/macos-beta-distribution.md` for the packaged runtime check.

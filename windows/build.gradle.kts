@@ -121,6 +121,27 @@ val prepareVlc by tasks.registering(Sync::class) {
 // Native Boring Notch music UI, built locally from the pinned GPL sources. No Xcode project,
 // package downloads, or separate user installation is needed. This feature targets Apple Silicon.
 val nativeNotchResources = layout.buildDirectory.dir("notch-resources")
+val prepareMacVlc by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir(vlcSourceDir)
+    inputs.dir("macos-vlc")
+    inputs.file(rootProject.file("scripts/bundle-macos-vlc.py"))
+    outputs.dir(nativeNotchResources.map { it.dir("macos-arm64/vlc") })
+    commandLine("python3", rootProject.file("scripts/bundle-macos-vlc.py").absolutePath,
+        "--source", vlcSourceDir.get(), "--destination", nativeNotchResources.get().dir("macos-arm64/vlc").asFile.absolutePath,
+        "--notices", project.file("macos-vlc").absolutePath)
+}
+val macSignInBrowser = layout.buildDirectory.dir("signin-browser")
+val prepareMacSignInBrowser by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir("macos-browser")
+    inputs.file(rootProject.file("scripts/bundle-macos-browser.py"))
+    outputs.dir(macSignInBrowser)
+    commandLine("python3", rootProject.file("scripts/bundle-macos-browser.py").absolutePath,
+        "--manifest", project.file("macos-browser/chromium.json").absolutePath,
+        "--cache", layout.buildDirectory.dir("dependency-cache").get().asFile.absolutePath,
+        "--output", macSignInBrowser.get().asFile.absolutePath)
+}
 val nativeNotchApp = nativeNotchResources.map { it.dir("macos-arm64/auralis-notch/Auralis Notch.app") }
 val prepareMacNotch by tasks.registering(Exec::class) {
     onlyIf { osName.contains("mac") }
@@ -135,7 +156,7 @@ val prepareMacNotch by tasks.registering(Exec::class) {
 
 tasks.withType<Test>().configureEach {
     if (osName.contains("mac")) {
-        dependsOn(prepareMacNotch)
+        dependsOn(prepareMacNotch, prepareMacVlc, prepareMacSignInBrowser)
         systemProperty("auralis.notch.helper", nativeNotchApp.get().file("Contents/MacOS/AuralisNotch").asFile.absolutePath)
     }
 }
@@ -144,9 +165,49 @@ tasks.withType<Test>().configureEach {
 // One class-data archive per build (see the jvmArgs below).
 val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
 
+fun macBinaryHasExternalDeps(binary: File): Boolean {
+    if (!binary.isFile) return false
+    val idOut = ProcessBuilder("otool", "-D", binary.absolutePath).start().run {
+        val text = inputStream.bufferedReader().readText()
+        waitFor()
+        text.lines().drop(1).firstOrNull { it.isNotBlank() }?.trim()
+    }
+    val depsOut = ProcessBuilder("otool", "-L", binary.absolutePath).start().run {
+        val text = inputStream.bufferedReader().readText()
+        check(waitFor() == 0) { "otool -L failed for ${binary.absolutePath}" }
+        text.lines().drop(1)
+    }
+    return depsOut.withIndex().any { (idx, line) ->
+        val dep = line.trim().substringBefore(" (")
+        dep.isNotBlank() && !(idx == 0 && dep == idOut) &&
+            !dep.startsWith("/System/") && !dep.startsWith("/usr/lib/") && !dep.startsWith("@")
+    }
+}
+
+fun findStandaloneMacJdk21(): File? {
+    val roots = listOf(
+        File("/Library/Java/JavaVirtualMachines"),
+        File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines")
+    )
+    return roots.flatMap { it.listFiles()?.toList().orEmpty() }
+        .map { File(it, "Contents/Home") }
+        .firstOrNull { home ->
+            val release = File(home, "release").takeIf { it.isFile }?.readText().orEmpty()
+            val fontmanager = File(home, "lib/libfontmanager.dylib")
+            release.contains("JAVA_VERSION=\"21.") && fontmanager.isFile && !macBinaryHasExternalDeps(fontmanager)
+        }
+}
+
 compose.desktop {
     application {
         mainClass = "com.auralis.music.windows.MainKt"
+        if (osName.contains("mac")) {
+            val currentJdk = File(javaHome)
+            val fontmanager = File(currentJdk, "lib/libfontmanager.dylib")
+            if (fontmanager.isFile && macBinaryHasExternalDeps(fontmanager)) {
+                findStandaloneMacJdk21()?.let { javaHome = it.absolutePath }
+            }
+        }
         if (osName.contains("win")) {
             jvmArgs(
                 // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
@@ -195,6 +256,7 @@ compose.desktop {
                 targetFormats(TargetFormat.Dmg, TargetFormat.Pkg)
                 macOS {
                     bundleID = "com.auralis.music"
+                    minimumSystemVersion = "14.0"
                     iconFile.set(project.file("icons/auralis.icns"))
                 }
             }
@@ -222,7 +284,7 @@ compose.desktop {
 tasks.matching { it.name == "prepareAppResources" }.configureEach {
     if (osName.contains("win")) dependsOn(prepareVlc)
     if (osName.contains("mac")) {
-        dependsOn(prepareMacNotch)
+        dependsOn(prepareMacNotch, prepareMacVlc)
         // Gradle's resource Sync normalizes regular files to 0644 unless told otherwise.
         // A signed Mach-O copied as a resource must remain executable after packaging.
         if (this is AbstractCopyTask) filesMatching("**/Contents/MacOS/AuralisNotch") {
@@ -232,22 +294,47 @@ tasks.matching { it.name == "prepareAppResources" }.configureEach {
 }
 
 tasks.matching { it.name == "run" }.configureEach {
-    if (osName.contains("mac")) dependsOn(prepareMacNotch)
+    if (osName.contains("mac")) dependsOn(prepareMacNotch, prepareMacVlc, prepareMacSignInBrowser)
 }
 
 tasks.matching { it.name == "createDistributable" }.configureEach {
-    if (osName.contains("mac")) doLast {
-        val executable = layout.buildDirectory.file(
-            "compose/binaries/main/app/Auralis.app/Contents/app/resources/auralis-notch/Auralis Notch.app/Contents/MacOS/AuralisNotch"
-        ).get().asFile
-        check(executable.isFile) { "Packaged Auralis Notch is missing." }
-        // Compose/jpackage's second resource copy also drops the mode even when Sync preserves
-        // it. Repair the completed app image before DMG creation; this does not change signed bytes.
-        check(executable.setExecutable(true, false) && executable.canExecute()) { "Could not make packaged Auralis Notch executable." }
-        val nativeSmoke = ProcessBuilder(executable.absolutePath, "--self-test").inheritIO().start()
-        check(nativeSmoke.waitFor(10, TimeUnit.SECONDS) && nativeSmoke.exitValue() == 0) {
-            nativeSmoke.destroyForcibly()
-            "Packaged Auralis Notch failed its native smoke test."
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacSignInBrowser)
+        inputs.dir(macSignInBrowser)
+        doLast {
+            val app = layout.buildDirectory.dir("compose/binaries/main/app/Auralis.app").get().asFile
+            val resources = File(app, "Contents/app/resources")
+            // Gradle/jpackage resource copies dereference framework symlinks and strip executables.
+            // Copy Chromium as an intact app, then seal the completed outer app again.
+            val browserCopy = ProcessBuilder("ditto", macSignInBrowser.get().asFile.absolutePath,
+                File(resources, "signin-browser").absolutePath).inheritIO().start()
+            check(browserCopy.waitFor() == 0) { "Could not bundle the private sign-in browser." }
+            val executable = layout.buildDirectory.file(
+                "compose/binaries/main/app/Auralis.app/Contents/app/resources/auralis-notch/Auralis Notch.app/Contents/MacOS/AuralisNotch"
+            ).get().asFile
+            check(executable.isFile) { "Packaged Auralis Notch is missing." }
+            // Compose/jpackage's second resource copy also drops the mode even when Sync preserves
+            // it. Repair the completed app image before DMG creation; this does not change signed bytes.
+            check(executable.setExecutable(true, false) && executable.canExecute()) { "Could not make packaged Auralis Notch executable." }
+            val nativeSmoke = ProcessBuilder(executable.absolutePath, "--self-test").inheritIO().start()
+            check(nativeSmoke.waitFor(10, TimeUnit.SECONDS) && nativeSmoke.exitValue() == 0) {
+                nativeSmoke.destroyForcibly()
+                "Packaged Auralis Notch failed its native smoke test."
+            }
+            val seal = ProcessBuilder("codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime",
+                app.absolutePath).inheritIO().start()
+            check(seal.waitFor() == 0) { "Could not sign the completed Auralis app." }
+            val runtimeSmoke = ProcessBuilder(File(app, "Contents/MacOS/Auralis").absolutePath,
+                "--verify-bundled-runtime").inheritIO().start()
+            check(runtimeSmoke.waitFor(60, TimeUnit.SECONDS) && runtimeSmoke.exitValue() == 0) {
+                runtimeSmoke.destroyForcibly()
+                "Packaged audio/browser runtime verification failed."
+            }
+            val verify = ProcessBuilder("codesign", "--verify", "--deep", "--strict", app.absolutePath).inheritIO().start()
+            check(verify.waitFor() == 0) { "The runtime check changed the signed app bundle." }
+            val verifyBundleDeps = ProcessBuilder("python3", rootProject.file("scripts/verify-macos-bundle.py").absolutePath,
+                "--app", app.absolutePath).inheritIO().start()
+            check(verifyBundleDeps.waitFor() == 0) { "Packaged app bundle contains external non-system dependencies." }
         }
     }
 }
@@ -388,7 +475,16 @@ tasks.register<JavaExec>("probeCanvas") {
 // The app builds its class-data archive with java.exe (see the jvmArgs above); jlink strips the
 // launcher from the runtime image, so the same JDK's one is put back.
 tasks.matching { it.name == "createRuntimeImage" }.configureEach {
-    if (osName.contains("win")) {
+    if (osName.contains("mac")) {
+        doFirst {
+            val jdk = File(compose.desktop.application.javaHome)
+            val fontmanager = File(jdk, "lib/libfontmanager.dylib")
+            check(!macBinaryHasExternalDeps(fontmanager)) {
+                "Refusing to bundle macOS JDK at ${jdk.absolutePath} because libfontmanager.dylib links external libraries " +
+                    "(e.g. Homebrew). Install a standalone arm64 JDK 21 (Eclipse Temurin or Microsoft OpenJDK)."
+            }
+        }
+    } else if (osName.contains("win")) {
         doLast {
             val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
             val jdk = File(compose.desktop.application.javaHome ?: System.getProperty("java.home"))

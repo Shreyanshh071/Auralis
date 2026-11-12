@@ -76,6 +76,9 @@ fun main(args: Array<String>) {
         System.setProperty("io.grpc.netty.shaded.io.netty.transport.noNative", "true")
         System.setProperty("io.netty.transport.noNative", "true")
     }
+    if ("--verify-bundled-runtime" in args) {
+        kotlin.system.exitProcess(com.auralis.music.windows.dev.verifyBundledRuntime())
+    }
     val dev = System.getProperty("jpackage.app-version") == null
     if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
