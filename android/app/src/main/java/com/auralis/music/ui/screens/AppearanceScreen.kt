@@ -334,14 +334,28 @@ fun AppearanceScreen(
                     title = str(R.string.swipe_left_to_add_the_song_to_the_queue),
                     subtitle = null,
                     isChecked = settings.swipeLeftQueueRightPlayNext,
-                    onCheckedChange = { update { copy(swipeLeftQueueRightPlayNext = it) } }
+                    onCheckedChange = { enabled ->
+                        update {
+                            copy(
+                                swipeLeftQueueRightPlayNext = enabled,
+                                swipeToRemoveSongFromPlaylist = if (enabled) false else swipeToRemoveSongFromPlaylist
+                            )
+                        }
+                    }
                 )
                 AppearanceSwitchItem(
                     icon = Icons.Default.Swipe,
                     title = str(R.string.swipe_to_remove_the_song_from_the_playli),
                     subtitle = null,
                     isChecked = settings.swipeToRemoveSongFromPlaylist,
-                    onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
+                    onCheckedChange = { enabled ->
+                        update {
+                            copy(
+                                swipeToRemoveSongFromPlaylist = enabled,
+                                swipeLeftQueueRightPlayNext = if (enabled) false else swipeLeftQueueRightPlayNext
+                            )
+                        }
+                    }
                 )
                 AppearanceClickableItem(
                     icon = Icons.Default.ViewModule,

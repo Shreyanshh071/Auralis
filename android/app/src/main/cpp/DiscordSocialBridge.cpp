@@ -177,7 +177,8 @@ Java_com_auralis_music_data_network_discord_DiscordSocialClient_nativeUpdatePres
     jboolean isPlaying,
     jlong positionMs,
     jlong durationMs,
-    jboolean showWhenPaused
+    jboolean showWhenPaused,
+    jstring listenUrl
 ) {
     std::lock_guard<std::recursive_mutex> lock(clientMutex);
     if (!client) return;
@@ -218,6 +219,19 @@ Java_com_auralis_music_data_network_discord_DiscordSocialClient_nativeUpdatePres
         }
         activity.SetAssets(std::move(assets));
     }
+
+    // Discord displays these to other users, but hides them on the owner's own profile.
+    const std::string listenLink = toString(env, listenUrl);
+    if (!listenLink.empty()) {
+        discordpp::ActivityButton listenButton;
+        listenButton.SetLabel("Listen on YouTube Music");
+        listenButton.SetUrl(listenLink);
+        activity.AddButton(std::move(listenButton));
+    }
+    discordpp::ActivityButton appButton;
+    appButton.SetLabel("Get Auralis");
+    appButton.SetUrl("https://github.com/Shreyanshh071/Auralis");
+    activity.AddButton(std::move(appButton));
 
     client->UpdateRichPresence(std::move(activity), [](discordpp::ClientResult result) {
         if (!result.Successful()) logError("Discord rich presence update was rejected: " + result.Error());

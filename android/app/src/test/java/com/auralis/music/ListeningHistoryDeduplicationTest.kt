@@ -43,6 +43,13 @@ class ListeningHistoryDeduplicationTest {
         override suspend fun updateThumbnail(id: String, thumbnail: String) {
             storage[id] = storage[id]?.copy(thumbnail = thumbnail) ?: return
         }
+        override suspend fun fillMissingThumbnail(id: String, thumbnail: String): Int {
+            val current = storage[id] ?: return 0
+            if (current.thumbnail.isNotEmpty()) return 0
+            storage[id] = current.copy(thumbnail = thumbnail)
+            return 1
+        }
+
         override suspend fun updateVerifiedRelease(id: String, expectedAlbum: String?,
             expectedThumbnail: String, album: String?, thumbnail: String): Int {
             val current = storage[id] ?: return 0

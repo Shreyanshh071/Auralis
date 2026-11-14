@@ -34,7 +34,7 @@ object DiscordSocialClient {
 
     fun updatePresence(p: DiscordPresence) = nativeUpdatePresence(
         p.name, p.details, p.state, p.largeImage, p.largeText, p.smallImage, p.smallText,
-        p.activityType, p.isPlaying, p.positionMs, p.durationMs, p.showWhenPaused
+        p.activityType, p.isPlaying, p.positionMs, p.durationMs, p.showWhenPaused, p.listenUrl
     )
 
     /** [status] is a discordpp::StatusType: 0 Online, 3 Idle, 4 Do Not Disturb, 5 Invisible. */
@@ -101,7 +101,8 @@ object DiscordSocialClient {
         isPlaying: Boolean,
         positionMs: Long,
         durationMs: Long,
-        showWhenPaused: Boolean
+        showWhenPaused: Boolean,
+        listenUrl: String
     )
     private external fun nativeSetOnlineStatus(status: Int)
     private external fun nativeAuthorize()
@@ -123,5 +124,6 @@ data class DiscordPresence(
     val isPlaying: Boolean,
     val positionMs: Long,
     val durationMs: Long,
-    val showWhenPaused: Boolean
+    val showWhenPaused: Boolean,
+    val listenUrl: String
 )

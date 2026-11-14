@@ -29,6 +29,7 @@ class DiscordRpcDataStore(private val context: Context) {
         val ACTIVITY_DETAILS = stringPreferencesKey("discord_activity_details")
         val ACTIVITY_STATE = stringPreferencesKey("discord_activity_state")
         val SHOW_RPC_WHEN_PAUSED = booleanPreferencesKey("discord_show_rpc_when_paused")
+        val SHOW_LISTEN_BUTTON = booleanPreferencesKey("discord_show_listen_button")
         val ACTIVITY_TYPE = stringPreferencesKey("discord_activity_type")
         val LARGE_IMAGE = stringPreferencesKey("discord_large_image")
         val LARGE_TEXT = stringPreferencesKey("discord_large_text")
@@ -59,6 +60,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 activityDetails = prefs[ACTIVITY_DETAILS] ?: "Song title",
                 activityState = prefs[ACTIVITY_STATE] ?: "Artist name",
                 showRpcWhenPaused = prefs[SHOW_RPC_WHEN_PAUSED] ?: false,
+                showListenButton = prefs[SHOW_LISTEN_BUTTON] ?: false,
                 activityType = prefs[ACTIVITY_TYPE] ?: "Listening",
                 largeImage = prefs[LARGE_IMAGE] ?: "Album artwork",
                 largeText = prefs[LARGE_TEXT] ?: "Album name",
@@ -94,6 +96,7 @@ class DiscordRpcDataStore(private val context: Context) {
                 activityDetails = prefs[ACTIVITY_DETAILS] ?: "Song title",
                 activityState = prefs[ACTIVITY_STATE] ?: "Artist name",
                 showRpcWhenPaused = prefs[SHOW_RPC_WHEN_PAUSED] ?: false,
+                showListenButton = prefs[SHOW_LISTEN_BUTTON] ?: false,
                 activityType = prefs[ACTIVITY_TYPE] ?: "Listening",
                 largeImage = prefs[LARGE_IMAGE] ?: "Album artwork",
                 largeText = prefs[LARGE_TEXT] ?: "Album name",
@@ -113,6 +116,7 @@ class DiscordRpcDataStore(private val context: Context) {
             prefs[ACTIVITY_DETAILS] = updated.activityDetails
             prefs[ACTIVITY_STATE] = updated.activityState
             prefs[SHOW_RPC_WHEN_PAUSED] = updated.showRpcWhenPaused
+            prefs[SHOW_LISTEN_BUTTON] = updated.showListenButton
             prefs[ACTIVITY_TYPE] = updated.activityType
             prefs[LARGE_IMAGE] = updated.largeImage
             prefs[LARGE_TEXT] = updated.largeText
@@ -178,6 +182,10 @@ class DiscordRpcDataStore(private val context: Context) {
 
     suspend fun setShowRpcWhenPaused(show: Boolean) {
         context.discordDataStore.edit { it[SHOW_RPC_WHEN_PAUSED] = show }
+    }
+
+    suspend fun setShowListenButton(show: Boolean) {
+        context.discordDataStore.edit { it[SHOW_LISTEN_BUTTON] = show }
     }
 
     suspend fun setActivityType(type: String) {

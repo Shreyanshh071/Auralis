@@ -67,10 +67,10 @@ class SwipeGesturesAndRemovalTest {
     }
 
     @Test
-    fun appearanceSettings_defaultsSwipeGesturesToTrue() {
+    fun appearanceSettings_defaultsToQueueSwipeOnly() {
         val settings = AppearanceSettings()
         assertTrue("swipeLeftQueueRightPlayNext must be true by default", settings.swipeLeftQueueRightPlayNext)
-        assertTrue("swipeToRemoveSongFromPlaylist must be true by default", settings.swipeToRemoveSongFromPlaylist)
+        assertFalse("swipeToRemoveSongFromPlaylist must be off by default", settings.swipeToRemoveSongFromPlaylist)
     }
 
     @Test

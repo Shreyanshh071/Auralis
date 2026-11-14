@@ -399,6 +399,7 @@
     <string name="cloud_backup_active">Cloud Backup Active ✓</string>
     <string name="discord">Discord</string>
     <string name="discord_integration">Discord Integration</string>
+    <string name="discord_show_listen_button">Show Listen on YouTube Music button</string>
     <string name="connect_rich_presence_display_song_activ">Connect Rich Presence &amp; display song activity</string>
     <string name="open_discord_integration">Open Discord Integration</string>
     <string name="youtube">YouTube</string>
