@@ -62,7 +62,8 @@ import androidx.compose.runtime.rememberCoroutineScope
  * 1. Pick from their signed-in YouTube Music account via a scrollable popup.
  * 2. Import a YouTube Music playlist by link.
  * 3. Pick from their signed-in Spotify account; picking an imported list adds only what's new.
- * 4. Import a Spotify playlist by link.
+ * 4. Import a playlist by link from YouTube Music, Spotify, Deezer, Tidal, Apple Music or Amazon Music.
+ * 5. Import a playlist file (CSV, TSV, M3U, M3U8, JSON, TXT).
  */
 @Composable
 fun ImportPlaylistsScreen(
@@ -79,6 +80,11 @@ fun ImportPlaylistsScreen(
     spotifyImportMessage: String?,
     onClearSpotifyImportMessage: () -> Unit,
     importedPlaylistIds: Set<String> = emptySet(),
+    onImportExternalPlaylist: (String) -> Unit = {},
+    onImportPlaylistFile: (String, String) -> Unit = { _, _ -> },
+    isImportingExternal: Boolean = false,
+    externalImportMessage: String? = null,
+    onClearExternalImportMessage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
@@ -138,7 +144,7 @@ fun ImportPlaylistsScreen(
             onBack = onDismiss,
             modifier = modifier.auralisPushParent(signInPush)
         ) {
-            Text(str(R.string.transfer_music_from_youtube_music_via_ac), fontSize = 14.sp, lineHeight = 20.sp,
+            Text(str(R.string.import_page_description), fontSize = 14.sp, lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -180,7 +186,17 @@ fun ImportPlaylistsScreen(
                 isImportingSpotify = isImportingSpotify,
                 spotifyImportMessage = if (!spotifyImportFromAccount) spotifyImportMessage else null,
                 onImportSpotify = { spotifyImportFromAccount = false; onImportSpotifyPlaylist(it) },
-                onClearSpotifyMessage = onClearSpotifyImportMessage
+                onClearSpotifyMessage = onClearSpotifyImportMessage,
+                isImportingExternal = isImportingExternal,
+                externalImportMessage = externalImportMessage,
+                onImportExternal = onImportExternalPlaylist,
+                onClearExternalMessage = onClearExternalImportMessage
+            )
+
+            PlaylistFileCard(
+                isImporting = isImportingExternal,
+                message = externalImportMessage,
+                onImportFile = onImportPlaylistFile
             )
         }
 
@@ -347,6 +363,37 @@ private fun SpotifyAccountCard(
     }
 }
 
+/** Every service a playlist link can come from, in the order shown. */
+private enum class LinkService(val label: String) {
+    YOUTUBE("YouTube Music"), SPOTIFY("Spotify"), DEEZER("Deezer"),
+    TIDAL("Tidal"), APPLE("Apple Music"), AMAZON("Amazon Music");
+
+    companion object {
+        fun detect(text: String): LinkService? {
+            val uri = runCatching { Uri.parse(text.trim()) }.getOrNull() ?: return null
+            if (uri.scheme?.lowercase() !in listOf("https", "http")) return null
+            val host = uri.host.orEmpty().lowercase()
+            return when {
+                host == "spotify.com" || host.endsWith(".spotify.com") || host == "spotify.link" -> SPOTIFY
+                host == "music.youtube.com" || host == "www.youtube.com" || host == "youtube.com" ||
+                    host == "m.youtube.com" || host == "youtu.be" -> YOUTUBE
+                else -> when (com.auralis.music.data.importer.ExternalService.detect(text)) {
+                    com.auralis.music.data.importer.ExternalService.DEEZER -> DEEZER
+                    com.auralis.music.data.importer.ExternalService.TIDAL -> TIDAL
+                    com.auralis.music.data.importer.ExternalService.APPLE_MUSIC -> APPLE
+                    com.auralis.music.data.importer.ExternalService.AMAZON_MUSIC -> AMAZON
+                    null -> null
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One link box for every service: paste any playlist or album link and the service is recognised
+ * from it (its chip lights up), so there is no picker to get wrong.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UniversalSmartLinkCard(
     isImportingYouTube: Boolean,
@@ -356,42 +403,45 @@ private fun UniversalSmartLinkCard(
     isImportingSpotify: Boolean,
     spotifyImportMessage: String?,
     onImportSpotify: (String) -> Unit,
-    onClearSpotifyMessage: () -> Unit
+    onClearSpotifyMessage: () -> Unit,
+    isImportingExternal: Boolean,
+    externalImportMessage: String?,
+    onImportExternal: (String) -> Unit,
+    onClearExternalMessage: () -> Unit
 ) {
     val context = LocalContext.current
-    var youtubeInput by rememberSaveable { mutableStateOf("") }
-    var spotifyInput by rememberSaveable { mutableStateOf("") }
-    var platform by rememberSaveable { mutableStateOf("youtube") }
+    var input by rememberSaveable { mutableStateOf("") }
     var validationMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    val isImporting = isImportingYouTube || isImportingSpotify
-    val input = if (platform == "youtube") youtubeInput else spotifyInput
+    // Which service the last import went to, so its progress is the one shown.
+    var lastService by rememberSaveable { mutableStateOf<String?>(null) }
+    val detected = LinkService.detect(input)
+    val isImporting = isImportingYouTube || isImportingSpotify || isImportingExternal
     val setInput: (String) -> Unit = { text ->
-        if (platform == "youtube") youtubeInput = text else spotifyInput = text
+        input = text
         validationMessage = null
-        onClearYouTubeMessage()
-        onClearSpotifyMessage()
+        onClearYouTubeMessage(); onClearSpotifyMessage(); onClearExternalMessage()
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(str(R.string.import_by_link), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text(str(R.string.account_ui_link_description), fontSize = 12.sp, lineHeight = 18.sp,
+        Text(str(R.string.import_link_any_service), fontSize = 12.sp, lineHeight = 18.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = AccountButtonShape, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f)) {
-            Row(Modifier.fillMaxWidth().padding(5.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("youtube" to str(R.string.youtube_music), "spotify" to str(R.string.spotify)).forEach { (id, label) ->
-                    val selected = id == platform
-                    Surface(Modifier.weight(1f), shape = AccountButtonShape,
-                        color = if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f) else Color.Transparent) {
-                        Row(Modifier.selectable(selected = selected, enabled = !isImporting, role = Role.Tab,
-                            onClick = { platform = id; validationMessage = null })
-                            .heightIn(min = 48.dp).padding(horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (id == "youtube") Icons.Default.PlayCircle else Icons.Default.GraphicEq,
-                                null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(label, fontSize = 13.5.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LinkService.entries.forEach { service ->
+                val active = service == detected
+                Surface(
+                    shape = AccountButtonShape,
+                    color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f)
+                ) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (active) {
+                            Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
                         }
+                        Text(service.label, fontSize = 12.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -399,7 +449,7 @@ private fun UniversalSmartLinkCard(
         OutlinedTextField(value = input, onValueChange = setInput, enabled = !isImporting,
             modifier = Modifier.fillMaxWidth(), singleLine = true, shape = AccountCardShape,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            label = { Text(str(if (platform == "youtube") R.string.youtube_music_link else R.string.spotify_link), fontSize = 12.sp) },
+            label = { Text(detected?.let { str(R.string.import_link_x, it.label) } ?: str(R.string.import_playlist_link), fontSize = 12.sp) },
             placeholder = { Text(str(R.string.account_ui_paste_link), fontSize = 12.sp) },
             leadingIcon = { Icon(Icons.Default.Link, null, modifier = Modifier.size(20.dp)) },
             trailingIcon = {
@@ -407,20 +457,7 @@ private fun UniversalSmartLinkCard(
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
                         ?.getItemAt(0)?.coerceToText(context)?.toString()?.trim().orEmpty()
-                    if (text.isNotBlank()) {
-                        val host = Uri.parse(text).host.orEmpty().lowercase()
-                        when {
-                            host == "spotify.com" || host.endsWith(".spotify.com") || host == "spotify.link" -> {
-                                platform = "spotify"; spotifyInput = text
-                            }
-                            host == "youtube.com" || host.endsWith(".youtube.com") || host == "youtu.be" -> {
-                                platform = "youtube"; youtubeInput = text
-                            }
-                            else -> setInput(text)
-                        }
-                        validationMessage = null
-                        onClearYouTubeMessage(); onClearSpotifyMessage()
-                    }
+                    if (text.isNotBlank()) setInput(text)
                 }) {
                     Icon(Icons.Default.ContentPaste, str(R.string.paste), modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
@@ -439,29 +476,100 @@ private fun UniversalSmartLinkCard(
             icon = Icons.Default.CloudDownload, enabled = input.isNotBlank(), loading = isImporting,
             onClick = {
                 val trimmed = input.trim()
-                val uri = Uri.parse(trimmed)
-                val host = uri.host.orEmpty().lowercase()
-                val spotify = host == "spotify.com" || host.endsWith(".spotify.com") || host == "spotify.link"
-                val youtube = host == "music.youtube.com" || host == "www.youtube.com" || host == "youtube.com" || host == "youtu.be"
-                if (uri.scheme?.lowercase() !in listOf("https", "http") || (platform == "spotify" && !spotify) || (platform == "youtube" && !youtube)) {
-                    validationMessage = str(R.string.account_ui_invalid_link)
-                } else if (platform == "spotify") onImportSpotify(trimmed) else onImportYouTube(trimmed)
+                when (LinkService.detect(trimmed)) {
+                    null -> validationMessage = str(R.string.account_ui_invalid_link)
+                    LinkService.YOUTUBE -> { lastService = "youtube"; onImportYouTube(trimmed) }
+                    LinkService.SPOTIFY -> { lastService = "spotify"; onImportSpotify(trimmed) }
+                    else -> { lastService = "external"; onImportExternal(trimmed) }
+                }
             })
 
         AccountPanel(padding = 14.dp) {
             Row(verticalAlignment = Alignment.Top) {
                 Icon(Icons.Default.Info, null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
-                Text(str(if (platform == "youtube") R.string.tip_make_sure_your_playlist_is_set_to_pu
-                    else R.string.account_ui_spotify_link_tip), fontSize = 12.sp,
-                    lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(str(when (detected) {
+                    LinkService.SPOTIFY -> R.string.account_ui_spotify_link_tip
+                    LinkService.AMAZON -> R.string.import_amazon_tip
+                    else -> R.string.tip_make_sure_your_playlist_is_set_to_pu
+                }), fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        val message = if (platform == "youtube") youtubeImportMessage else spotifyImportMessage
+        val message = when (lastService) {
+            "youtube" -> youtubeImportMessage
+            "spotify" -> spotifyImportMessage
+            "external" -> externalImportMessage
+            else -> null
+        }
         if (message != null) AccountPanel {
             Text(str(R.string.account_ui_transfer_status), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Import a playlist file exported from another app or service. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlaylistFileCard(
+    isImporting: Boolean,
+    message: String?,
+    onImportFile: (String, String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pickedName by rememberSaveable { mutableStateOf<String?>(null) }
+    var readError by remember { mutableStateOf<String?>(null) }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val name = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: uri.lastPathSegment.orEmpty()
+                    val bytes = requireNotNull(context.contentResolver.openInputStream(uri)) { "Cannot open file" }
+                        .use { it.readBytes() }
+                    require(bytes.size <= 20 * 1024 * 1024) { "File is larger than 20 MB" }
+                    name to String(bytes, Charsets.UTF_8)
+                }
+            }
+            result.onSuccess { (name, text) ->
+                pickedName = name
+                readError = null
+                onImportFile(name, text)
+            }.onFailure { readError = it.message }
+        }
+    }
+
+    AccountPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AccountGlyph(Icons.Default.Description)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(str(R.string.import_from_file), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(str(R.string.import_from_file_description), fontSize = 12.sp, lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("CSV", "TSV", "M3U", "M3U8", "JSON", "TXT").forEach { AccountBadge(it) }
+        }
+        Spacer(Modifier.height(16.dp))
+        AccountAction(
+            label = str(if (isImporting) R.string.importing else R.string.import_choose_file),
+            icon = Icons.Default.FileOpen,
+            loading = isImporting,
+            onClick = { picker.launch(arrayOf("*/*")) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        val status = readError ?: message?.takeIf { pickedName != null }
+        if (status != null) {
+            Spacer(Modifier.height(10.dp))
+            Text(status, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

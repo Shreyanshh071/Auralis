@@ -450,6 +450,13 @@ fun MiniPlayer(
         label = "miniGradEnd"
     )
 
+    // The gradient's lead colour (same as the background draws), for the glow under the pill.
+    val animGradTop by animateColorAsState(
+        targetValue = remember(extractedColors) { artworkGradientColors(extractedColors).first() },
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "miniGradTop"
+    )
+
     val elevation: Dp = when (activeStyle) {
         PlayerBackgroundStyle.BLUR -> 16.dp
         PlayerBackgroundStyle.FOLLOW_THEME -> 12.dp
@@ -461,7 +468,7 @@ fun MiniPlayer(
     }
 
     val spotShadowColor: Color = when (activeStyle) {
-        PlayerBackgroundStyle.GRADIENT -> animGradEnd.copy(alpha = 0.65f)
+        PlayerBackgroundStyle.GRADIENT -> animGradTop.copy(alpha = 0.55f)
         PlayerBackgroundStyle.APPLE_MUSIC -> Color(0xFFE8F0FE).copy(alpha = 0.30f)
         PlayerBackgroundStyle.LIVE_MESH -> animGradRight.copy(alpha = 0.45f)
         PlayerBackgroundStyle.GLOW_MOTION -> animGradMid.copy(alpha = 0.45f)
@@ -1242,18 +1249,8 @@ private fun NewMiniPlayerPillView(
         Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), pillShape)
     } else {
         when (activeStyle) {
-            PlayerBackgroundStyle.GRADIENT -> Modifier.border(
-                width = 1.2.dp,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        animGradLeft.copy(alpha = 0.60f),
-                        animGradMid.copy(alpha = 0.70f),
-                        animGradRight.copy(alpha = 0.85f),
-                        Color.White.copy(alpha = 0.30f)
-                    )
-                ),
-                shape = pillShape
-            )
+            // A quiet hairline: the gradient itself carries the colour now.
+            PlayerBackgroundStyle.GRADIENT -> Modifier.border(1.dp, Color.White.copy(alpha = 0.10f), pillShape)
             PlayerBackgroundStyle.APPLE_MUSIC -> Modifier.border(
                 width = 1.dp,
                 brush = Brush.verticalGradient(

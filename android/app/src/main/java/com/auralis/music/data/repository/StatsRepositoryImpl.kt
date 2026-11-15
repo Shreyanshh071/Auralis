@@ -30,6 +30,13 @@ class StatsRepositoryImpl(
 ) : StatsRepository {
     private val statsMutationMutex = Mutex()
 
+    private companion object {
+        val CREDIT_SEPARATORS = Regex(
+            """\s*(?:,|;|&|\s+x\s+|\s+(?:feat\.?|ft\.?|featuring)\s+)\s*""",
+            RegexOption.IGNORE_CASE
+        )
+    }
+
     override suspend fun logPlaybackEvent(track: Track, playTimeMs: Long) = withContext(Dispatchers.IO) {
         if (track.id.isBlank()) return@withContext
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
@@ -52,7 +59,7 @@ class StatsRepositoryImpl(
             StatsOverview(
                 totalPlayTimeMs = list.sumOf { it.event.playTimeMs },
                 songsCount = list.map { songKey(it.track.toDomain()) }.distinct().size,
-                artistsCount = list.mapNotNull { artistKey(it.track.artist) }.distinct().size,
+                artistsCount = list.flatMap { creditedArtists(it.track.artist) }.mapNotNull { artistKey(it) }.distinct().size,
                 albumsCount = list.mapNotNull { e ->
                     e.track.album?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
                 }.distinct().size
@@ -93,11 +100,14 @@ class StatsRepositoryImpl(
         limit: Int
     ): Flow<List<ArtistStat>> {
         return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
-            list.mapNotNull { e -> artistKey(e.track.artist)?.let { it to e } }
-                .groupBy({ it.first }, { it.second })
-                .map { (_, events) ->
+            // A collab ("Karan Aujla & Ikky") counts in full for each artist on it, like Spotify,
+            // instead of becoming its own artist named after the whole credit line.
+            list.flatMap { e -> creditedArtists(e.track.artist).mapNotNull { name -> artistKey(name)?.let { Triple(it, name, e) } } }
+                .groupBy { it.first }
+                .map { (_, credits) ->
+                    val events = credits.map { it.third }
                     // Most common spelling, without YouTube's " - Topic" channel suffix.
-                    val artistName = events.groupingBy { displayArtist(it.track.artist) }.eachCount()
+                    val artistName = credits.groupingBy { it.second }.eachCount()
                         .maxByOrNull { it.value }!!.key
                     val photo = com.auralis.music.data.network.ArtistPhotoProvider.getCachedPhoto(artistName)
                     ArtistStat(
@@ -148,6 +158,20 @@ class StatsRepositoryImpl(
 
     private fun displayArtist(raw: String): String =
         raw.trim().replace(Regex("""(?i)\s*-\s*topic$"""), "").replace(Regex("""(?i)vevo$"""), "").trim()
+
+    /**
+     * The individual artists in a credit line: "Arpit Bala, A.O.D., Angad Virk & Karan Kanchan"
+     * gives four. Splits on commas, "&", " x " and feat./ft./featuring; not on "and" or "+", which
+     * are too often part of one name ("Florence + The Machine").
+     */
+    private fun creditedArtists(raw: String): List<String> {
+        val credit = displayArtist(raw)
+        val names = credit.split(CREDIT_SEPARATORS)
+            .map { displayArtist(it).trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+        return names.ifEmpty { listOfNotNull(credit.takeIf { it.isNotBlank() }) }
+    }
 
     private fun artistKey(raw: String): String? =
         displayArtist(raw).lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "").takeIf { it.isNotBlank() }

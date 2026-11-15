@@ -83,7 +83,9 @@ class AuralisApplication : Application(), ImageLoaderFactory {
             }
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.30)
+                    // 25% (was 30%): leaves more room for the player and lyrics; the 300 MB disk cache
+                    // refills anything evicted without a network fetch.
+                    .maxSizePercent(0.25)
                     .strongReferencesEnabled(true)
                     .build()
             }

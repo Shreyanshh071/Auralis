@@ -83,6 +83,8 @@ enum class PlayerBackgroundStyle(val displayName: String) {
     // Mini-player only: real liquid glass on the mini player alone (stored key unchanged).
     APPLE_MUSIC("Liquid glass"),
     LIVE_MESH("Live Mesh"),
+    // Full player only: the artwork churning into soft moving colour (after Metrolist).
+    LIQUID("Liquid"),
     FOLIA_LATENT("Folia · Latent"),
     FOLIA_MONET("Folia · Monet"),
     FOLIA_NOMAND_PAPER("Folia · Paper texture"),
@@ -108,6 +110,7 @@ enum class PlayerBackgroundStyle(val displayName: String) {
                 "glow motion", "glow_motion", "glow" -> GLOW_MOTION
                 "apple music", "apple_music", "apple liquid glass", "liquid glass", "apple glass", "glass" -> APPLE_MUSIC
                 "live mesh", "live_mesh", "mesh" -> LIVE_MESH
+                "liquid", "liquid artwork" -> LIQUID
                 "pure black", "solid amoled black", "dark black" -> FOLLOW_THEME
                 else -> GRADIENT
             }
@@ -550,10 +553,19 @@ fun PlayerBackground(
                 }
             }
 
+            PlayerBackgroundStyle.LIQUID -> {
+                LiquidPlayerBackground(
+                    artworkUrl = artworkUrl,
+                    isPlaying = isPlaying,
+                    isVisible = isVisible,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
             PlayerBackgroundStyle.GRADIENT -> {
                 SeamlessGradientLayer(
-                    fromStops = fromStops,
-                    toStops = toStops,
+                    from = blend.from,
+                    to = blend.to,
                     progress = blendProgress,
                     isMiniPlayer = isMiniPlayer,
                     modifier = Modifier.fillMaxSize()
@@ -805,22 +817,24 @@ fun PlayerBackground(
  */
 @Composable
 private fun SeamlessGradientLayer(
-    fromStops: GradientStops,
-    toStops: GradientStops,
+    from: ArtworkPalette,
+    to: ArtworkPalette,
     progress: androidx.compose.runtime.State<Float>,
     isMiniPlayer: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val fromColors = remember(from) { artworkGradientColors(from) }
+    val toColors = remember(to) { artworkGradientColors(to) }
     // Outgoing gradient underneath, incoming gradient fading in over it on the GPU.
     Box(modifier = modifier.clipToBounds()) {
         SingleGradientLayer(
-            stops = fromStops,
+            colors = fromColors,
             isMiniPlayer = isMiniPlayer,
             alpha = { if (progress.value < 1f) 1f else 0f },
             modifier = Modifier.fillMaxSize()
         )
         SingleGradientLayer(
-            stops = toStops,
+            colors = toColors,
             isMiniPlayer = isMiniPlayer,
             alpha = { progress.value },
             modifier = Modifier.fillMaxSize()
@@ -828,68 +842,56 @@ private fun SeamlessGradientLayer(
     }
 }
 
+/**
+ * The artwork gradient, built the way Metrolist does it (GPL-3.0): one vivid colour from the art,
+ * the same colour at 60% brightness, then black. Clean and readable, with no extra bloom or sheen
+ * layers muddying it. The full player runs it top to bottom, the mini player left to right.
+ */
+internal fun artworkGradientColors(palette: ArtworkPalette): List<Color> {
+    if (palette.isMonochrome || palette.isDefault) {
+        val grey = if (palette.isDefault) Color(0xFF1C1C21) else Color(0xFF4A4D55)
+        return listOf(grey, grey.copy(red = grey.red * .6f, green = grey.green * .6f, blue = grey.blue * .6f), Color.Black)
+    }
+    val hsv = FloatArray(3)
+    PlayerGradientPalette.colorToHsv(palette.primary, hsv)
+    // Vivid art keeps its punch; dull art gets a smaller lift. Brightness stays in a readable band.
+    val vibrant = hsv[1] > .25f && hsv[2] > .2f && hsv[2] < .9f
+    val primary = Color.hsv(
+        hsv[0],
+        (hsv[1] * if (vibrant) 1.3f else 1.1f).coerceAtMost(1f),
+        (hsv[2] * .9f).coerceIn(.4f, .85f)
+    )
+    return listOf(
+        primary,
+        primary.copy(red = primary.red * .6f, green = primary.green * .6f, blue = primary.blue * .6f),
+        Color.Black
+    )
+}
+
 @Composable
 private fun SingleGradientLayer(
-    stops: GradientStops,
+    colors: List<Color>,
     isMiniPlayer: Boolean,
     alpha: () -> Float,
     modifier: Modifier = Modifier
 ) {
-    if (isMiniPlayer) {
-        Box(
-            modifier = modifier
-                .graphicsLayer { this.alpha = alpha() }
-                .drawWithCache {
-                    val hGrad = Brush.horizontalGradient(
-                        0.0f to stops.miniLeft.copy(alpha = 0.70f),
-                        0.48f to stops.miniCenter.copy(alpha = 0.65f),
-                        1.0f to stops.miniRight.copy(alpha = 0.75f)
-                    )
-                    val rBloom = Brush.radialGradient(
-                        colors = listOf(stops.glowAccent.copy(alpha = 0.45f), Color.Transparent),
-                        center = Offset(size.width * 0.85f, size.height * 0.5f),
-                        radius = size.width * 0.45f
-                    )
-                    val vSheen = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.18f),
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.18f)
-                        )
-                    )
-
-                    onDrawBehind {
-                        drawRect(hGrad)
-                        drawRect(rBloom)
-                        drawRect(vSheen)
-                    }
+    Box(
+        modifier = modifier
+            .graphicsLayer { this.alpha = alpha() }
+            .drawWithCache {
+                val brush = if (isMiniPlayer) {
+                    Brush.horizontalGradient(colors)
+                } else {
+                    Brush.verticalGradient(0f to colors[0], .5f to colors[1], 1f to colors[2])
                 }
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .graphicsLayer { this.alpha = alpha() }
-                .drawWithCache {
-                    val vGrad = Brush.verticalGradient(
-                        0.0f to stops.topVibrant,
-                        0.48f to stops.midHarmonic,
-                        1.0f to stops.bottomObsidian
-                    )
-                    val rBloom = Brush.radialGradient(
-                        colors = listOf(stops.topVibrant.copy(alpha = 0.35f), Color.Transparent),
-                        center = Offset(size.width * 0.45f, size.height * 0.22f),
-                        radius = size.width * 0.85f
-                    )
-                    val contrastWash = Color.Black.copy(alpha = 0.18f)
-
-                    onDrawBehind {
-                        drawRect(vGrad)
-                        drawRect(rBloom)
-                        drawRect(contrastWash)
-                    }
+                // A light wash keeps white text and controls readable over bright art.
+                val wash = Color.Black.copy(alpha = if (isMiniPlayer) .15f else .10f)
+                onDrawBehind {
+                    drawRect(brush)
+                    drawRect(wash)
                 }
-        )
-    }
+            }
+    )
 }
 
 /**

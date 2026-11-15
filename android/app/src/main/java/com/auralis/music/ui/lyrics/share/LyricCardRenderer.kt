@@ -15,7 +15,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -27,6 +26,7 @@ import android.provider.MediaStore
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextUtils
 import androidx.core.content.FileProvider
 import androidx.core.graphics.drawable.toBitmap
 import com.auralis.music.R
@@ -35,259 +35,178 @@ import java.io.FileOutputStream
 import kotlin.math.max
 import kotlin.math.min
 
-enum class LyricCardStyle {
-    BLUR,
-    GRADIENT,
-    SOLID
-}
-
+/**
+ * Draws the shareable lyric card: blurred artwork behind left-aligned lines, the Auralis mark top-right
+ * and the song (art, title, artist) bottom-left. The share panel previews this exact bitmap, so what
+ * the user sees is what gets saved or shared.
+ */
 object LyricCardRenderer {
 
-    private const val CARD_SIZE = 1080
+    private const val CARD_WIDTH = 1080
 
-    /**
-     * Renders a 1080x1080 high-definition lyric card bitmap with rich Apple Music-style aesthetics.
-     */
+    /** One design unit; the card is laid out as a 360-unit-wide card, like a phone-width preview. */
+    private const val U = CARD_WIDTH / 360f
+
+    /** Blurs the artwork once per track so re-rendering on every line toggle stays cheap. */
+    fun prepareBackground(artwork: Bitmap): Bitmap {
+        val downscaled = Bitmap.createScaledBitmap(artwork, 160, 160, true)
+        val saturated = Bitmap.createBitmap(downscaled.width, downscaled.height, Bitmap.Config.ARGB_8888)
+        Canvas(saturated).drawBitmap(
+            downscaled, 0f, 0f,
+            Paint(Paint.FILTER_BITMAP_FLAG).apply {
+                colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.2f) })
+            }
+        )
+        if (downscaled !== artwork) downscaled.recycle()
+        val blurred = fastBlur(saturated, 14)
+        saturated.recycle()
+        return blurred
+    }
+
     fun renderCard(
         context: Context,
         trackTitle: String,
         artistName: String,
-        lyricsText: String,
+        lines: List<String>,
         artworkBitmap: Bitmap?,
-        style: LyricCardStyle,
-        backgroundColor: Int,
-        textColor: Int = AndroidColor.WHITE,
-        secondaryTextColor: Int = AndroidColor.argb(200, 255, 255, 255)
+        blurredBackground: Bitmap?,
+        lyricTypeface: Typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD),
+        titleTypeface: Typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD),
+        bodyTypeface: Typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
     ): Bitmap {
-        val bitmap = Bitmap.createBitmap(CARD_SIZE, CARD_SIZE, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        val cardRect = RectF(0f, 0f, CARD_SIZE.toFloat(), CARD_SIZE.toFloat())
-        val cornerRadius = 72f
-
-        // ── 1. BACKGROUND RENDERING ──
-        when (style) {
-            LyricCardStyle.SOLID -> {
-                val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = backgroundColor
-                    this.style = Paint.Style.FILL
-                }
-                canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, bgPaint)
-            }
-            LyricCardStyle.BLUR -> {
-                if (artworkBitmap != null && !artworkBitmap.isRecycled) {
-                    val blurred = createBlurredBackground(artworkBitmap, CARD_SIZE, CARD_SIZE)
-                    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-                    // Clip to rounded rect
-                    val clipPath = Path().apply {
-                        addRoundRect(cardRect, cornerRadius, cornerRadius, Path.Direction.CW)
-                    }
-                    canvas.save()
-                    canvas.clipPath(clipPath)
-                    canvas.drawBitmap(blurred, 0f, 0f, bgPaint)
-
-                    // Luminous, medium frosted ambient overlay (balanced between artwork visibility and text contrast)
-                    val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        shader = LinearGradient(
-                            0f, 0f, 0f, CARD_SIZE.toFloat(),
-                            intArrayOf(
-                                AndroidColor.argb(20, 0, 0, 0),
-                                AndroidColor.argb(45, 0, 0, 0),
-                                AndroidColor.argb(85, 0, 0, 0)
-                            ),
-                            floatArrayOf(0f, 0.40f, 1f),
-                            Shader.TileMode.CLAMP
-                        )
-                    }
-                    canvas.drawRect(cardRect, overlayPaint)
-
-                    canvas.restore()
-                    blurred.recycle()
-                } else {
-                    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = backgroundColor
-                        this.style = Paint.Style.FILL
-                    }
-                    canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, bgPaint)
-                }
-            }
-            LyricCardStyle.GRADIENT -> {
-                val clipPath = Path().apply {
-                    addRoundRect(cardRect, cornerRadius, cornerRadius, Path.Direction.CW)
-                }
-                canvas.save()
-                canvas.clipPath(clipPath)
-
-                val hsv = FloatArray(3)
-                AndroidColor.colorToHSV(backgroundColor, hsv)
-                val hue = hsv[0]
-                val sat = hsv[1].coerceAtLeast(0.70f)
-                val valBri = hsv[2].coerceIn(0.40f, 0.90f)
-
-                val topColor = AndroidColor.HSVToColor(floatArrayOf((hue + 14f) % 360f, sat, (valBri * 1.12f).coerceIn(0.50f, 0.95f)))
-                val midColor = AndroidColor.HSVToColor(floatArrayOf(hue, sat, valBri))
-                val botColor = AndroidColor.HSVToColor(floatArrayOf((hue - 16f + 360f) % 360f, (sat * 1.1f).coerceIn(0.75f, 1.0f), (valBri * 0.32f).coerceIn(0.12f, 0.35f)))
-
-                val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    shader = LinearGradient(
-                        0f, 0f, CARD_SIZE.toFloat(), CARD_SIZE.toFloat(),
-                        intArrayOf(topColor, midColor, botColor),
-                        floatArrayOf(0f, 0.45f, 1f),
-                        Shader.TileMode.CLAMP
-                    )
-                }
-                canvas.drawRect(cardRect, gradientPaint)
-                canvas.restore()
-            }
-        }
-
-        // Subtle inner card border
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.style = Paint.Style.STROKE
-            strokeWidth = 2.5f
-            color = AndroidColor.argb(35, 255, 255, 255)
-        }
-        canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, borderPaint)
-
-        // ── 2. HEADER: ALBUM ART + SONG TITLE + ARTIST ──
-        val margin = 68f
-        val artSize = 196f
-        val artRadius = 32f
-        val artRect = RectF(margin, margin, margin + artSize, margin + artSize)
-
-        if (artworkBitmap != null && !artworkBitmap.isRecycled) {
-            val roundedArt = getRoundedCornerBitmap(artworkBitmap, artSize.toInt(), artRadius)
-            canvas.drawBitmap(roundedArt, margin, margin, null)
-            roundedArt.recycle()
-        } else {
-            val placeholderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = AndroidColor.argb(80, 255, 255, 255)
-            }
-            canvas.drawRoundRect(artRect, artRadius, artRadius, placeholderPaint)
-        }
-
-        val textStartX = margin + artSize + 40f
-        val textAvailableWidth = CARD_SIZE - textStartX - margin
-
-        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = textColor
-            textSize = 54f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            setShadowLayer(10f, 0f, 3f, AndroidColor.argb(110, 0, 0, 0))
-        }
-        val titleText = android.text.TextUtils.ellipsize(
-            trackTitle,
-            titlePaint,
-            textAvailableWidth,
-            android.text.TextUtils.TruncateAt.END
-        ).toString()
-        canvas.drawText(titleText, textStartX, margin + 80f, titlePaint)
-
-        val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = secondaryTextColor
-            textSize = 38f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-            setShadowLayer(8f, 0f, 2f, AndroidColor.argb(90, 0, 0, 0))
-        }
-        val artistText = android.text.TextUtils.ellipsize(
-            artistName,
-            artistPaint,
-            textAvailableWidth,
-            android.text.TextUtils.TruncateAt.END
-        ).toString()
-        canvas.drawText(artistText, textStartX, margin + 144f, artistPaint)
-
-        // ── 3. CENTER: MASSIVE PUNCHY LYRIC TEXT ──
-        val lyricAreaTop = margin + artSize + 64f
-        val lyricAreaBottom = CARD_SIZE - margin - 100f
-        val lyricAreaHeight = lyricAreaBottom - lyricAreaTop
-        val lyricWidth = (CARD_SIZE - (margin * 2)).toInt()
-
-        val cleanLines = lyricsText.lines().map { it.trim() }.filter { it.isNotBlank() }.take(5)
-        val lineCount = cleanLines.size
-        val formattedLyrics = cleanLines.joinToString("\n")
-
-        val dynamicTextSize = when {
-            lineCount <= 2 -> 104f
-            lineCount <= 4 -> 88f
-            else -> 72f
-        }
+        val padH = 18 * U
+        val padTop = 18 * U
+        val padBottom = 18 * U
+        val brandHeight = 22 * U
+        val gapBrandToLyrics = 16 * U
+        val gapLyricsToFooter = 20 * U
+        val footerHeight = 44 * U
+        val contentWidth = (CARD_WIDTH - 2 * padH).toInt()
 
         val lyricPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = textColor
-            textSize = dynamicTextSize
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            letterSpacing = -0.015f
-            setShadowLayer(10f, 0f, 3f, AndroidColor.argb(85, 0, 0, 0))
+            color = AndroidColor.WHITE
+            textSize = 16.5f * U
+            typeface = lyricTypeface
+            setShadowLayer(4 * U, 0f, U, AndroidColor.argb(70, 0, 0, 0))
         }
+        val lyricText = lines.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+        val lyricLayout = buildLayout(lyricText, lyricPaint, contentWidth)
 
-        val staticLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            StaticLayout.Builder.obtain(formattedLyrics, 0, formattedLyrics.length, lyricPaint, lyricWidth)
-                .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                .setLineSpacing(20f, 1.20f)
-                .setIncludePad(false)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            StaticLayout(
-                formattedLyrics,
-                lyricPaint,
-                lyricWidth,
-                Layout.Alignment.ALIGN_CENTER,
-                1.20f,
-                20f,
-                false
-            )
-        }
+        val height = (padTop + brandHeight + gapBrandToLyrics + lyricLayout.height +
+            gapLyricsToFooter + footerHeight + padBottom).toInt()
+        val bitmap = Bitmap.createBitmap(CARD_WIDTH, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val cardRect = RectF(0f, 0f, CARD_WIDTH.toFloat(), height.toFloat())
+        val corner = 22 * U
 
-        val layoutHeight = staticLayout.height
-        val lyricStartY = lyricAreaTop + max(0f, (lyricAreaHeight - layoutHeight) / 2f)
-
+        // ── Background ──
         canvas.save()
-        canvas.translate(margin, lyricStartY)
-        staticLayout.draw(canvas)
+        canvas.clipPath(Path().apply { addRoundRect(cardRect, corner, corner, Path.Direction.CW) })
+        if (blurredBackground != null && !blurredBackground.isRecycled) {
+            canvas.drawBitmap(
+                blurredBackground,
+                centerCropSource(blurredBackground.width, blurredBackground.height, cardRect),
+                cardRect,
+                Paint(Paint.FILTER_BITMAP_FLAG)
+            )
+        } else {
+            canvas.drawRect(cardRect, Paint().apply {
+                shader = LinearGradient(
+                    0f, 0f, CARD_WIDTH.toFloat(), height.toFloat(),
+                    AndroidColor.rgb(74, 52, 60), AndroidColor.rgb(28, 22, 26), Shader.TileMode.CLAMP
+                )
+            })
+        }
+        // Even frosting so white text reads on any artwork, a touch deeper behind the footer.
+        canvas.drawRect(cardRect, Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, height.toFloat(),
+                intArrayOf(AndroidColor.argb(70, 0, 0, 0), AndroidColor.argb(85, 0, 0, 0), AndroidColor.argb(120, 0, 0, 0)),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        })
+        canvas.restore()
+        canvas.drawRoundRect(
+            RectF(U / 2, U / 2, CARD_WIDTH - U / 2, height - U / 2), corner, corner,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = U
+                color = AndroidColor.argb(46, 255, 255, 255)
+            }
+        )
+
+        // ── Brand mark, top-right ──
+        val logoDiameter = brandHeight
+        val logoLeft = CARD_WIDTH - padH - logoDiameter
+        val logoCx = logoLeft + logoDiameter / 2f
+        val logoCy = padTop + logoDiameter / 2f
+        canvas.drawCircle(logoCx, logoCy, logoDiameter / 2f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.argb(64, 255, 255, 255)
+        })
+        try {
+            val glyph = (logoDiameter * 0.58f).toInt()
+            androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_notification)
+                ?.toBitmap(glyph, glyph, Bitmap.Config.ARGB_8888)
+                ?.let {
+                    canvas.drawBitmap(it, logoCx - glyph / 2f, logoCy - glyph / 2f, Paint(Paint.ANTI_ALIAS_FLAG))
+                    it.recycle()
+                }
+        } catch (_: Exception) {}
+        val brandPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.WHITE
+            textSize = 11.5f * U
+            typeface = titleTypeface
+            letterSpacing = 0.12f
+            textAlign = Paint.Align.RIGHT
+        }
+        canvas.drawText("AURALIS", logoLeft - 8 * U, baselineCentered(brandPaint, logoCy), brandPaint)
+
+        // ── Lyrics ──
+        val lyricsTop = padTop + brandHeight + gapBrandToLyrics
+        canvas.save()
+        canvas.translate(padH, lyricsTop)
+        lyricLayout.draw(canvas)
         canvas.restore()
 
-        // ── 4. FOOTER: MODERN AURALIS BRAND BADGE ──
-        val brandY = CARD_SIZE - margin - 16f
-        val badgeRadius = 32f
-        val badgeCenterY = brandY - 8f
-        val badgeCenterX = margin + badgeRadius
-
-        // Circular frosted badge behind icon
-        val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = AndroidColor.argb(55, 255, 255, 255)
-            this.style = Paint.Style.FILL
+        // ── Footer: art + title + artist ──
+        val footerTop = lyricsTop + lyricLayout.height + gapLyricsToFooter
+        val artSize = footerHeight
+        val artRect = RectF(padH, footerTop, padH + artSize, footerTop + artSize)
+        if (artworkBitmap != null && !artworkBitmap.isRecycled) {
+            val rounded = roundedSquare(artworkBitmap, artSize.toInt(), 7 * U)
+            canvas.drawBitmap(rounded, artRect.left, artRect.top, null)
+            rounded.recycle()
+        } else {
+            canvas.drawRoundRect(artRect, 7 * U, 7 * U, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = AndroidColor.argb(70, 255, 255, 255)
+            })
         }
-        canvas.drawCircle(badgeCenterX, badgeCenterY, badgeRadius, badgeBgPaint)
-
-        // Logo inside circular badge
-        val logoSize = 36f
-        try {
-            val logoDrawable = androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_notification)
-            val logoBmp = logoDrawable?.toBitmap(logoSize.toInt(), logoSize.toInt(), Bitmap.Config.ARGB_8888)
-            if (logoBmp != null) {
-                val logoPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-                canvas.drawBitmap(logoBmp, badgeCenterX - (logoSize / 2f), badgeCenterY - (logoSize / 2f), logoPaint)
-                logoBmp.recycle()
-            }
-        } catch (_: Exception) {}
-
-        val brandPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = textColor
-            textSize = 42f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            setShadowLayer(8f, 0f, 2f, AndroidColor.argb(100, 0, 0, 0))
+        val textLeft = artRect.right + 12 * U
+        val textWidth = CARD_WIDTH - padH - textLeft
+        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.WHITE
+            textSize = 14.5f * U
+            typeface = titleTypeface
         }
-        canvas.drawText("Auralis", badgeCenterX + badgeRadius + 20f, brandY + 6f, brandPaint)
+        val artistPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AndroidColor.argb(196, 255, 255, 255)
+            textSize = 12.5f * U
+            typeface = bodyTypeface
+        }
+        canvas.drawText(
+            TextUtils.ellipsize(trackTitle, titlePaint, textWidth, TextUtils.TruncateAt.END).toString(),
+            textLeft, baselineCentered(titlePaint, footerTop + artSize * 0.30f), titlePaint
+        )
+        canvas.drawText(
+            TextUtils.ellipsize(artistName, artistPaint, textWidth, TextUtils.TruncateAt.END).toString(),
+            textLeft, baselineCentered(artistPaint, footerTop + artSize * 0.74f), artistPaint
+        )
 
         return bitmap
     }
 
-    /**
-     * Saves bitmap to device MediaStore Pictures/Auralis directory.
-     */
+    /** Saves the card to Pictures/Auralis. */
     fun saveToGallery(context: Context, bitmap: Bitmap, trackTitle: String): Uri? {
         val sanitizedTitle = trackTitle.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)
         val filename = "Auralis_${sanitizedTitle}_${System.currentTimeMillis()}.png"
@@ -304,7 +223,7 @@ object LyricCardRenderer {
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
 
-        try {
+        return try {
             resolver.openOutputStream(uri)?.use { stream ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
             }
@@ -313,20 +232,20 @@ object LyricCardRenderer {
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             }
-            return uri
+            uri
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
-            return null
+            null
         }
     }
 
-    /**
-     * Shares image bitmap to external apps via Android Share Sheet using FileProvider.
-     */
-    fun shareImage(context: Context, bitmap: Bitmap, trackTitle: String) {
-        val cacheFolder = File(context.cacheDir, "shared_lyrics").apply { mkdirs() }
+    /** Hands the card to the system share sheet through the app's FileProvider. */
+    fun shareImage(context: Context, bitmap: Bitmap, trackTitle: String, artistName: String) {
+        val cacheFolder = File(context.cacheDir, "shared_lyrics").apply {
+            mkdirs()
+            listFiles()?.forEach { it.delete() }
+        }
         val imageFile = File(cacheFolder, "lyric_card_${System.currentTimeMillis()}.png")
-
         FileOutputStream(imageFile).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
@@ -340,7 +259,7 @@ object LyricCardRenderer {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, contentUri)
-            putExtra(Intent.EXTRA_TEXT, "Lyrics from $trackTitle on Auralis 🎵")
+            putExtra(Intent.EXTRA_TEXT, "$trackTitle — $artistName")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
@@ -350,46 +269,46 @@ object LyricCardRenderer {
         context.startActivity(chooser)
     }
 
-    private fun getRoundedCornerBitmap(bitmap: Bitmap, targetSize: Int, cornerRadius: Float): Bitmap {
-        val output = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(output)
+    private fun buildLayout(text: String, paint: TextPaint, width: Int): StaticLayout =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setLineSpacing(0f, 1.28f)
+                .setIncludePad(false)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            StaticLayout(text, paint, width, Layout.Alignment.ALIGN_NORMAL, 1.28f, 0f, false)
+        }
 
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val rect = RectF(0f, 0f, targetSize.toFloat(), targetSize.toFloat())
-
-        canvas.drawRoundRect(rect, cornerRadius, cornerRadius, paint)
-        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-
-        val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
-        canvas.drawBitmap(bitmap, srcRect, rect, paint)
-
-        return output
+    private fun baselineCentered(paint: Paint, centerY: Float): Float {
+        val fm = paint.fontMetrics
+        return centerY - (fm.ascent + fm.descent) / 2f
     }
 
-    private fun createBlurredBackground(src: Bitmap, targetW: Int, targetH: Int): Bitmap {
-        // Downscale to 200x200 for a perfectly balanced medium frosted blur
-        val downscaled = Bitmap.createScaledBitmap(src, 200, 200, true)
-
-        // Vibrant saturation boost for rich glowing ambiance
-        val saturated = Bitmap.createBitmap(downscaled.width, downscaled.height, Bitmap.Config.ARGB_8888)
-        val satCanvas = Canvas(saturated)
-        val colorMatrix = ColorMatrix().apply {
-            setSaturation(1.25f)
+    private fun centerCropSource(srcW: Int, srcH: Int, dst: RectF): Rect {
+        val dstRatio = dst.width() / dst.height()
+        val srcRatio = srcW.toFloat() / srcH
+        return if (srcRatio > dstRatio) {
+            val w = (srcH * dstRatio).toInt()
+            val left = (srcW - w) / 2
+            Rect(left, 0, left + w, srcH)
+        } else {
+            val h = (srcW / dstRatio).toInt()
+            val top = (srcH - h) / 2
+            Rect(0, top, srcW, top + h)
         }
-        val satPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            colorFilter = ColorMatrixColorFilter(colorMatrix)
-        }
-        satCanvas.drawBitmap(downscaled, 0f, 0f, satPaint)
-        downscaled.recycle()
+    }
 
-        // Medium frosted blur (radius 15 on 200x200)
-        val blurredSmall = fastBlur(saturated, 15)
-        saturated.recycle()
-
-        // Upscale with smooth bilinear interpolation
-        val result = Bitmap.createScaledBitmap(blurredSmall, targetW, targetH, true)
-        blurredSmall.recycle()
-        return result
+    private fun roundedSquare(bitmap: Bitmap, size: Int, radius: Float): Bitmap {
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
+        canvas.drawRoundRect(rect, radius, radius, paint)
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(bitmap, centerCropSource(bitmap.width, bitmap.height, rect), rect, paint)
+        return output
     }
 
     /**

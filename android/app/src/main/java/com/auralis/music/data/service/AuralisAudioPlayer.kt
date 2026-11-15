@@ -831,6 +831,12 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             var lastPersistTickMs = System.currentTimeMillis()
             while (isActive) {
                 delay(100)
+                // Paused with nothing pending: sleep instead of waking 10 times a second, but
+                // resume the instant playback starts (checking once a second as a safety net).
+                if (!_isPlaying.value && !advanceAfterAutoLoad && !(isUsingExoPlayer && exoPlayer.isPlaying)) {
+                    kotlinx.coroutines.withTimeoutOrNull(1_000L) { _isPlaying.first { it } }
+                    continue
+                }
                 pauseIfMediaMuted()
                 updateAudioTransitions()
                 if (canExtendQueue() && (_isPlaying.value || advanceAfterAutoLoad) &&

@@ -59,7 +59,12 @@ class AndroidAccountPreferences(private val context: Context) {
             awaitClose { auth.removeAuthStateListener(listener) }
         }.distinctUntilChanged().collectLatest { uid ->
             engine.step(uid)
-            if (uid != null) while (isActive) { delay(1_000L); engine.step(uid) }
+            // Every second while the app is open; every minute while it's hidden (battery), and at
+            // once when it comes back.
+            if (uid != null) while (isActive) {
+                com.auralis.music.data.AppVisibility.pause(1_000L, 60_000L)
+                engine.step(uid)
+            }
         }
     }
 }

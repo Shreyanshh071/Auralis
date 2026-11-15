@@ -64,7 +64,10 @@ data class LibraryUiState(
     val isImporting: Boolean = false,
     val importMessage: String? = null,
     val isImportingSpotify: Boolean = false,
-    val spotifyImportMessage: String? = null
+    val spotifyImportMessage: String? = null,
+    /** Deezer, Tidal, Apple Music, Amazon Music links and playlist files. */
+    val isImportingExternal: Boolean = false,
+    val externalImportMessage: String? = null
 )
 
 private const val ALBUM_PLAYLIST_PREFIX = "album:"
@@ -1136,6 +1139,122 @@ class LibraryViewModel(
 
     fun clearSpotifyImportMessage() {
         _uiState.update { it.copy(spotifyImportMessage = null) }
+    }
+
+    private val externalImporter = com.auralis.music.data.importer.ExternalPlaylistImporter()
+
+    fun clearExternalImportMessage() {
+        _uiState.update { it.copy(externalImportMessage = null) }
+    }
+
+    /** A public playlist or album link from Deezer, Tidal, Apple Music or Amazon Music. */
+    fun importExternalPlaylist(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isBlank() || _uiState.value.isImportingExternal) return
+        _uiState.update { it.copy(isImportingExternal = true, externalImportMessage = null) }
+        viewModelScope.launch {
+            try {
+                val imported = externalImporter.fetch(trimmed) { progress ->
+                    _uiState.update { it.copy(externalImportMessage = progress) }
+                }
+                if (imported.tracks.isEmpty()) {
+                    _uiState.update { it.copy(isImportingExternal = false, externalImportMessage = str(R.string.import_no_songs_found)) }
+                    return@launch
+                }
+                saveImportedTracks(imported.service.id, imported.remoteId, imported.title,
+                    imported.description, imported.coverUrl, imported.tracks)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isImportingExternal = false,
+                        externalImportMessage = e.message ?: str(R.string.import_failed_generic))
+                }
+            }
+        }
+    }
+
+    /** A playlist file (CSV, TSV, M3U, M3U8, JSON or text). JSON backups may hold several playlists. */
+    fun importPlaylistFile(fileName: String, content: String) {
+        if (_uiState.value.isImportingExternal) return
+        _uiState.update { it.copy(isImportingExternal = true, externalImportMessage = str(R.string.import_reading_file)) }
+        viewModelScope.launch {
+            try {
+                val playlists = withContext(Dispatchers.Default) {
+                    com.auralis.music.data.importer.PlaylistFileParser.parse(fileName, content)
+                }
+                if (playlists.isEmpty()) {
+                    _uiState.update { it.copy(isImportingExternal = false, externalImportMessage = str(R.string.import_no_songs_found)) }
+                    return@launch
+                }
+                playlists.forEachIndexed { index, parsed ->
+                    // Same file imported again updates its playlists instead of duplicating them.
+                    val remoteId = "file:" + Integer.toHexString("$fileName|${parsed.title}|$index".lowercase().hashCode())
+                    saveImportedTracks("file", remoteId, parsed.title, parsed.description, null, parsed.tracks,
+                        finishWhenSaved = index == playlists.lastIndex)
+                }
+                if (playlists.size > 1) {
+                    _uiState.update {
+                        it.copy(externalImportMessage = str(R.string.import_x_playlists_from_file, playlists.size,
+                            playlists.sumOf { p -> p.tracks.size }))
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isImportingExternal = false,
+                        externalImportMessage = str(R.string.import_file_unreadable, e.message ?: fileName))
+                }
+            }
+        }
+    }
+
+    /**
+     * Saves an imported list right away (so it shows instantly), then matches the songs that don't
+     * have a YouTube id yet to official audio in the background, as Spotify imports do.
+     */
+    private suspend fun saveImportedTracks(
+        source: String,
+        remoteId: String,
+        title: String,
+        description: String?,
+        coverUrl: String?,
+        tracks: List<Track>,
+        finishWhenSaved: Boolean = true
+    ) {
+        val importedSync = onPlaylistImported.takeIf { syncOnImport }
+        val twin = twinPlaylist(title, tracks, "imported:$source:$remoteId",
+            libraryRepository.getPlaylists().firstOrNull().orEmpty())
+        val playlist = libraryRepository.upsertImportedPlaylist(
+            source = source, remoteId = remoteId, title = title, description = description, coverUrl = coverUrl
+        )
+        libraryRepository.replacePlaylistTracks(playlist.id, tracks)
+        twin?.let { replaceTwin(it, playlist.id) }
+        importedSync?.invoke(playlist.id)
+        if (finishWhenSaved) {
+            _uiState.update {
+                it.copy(isImportingExternal = false,
+                    externalImportMessage = str(R.string.imported_x_x_songs, title, tracks.size))
+            }
+        }
+        if (tracks.any { it.id.startsWith("sp_") }) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val matched = spotifyImporter.enrichTracksWithYouTubeData(tracks) { progress ->
+                        _uiState.update { it.copy(externalImportMessage = progress) }
+                    }
+                    libraryRepository.replacePlaylistTracks(playlist.id, matched)
+                    _uiState.update {
+                        it.copy(externalImportMessage = str(R.string.all_x_songs_in_x_matched_with_official_a, matched.size, title))
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.e("ExternalImporter", "Matching failed: ${e.message}")
+                }
+            }
+        }
     }
 
     fun importSpotifyPlaylist(urlOrLink: String, onComplete: ((Boolean, String) -> Unit)? = null) {

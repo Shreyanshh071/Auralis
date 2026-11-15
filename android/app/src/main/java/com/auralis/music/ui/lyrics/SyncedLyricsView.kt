@@ -22,6 +22,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -505,8 +507,14 @@ private fun SyncedLyricsContent(
 
     // Lyric Selection & Sharing State (Capped strictly at max 5 lines)
     var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var showShareSheet by remember { mutableStateOf(false) }
-    var shareLyricsText by remember { mutableStateOf("") }
+    // Height of the docked share panel, so the list can keep selected lines scrollable above it.
+    var sharePanelHeightPx by remember { mutableStateOf(0) }
+    // Line just long-pressed; scrolled clear of the share panel once that panel has measured itself.
+    var shareFocusIndex by remember { mutableStateOf(-1) }
+    val lyricsHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    androidx.activity.compose.BackHandler(enabled = selectedIndices.isNotEmpty()) {
+        selectedIndices = emptySet()
+    }
 
     // NestedScrollConnection detects manual user scrolling across all lyrics modes,
     // even when child row clicks consume pointer events.
@@ -673,6 +681,8 @@ private fun SyncedLyricsContent(
         val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
         val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
         val lyricsGlide = remember { LyricsScrollGlide() }
+        val settleWobble = remember { LyricsSettleWobble() }
+        LaunchedEffect(settleWobble) { settleWobble.animateLines() }
         val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
         // Read when a scroll runs: the follow-the-song effect keeps the scroll it started with, and that
         // one can be from while this tab was still hidden, which made every line jump.
@@ -762,6 +772,50 @@ private fun SyncedLyricsContent(
             }
         }
 
+        // Returning to the sung line after the user left the list alone: a soft spring for the list,
+        // with each line trailing on its own spring so the block ripples into place.
+        val settleToLine: suspend (targetIndex: Int) -> Unit = settle@{ targetIndex ->
+            if (targetIndex !in mergedLyricsItems.indices) return@settle
+            if (!lyricsOnScreenNow.value) {
+                centerActiveLine(targetIndex, false)
+                return@settle
+            }
+            val startInfo = listState.layoutInfo
+            if (startInfo.viewportEndOffset - startInfo.viewportStartOffset <= 0 || startInfo.visibleItemsInfo.isEmpty()) {
+                centerActiveLine(targetIndex, true)
+                return@settle
+            }
+            // Distance still to go, recomputed every frame: exact once the sung line is on screen,
+            // estimated from the average visible line height until then.
+            val remaining: () -> Float = remaining@{
+                val info = listState.layoutInfo
+                val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+                val visible = info.visibleItemsInfo
+                if (viewport <= 0f || visible.isEmpty()) return@remaining 0f
+                val centerY = info.viewportStartOffset + viewport * targetCenterFraction
+                val target = visible.firstOrNull { it.index == targetIndex }
+                if (target != null) {
+                    target.offset + target.size / 2f - centerY
+                } else {
+                    val avgItem = visible.map { it.size }.average().toFloat() + info.mainAxisItemSpacing
+                    val anchor = if (targetIndex > visible.last().index) visible.last() else visible.first()
+                    anchor.offset + anchor.size / 2f + (targetIndex - anchor.index) * avgItem - centerY
+                }
+            }
+            isProgrammaticScroll = true
+            try {
+                settleWobble.settle(
+                    list = listState,
+                    targetIndex = targetIndex,
+                    maxOffsetPx = with(density) { 72.dp.toPx() },
+                    profile = LyricsSettleWobble.SETTLE,
+                    remaining = remaining
+                )
+            } finally {
+                isProgrammaticScroll = false
+            }
+        }
+
         val resyncLyrics: () -> Unit = {
             if (appearance.autoScrollLyrics) {
                 isAutoScrollEnabled = true
@@ -774,14 +828,14 @@ private fun SyncedLyricsContent(
                 // auto scroll) does not launch a second, competing scroll to the same line.
                 lastCenteredIndex = activeIndex
                 coroutineScope.launch {
-                    centerActiveLine(activeIndex, true)
+                    settleToLine(activeIndex)
                 }
             } else if (mergedLyricsItems.isNotEmpty()) {
                 // Mark it handled first so the follow-the-line effect (restarted by re-enabling
                 // auto scroll) does not launch a second, competing scroll to the same line.
                 lastCenteredIndex = 0
                 coroutineScope.launch {
-                    centerActiveLine(0, true)
+                    settleToLine(0)
                 }
             }
         }
@@ -853,11 +907,34 @@ private fun SyncedLyricsContent(
         val topFadePx = with(density) { 36.dp.toPx() }
         val bottomFadePx = with(density) { 90.dp.toPx() }
 
+        // Where the list sits on screen, to know how much of it the share panel covers.
+        var listTopInWindowPx by remember { mutableStateOf(0f) }
+        val screenHeightPx = androidx.compose.ui.platform.LocalView.current.rootView.height
+        LaunchedEffect(shareFocusIndex, sharePanelHeightPx) {
+            val target = shareFocusIndex
+            if (target < 0 || sharePanelHeightPx <= 0 || selectedIndices.isEmpty()) return@LaunchedEffect
+            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target } ?: return@LaunchedEffect
+            val visibleBottom = (screenHeightPx - sharePanelHeightPx) - listTopInWindowPx
+            val margin = with(density) { 28.dp.toPx() }
+            val overflow = (info.offset + info.size) - (visibleBottom - margin)
+            if (overflow > 0f) {
+                isProgrammaticScroll = true
+                try {
+                    listState.animateScrollBy(overflow, androidx.compose.animation.core.tween(380))
+                } finally {
+                    isProgrammaticScroll = false
+                }
+            }
+            shareFocusIndex = -1
+        }
+        val sharePanelPadding = with(density) { sharePanelHeightPx.toDp() } + 24.dp
+
         Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
         LazyColumn(
             state = listState,
             modifier = Modifier
+                .onGloballyPositioned { listTopInWindowPx = it.positionInWindow().y }
                 .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                 .fillMaxSize()
                 .nestedScroll(lyricsNestedScrollConnection)
@@ -893,7 +970,7 @@ private fun SyncedLyricsContent(
                 },
             contentPadding = PaddingValues(
                 top = if (isSynced) topPaddingDp else 36.dp,
-                bottom = if (isSynced) bottomPaddingDp else 220.dp,
+                bottom = maxOf(if (isSynced) bottomPaddingDp else 220.dp, if (sharePanelHeightPx > 0) sharePanelPadding else 0.dp),
                 start = 16.dp,
                 end = 16.dp
             ),
@@ -967,6 +1044,7 @@ private fun SyncedLyricsContent(
 
                         Column(
                             modifier = Modifier
+                                .graphicsLayer { translationY = settleWobble.offsets[listIndex] ?: 0f }
                                 .fillMaxWidth()
                                 .padding(bottom = itemBottomSpacing),
                             horizontalAlignment = lineAlignment
@@ -986,10 +1064,9 @@ private fun SyncedLyricsContent(
                                     .then(
                                         if (isSelected) {
                                             Modifier
-                                                .clip(RoundedCornerShape(18.dp))
-                                                .background(Color.White.copy(alpha = 0.18f))
-                                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                                .clip(RoundedCornerShape(22.dp))
+                                                .background(Color.White.copy(alpha = 0.13f))
+                                                .padding(horizontal = 14.dp, vertical = 10.dp)
                                         } else {
                                             Modifier.padding(
                                                 horizontal = 4.dp,
@@ -1028,6 +1105,10 @@ private fun SyncedLyricsContent(
                                         },
                                         onLongClick = {
                                             isUserInteracting = true
+                                            if (!isSelected) {
+                                                lyricsHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                shareFocusIndex = listIndex
+                                            }
                                             selectedIndices = if (isSelected) {
                                                 selectedIndices - index
                                             } else {
@@ -1080,7 +1161,8 @@ private fun SyncedLyricsContent(
                             visible = isIndicatorVisible,
                             color = Color.White,
                             isMetroLyrics = false,
-                            onSkip = { onSeekTo(item.gapEndMs) }
+                            onSkip = { onSeekTo(item.gapEndMs) },
+                            modifier = Modifier.graphicsLayer { translationY = settleWobble.offsets[listIndex] ?: 0f }
                         )
                     }
                 }
@@ -1107,77 +1189,15 @@ private fun SyncedLyricsContent(
 
 
 
-        // Floating Action Bar for Selected Lyrics
-        val isSelectionMode = selectedIndices.isNotEmpty()
-        AnimatedVisibility(
-            visible = isSelectionMode,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF2C251F).copy(alpha = 0.95f))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(32.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                IconButton(
-                    onClick = { selectedIndices = emptySet() },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.cancel_selection),
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        val selectedText = selectedIndices.sorted()
-                            .take(5)
-                            .mapNotNull { effectiveLines.getOrNull(it)?.text }
-                            .filter { it.isNotBlank() }
-                            .joinToString("\n")
-                        if (selectedText.isNotBlank()) {
-                            shareLyricsText = selectedText
-                            showShareSheet = true
-                        }
-                    },
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4A3E33),
-                        contentColor = Color(0xFFE5C89C)
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = str(R.string.share),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-            }
-        }
     }
 
-    if (showShareSheet && track != null) {
-        com.auralis.music.ui.lyrics.share.LyricShareBottomSheet(
-            track = track,
-            initialLyricsText = shareLyricsText,
-            onDismissRequest = {
-                showShareSheet = false
-                selectedIndices = emptySet()
-            }
-        )
-    }
+    com.auralis.music.ui.lyrics.share.LyricSharePanel(
+        visible = selectedIndices.isNotEmpty(),
+        track = track,
+        lines = selectedIndices.sorted().mapNotNull { effectiveLines.getOrNull(it)?.text?.takeIf(String::isNotBlank) },
+        onDismiss = { selectedIndices = emptySet() },
+        onHeightChanged = { sharePanelHeightPx = it }
+    )
 }
 
 sealed class SyncedLyricsItem {

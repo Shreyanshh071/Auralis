@@ -295,6 +295,26 @@ class ListenTogetherManager(
         return authResult.user?.uid ?: throw IllegalStateException("Failed to authenticate with Firebase")
     }
 
+    /**
+     * Asks the server directly (bypassing the local cache) and says what came back, so a room that
+     * won't start can show the real reason instead of spinning: quota exceeded, permission denied,
+     * sign-in disabled, or no response at all.
+     */
+    suspend fun diagnoseConnection(): String {
+        return try {
+            kotlinx.coroutines.withTimeout(8_000) {
+                ensureAuthenticated()
+                firestore.collection("rooms").document("__connection_check__").get(Source.SERVER).await()
+            }
+            "The server answered, so it may just be slow right now"
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            "No response from the server (offline, or the network is blocking it)"
+        } catch (e: Exception) {
+            val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code?.name
+            listOfNotNull(code, e.message).joinToString(": ").ifBlank { e.javaClass.simpleName }
+        }
+    }
+
     fun generateRoomCode(): String {
         val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         val code = StringBuilder()

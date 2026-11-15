@@ -118,6 +118,8 @@ class AppearanceSettingsDataStore(
                 lyricsAnimation = resolvedAnimation,
                 enableGlowingLyricsEffect = preferences[ENABLE_GLOWING_LYRICS] ?: defaults.enableGlowingLyricsEffect,
                 standardLyricsBlur = preferences[STANDARD_LYRICS_BLUR] ?: defaults.standardLyricsBlur,
+                reduceEffects = preferences[REDUCE_EFFECTS] ?: defaults.reduceEffects,
+                reduceEffectsOnBatterySaver = preferences[REDUCE_EFFECTS_ON_BATTERY_SAVER] ?: defaults.reduceEffectsOnBatterySaver,
                 lyricsTextSize = preferences[LYRICS_TEXT_SIZE] ?: defaults.lyricsTextSize,
                 lyricsLineSpacing = preferences[LYRICS_LINE_SPACING] ?: defaults.lyricsLineSpacing,
 
@@ -183,6 +185,8 @@ class AppearanceSettingsDataStore(
         val LYRICS_ANIMATION = stringPreferencesKey("lyrics_animation")
         val ENABLE_GLOWING_LYRICS = booleanPreferencesKey("enable_glowing_lyrics")
         val STANDARD_LYRICS_BLUR = booleanPreferencesKey("standard_lyrics_blur")
+        val REDUCE_EFFECTS = booleanPreferencesKey("reduce_effects")
+        val REDUCE_EFFECTS_ON_BATTERY_SAVER = booleanPreferencesKey("reduce_effects_on_battery_saver")
         val LYRICS_TEXT_SIZE = floatPreferencesKey("lyrics_text_size")
         val LYRICS_LINE_SPACING = floatPreferencesKey("lyrics_line_spacing")
 
@@ -258,6 +262,8 @@ class AppearanceSettingsDataStore(
                 preferences[LYRICS_ANIMATION] = settings.lyricsAnimation
                 preferences[ENABLE_GLOWING_LYRICS] = settings.enableGlowingLyricsEffect
                 preferences[STANDARD_LYRICS_BLUR] = settings.standardLyricsBlur
+                preferences[REDUCE_EFFECTS] = settings.reduceEffects
+                preferences[REDUCE_EFFECTS_ON_BATTERY_SAVER] = settings.reduceEffectsOnBatterySaver
                 preferences[LYRICS_TEXT_SIZE] = settings.lyricsTextSize
                 preferences[LYRICS_LINE_SPACING] = settings.lyricsLineSpacing
 
