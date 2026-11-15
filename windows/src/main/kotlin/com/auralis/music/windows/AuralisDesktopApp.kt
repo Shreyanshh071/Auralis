@@ -5,6 +5,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -782,7 +784,12 @@ fun AuralisDesktopApp(
                     }
                     val notchWidth = notchW.value
                     val notchHeight = notchH.value
-                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight)).then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
+                    // The page panel's bounds: wheel scrolling the sidebar doesn't use goes to the page.
+                    val pageBounds = remember { arrayOf(androidx.compose.ui.geometry.Rect.Zero) }
+                    val sidebarDensity = androidx.compose.ui.platform.LocalDensity.current.density
+                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight))
+                        .forwardUnusedScrollTo({ pageBounds[0] }, { sidebarDensity })
+                        .then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
                         playlistMenu?.let { p ->
                             com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
                                 playlist = p,
@@ -828,7 +835,9 @@ fun AuralisDesktopApp(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
+                    Box(Modifier.weight(1f).fillMaxHeight()
+                        .onGloballyPositioned { pageBounds[0] = it.boundsInWindow() }
+                        .clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
                         DesktopPageSurface(Modifier.fillMaxSize()) {
                         androidx.compose.runtime.key(refreshTick) {
                         // Pages fade up into place (and the old one fades out) instead of swapping on one frame.
