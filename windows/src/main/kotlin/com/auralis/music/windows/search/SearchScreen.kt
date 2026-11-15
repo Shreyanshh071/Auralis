@@ -125,6 +125,12 @@ fun FindMusicDropdown(
         if (text.isNotBlank()) { dismiss(); if (bar) focusManager.clearFocus(); onSearch(text) }
     }
     fun open() { mounted = true; expanded = true }
+    // The title bar's drag area belongs to Windows, so a click there is invisible to the popup's
+    // outside-click handling and leaves the field focused. The native frame reports those presses.
+    val captionPresses = com.auralis.music.windows.CaptionPresses.count
+    LaunchedEffect(captionPresses) {
+        if (bar && captionPresses > 0 && (expanded || fieldFocused)) { dismiss(); focusManager.clearFocus() }
+    }
     Box {
         if (bar) {
             val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }

@@ -580,7 +580,8 @@ fun TrackOptionsMenu(
                         )
                     }
 
-                    // ── GROUP 3: ADD TO LIBRARY ──
+                    // ── GROUP 3: ADD TO A PLAYLIST ──
+                    // Opens the same picker as the Add pill; liking stays on the heart in the header.
                     if (!queueReferenceStyle) Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -588,15 +589,10 @@ fun TrackOptionsMenu(
                             .background(actionCardColor)
                     ) {
                         TrackOptionRow(
-                            icon = if (localIsFavorite) Icons.Default.LibraryAddCheck else Icons.Default.LibraryAdd,
-                            title = if (localIsFavorite) str(Strings.remove_from_library) else str(Strings.add_to_library),
-                            subtitle = if (localIsFavorite) str(Strings.remove_from_your_library) else str(Strings.save_to_your_library),
-                            iconTint = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                            titleColor = if (localIsFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurface,
-                            onClick = {
-                                toggleFavorite()
-                                onDismiss()
-                            }
+                            icon = Icons.Default.LibraryAdd,
+                            title = str(Strings.add_to_playlist),
+                            subtitle = str(Strings.save_to_your_library),
+                            onClick = { showPlaylistPicker = true }
                         )
                     }
 

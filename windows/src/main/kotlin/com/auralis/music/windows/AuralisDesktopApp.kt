@@ -90,7 +90,9 @@ internal fun isShortcutTypingActive(
     playerOpen: Boolean,
     trackedInputActive: Boolean,
     windowTextInputActive: Boolean,
-): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive
+    /** A modal dialog (create playlist, sign in, settings…) owns the keyboard: single keys belong to it. */
+    dialogOpen: Boolean = false,
+): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive || dialogOpen
 
 @Composable
 fun AuralisDesktopApp(
@@ -469,6 +471,8 @@ fun AuralisDesktopApp(
     val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing)
     val currentShowPlayer = androidx.compose.runtime.rememberUpdatedState(showPlayer)
     val currentIsTextInputActive = androidx.compose.runtime.rememberUpdatedState(isTextInputActive)
+    val currentDialogOpen = androidx.compose.runtime.rememberUpdatedState(showSignIn || showCreatePlaylist ||
+        showTogether || showDiscord || showImport || showSettings || showYouTubeAccounts)
     androidx.compose.runtime.DisposableEffect(actions) {
         onShortcutHandler { event ->
             val typingNow = isShortcutTypingActive(
@@ -476,6 +480,7 @@ fun AuralisDesktopApp(
                 playerOpen = currentShowPlayer.value,
                 trackedInputActive = activeTextInputs.isNotEmpty(),
                 windowTextInputActive = currentIsTextInputActive.value(),
+                dialogOpen = currentDialogOpen.value,
             )
             handleShortcut(event, typingNow, actions)
         }
