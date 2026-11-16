@@ -79,3 +79,6 @@ android/app/src/main/cpp/discord/
 
 # Firestore rules tests
 firestore-tests/node_modules/
+
+# Local JDK used for builds on this machine
+build-tools/
