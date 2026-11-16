@@ -435,6 +435,8 @@ fun AuralisApp(
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
     // The credited artists of a multi-artist credit someone tapped, for the "Choose artist" picker.
     var artistChoices by remember { mutableStateOf<List<com.auralis.music.domain.model.Artist>>(emptyList()) }
+    // Normalized credit -> the channel named exactly that (null = a real multi-artist credit).
+    val wholeCreditArtists = remember { mutableMapOf<String, com.auralis.music.domain.model.Artist?>() }
     var isAmbientOpen by rememberSaveable { mutableStateOf(false) }
     var isExternalCreatePlaylistOpen by remember { mutableStateOf(false) }
     var isHomeMenuOpen by remember { mutableStateOf(false) }
@@ -471,19 +473,23 @@ fun AuralisApp(
         if (!artist.id.startsWith("UC")) {
             val credits = com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(artist.name)
             if (credits.size > 1) {
-                artistChoices = credits.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
-                // "Simon & Garfunkel" is one artist: if a channel carries the whole credit, offer it first.
+                // "She & Him" and "Tyler, The Creator" are one artist, not a collab: when a channel
+                // carries the whole credit, open it directly. Only real collabs get the chooser.
+                val key = com.auralis.music.domain.search.SearchQueryMatcher.normalize(artist.name)
                 coroutineScope.launch {
-                    val whole = try {
-                        kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                    val whole = if (wholeCreditArtists.containsKey(key)) wholeCreditArtists[key] else try {
+                        kotlinx.coroutines.withTimeoutOrNull(3_000L) {
                             viewModelProvider.searchRepository.searchArtists(artist.name)
-                        }?.firstOrNull {
-                            it.id.startsWith("UC") && com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) ==
-                                com.auralis.music.domain.search.SearchQueryMatcher.normalize(artist.name)
+                        }?.let { results ->
+                            // Only remember completed searches; a timeout may just be a slow network.
+                            results.firstOrNull {
+                                it.id.startsWith("UC") &&
+                                    com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) == key
+                            }.also { wholeCreditArtists[key] = it }
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                    if (whole != null && artistChoices.size == credits.size &&
-                        artistChoices.map { it.name } == credits) artistChoices = listOf(whole) + artistChoices
+                    if (whole != null) openArtistDetail(whole)
+                    else artistChoices = credits.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
                 }
                 return
             }

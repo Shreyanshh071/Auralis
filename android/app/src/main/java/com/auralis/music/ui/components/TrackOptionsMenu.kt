@@ -114,7 +114,6 @@ fun TrackOptionsMenu(
     var useGlassMenu by remember { mutableStateOf(glassAnchor != null) }
 
     var showPlaylistPicker by remember { mutableStateOf(false) }
-    var showArtistPicker by remember(track.id) { mutableStateOf(false) }
     val creditedArtists = remember(track.artist) {
         com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(track.artist)
     }
@@ -123,28 +122,10 @@ fun TrackOptionsMenu(
     }
     fun viewArtist() {
         if (onGoToArtist == null) return
-        if (creditedArtists.size > 1) {
-            showArtistPicker = true
-        } else {
-            onGoToArtist(creditedArtists.firstOrNull() ?: track.artist)
-            onDismiss()
-        }
-    }
-    if (showArtistPicker) {
-        ArtistPickerSheet(
-            artists = remember(creditedArtists) {
-                creditedArtists.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
-            },
-            subtitle = track.title,
-            onPick = { artist ->
-                showArtistPicker = false
-                onGoToArtist?.invoke(artist.name)
-                onDismiss()
-            },
-            onDismiss = { showArtistPicker = false }
-        )
-        // Replace the source menu while choosing; two modal surfaces must not stack.
-        return
+        // A multi-name credit goes through whole: the app opens "She & Him" directly when that is
+        // one artist, and asks which artist only for a real collab.
+        onGoToArtist(if (creditedArtists.size > 1) track.artist else creditedArtists.firstOrNull() ?: track.artist)
+        onDismiss()
     }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
