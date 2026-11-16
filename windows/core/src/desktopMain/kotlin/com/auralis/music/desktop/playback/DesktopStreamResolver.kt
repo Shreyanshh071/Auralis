@@ -1,26 +1,43 @@
 package com.auralis.music.desktop.playback
 
+import com.auralis.music.data.network.FailureCategory
+import com.auralis.music.data.network.FailureClassifier
 import com.auralis.music.data.network.NewPipeDownloader
+import com.auralis.music.data.network.PlaybackFailure
+import com.auralis.music.data.network.PlaybackIntentContext
 import com.auralis.music.data.network.RecordingMatches
+import com.auralis.music.data.network.RequestBudget
+import com.auralis.music.data.network.YouTubeBackoff
+import com.auralis.music.data.network.YouTubeCooldown
+import com.auralis.music.data.network.YouTubeTraffic
 import com.auralis.music.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.AudioTrackType
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Finds the audio stream URL for a YouTube video with NewPipeExtractor, the same extractor the
- * phone's AudioStreamResolver uses first. It picks the stream the phone picks on its default
- * (Auto) quality: the original-language track at the highest bitrate.
+ * Finds the audio stream for a YouTube video with NewPipeExtractor, the same extractor the
+ * phone's AudioStreamResolver uses first, and picks what the phone picks on its default quality:
+ * the original-language track at the highest bitrate.
+ *
+ * Traffic policy (plan.md Phases 1-3):
+ *  - one extraction at a time, foreground first ([PriorityGate]); no speculative duplicate hedges;
+ *  - identical requests share one extraction, canceled when no caller still wants it;
+ *  - nothing is sent while the YouTube cooldown waits, and only one trial goes out when it ends;
+ *  - each lookup draws on its intent's [RequestBudget] (deadline, request credits, recoveries);
+ *  - links are cached per video, quality/client profile and network route; a refresh never joins
+ *    older work, and older work can't overwrite a refreshed link.
  */
 object DesktopStreamResolver {
     @Volatile var enabledClients: Set<String> = setOf("VISIONOS")
@@ -28,31 +45,35 @@ object DesktopStreamResolver {
             if (value.isEmpty() || value == field) return
             field = value
             org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient("IOS" in value)
-            clearCache()
         }
     @Volatile var quality = com.auralis.music.domain.model.AudioQuality.HIGH
-        set(value) { if (field != value) { field = value; clearCache() } }
     private const val TAG = "DesktopStreamResolver"
-    private const val EXTRACTION_BUDGET_MS = 15000L
-    private const val MAX_ATTEMPTS = 2
-    /** How long one extraction may take before another starts beside it. */
-    private const val HEDGE_MS = 1200L
-    private const val MAX_PARALLEL = 3
+    private const val EXTRACTION_BUDGET_MS = 15_000L
+    /** Pause before the one in-lookup retry after a transient failure. */
+    private const val RETRY_DELAY_MS = 1_500L
+    /** Candidate streams checked per extraction (each check is one small media request). */
+    private const val MAX_PROBES = 3
     // libVLC sends this user agent too (VlcAudioPlayer).
     private const val PROBE_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
-    private data class Cached(val url: String, val expiresAtMs: Long)
+    /** The quality and client set a link was resolved for; links from another profile aren't reused. */
+    val profileKey: String get() = "${quality.name}:${enabledClients.sorted().joinToString("+")}"
 
-    /** Stream servers that refused us recently (host -> when), skipped for [HOST_BLOCK_MS] like the phone. */
+    // ---- media edge hosts that refused us --------------------------------------------------
+
+    /** Media edge hosts (one googlevideo node each) that refused a link recently, skipped for a while. */
     private val failedHosts = ConcurrentHashMap<String, Long>()
     private const val HOST_BLOCK_MS = 5 * 60 * 1000L
 
-    /** The server behind [url] refused or broke the stream; avoid it for a while. */
+    /**
+     * The edge host behind [url] refused it without expiry evidence; prefer other hosts for a while.
+     * This is one node, never the whole CDN, and never a reason to stop playback of other songs.
+     */
     fun markHostFailed(url: String) {
         val host = hostOf(url) ?: return
         failedHosts[host] = System.currentTimeMillis()
-        Log.w(TAG, "Avoiding $host for 5 min after a playback error")
+        Log.w(TAG, "Preferring other media hosts than $host for 5 min after a refusal")
     }
 
     private fun hostOf(url: String): String? = runCatching { java.net.URI(url).host }.getOrNull()
@@ -66,9 +87,38 @@ object DesktopStreamResolver {
         }
         return true
     }
-    private val cache = ConcurrentHashMap<String, Cached>()
-    /** Videos YouTube refuses to anonymous viewers (age-restricted), so they aren't retried. */
-    private val ageRestricted = ConcurrentHashMap<String, Long>()
+
+    // ---- caches ------------------------------------------------------------------------------
+
+    private val links = StreamLinkCache({
+        runCatching { java.io.File(com.auralis.music.util.desktopAppDataDir(), "stream-links.properties") }.getOrNull()
+    })
+
+    /** Per-video refresh generation: a refresh bumps it so older lookups can't publish over it. */
+    private val epochs = ConcurrentHashMap<String, AtomicLong>()
+    private fun epochOf(target: String) = epochs.computeIfAbsent(target) { AtomicLong() }
+
+    /** The link already known for [videoId], without asking YouTube; null when there's none. */
+    fun cachedUrl(videoId: String): String? = cachedResource(videoId)?.url
+
+    fun cachedResource(videoId: String): PlaybackResource? {
+        val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
+        return links.get(target, profileKey, RouteScope.current())?.takeIf { !hostBlocked(it.url) }
+    }
+
+    /** Videos YouTube refuses to anonymous viewers (age/account restricted), so they aren't retried. */
+    private val restricted = ConcurrentHashMap<String, Long>()
+    private const val RESTRICTED_MS = 6 * 3600_000L
+
+    private fun isRestricted(target: String): Boolean {
+        val at = restricted[target] ?: return false
+        if (System.currentTimeMillis() - at > RESTRICTED_MS) { restricted.remove(target); return false }
+        return true
+    }
+
+    /** Companion video per video (a link, or "" for none) for this run; filled by audio lookups too. */
+    private data class VideoEntry(val url: String, val expiresAtMs: Long)
+    private val videoCache = ConcurrentHashMap<String, VideoEntry>()
 
     @Volatile private var initialized = false
 
@@ -84,130 +134,170 @@ object DesktopStreamResolver {
 
     internal fun initializeExtractor() = ensureInitialized()
 
-    /** Silent companion video for the exact recording; audio resolution remains independent. */
-    suspend fun resolveVideo(videoId: String): String? = withContext(Dispatchers.IO) {
-        if (!DesktopPlaybackMatch.isVideoId(videoId)) return@withContext null
-        runCatching {
-            ensureInitialized()
-            NewPipeDownloader.withRequestBudget(EXTRACTION_BUDGET_MS) {
-                val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
-                extractor.fetchPage()
-                // YouTube's auto-generated "Artist - Topic" uploads are one still picture of some
-                // release's cover (often another album's): not a video, and it covered the real cover.
-                if (runCatching { extractor.uploaderName }.getOrNull().orEmpty().endsWith(" - Topic")) return@withRequestBudget null
-                extractor.videoStreams.filter { (it.resolution.substringBefore('p').toIntOrNull() ?: 9999) <= 720 }
-                    .maxByOrNull { it.resolution.substringBefore('p').toIntOrNull() ?: 0 }?.content
-            }
-        }.getOrNull()
-    }
-
-    /** Starts NewPipe (its first extraction is slow) without waiting for it. */
+    /** Starts NewPipe (its first extraction is slow) without waiting for it. No network request. */
     fun warmUp() {
         Thread({ runCatching { ensureInitialized() } }, "newpipe-warmup").apply { isDaemon = true }.start()
     }
 
-    /** Lookups under way, by video: playback, the next-song preload and the relay's refresh share one. */
-    private val inFlight = ConcurrentHashMap<String, Deferred<String?>>()
-    /** Lookups outlive the caller: a song skipped mid-lookup is ready when it's picked again. */
-    private val lookups = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // ---- coordination ------------------------------------------------------------------------
 
-    suspend fun resolve(videoId: String): String? {
+    private val workers = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val gate = PriorityGate(permits = 1, maxWaiting = 8)
+    private val audioFlights = SharedFlights<String, ResolutionResult>(workers, gate)
+    private val videoFlights = SharedFlights<String, String?>(workers, gate)
+    /** Refreshes of one video run one at a time; a second finds the first's fresh link. */
+    private val refreshLocks = ConcurrentHashMap<String, Any>()
+    private val lastRefusal = ConcurrentHashMap<String, Long>()
+
+    private suspend fun budgetFor(priority: RequestPriority, reason: String): RequestBudget =
+        currentCoroutineContext()[PlaybackIntentContext]?.budget
+            ?: RequestBudget(RequestBudget.newId(if (priority == RequestPriority.FOREGROUND) "f" else "b"), reason,
+                deadlineMs = if (priority == RequestPriority.FOREGROUND) RequestBudget.FOREGROUND_DEADLINE_MS else RequestBudget.BACKGROUND_DEADLINE_MS)
+
+    private fun cooldownFailure(operation: String): ResolutionResult.Deferred? {
+        val snapshot = YouTubeBackoff.cooldown.snapshot() ?: return null
+        val wait = YouTubeBackoff.retryInMs()
+        if (wait <= 0L) return null
+        val category = when (snapshot.cause) {
+            YouTubeCooldown.Cause.RATE_LIMITED -> FailureCategory.RATE_LIMITED
+            YouTubeCooldown.Cause.VERIFICATION -> FailureCategory.VERIFICATION_CHALLENGE
+            YouTubeCooldown.Cause.TRANSIENT -> FailureCategory.TRANSIENT
+        }
+        return ResolutionResult.Deferred(wait, PlaybackFailure(category, operation, retryAfterMs = wait, detail = "cooldown"))
+    }
+
+    // ---- audio -------------------------------------------------------------------------------
+
+    /** The stream URL, or null; [resolveResult] says why. */
+    suspend fun resolve(videoId: String, priority: RequestPriority = RequestPriority.FOREGROUND): String? =
+        resolveResult(videoId, priority).url
+
+    suspend fun resolveResult(videoId: String, priority: RequestPriority = RequestPriority.FOREGROUND,
+        refresh: Boolean = false): ResolutionResult {
         val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
-        if (!DesktopPlaybackMatch.isVideoId(target)) return null
-        cache[target]?.let { if (System.currentTimeMillis() < it.expiresAtMs - 60_000L && !hostBlocked(it.url)) return it.url }
-        val created = lookups.async(start = CoroutineStart.LAZY) { lookUp(target) }
-        val shared = inFlight.putIfAbsent(target, created)
-        if (shared != null) { created.cancel(); return shared.await() }
-        created.invokeOnCompletion { inFlight.remove(target, created) }
-        created.start()
-        return created.await()
+        if (!DesktopPlaybackMatch.isVideoId(target)) return ResolutionResult.Failed(PlaybackFailure(FailureCategory.CONTENT_UNAVAILABLE, "resolve", detail = "not a YouTube video"))
+        val profile = profileKey
+        val route = RouteScope.current()
+        if (!refresh) links.get(target, profile, route)?.takeIf { !hostBlocked(it.url) }?.let { return ResolutionResult.Resolved(it) }
+        if (isRestricted(target)) return ResolutionResult.Failed(PlaybackFailure(FailureCategory.RESTRICTED, "resolve", detail = "known restriction"))
+        cooldownFailure("resolve")?.let { return it }
+        val budget = budgetFor(priority, "resolve")
+        if (budget.exhausted) return ResolutionResult.Failed(PlaybackFailure(FailureCategory.BUDGET_EXHAUSTED, "resolve", detail = budget.toString()))
+        val epoch = epochOf(target).get()
+        val key = "$target|$profile|$route|$epoch"
+        return audioFlights.await(key, priority) { ticket ->
+            withContext(PlaybackIntentContext(budget)) { lookUp(target, profile, route, epoch, ticket, budget) }
+        }
     }
 
-    private suspend fun lookUp(target: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun lookUp(target: String, profile: String, route: String, epoch: Long,
+        ticket: PriorityGate.Ticket, budget: RequestBudget): ResolutionResult {
         val started = System.currentTimeMillis()
-        val testedUrls = mutableSetOf<String>()
-
-        var extractMs = 0L
-        var probeMs = 0L
-        for (attempt in 1..MAX_ATTEMPTS) {
-            if (ageRestricted.containsKey(target)) break
-            val extractStarted = System.currentTimeMillis()
-            val streams = extractHedged(target)
-            extractMs += System.currentTimeMillis() - extractStarted
-            if (streams.isNullOrEmpty()) {
-                if (attempt < MAX_ATTEMPTS) {
-                    kotlinx.coroutines.delay(400L * attempt)
-                    continue
+        val tested = mutableSetOf<String>()
+        var last: PlaybackFailure? = null
+        var attempt = 0
+        while (true) {
+            attempt++
+            val extracted: Extraction = try {
+                gate.withPermit(ticket) {
+                    // Checked inside the gate: the cooldown may have started while this waited.
+                    cooldownFailure("extract")?.let { return@withPermit Extraction.Skipped(it) }
+                    if (!YouTubeBackoff.permit()) return@withPermit Extraction.Skipped(cooldownFailure("extract")
+                        ?: ResolutionResult.Deferred(1_000L, PlaybackFailure(FailureCategory.RATE_LIMITED, "extract", detail = "trial in flight")))
+                    extract(target, budget)
                 }
-                break
+            } catch (e: GateFullException) {
+                return ResolutionResult.Deferred(2_000L, PlaybackFailure(FailureCategory.BUDGET_EXHAUSTED, "extract", detail = "queue full"))
             }
-            val candidates = rankStreams(streams, testedUrls)
-            if (candidates.isEmpty()) {
-                if (attempt < MAX_ATTEMPTS) {
-                    kotlinx.coroutines.delay(400L * attempt)
-                    continue
+            val streams = when (extracted) {
+                is Extraction.Skipped -> return extracted.result
+                is Extraction.Failure -> { last = extracted.failure; null }
+                is Extraction.Streams -> extracted.audio
+            }
+            if (streams != null) {
+                val outcome = probeCandidates(target, streams, tested, budget)
+                if (outcome is ResolutionResult.Resolved) {
+                    val resource = outcome.resource.copy(profile = profile, route = route, sessionGeneration = NewPipeDownloader.sessionGeneration)
+                    // A refresh started meanwhile: its link wins, this one isn't published.
+                    if (epochOf(target).get() == epoch) links.put(resource)
+                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (attempt $attempt, itag ${resource.itag} ${resource.mimeType}, client ${resource.client}) ${budget}")
+                    return ResolutionResult.Resolved(resource)
                 }
-                break
+                last = (outcome as? ResolutionResult.Failed)?.failure ?: last
             }
-
-            for (stream in candidates) {
-                val url = stream.content ?: continue
-                if (testedUrls.contains(url)) continue
-                testedUrls.add(url)
-
-                val probeStarted = System.currentTimeMillis()
-                val status = probe(url)
-                probeMs += System.currentTimeMillis() - probeStarted
-                if (status == 403) {
-                    val host = hostOf(url)
-                    Log.w(TAG, "Stream for $target refused (HTTP 403) from $host on attempt $attempt; trying alternate stream")
-                    markHostFailed(url)
-                } else if (DesktopStreamProbe.playable(status)) {
-                    val host = hostOf(url)
-                    val client = Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1)
-                    Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (extract ${extractMs}ms, check ${probeMs}ms; attempt $attempt, check $status, itag ${stream.itag} ${stream.format?.mimeType} from $host client $client)")
-                    cache[target] = Cached(url, expiryOf(url))
-                    return@withContext url
-                } else {
-                    Log.w(TAG, "Stream for $target failed its audio check ($status); trying alternate stream")
-                }
+            val failure = last ?: PlaybackFailure(FailureCategory.UNKNOWN, "extract")
+            // One more extraction only for failures a retry can plausibly fix, and only with allowance left.
+            val retryable = failure.category == FailureCategory.TRANSIENT || failure.category == FailureCategory.MEDIA_FORBIDDEN
+            if (attempt >= 2 || !retryable || budget.exhausted || budget.remainingMs() < RETRY_DELAY_MS + 2_000L ||
+                !budget.tryTransition("retry lookup of $target after ${failure.category}")) {
+                Log.w(TAG, "No playable stream for $target after ${System.currentTimeMillis() - started}ms: $failure ${budget}")
+                return ResolutionResult.Failed(failure)
             }
+            delay(RETRY_DELAY_MS)
         }
-        Log.w(TAG, "No playable stream for $target after ${System.currentTimeMillis() - started}ms")
-        null
     }
 
-    /**
-     * The video's audio streams, without waiting out one slow extraction. Most finish in about a
-     * second, but now and then one stalls for 10-15s (a slow YouTube response), which kept a song
-     * buffering until it was picked again. So when one hasn't answered in [HEDGE_MS], another
-     * starts beside it (up to [MAX_PARALLEL]), and the first good answer wins; a failed one is
-     * replaced at once rather than after it ends the whole attempt.
-     */
-    private suspend fun extractHedged(target: String): List<AudioStream>? = hedgedStreamLookup(
-        workers = lookups, hedgeMs = HEDGE_MS, budgetMs = EXTRACTION_BUDGET_MS, maxAttempts = MAX_PARALLEL,
-        stop = { ageRestricted.containsKey(target) },
-        onHedge = { Log.d(TAG, "Extraction for $target is slow; starting another") }
-    ) { runInterruptible { extractStreams(target) }?.takeIf { it.isNotEmpty() } }
+    private sealed interface Extraction {
+        class Streams(val audio: List<AudioStream>) : Extraction
+        class Failure(val failure: PlaybackFailure) : Extraction
+        class Skipped(val result: ResolutionResult) : Extraction
+    }
 
-    private fun extractStreams(target: String): List<AudioStream>? = try {
+    /** One extraction: the player response's audio streams (and its video, kept for the sidebar). */
+    private suspend fun extract(target: String, budget: RequestBudget): Extraction {
         ensureInitialized()
-        NewPipeDownloader.withRequestBudget(EXTRACTION_BUDGET_MS) {
-            val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$target")
-            extractor.fetchPage()
-            extractor.audioStreams ?: emptyList()
+        val tag = YouTubeTraffic.Tag(budget.correlationId, budget.reason, budget)
+        val timeout = minOf(EXTRACTION_BUDGET_MS, budget.remainingMs()).coerceAtLeast(1L)
+        return try {
+            val audio = NewPipeDownloader.cancellable(timeout, tag) {
+                val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$target")
+                extractor.fetchPage()
+                val streams = extractor.audioStreams ?: emptyList()
+                // The same response carries the video streams: remember them so the sidebar's
+                // companion video needn't extract this song again.
+                runCatching { rememberVideo(target, extractor) }
+                streams
+            }
+            YouTubeBackoff.recordSuccess()
+            if (audio.isEmpty()) Extraction.Failure(PlaybackFailure(FailureCategory.CONTENT_UNAVAILABLE, "extract", detail = "no audio streams"))
+            else Extraction.Streams(audio)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Throwable, not Exception: a missing class (NoClassDefFoundError) must not kill playback.
+            val failure = FailureClassifier.classify(e, "extract")
+            when (failure.category) {
+                FailureCategory.RATE_LIMITED, FailureCategory.VERIFICATION_CHALLENGE, FailureCategory.TRANSIENT -> YouTubeBackoff.trip(failure)
+                FailureCategory.RESTRICTED -> restricted[target] = System.currentTimeMillis()
+                else -> Unit
+            }
+            Log.w(TAG, "Couldn't resolve $target: $failure (${YouTubeTraffic.redact(e.message.orEmpty()).take(200)})")
+            Extraction.Failure(failure)
         }
-    } catch (e: Throwable) {
-        // Throwable, not Exception: a missing class (NoClassDefFoundError) must not kill playback.
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        // Age-restricted for anonymous viewers: retrying won't change that (playback finds another upload).
-        if (e is org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) ageRestricted[target] = System.currentTimeMillis()
-        if (com.auralis.music.data.network.YouTubeBackoff.isBlockPage(e.message.orEmpty())) com.auralis.music.data.network.YouTubeBackoff.trip()
-        Log.w(TAG, "Couldn't resolve $target: ${e.javaClass.simpleName} ${e.message}")
-        null
     }
 
-    /** HTTP status for the first two bytes of [url]; -1 when the check itself couldn't run. */
+    /** Checks the best candidates' first bytes; the first that is really audio wins. */
+    private fun probeCandidates(target: String, streams: List<AudioStream>, tested: MutableSet<String>, budget: RequestBudget): ResolutionResult {
+        var failure: PlaybackFailure? = null
+        val tag = YouTubeTraffic.Tag(budget.correlationId, budget.reason, budget)
+        for (stream in rankStreams(streams, tested).take(MAX_PROBES)) {
+            val url = stream.content ?: continue
+            if (!tested.add(url)) continue
+            val status = YouTubeTraffic.withTag(tag) { probe(url) }
+            if (DesktopStreamProbe.playable(status)) {
+                return ResolutionResult.Resolved(PlaybackResource(target, url, FailureClassifier.expiresAtMs(url) ?: (System.currentTimeMillis() + 3600_000L),
+                    stream.itag.takeIf { it > 0 }, stream.format?.mimeType ?: PlaybackResource.mimeOf(url), PlaybackResource.clenOf(url), PlaybackResource.clientOf(url)))
+            }
+            val classified = FailureClassifier.classifyMedia(status, url)
+            failure = classified
+            if (classified.category == FailureCategory.MEDIA_FORBIDDEN) markHostFailed(url)
+            Log.w(TAG, "Stream for $target failed its audio check: $classified (host ${hostOf(url)}); trying another")
+            if (classified.category == FailureCategory.RATE_LIMITED) break
+        }
+        return ResolutionResult.Failed(failure ?: PlaybackFailure(FailureCategory.CONTENT_UNAVAILABLE, "probe", detail = "no usable stream"))
+    }
+
+    /** HTTP status for the first piece of [url]; -1 when the check itself couldn't run. */
     private fun probe(url: String): Int = DesktopStreamProbe.check(
         probeClient, url, PROBE_USER_AGENT, LocalStreamRelay::offerFirstBlock)
 
@@ -219,27 +309,109 @@ object DesktopStreamResolver {
             .build()
     }
 
+    // ---- refresh -----------------------------------------------------------------------------
+
     /**
-     * A new stream URL for [videoId], bypassing the cache (called from the relay's threads once
-     * YouTube refused a piece). It comes from a new visitor session: when YouTube cuts a session's
-     * streams off after the first megabyte, every URL that session gets stops at the same byte.
+     * A new stream URL for [videoId] after [failedUrl] stopped working (called from the relay's
+     * threads, so blocking). Concurrent refreshes of one song share the first one's result; a
+     * refresh never joins an older lookup. The visitor session is replaced only when a song's
+     * media is refused again right after a fresh link (YouTube cutting off one session's
+     * streams); an expired link or another song's failure never resets it.
      */
-    fun refreshBlocking(videoId: String): String? {
-        invalidate(videoId)
-        NewPipeDownloader.resetSession()
-        return kotlinx.coroutines.runBlocking { resolve(videoId) }
+    fun refreshBlocking(videoId: String, failedUrl: String? = null, failure: PlaybackFailure? = null,
+        budget: RequestBudget? = null): String? {
+        val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
+        synchronized(refreshLocks.computeIfAbsent(target) { Any() }) {
+            // Another caller already refreshed past the failed link.
+            links.get(target, profileKey, RouteScope.current())?.takeIf { failedUrl != null && it.url != failedUrl }?.let { return it.url }
+            failedUrl?.let { links.removeIfUrl(target, it) } ?: links.remove(target)
+            epochOf(target).incrementAndGet()
+            if (failure?.category == FailureCategory.MEDIA_FORBIDDEN) {
+                val previous = lastRefusal.put(target, System.currentTimeMillis())
+                if (previous != null && System.currentTimeMillis() - previous < 10 * 60_000L) {
+                    NewPipeDownloader.resetSession("media for $target refused again after a fresh link")
+                    lastRefusal.remove(target)
+                }
+            }
+            val context: kotlin.coroutines.CoroutineContext = budget?.let { PlaybackIntentContext(it) } ?: kotlin.coroutines.EmptyCoroutineContext
+            return runBlocking(context) { resolveResult(videoId, RequestPriority.FOREGROUND, refresh = true).url }
+        }
     }
 
     /** Forgets every looked-up stream (Settings' clear cache). */
-    fun clearCache() = cache.clear()
+    fun clearCache() {
+        links.clear()
+        videoCache.clear()
+        restricted.clear()
+        epochs.values.forEach { it.incrementAndGet() }
+    }
 
     fun invalidate(videoId: String) {
-        cache.remove(RecordingMatches.getMatchedVideoId(videoId) ?: videoId)
+        val target = RecordingMatches.getMatchedVideoId(videoId) ?: videoId
+        links.remove(target)
+        epochOf(target).incrementAndGet()
     }
+
+    // ---- companion video ----------------------------------------------------------------------
+
+    private fun rememberVideo(videoId: String, extractor: org.schabi.newpipe.extractor.stream.StreamExtractor) {
+        // YouTube's auto-generated "Artist - Topic" uploads are one still picture of some
+        // release's cover (often another album's): not a video, and it covered the real cover.
+        val topic = runCatching { extractor.uploaderName }.getOrNull().orEmpty().endsWith(" - Topic")
+        val url = if (topic) null else extractor.videoStreams
+            .filter { (it.resolution.substringBefore('p').toIntOrNull() ?: 9999) <= 720 }
+            .maxByOrNull { it.resolution.substringBefore('p').toIntOrNull() ?: 0 }?.content
+        videoCache[videoId] = VideoEntry(url.orEmpty(), url?.let(FailureClassifier::expiresAtMs) ?: (System.currentTimeMillis() + 6 * 3600_000L))
+    }
+
+    private fun cachedVideo(videoId: String): VideoEntry? =
+        videoCache[videoId]?.takeIf { System.currentTimeMillis() < it.expiresAtMs - 60_000L }
+
+    /**
+     * Silent companion video for the exact recording. Usually known already from the song's audio
+     * lookup; otherwise one background extraction, shared, behind foreground audio, and never
+     * while YouTube requests are paused. Audio playback never depends on it.
+     */
+    suspend fun resolveVideo(videoId: String): String? {
+        if (!DesktopPlaybackMatch.isVideoId(videoId)) return null
+        cachedVideo(videoId)?.let { return it.url.ifEmpty { null } }
+        if (cooldownFailure("video") != null) return null
+        val budget = budgetFor(RequestPriority.BACKGROUND, "video")
+        return videoFlights.await("video|$videoId", RequestPriority.BACKGROUND) { ticket ->
+            try {
+                gate.withPermit(ticket) {
+                    cachedVideo(videoId)?.let { return@withPermit it.url.ifEmpty { null } }
+                    if (cooldownFailure("video") != null || !YouTubeBackoff.permit()) return@withPermit null
+                    ensureInitialized()
+                    val tag = YouTubeTraffic.Tag(budget.correlationId, budget.reason, budget)
+                    try {
+                        NewPipeDownloader.cancellable(minOf(EXTRACTION_BUDGET_MS, budget.remainingMs()).coerceAtLeast(1L), tag) {
+                            val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                            extractor.fetchPage()
+                            rememberVideo(videoId, extractor)
+                        }
+                        YouTubeBackoff.recordSuccess()
+                        cachedVideo(videoId)?.url?.ifEmpty { null }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        // A failed lookup isn't remembered (it may pass later), but it is classified.
+                        val failure = FailureClassifier.classify(e, "video")
+                        if (failure.category == FailureCategory.RATE_LIMITED || failure.category == FailureCategory.VERIFICATION_CHALLENGE ||
+                            failure.category == FailureCategory.TRANSIENT) YouTubeBackoff.trip(failure)
+                        Log.w(TAG, "No companion video for $videoId: $failure")
+                        null
+                    }
+                }
+            } catch (_: GateFullException) { null }
+        }
+    }
+
+    // ---- ranking -----------------------------------------------------------------------------
 
     private fun rankStreams(streams: List<AudioStream>, excludedUrls: Set<String> = emptySet()): List<AudioStream> {
         val usable = streams.filter { stream ->
-            val client = Regex("[?&]c=([^&]+)").find(stream.content.orEmpty())?.groupValues?.get(1)
+            val client = PlaybackResource.clientOf(stream.content.orEmpty())
             !stream.content.isNullOrBlank() && !excludedUrls.contains(stream.content) && (client !in setOf("VISIONOS","IOS") || client in enabledClients)
         }
         val unblocked = usable.filter { !hostBlocked(it.content) }
@@ -261,11 +433,5 @@ object DesktopStreamResolver {
         )
     }
 
-    private fun selectStream(streams: List<AudioStream>): AudioStream? = rankStreams(streams).firstOrNull()
-
     private fun kbps(stream: AudioStream): Int = stream.averageBitrate.takeIf { it > 0 } ?: (stream.bitrate / 1000)
-
-    private fun expiryOf(url: String): Long =
-        Regex("expire=([0-9]+)").find(url)?.groupValues?.get(1)?.toLongOrNull()?.times(1000L)
-            ?: (System.currentTimeMillis() + 4 * 3600 * 1000L)
 }

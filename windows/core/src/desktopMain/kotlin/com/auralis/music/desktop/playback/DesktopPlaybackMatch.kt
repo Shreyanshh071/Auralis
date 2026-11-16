@@ -17,9 +17,10 @@ object DesktopPlaybackMatch {
         val isCustomSearch = search != null
         val searchFn = search ?: ::searchVideos
         RecordingMatches.getMatchedVideoId(track.id)?.takeIf(::isVideoId)?.let { cachedId ->
-            if (isCustomSearch || DesktopStreamResolver.resolve(cachedId) != null) {
-                return cachedId
-            }
+            if (isCustomSearch) return cachedId
+            val check = DesktopStreamResolver.resolveResult(cachedId)
+            // A refused network or a spent allowance says nothing about the match: keep it.
+            if (check.url != null || check !is ResolutionResult.Failed || !check.failure.category.alternateMayHelp) return cachedId
             RecordingMatches.matchedVideoIds.remove(track.id)
             RecordingMatches.matchedDurations.remove(track.id)
         }
@@ -37,6 +38,7 @@ object DesktopPlaybackMatch {
 
         val primaryMatches = pickCandidates(track, candidates)
         for (cand in primaryMatches) {
+            if (stopTrying()) return null
             if (DesktopStreamResolver.resolve(cand.id) != null) {
                 RecordingMatches.matchedVideoIds[track.id] = cand.id
                 RecordingMatches.matchedDurations[track.id] = cand.duration.toLong()
@@ -53,6 +55,7 @@ object DesktopPlaybackMatch {
 
         val videoMatches = pickCandidates(track, videoCandidates)
         for (cand in videoMatches) {
+            if (stopTrying()) return null
             if (DesktopStreamResolver.resolve(cand.id) != null) {
                 RecordingMatches.matchedVideoIds[track.id] = cand.id
                 RecordingMatches.matchedDurations[track.id] = cand.duration.toLong()
@@ -71,11 +74,13 @@ object DesktopPlaybackMatch {
      * recording (title, artist, length, no other version), and remember it for next time.
      */
     suspend fun alternative(track: Track, failedId: String, resolve: suspend (String) -> String?): Pair<String, String>? {
+        if (stopTrying()) return null
         val query = "${track.title} ${track.artist}".trim()
         val candidates = (runCatching { searchVideos(query) }.getOrDefault(emptyList()) +
             runCatching { searchVideoCandidates(query) }.getOrDefault(emptyList()))
             .filter { isVideoId(it.id) && it.id != failedId }.distinctBy { it.id }
         for (candidate in pickCandidates(track, candidates).take(4)) {
+            if (stopTrying()) break
             val url = resolve(candidate.id) ?: continue
             RecordingMatches.matchedVideoIds[failedId] = candidate.id
             if (track.id != failedId) RecordingMatches.matchedVideoIds[track.id] = candidate.id
@@ -85,6 +90,13 @@ object DesktopPlaybackMatch {
         com.auralis.music.util.Log.w("DesktopPlaybackMatch", "No playable upload of '${track.title}' besides $failedId")
         return null
     }
+
+    /**
+     * Trying more candidates is pointless while YouTube requests are paused (each would be refused
+     * alike) or once the intent's request allowance is spent.
+     */
+    private suspend fun stopTrying(): Boolean = com.auralis.music.data.network.YouTubeBackoff.active ||
+        kotlinx.coroutines.currentCoroutineContext()[com.auralis.music.data.network.PlaybackIntentContext]?.budget?.exhausted == true
 
     private fun pickCandidate(track: Track, candidates: List<Track>): Track? = pickCandidates(track, candidates).firstOrNull()
 

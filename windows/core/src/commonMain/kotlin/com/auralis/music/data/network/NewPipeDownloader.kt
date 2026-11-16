@@ -1,5 +1,11 @@
 package com.auralis.music.data.network
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -14,17 +20,70 @@ class NewPipeDownloader(
     private val client: OkHttpClient
 ) : Downloader() {
 
+    /**
+     * Cancels the HTTP calls of one extraction. NewPipe is synchronous: coroutine cancellation and
+     * thread interruption alone don't stop a blocked socket read, so a canceled extraction kept
+     * its request going (and its slot) until the read timed out.
+     */
+    class CallHandle {
+        private val calls = ConcurrentHashMap.newKeySet<okhttp3.Call>()
+        @Volatile var canceled = false
+            private set
+        @Volatile internal var completed = false
+
+        fun cancel() {
+            canceled = true
+            calls.forEach { it.cancel() }
+        }
+
+        internal fun register(call: okhttp3.Call) {
+            calls += call
+            if (canceled) call.cancel()
+        }
+
+        internal fun unregister(call: okhttp3.Call) { calls -= call }
+    }
+
     companion object {
         private val requestDeadlineNs = ThreadLocal<Long>()
+        private val requestHandle = ThreadLocal<CallHandle?>()
 
         // NewPipe is synchronous. Coroutine timeouts cannot stop its blocking HTTP
         // calls; share one deadline across every request in a single extraction.
-        fun <T> withRequestBudget(timeoutMs: Long, block: () -> T): T {
+        fun <T> withRequestBudget(timeoutMs: Long, handle: CallHandle? = null, block: () -> T): T {
             val previous = requestDeadlineNs.get()
+            val previousHandle = requestHandle.get()
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             requestDeadlineNs.set(previous?.let { minOf(it, deadline) } ?: deadline)
+            if (handle != null) requestHandle.set(handle)
             return try { block() } finally {
                 if (previous == null) requestDeadlineNs.remove() else requestDeadlineNs.set(previous)
+                if (previousHandle == null) requestHandle.remove() else requestHandle.set(previousHandle)
+            }
+        }
+
+        /**
+         * Runs a blocking NewPipe [block] on an IO thread so that canceling the caller cancels its
+         * in-flight HTTP calls at once, under a [timeoutMs] deadline, with its requests attributed
+         * to [tag] (and charged to the tag's budget).
+         */
+        suspend fun <T> cancellable(timeoutMs: Long, tag: YouTubeTraffic.Tag? = null, block: () -> T): T = coroutineScope {
+            val handle = CallHandle()
+            val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try { awaitCancellation() } finally { if (!handle.completed) handle.cancel() }
+            }
+            try {
+                runInterruptible(Dispatchers.IO) {
+                    withRequestBudget(timeoutMs, handle) { if (tag != null) YouTubeTraffic.withTag(tag, block) else block() }
+                }
+            } catch (e: Throwable) {
+                // The aborted call's IOException is the cancellation, not a network failure to count.
+                if (handle.canceled && e !is kotlinx.coroutines.CancellationException)
+                    throw kotlinx.coroutines.CancellationException("Extraction canceled").apply { initCause(e) }
+                throw e
+            } finally {
+                handle.completed = true
+                watcher.cancel()
             }
         }
 
@@ -36,7 +95,7 @@ class NewPipeDownloader(
             cacheDir = cacheDirectory
         }
 
-        private val cookieMap = ConcurrentHashMap<String, ConcurrentHashMap<String, okhttp3.Cookie>>()
+        private val cookieJar = SessionCookieJar()
 
         // In-memory token cache for visitor_id (10-minute TTL) to eliminate redundant round-trips
         private val tokenCache = ConcurrentHashMap<String, Pair<Long, Response>>()
@@ -45,18 +104,27 @@ class NewPipeDownloader(
         // Minimal valid JSON body for next endpoint to satisfy NewPipe's parser without downloading 450KB of comments
         private const val DUMMY_NEXT_JSON = "{\"responseContext\":{},\"contents\":{\"twoColumnWatchNextResults\":{\"results\":{\"results\":{\"contents\":[]}}}}}"
 
+        /**
+         * The anonymous visitor session's generation. Work that started under an older one must not
+         * publish results into a newer session's caches.
+         */
+        @Volatile var sessionGeneration = 0L
+            private set
+
         fun clearTokenCache() {
             tokenCache.clear()
         }
 
         /**
          * Forgets YouTube's visitor session (its cookies and visitor_id), so the next extraction
-         * starts a new one. YouTube can cut off every stream of one session after the first
-         * megabyte, and the session otherwise lasts as long as the process.
+         * starts a new one. Only for a classified reason (a session whose media is refused again
+         * after a fresh link, say): a reset breaks every other lookup sharing the session.
          */
-        fun resetSession() {
-            cookieMap.clear()
+        fun resetSession(reason: String) {
+            cookieJar.clear()
             tokenCache.clear()
+            sessionGeneration++
+            com.auralis.music.util.Log.i("NewPipeDownloader", "New visitor session (generation $sessionGeneration): $reason")
         }
 
         val instance: NewPipeDownloader by lazy {
@@ -67,22 +135,9 @@ class NewPipeDownloader(
                 .readTimeout(10, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .retryOnConnectionFailure(true)
-                .cookieJar(object : okhttp3.CookieJar {
-                    override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-                        val hostMap = cookieMap.computeIfAbsent(url.host) { ConcurrentHashMap() }
-                        cookies.forEach { hostMap[it.name] = it }
-                    }
-
-                    override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-                        val list = mutableListOf<okhttp3.Cookie>()
-                        cookieMap.forEach { (host, cookies) ->
-                            if (url.host.endsWith(host) || host.endsWith(url.host)) {
-                                list.addAll(cookies.values)
-                            }
-                        }
-                        return list
-                    }
-                })
+                .addInterceptor(YouTubeTraffic.gate)
+                .addNetworkInterceptor(YouTubeTraffic.meter)
+                .cookieJar(cookieJar)
 
             cacheDir?.let { dir ->
                 try {
@@ -98,7 +153,9 @@ class NewPipeDownloader(
     @Throws(IOException::class)
     override fun execute(request: Request): Response {
         val deadline = requestDeadlineNs.get()
+        val handle = requestHandle.get()
         val remainingNs = deadline?.minus(System.nanoTime())
+        if (handle?.canceled == true) throw java.io.InterruptedIOException("Extraction canceled")
         if (Thread.currentThread().isInterrupted || (remainingNs != null && remainingNs <= 0)) {
             throw java.io.InterruptedIOException("Audio extraction deadline reached")
         }
@@ -106,6 +163,7 @@ class NewPipeDownloader(
 
         // 1. Bypass heavy 'next' endpoint (comments, recommendations) - saves ~1.15s and 450KB payload
         if (url.contains("/youtubei/v1/next")) {
+            YouTubeTraffic.noteAvoided(YouTubeTraffic.Endpoint.NEXT)
             return Response(
                 200,
                 "OK",
@@ -119,6 +177,7 @@ class NewPipeDownloader(
         if (url.contains("/youtubei/v1/visitor_id")) {
             val cached = tokenCache[url]
             if (cached != null && System.currentTimeMillis() - cached.first < TOKEN_CACHE_TTL_MS) {
+                YouTubeTraffic.noteAvoided(YouTubeTraffic.Endpoint.VISITOR)
                 return cached.second
             }
         }
@@ -160,27 +219,39 @@ class NewPipeDownloader(
             if (callBudgetNs <= 0) throw java.io.InterruptedIOException("Audio extraction deadline reached")
             call.timeout().timeout(callBudgetNs, TimeUnit.NANOSECONDS)
         }
-        return call.execute().use { okResponse ->
-            val responseBody = okResponse.body?.string() ?: ""
-            val responseHeaders = mutableMapOf<String, List<String>>()
-            okResponse.headers.names().forEach { name ->
-                responseHeaders[name] = okResponse.headers.values(name)
+        handle?.register(call)
+        try {
+            return call.execute().use { okResponse ->
+                if (okResponse.code == 429) {
+                    // The meter already paused YouTube requests; stop this extraction too.
+                    throw RateLimitedException(RetryAfter.parseMs(okResponse.header("Retry-After")))
+                }
+                val responseBody = okResponse.body?.string() ?: ""
+                val responseHeaders = mutableMapOf<String, List<String>>()
+                okResponse.headers.names().forEach { name ->
+                    responseHeaders[name] = okResponse.headers.values(name)
+                }
+
+                val res = Response(
+                    okResponse.code,
+                    okResponse.message,
+                    responseHeaders,
+                    responseBody,
+                    okResponse.request.url.toString()
+                )
+
+                // Save fresh visitor_id response to token cache
+                if (url.contains("/youtubei/v1/visitor_id") && okResponse.code == 200) {
+                    tokenCache[url] = System.currentTimeMillis() to res
+                }
+
+                res
             }
-
-            val res = Response(
-                okResponse.code,
-                okResponse.message,
-                responseHeaders,
-                responseBody,
-                okResponse.request.url.toString()
-            )
-
-            // Save fresh visitor_id response to token cache
-            if (url.contains("/youtubei/v1/visitor_id") && okResponse.code == 200) {
-                tokenCache[url] = System.currentTimeMillis() to res
-            }
-
-            res
+        } catch (e: IOException) {
+            if (handle?.canceled == true && e !is java.io.InterruptedIOException) throw java.io.InterruptedIOException("Extraction canceled")
+            throw e
+        } finally {
+            handle?.unregister(call)
         }
     }
 }

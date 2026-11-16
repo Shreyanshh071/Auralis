@@ -29,8 +29,20 @@ class DesktopDownloads(
     metadataFile: File = File(root, "index.json"),
     private val onRootChanged: (File) -> Unit = {},
     private val stream: suspend (Track) -> String = { track ->
-        val id = DesktopPlaybackMatch.videoId(track) ?: error("Could not match this song to playable audio")
-        DesktopStreamResolver.resolve(id) ?: error("Could not resolve audio")
+        // Downloads wait behind playback (background priority) under their own allowance, and
+        // fail at once while YouTube requests are paused instead of adding to the refusals.
+        val budget = com.auralis.music.data.network.RequestBudget(com.auralis.music.data.network.RequestBudget.newId("d"), "download",
+            deadlineMs = 45_000L)
+        kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(budget)) {
+            val id = DesktopPlaybackMatch.videoId(track) ?: error("Could not match this song to playable audio")
+            when (val result = DesktopStreamResolver.resolveResult(id, com.auralis.music.desktop.playback.RequestPriority.BACKGROUND)) {
+                is com.auralis.music.desktop.playback.ResolutionResult.Resolved -> result.resource.url
+                is com.auralis.music.desktop.playback.ResolutionResult.Deferred ->
+                    error("YouTube requests are paused (${result.failure.category}); try again in ${(result.retryInMs + 59_999) / 60_000} min")
+                is com.auralis.music.desktop.playback.ResolutionResult.Failed -> error("Could not resolve audio (${result.failure.category})")
+                else -> error("Could not resolve audio")
+            }
+        }
     }
 ) {
     private val mutableRoot = MutableStateFlow(root)
