@@ -73,6 +73,9 @@ fun main(args: Array<String>) {
     val windowTitle = if (dev) "Auralis Dev" else "Auralis"
     // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
     Log.logToFile(java.io.File(dataDir, "auralis.log"), append = true)
+    // A YouTube pause survives restarts (bounded), and request counts go to dated, redacted logs.
+    com.auralis.music.data.network.YouTubeBackoff.stateFile = java.io.File(dataDir, "youtube-cooldown.properties")
+    com.auralis.music.data.network.YouTubeTraffic.diagnosticsDir = java.io.File(dataDir, "diagnostics")
     // The installer's step keeping gaming overlays off Auralis, and the elevated copy it starts.
     if (args.contains(com.auralis.music.windows.media.GameOverlayOptOut.SETUP_ARGUMENT))
         kotlin.system.exitProcess(com.auralis.music.windows.media.GameOverlayOptOut.setupFromInstaller())

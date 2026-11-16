@@ -12,6 +12,9 @@ fun main(rawArgs: Array<String>) = runBlocking {
     // gradlew.bat splits arguments at spaces, so spaces are written as '+'.
     val args = rawArgs.flatMap { it.split("::") }.map { it.replace('+', ' ') }
     val id = args.firstOrNull()?.takeIf { it.isNotBlank() } ?: "4NRXx6U8ABQ"
+    // -PstreamClients=IOS (or VISIONOS,IOS) checks the clients Settings can switch to.
+    System.getProperty("auralis.streamClients")?.split(',')?.filter { it.isNotBlank() }?.toSet()
+        ?.let { DesktopStreamResolver.enabledClients = it; println("CLIENTS $it") }
     val started = System.currentTimeMillis()
     val target = if (args.size >= 4) com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(
         com.auralis.music.domain.model.Track(id = id, title = args[1], artist = args[2], duration = args[3].toLong())) else id
