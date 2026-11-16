@@ -45,6 +45,10 @@ class AuralisApplication : Application(), ImageLoaderFactory {
         val searchLookups = com.auralis.music.util.SharedPreferencesKeyValueStore(getSharedPreferences("auralis_album_lookups", MODE_PRIVATE))
         com.auralis.music.data.network.AlbumMetadataResolver.persistTo(searchLookups)
         com.auralis.music.data.network.InnerTubeClient.persistReleaseTypesTo(searchLookups)
+        // Stats: names YouTube linked as one artist ("Tyler, The Creator") and label uploads' real artists.
+        val artistCredits = com.auralis.music.util.SharedPreferencesKeyValueStore(getSharedPreferences("auralis_artist_credits", MODE_PRIVATE))
+        com.auralis.music.domain.stats.ArtistCredits.persistTo(artistCredits)
+        com.auralis.music.data.network.OfficialArtistResolver.persistTo(artistCredits)
         com.auralis.music.data.sync.LocalDataOwner.init(this)
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = cacheDir
         // zemer-cipher logs through Timber; keep its lines in logcat for diagnosing downloads.

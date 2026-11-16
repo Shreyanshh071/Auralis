@@ -3,6 +3,7 @@ package com.auralis.music.data.repository
 import com.auralis.music.data.local.dao.HistoryDao
 import com.auralis.music.data.local.dao.PlayCountDao
 import com.auralis.music.data.local.dao.PlaybackEventDao
+import com.auralis.music.data.local.dao.PlaybackEventWithTrackTuple
 import com.auralis.music.data.local.dao.TrackDao
 import com.auralis.music.data.local.entity.PlaybackEventEntity
 import com.auralis.music.data.local.mapper.toDomain
@@ -13,6 +14,8 @@ import com.auralis.music.domain.model.SongStat
 import com.auralis.music.domain.model.StatsOverview
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.repository.StatsRepository
+import com.auralis.music.data.network.OfficialArtistResolver
+import com.auralis.music.domain.stats.ArtistCredits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -22,6 +25,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+private const val LOOKUPS_PER_PASS = 25
+
 class StatsRepositoryImpl(
     private val trackDao: TrackDao,
     private val playbackEventDao: PlaybackEventDao,
@@ -30,16 +35,11 @@ class StatsRepositoryImpl(
 ) : StatsRepository {
     private val statsMutationMutex = Mutex()
 
-    private companion object {
-        val CREDIT_SEPARATORS = Regex(
-            """\s*(?:,|;|&|\s+x\s+|\s+(?:feat\.?|ft\.?|featuring)\s+)\s*""",
-            RegexOption.IGNORE_CASE
-        )
-    }
-
     override suspend fun logPlaybackEvent(track: Track, playTimeMs: Long) = withContext(Dispatchers.IO) {
         if (track.id.isBlank()) return@withContext
         trackDao.upsertTrackPreservingFavorite(track.toEntity())
+        // A label upload ("T-Series") gets its real artists from the official song, in the background.
+        OfficialArtistResolver.request(track)
         // Only measured time counts; never assume a full-length listen.
         if (playTimeMs <= 0) return@withContext
         val effectivePlayTimeMs = playTimeMs
@@ -55,11 +55,11 @@ class StatsRepositoryImpl(
     override fun observeStatsOverview(fromTimestamp: Long, toTimestamp: Long): Flow<StatsOverview> {
         // Counted from the same grouped events as the lists below, so "75 Songs" means 75 distinct
         // songs (not 75 YouTube IDs, where one song can have an audio, video and Topic upload).
-        return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
+        return withArtistLookups(playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp)).map { list ->
             StatsOverview(
                 totalPlayTimeMs = list.sumOf { it.event.playTimeMs },
                 songsCount = list.map { songKey(it.track.toDomain()) }.distinct().size,
-                artistsCount = list.flatMap { creditedArtists(it.track.artist) }.mapNotNull { artistKey(it) }.distinct().size,
+                artistsCount = list.flatMap { creditedArtists(it.track.toDomain()) }.mapNotNull { artistKey(it) }.distinct().size,
                 albumsCount = list.mapNotNull { e ->
                     e.track.album?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
                 }.distinct().size
@@ -99,10 +99,10 @@ class StatsRepositoryImpl(
         toTimestamp: Long,
         limit: Int
     ): Flow<List<ArtistStat>> {
-        return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
+        return withArtistLookups(playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp)).map { list ->
             // A collab ("Karan Aujla & Ikky") counts in full for each artist on it, like Spotify,
             // instead of becoming its own artist named after the whole credit line.
-            list.flatMap { e -> creditedArtists(e.track.artist).mapNotNull { name -> artistKey(name)?.let { Triple(it, name, e) } } }
+            list.flatMap { e -> creditedArtists(e.track.toDomain()).mapNotNull { name -> artistKey(name)?.let { Triple(it, name, e) } } }
                 .groupBy { it.first }
                 .map { (_, credits) ->
                     val events = credits.map { it.third }
@@ -159,22 +159,25 @@ class StatsRepositoryImpl(
     private fun displayArtist(raw: String): String =
         raw.trim().replace(Regex("""(?i)\s*-\s*topic$"""), "").replace(Regex("""(?i)vevo$"""), "").trim()
 
-    /**
-     * The individual artists in a credit line: "Arpit Bala, A.O.D., Angad Virk & Karan Kanchan"
-     * gives four. Splits on commas, "&", " x " and feat./ft./featuring; not on "and" or "+", which
-     * are too often part of one name ("Florence + The Machine").
-     */
-    private fun creditedArtists(raw: String): List<String> {
-        val credit = displayArtist(raw)
-        val names = credit.split(CREDIT_SEPARATORS)
-            .map { displayArtist(it).trim() }
-            .filter { it.isNotBlank() }
-            .distinctBy { it.lowercase() }
-        return names.ifEmpty { listOfNotNull(credit.takeIf { it.isNotBlank() }) }
-    }
+    /** Each artist [track] credits: the official song's for a label upload, YouTube's list, or the split credit. */
+    private fun creditedArtists(track: Track): List<String> = OfficialArtistResolver.credits(track)
 
-    private fun artistKey(raw: String): String? =
-        displayArtist(raw).lowercase().replace(Regex("""[^\p{L}\p{M}0-9]"""), "").takeIf { it.isNotBlank() }
+    /**
+     * [events], recounted whenever a label upload's real artists arrive. Label uploads in the
+     * range that haven't been looked up are queued (a few at a time, in the background).
+     */
+    private fun withArtistLookups(events: Flow<List<PlaybackEventWithTrackTuple>>): Flow<List<PlaybackEventWithTrackTuple>> =
+        combine(events, OfficialArtistResolver.revision) { list, _ ->
+            var queued = 0
+            for (e in list) { // Newest first, as the query orders them.
+                if (queued >= LOOKUPS_PER_PASS) break
+                val track = e.track.toDomain()
+                if (OfficialArtistResolver.needsLookup(track)) { OfficialArtistResolver.request(track); queued++ }
+            }
+            list
+        }
+
+    private fun artistKey(raw: String): String? = ArtistCredits.key(raw)
 
     /**
      * A listen counts as a "play" once it reaches 30s (or half the song, for songs under a minute).

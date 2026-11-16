@@ -123,6 +123,7 @@ class QueueDataStore(private val context: Context) {
                     put("channelTitle", t.channelTitle ?: "")
                     put("views", t.views ?: "")
                     put("dominantColor", t.dominantColor ?: 0)
+                    com.auralis.music.domain.model.TrackArtists.encode(t.artists)?.let { put("artists", it) }
                 }
                 array.put(obj)
             }
@@ -159,7 +160,8 @@ class QueueDataStore(private val context: Context) {
                                 source = source,
                                 channelTitle = channelTitle,
                                 views = views,
-                                dominantColor = domColor
+                                dominantColor = domColor,
+                                artists = com.auralis.music.domain.model.TrackArtists.decode(obj.optString("artists"))
                             )
                         )
                     }

@@ -430,7 +430,8 @@ open class InnerTubeClient(
                         albumId = albumId,
                         duration = durationSec,
                         thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(longRuns, title)
                     )
                 )
                 videoTypes.add(renderer.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")
@@ -851,7 +852,8 @@ open class InnerTubeClient(
             artist = artistName,
             duration = durationSec,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(bylineRuns, title)
         )
     }
 
@@ -1577,7 +1579,8 @@ open class InnerTubeClient(
             album = albumName,
             duration = 0L,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(subtitleRuns, title)
         )
     }
 
@@ -1750,7 +1753,8 @@ open class InnerTubeClient(
                 duration = duration,
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
                 views = viewsStr,
-                source = TrackSource.YOUTUBE
+                source = TrackSource.YOUTUBE,
+                artists = ArtistRuns.forItem(subtitleRuns, title)
             )
             if (songs.none { it.id == videoId }) {
                 songs.add(0, track)
@@ -2023,7 +2027,8 @@ open class InnerTubeClient(
                         duration = durationSec,
                         thumbnail = thumbUrl,
                         views = viewsStr,
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(col1Runs, title)
                     )
                 )
             }

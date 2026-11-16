@@ -151,6 +151,11 @@ fun main(args: Array<String>) {
             store
         }
 
+        // Stats: names YouTube linked as one artist ("Tyler, The Creator") and label uploads' real artists.
+        val artistCredits = PropertiesFileKeyValueStore(java.io.File(dataDir, "artist-credits.properties"))
+        com.auralis.music.domain.stats.ArtistCredits.persistTo(artistCredits)
+        com.auralis.music.data.network.OfficialArtistResolver.persistTo(artistCredits)
+
         val searchRepositoryDeferred = async {
             SearchRepositoryImpl(
                 InnerTubeClient(),

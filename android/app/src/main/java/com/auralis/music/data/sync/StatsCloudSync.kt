@@ -269,6 +269,12 @@ object StatsCloudSync {
                                 "ms" to ev.playTimeMs,
                                 "ti" to t?.title,
                                 "ar" to t?.artist,
+                                // Each credited artist, best source first (the official song's for a label upload).
+                                "as" to t?.let { entity ->
+                                    val track = entity.toDomain()
+                                    val artists = com.auralis.music.data.network.OfficialArtistResolver.cached(track.id) ?: track.artists
+                                    com.auralis.music.domain.model.TrackArtists.encode(artists)
+                                },
                                 "al" to t?.album,
                                 "th" to t?.thumbnail,
                                 "du" to t?.duration
