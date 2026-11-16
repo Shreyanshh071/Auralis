@@ -5,6 +5,7 @@ build/
 */build/
 *.apk
 *.aab
+Auralis-Setup.exe
 local.properties
 .cxx/
 
