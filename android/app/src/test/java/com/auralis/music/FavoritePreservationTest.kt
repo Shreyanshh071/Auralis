@@ -49,6 +49,7 @@ class FavoritePreservationTest {
             }
         }
 
+        override suspend fun fillMissingThumbnail(id: String, thumbnail: String): Int = 0
         override suspend fun updateThumbnail(id: String, thumbnail: String) {
             val existing = storage[id]
             if (existing != null) {
