@@ -120,6 +120,14 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
             checked = prefs.spotifyCanvas,
             onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
         )
+        val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+        SettingToggle(
+            title = "Fetch Canvas with your Spotify account",
+            description = if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account." else "Sign in to Spotify from your profile to use this.",
+            checked = prefs.spotifyAccount && spotifySignedIn,
+            enabled = spotifySignedIn && prefs.spotifyCanvas,
+            onChecked = { CanvasSettings.update(prefs.copy(spotifyAccount = it)) }
+        )
     }
 
     SettingsGroup("Lyrics appearance") {

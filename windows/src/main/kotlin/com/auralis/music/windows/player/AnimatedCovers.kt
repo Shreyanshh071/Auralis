@@ -44,7 +44,9 @@ import java.util.concurrent.ConcurrentHashMap
 /** Where animated covers come from. Auto tries Apple Music, then Tidal, then the curated library. */
 internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), CURATED("Curated library") }
 
-internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO, val spotifyCanvas: Boolean = true)
+internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO, val spotifyCanvas: Boolean = true,
+    /** Ask Spotify with the signed-in account when SpicyLyrics has no Canvas. Off by default. */
+    val spotifyAccount: Boolean = false)
 
 /** Appearance > Animated covers, kept in its own small file. */
 internal object CanvasSettings {
@@ -87,12 +89,13 @@ internal object CanvasSettings {
     private fun load() = runCatching {
         CanvasPrefs(store.getString("enabled", "true") != "false",
             CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO,
-            store.getString("spotifyCanvas", "true") != "false")
+            store.getString("spotifyCanvas", "true") != "false",
+            store.getString("spotifyAccount", "false") == "true")
     }.getOrDefault(CanvasPrefs())
 
     fun update(prefs: CanvasPrefs) {
         mutable.value = prefs
-        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString(), "loopIntroPlays" to introPlays.toString())) }
+        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString(), "spotifyAccount" to prefs.spotifyAccount.toString(), "loopIntroPlays" to introPlays.toString())) }
     }
 }
 

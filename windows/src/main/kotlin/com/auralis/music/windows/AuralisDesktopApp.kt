@@ -92,7 +92,8 @@ fun AuralisDesktopApp(
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
-    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
+    /** The handler gets each key twice: before the focused element (true) and after it, if unused (false). */
+    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)?) -> Unit = {},
     selfTest: SelfTest? = null,
     onSelfTestDone: (Boolean) -> Unit = {},
     /** Discord status through the desktop Discord app; null when unavailable. */
@@ -449,7 +450,10 @@ fun AuralisDesktopApp(
     androidx.compose.runtime.LaunchedEffect(showPlayer) { if (showPlayer) focusManager.clearFocus() }
     val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing && !showPlayer)
     androidx.compose.runtime.DisposableEffect(actions) {
-        onShortcutHandler { event -> handleShortcut(event, currentTyping.value, actions) }
+        onShortcutHandler { event, beforeFocused ->
+            if (beforeFocused) handleControlShortcut(event, actions)
+            else !currentTyping.value && handlePlainShortcut(event, actions)
+        }
         onDispose { onShortcutHandler(null) }
     }
 

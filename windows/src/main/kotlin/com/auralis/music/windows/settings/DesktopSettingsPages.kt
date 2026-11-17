@@ -187,6 +187,12 @@ private fun CanvasSettingsSection() {
         }
         Text(desktopText("Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+        Toggle("Fetch Canvas with your Spotify account", prefs.spotifyAccount && spotifySignedIn) {
+            if (spotifySignedIn) com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyAccount = it))
+        }
+        Text(desktopText(if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account." else "Sign in to Spotify from your profile to use this."),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
