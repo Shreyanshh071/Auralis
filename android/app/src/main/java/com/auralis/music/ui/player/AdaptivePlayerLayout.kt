@@ -234,8 +234,15 @@ private const val REFERENCE_WIDTH_DP = 432f
  * phone's proportions between cover, lyric line and title instead of the same raw dp.
  */
 @Composable
-internal fun playerSpacingScale(): Float =
-    (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp / REFERENCE_WIDTH_DP).coerceIn(0.8f, 1.25f)
+internal fun playerSpacingScale(): Float {
+    // The screen width in the dp the player is laid out in: Settings → Display density rescales
+    // LocalDensity, while Configuration still reports the system's dp.
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val layoutDensity = LocalDensity.current.density
+    val widthPx = configuration.screenWidthDp * configuration.densityDpi / 160f
+    val widthDp = if (layoutDensity > 0f) widthPx / layoutDensity else configuration.screenWidthDp.toFloat()
+    return (widthDp / REFERENCE_WIDTH_DP).coerceIn(0.8f, 1.25f)
+}
 
 /** Measures the actual action group before deciding whether metadata needs its own row. */
 @Composable

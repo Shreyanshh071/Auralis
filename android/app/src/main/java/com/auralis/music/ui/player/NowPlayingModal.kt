@@ -426,6 +426,19 @@ fun NowPlayingModal(
     val pagerState = rememberPagerState(
         initialPage = currentTrackIndex.coerceIn(0, pageCount - 1)
     ) { pageCount }
+    // Shuffle on/off reorders the queue: the playing song keeps playing at a new index. Snap the
+    // pager before this frame is measured, otherwise the old page draws the song that took its place.
+    val lastPlayingSlot = remember { arrayOf<Any?>(track.id, currentTrackIndex) }
+    androidx.compose.runtime.SideEffect {
+        val samePlayingSong = lastPlayingSlot[0] == track.id
+        val movedFrom = lastPlayingSlot[1] as Int
+        if (samePlayingSong && movedFrom != currentTrackIndex && pagerState.currentPage == movedFrom &&
+            !pagerState.isScrollInProgress && currentTrackIndex in 0 until pageCount) {
+            pagerState.requestScrollToPage(currentTrackIndex)
+        }
+        lastPlayingSlot[0] = track.id
+        lastPlayingSlot[1] = currentTrackIndex
+    }
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
 
@@ -1426,6 +1439,30 @@ fun NowPlayingModal(
                                         ) { isDragging ->
                                             var isHandleHeld by remember { mutableStateOf(false) }
                                             var isRowHeld by remember { mutableStateOf(false) }
+                                            fun queuePosition(): Int {
+                                                val localIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                if (localIndex < 0) return -1
+                                                val occurrence = localQueue.take(localIndex).count { it.track.id == item.track.id }
+                                                return queueSnapshot.indices.filter { queueSnapshot[it].id == item.track.id }.getOrNull(occurrence) ?: localIndex
+                                            }
+                                            val swipeEnabled = !isCurrent && !reorderableLazyListState.isAnyItemDragging
+                                            // Swipe right: play this song next. Swipe left: take it out of the queue.
+                                            com.auralis.music.ui.components.SwipeableTrackContainer(
+                                                onPlayNext = if (swipeEnabled && onReorderQueue != null) {
+                                                    {
+                                                        val from = queuePosition()
+                                                        val current = uiState.currentIndex.takeIf { queueSnapshot.getOrNull(it)?.id == uiState.currentTrack?.id }
+                                                            ?: queueSnapshot.indexOfFirst { it.id == uiState.currentTrack?.id }
+                                                        val to = if (from < current) current else current + 1
+                                                        if (from >= 0 && current >= 0 && to in queueSnapshot.indices && from != to) onReorderQueue(from, to)
+                                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.playing_next_x, item.track.title))
+                                                    }
+                                                } else null,
+                                                onRemoveFromPlaylist = if (swipeEnabled && onRemoveQueueItem != null) {
+                                                    { queuePosition().takeIf { it >= 0 }?.let { onRemoveQueueItem(it) } }
+                                                } else null,
+                                                removeOnSwipeLeft = true
+                                            ) {
                                             // Same row as the Classic queue: no card, no drag highlight; the current
                                             // song is marked by a play/pause badge on its artwork and a bold title.
                                             Row(
@@ -1582,6 +1619,7 @@ fun NowPlayingModal(
                                                         modifier = Modifier.size(24.dp)
                                                     )
                                                 }
+                                            }
                                             }
                                         }
                                     }

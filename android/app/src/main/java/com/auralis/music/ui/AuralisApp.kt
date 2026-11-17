@@ -1225,8 +1225,8 @@ fun AuralisApp(
                                                     obtainLibraryViewModel().createPlaylistAndAddTrack(title, track)
                                                 },
                                                 onPlayNext = { track ->
-                                                    obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    if (obtainPlayerViewModel().playNext(track))
+                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
@@ -1517,8 +1517,8 @@ fun AuralisApp(
                                                     libVM.createPlaylistAndAddTrack(title, track)
                                                 },
                                                 onPlayNext = { track ->
-                                                    obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    if (obtainPlayerViewModel().playNext(track))
+                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
@@ -1616,8 +1616,8 @@ fun AuralisApp(
                                                     }
                                                 },
                                                 onPlayNext = { track ->
-                                                    obtainPlayerViewModel().playNext(track)
-                                                    android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    if (obtainPlayerViewModel().playNext(track))
+                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                                                 },
                                                 onAddToQueueTrack = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
@@ -1945,8 +1945,8 @@ fun AuralisApp(
                     onRemoveFromHistory = { homeViewModel.removeFromHistory(it) },
                     onClearHistory = { homeViewModel.clearHistory() },
                     onPlayNext = { track ->
-                        obtainPlayerViewModel().playNext(track)
-                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                        if (obtainPlayerViewModel().playNext(track))
+                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))
@@ -1988,8 +1988,8 @@ fun AuralisApp(
                         libVM.createPlaylistAndAddTrack(title, track)
                     },
                     onPlayNext = { track ->
-                        obtainPlayerViewModel().playNext(track)
-                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                        if (obtainPlayerViewModel().playNext(track))
+                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))

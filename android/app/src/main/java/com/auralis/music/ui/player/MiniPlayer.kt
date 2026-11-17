@@ -243,6 +243,19 @@ fun MiniPlayer(
         ) { pageCount }
     }
 
+    // Shuffle on/off moves the playing song to a new index: snap there before the frame is
+    // measured instead of sliding through the song that took its old place.
+    val lastPlayingSlot = remember { arrayOf<Any?>(track?.id, safeCurrentIndex) }
+    androidx.compose.runtime.SideEffect {
+        val movedFrom = lastPlayingSlot[1] as Int
+        if (track != null && lastPlayingSlot[0] == track.id && movedFrom != safeCurrentIndex &&
+            pagerState.currentPage == movedFrom && !pagerState.isScrollInProgress && safeCurrentIndex in 0 until pageCount) {
+            pagerState.requestScrollToPage(safeCurrentIndex)
+        }
+        lastPlayingSlot[0] = track?.id
+        lastPlayingSlot[1] = safeCurrentIndex
+    }
+
     var pendingTargetIndex by remember(appearance.miniPlayerDesign) { mutableStateOf<Int?>(null) }
     var isProgrammaticScroll by remember(appearance.miniPlayerDesign) { mutableStateOf(false) }
     var userSwipedPager by remember(appearance.miniPlayerDesign) { mutableStateOf(false) }
