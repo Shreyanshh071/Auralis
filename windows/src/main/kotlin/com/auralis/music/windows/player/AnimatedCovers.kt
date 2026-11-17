@@ -262,12 +262,19 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
     var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
+    // On the lyrics stage: true while the video is Spotify's Canvas, false once it fell back to motion artwork.
+    var fromSpotify by remember(track?.id, spotifyCanvasId) { mutableStateOf(true) }
     LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
         url = null
+        fromSpotify = canvasOnly
         val enabled = if (canvasOnly) prefs.spotifyCanvas else prefs.enabled
         if (track != null && enabled && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
             com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
-            url = if (canvasOnly) SpotifyCanvasLookup.find(spotifyCanvasId) else CanvasLookup.find(track, prefs.source)
+            url = if (!canvasOnly) CanvasLookup.find(track, prefs.source) else {
+                // A song without a Spotify Canvas plays its Apple Music / Tidal motion artwork on the stage.
+                SpotifyCanvasLookup.find(spotifyCanvasId)
+                    ?: (if (prefs.enabled) CanvasLookup.find(track, prefs.source) else null)?.also { fromSpotify = false }
+            }
         }
     }
     Box(modifier) {
@@ -285,7 +292,9 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                         if (active.get()) {
                             // VLC can pad a portrait frame by a few pixels.
                             val portrait = kotlin.math.abs(it.width.toDouble() / it.height - 9.0 / 16) < .02
-                            if (!canvasOnly || portrait) {
+                            // Motion artwork is square or 3:4: the stage crops it to fill.
+                            val stageFrame = !canvasOnly || portrait || !fromSpotify
+                            if (stageFrame) {
                                 if (!canvasOnly || firstFrame.complete(true) || frame != null) {
                                     frame = it
                                     motionAura?.offer(it)
@@ -300,7 +309,7 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     stop?.invoke()
                 }
             }
-            if (canvasOnly && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
+            if (canvasOnly && fromSpotify && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
                 if (withTimeoutOrNull(12_000L) { firstFrame.await() } != true) {
                     firstFrame.complete(false)
                     url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
