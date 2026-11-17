@@ -48,7 +48,7 @@ class AppearanceSettingsDataStore(
             val defaults = AppearanceSettings()
             val legacyExpLyrics = preferences[EXPERIMENTAL_LYRICS] ?: defaults.experimentalLyrics
             val storedAnimation = preferences[LYRICS_ANIMATION]
-            val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
+            val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == "Auralis (Default)")) {
                 LyricsAnimationMode.METRO_LYRICS.displayName
             } else {
                 storedAnimation ?: defaults.lyricsAnimation

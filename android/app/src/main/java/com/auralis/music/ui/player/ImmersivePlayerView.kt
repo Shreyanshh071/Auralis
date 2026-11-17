@@ -44,7 +44,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.zIndex
 import com.auralis.music.data.parser.WordTiming
 import com.auralis.music.domain.model.LyricLine
-import com.auralis.music.ui.lyrics.renderers.MetroLyricsLine
 import com.auralis.music.ui.theme.LocalReducedMotion
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Spring
@@ -1464,19 +1463,26 @@ private fun MetroPreviewText(
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
             // The word renderer wraps freely; a one-line host gets the plain, ellipsized line.
             if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty() && previewMaxLines > 1) {
-                MetroLyricsLine(
-                    line = line,
-                    words = line.words,
+                // Vivi Music's word animation, sized to the preview's own type.
+                val entry = remember(line) {
+                    com.auralis.music.ui.lyrics.vivi.LyricsEntry(
+                        time = line.time,
+                        text = line.text,
+                        words = com.auralis.music.ui.lyrics.vivi.groupWords(line.words)
+                    )
+                }
+                com.auralis.music.ui.lyrics.vivi.LyricsLineV2(
+                    entry = entry,
                     isActive = true,
-                    distanceFromCurrent = 0,
+                    isPast = false,
                     effectivePlaybackPosition = positionMs(),
-                    lineColor = Color.White.copy(alpha = 0.5f),
-                    accentColor = Color.White,
-                    textAlign = TextAlign.Left,
-                    alignment = Alignment.Start,
-                    fontSizeSp = PreviewLyricStyle.fontSize.value,
-                    lineSpacingMultiplier = 1.22f,
-                    isPlaying = isPlaying && !isBuffering
+                    expressiveAccent = Color.White,
+                    inactiveAlpha = 0.5f,
+                    baseFontSize = PreviewLyricStyle.fontSize.value,
+                    lineHeight = PreviewLyricStyle.fontSize.value * 1.22f,
+                    showTranslated = false,
+                    agentAlignment = Alignment.Start,
+                    agentTextAlign = TextAlign.Left
                 )
             } else {
                 Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)

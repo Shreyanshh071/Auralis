@@ -172,8 +172,6 @@ fun AppTour(
                             label = { value -> AudioQuality.entries.first { it.displayName == value }.name.lowercase().replaceFirstChar { it.uppercase() } }) { value -> scope.launch { settingsStore.setAudioQuality(AudioQuality.entries.first { it.displayName == value }) } }
                         4 -> TourChoices(LyricsAnimationMode.entries.map { it.displayName }, appearance.lyricsAnimation, accent, ink, columns = 4,
                             label = { when (LyricsAnimationMode.fromDisplayName(it)) {
-                                LyricsAnimationMode.AURALIS -> "Auralis"
-                                LyricsAnimationMode.FLUID -> "Fluid"
                                 LyricsAnimationMode.APPLE_MUSIC_V2 -> "Apple V2"
                                 LyricsAnimationMode.LYRICS_V2_FLUID -> "V2 Fluid"
                                 else -> it

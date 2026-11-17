@@ -267,10 +267,10 @@ class ExperimentalLyricsSourceFaithfulTimingTest {
     }
 
     @Test
-    fun `MetroLyrics still routes to Experimental source-faithful timing`() {
+    fun `Spicy Lyrics still routes to Experimental source-faithful timing`() {
         val settings = AppearanceSettings(
             experimentalLyrics = false,
-            lyricsAnimation = LyricsAnimationMode.METRO_LYRICS.displayName
+            lyricsAnimation = LyricsAnimationMode.SPICY_LYRICS.displayName
         )
         val line = LyricLine(
             time = 60_000L,
