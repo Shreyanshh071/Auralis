@@ -24,7 +24,9 @@ internal object SpotifyCanvasLookup {
     // Small direct MP4s are typically mobile previews. Prefer the manifest for those clips.
     private const val MIN_DIRECT_BYTES = 1_500_000L
     private const val MIN_CACHE_BYTES = 64L * 1024
-    private const val DAY_MS = 86_400_000L
+    // A song SpicyLyrics has no video for is asked again after a few minutes, not a day: its
+    // catalogue fills in over time, and a clean install must not stay locked out.
+    private const val MISS_RETRY_MS = 300_000L
     private val trackPattern = Regex("[A-Za-z0-9]{22}")
     private val filePattern = Regex("[a-fA-F0-9]{32}")
     private val folder by lazy { File(desktopAppDataDir(), "cache/spotify-canvas") }
@@ -59,7 +61,7 @@ internal object SpotifyCanvasLookup {
                 }
                 check(item?.has("error") != true)
                 if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
-                    misses[trackId] = now + DAY_MS
+                    misses[trackId] = now + MISS_RETRY_MS
                     return@withLock null
                 }
                 val fileId = item.getString("fileId")

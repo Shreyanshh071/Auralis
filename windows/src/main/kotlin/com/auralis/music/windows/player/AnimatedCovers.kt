@@ -313,11 +313,12 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     .drawWithContent {
                         drawContent()
                         drawRect(
+                            // Solid almost to the edge; only the last few percent feather into the
+                            // dark blend PlayerScreen draws underneath, so no coloured band shows.
                             Brush.horizontalGradient(
-                                .76f to Color.Black,
-                                .82f to Color.Black.copy(alpha = .86f),
-                                .88f to Color.Black.copy(alpha = .5f),
-                                .94f to Color.Black.copy(alpha = .14f),
+                                .88f to Color.Black,
+                                .94f to Color.Black.copy(alpha = .70f),
+                                .98f to Color.Black.copy(alpha = .20f),
                                 1f to Color.Transparent
                             ),
                             blendMode = BlendMode.DstIn

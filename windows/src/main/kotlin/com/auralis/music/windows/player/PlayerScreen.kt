@@ -138,14 +138,23 @@ fun PlayerScreen(
             PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
                 artworkUrl, palette, if (canvasStage) motionAura else null)
             if (canvasStage) {
+                // The video's feathered edge lands on this dark blend instead of the bright
+                // motion mesh, which showed through as a coloured band down the middle.
+                Box(Modifier.fillMaxWidth(.62f).fillMaxHeight()
+                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f }
+                    .background(Brush.horizontalGradient(
+                        0f to Color(0xFF050505),
+                        .76f to Color(0xFF050505).copy(alpha = .9f),
+                        1f to Color.Transparent)))
                 AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
                     .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
                     motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
                     playbackClock = playback.clock) {}
+                // Light dimming: enough for the dock and lyrics, without muting the video.
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = .18f),
-                    .6f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = .55f))))
+                    0f to Color.Black.copy(alpha = .10f),
+                    .65f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = .35f))))
             }
         }
 
@@ -167,7 +176,7 @@ fun PlayerScreen(
                         CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
                     } else {
                         Box(Modifier.offset(y = 12.dp)) {
-                            CoverWithControls(playback, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                            CoverWithControls(playback, track, artworkUrl, track?.title, coverSize, ContentScale.Crop)
                         }
                         Spacer(Modifier.height(22.dp))
                         PlayerSeekBar(playback, Modifier.width(coverSize))
@@ -570,7 +579,7 @@ private val BlankCursor: PointerIcon by lazy {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun CoverWithControls(
-    playback: DesktopPlaybackController, artworkUrl: String?, title: String?, size: Dp,
+    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?, artworkUrl: String?, title: String?, size: Dp,
     scale: ContentScale
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -597,8 +606,11 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-            contentDescription = title, contentScale = scale)
+        // With no Spotify video on the stage, the cover still plays Apple Music / Tidal motion artwork.
+        AnimatedCover(track, Modifier.fillMaxSize()) {
+            DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
+                contentDescription = title, contentScale = scale)
+        }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
