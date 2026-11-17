@@ -55,6 +55,15 @@ enum class LyricsPosition { LEFT, CENTER, RIGHT;
  */
 val LocalViviPlaybackClock = staticCompositionLocalOf<(() -> Long)?> { null }
 
+/**
+ * Spicy Lyrics' lyric size, which every style shares: 34sp at the default 22 setting, following
+ * Settings' text size within 0.8x-1.4x; unsynced lyrics are drawn smaller, as Spicy does.
+ */
+internal fun spicyLyricsTextSize(setting: Float, synced: Boolean = true): Float {
+    val size = 34f * (setting / 22f).coerceIn(0.8f, 1.4f)
+    return if (synced) size else 22f * (size / 34f)
+}
+
 internal fun isHindiText(text: String): Boolean = text.any { it in 'ऀ'..'ॿ' }
 
 /**

@@ -45,4 +45,12 @@ class ViviLyricsSupportTest {
         assertEquals(1, findCurrentLineIndex(entries, 800L))
         assertEquals(2, findCurrentLineIndex(entries, 4_800L))
     }
+
+    @Test
+    fun `every style uses Spicy Lyrics' text size`() {
+        assertEquals(34f, spicyLyricsTextSize(22f), 0.001f)
+        assertEquals(34f * 1.4f, spicyLyricsTextSize(40f), 0.001f)
+        assertEquals(34f * 0.8f, spicyLyricsTextSize(10f), 0.001f)
+        assertEquals(22f, spicyLyricsTextSize(22f, synced = false), 0.001f)
+    }
 }
