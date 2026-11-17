@@ -29,7 +29,24 @@ import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.domain.model.Track
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 
-private const val COVER_SETTLE_MS = 2_000L
+// Only the video player waits this long after a song change, so skipping through songs never
+// starts one; the cover lookup itself starts at once.
+private const val COVER_SETTLE_MS = 800L
+
+/** Animated cover videos kept on disk, so a replayed song's loop shows without downloading again. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+internal object AnimatedCoverVideoCache {
+    private const val MAX_BYTES = 200L * 1024 * 1024
+    @Volatile private var cache: androidx.media3.datasource.cache.SimpleCache? = null
+
+    fun get(context: android.content.Context): androidx.media3.datasource.cache.SimpleCache = cache ?: synchronized(this) {
+        cache ?: androidx.media3.datasource.cache.SimpleCache(
+            java.io.File(context.applicationContext.cacheDir, "animated-covers"),
+            androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(MAX_BYTES),
+            androidx.media3.database.StandaloneDatabaseProvider(context.applicationContext)
+        ).also { cache = it }
+    }
+}
 
 /**
  * Silent, lifecycle-aware cover loop. The caller keeps the still artwork underneath.
@@ -43,6 +60,12 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
     val context = LocalContext.current.applicationContext
     val wifi = rememberCoverWifiAvailable(settings.animatedCoversWifiOnly)
     if (!wifi) return
+    // The lookup starts as soon as the song does.
+    val source = CanvasSource.from(settings.animatedCoverSource)
+    var url by remember(track.id, track.title, track.artist, track.album, source) { mutableStateOf<String?>(null) }
+    LaunchedEffect(track.id, track.title, track.artist, track.album, source) {
+        url = CanvasLookup.find(context, track, source)
+    }
     // A video player is heavy to start and stop, so skipping through songs never starts one.
     var settled by remember(track.id) { mutableStateOf(false) }
     LaunchedEffect(track.id) {
@@ -50,11 +73,6 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
         settled = true
     }
     if (!settled) return
-    val source = CanvasSource.from(settings.animatedCoverSource)
-    var url by remember(track.id, track.title, track.artist, track.album, source) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track.id, track.title, track.artist, track.album, source) {
-        url = CanvasLookup.find(context, track, source)
-    }
     val videoUrl = url ?: return
     key(videoUrl) {
         val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -70,7 +88,12 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
         var failed by remember { mutableStateOf(false) }
         var aspect by remember { mutableFloatStateOf(1f) }
         val player = remember {
-            val data = DefaultDataSource.Factory(context, OkHttpDataSource.Factory(NetworkClientProvider.okHttpClient))
+            val network = DefaultDataSource.Factory(context, OkHttpDataSource.Factory(NetworkClientProvider.okHttpClient))
+            // Through the disk cache: a loop already watched starts from local storage.
+            val data = androidx.media3.datasource.cache.CacheDataSource.Factory()
+                .setCache(AnimatedCoverVideoCache.get(context))
+                .setUpstreamDataSourceFactory(network)
+                .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(data)).build().apply {
                 volume = 0f
                 // Artwork must never compete with the music service for audio focus or output.
