@@ -53,9 +53,20 @@ internal object SpotifyCanvasLookup {
     fun songId(songId: String?): String? =
         songId?.takeIf { it.isNotBlank() }?.let { diskIndex.getString("song.$it", "") }?.takeIf(trackPattern::matches)
 
+    private val segmentPool = java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
+        Thread(r, "canvas-segments").apply { isDaemon = true }
+    }
+    @Volatile private var partialsCleaned = false
+
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
+            // A download cut off by closing the app leaves a .partial file behind; clear old ones once.
+            if (!partialsCleaned) {
+                partialsCleaned = true
+                val cutoff = System.currentTimeMillis() - 10 * 60_000L
+                folder.listFiles { file -> file.name.endsWith(".partial") && file.lastModified() < cutoff }?.forEach { runCatching { it.delete() } }
+            }
             val known = indexedFileId(trackId)
             known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = System.currentTimeMillis()
@@ -344,27 +355,31 @@ internal object SpotifyCanvasLookup {
         folder.mkdirs()
         val temporary = File.createTempFile(fileId, ".partial", folder)
         try {
-            temporary.outputStream().use { output ->
-                var bytes = 0L
-                for (template in urls) {
-                    val url = template.replace("{{profile_id}}", profile.getInt("id").toString())
-                        .replace("{{file_type}}", "ts")
+            val segmentUrls = urls.map { template ->
+                template.replace("{{profile_id}}", profile.getInt("id").toString()).replace("{{file_type}}", "ts").also { url ->
                     val uri = URI(url)
-                    check(uri.scheme == "https" && (uri.host.endsWith(".scdn.co") ||
-                        uri.host.endsWith(".spotifycdn.com")))
+                    check(uri.scheme == "https" && (uri.host.endsWith(".scdn.co") || uri.host.endsWith(".spotifycdn.com")))
+                }
+            }
+            // Segments are fetched side by side: each request waits ~0.5s on its own, so one after
+            // another made a cleared Canvas take several seconds to come back.
+            val segments = segmentUrls.map { url ->
+                segmentPool.submit<ByteArray> {
                     http.newCall(Request.Builder().url(url).build()).execute().use { response ->
                         check(response.isSuccessful)
-                        checkNotNull(response.body).byteStream().use { input ->
-                            val buffer = ByteArray(8192)
-                            while (true) {
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                bytes += count
-                                check(bytes <= MAX_BYTES)
-                                output.write(buffer, 0, count)
-                            }
-                        }
+                        val bytes = checkNotNull(response.body).bytes()
+                        check(bytes.size <= MAX_BYTES)
+                        bytes
                     }
+                }
+            }
+            temporary.outputStream().use { output ->
+                var bytes = 0L
+                for (segment in segments) {
+                    val data = segment.get(30, TimeUnit.SECONDS)
+                    bytes += data.size
+                    check(bytes <= MAX_BYTES)
+                    output.write(data)
                 }
                 check(bytes >= MIN_CACHE_BYTES)
             }
