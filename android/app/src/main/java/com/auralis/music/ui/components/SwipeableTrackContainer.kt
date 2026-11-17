@@ -47,12 +47,15 @@ fun SwipeableTrackContainer(
     onAddToQueue: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     isPlaylistContext: Boolean = false,
+    /** Swipe left removes ([onRemoveFromPlaylist]) whenever swipe gestures are on, e.g. in the play queue. */
+    removeOnSwipeLeft: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val appearance = LocalAppearanceSettings.current
     val isSwipeQueueNextEnabled = appearance.swipeLeftQueueRightPlayNext
-    val isSwipeRemoveEnabled = appearance.swipeToRemoveSongFromPlaylist && isPlaylistContext && onRemoveFromPlaylist != null
+    val isSwipeRemoveEnabled = onRemoveFromPlaylist != null &&
+        ((appearance.swipeToRemoveSongFromPlaylist && isPlaylistContext) || (removeOnSwipeLeft && isSwipeQueueNextEnabled))
 
     val canSwipeRight = isSwipeQueueNextEnabled && onPlayNext != null
     val canSwipeLeft = isSwipeRemoveEnabled || (isSwipeQueueNextEnabled && onAddToQueue != null)

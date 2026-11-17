@@ -44,11 +44,14 @@ data class ConnectTrack(
     val local: Boolean = false,
     val lyricsProvider: String? = null,
     val lyricsSpotifyId: String? = null,
-    val lyricsTitle: String? = null, val lyricsArtist: String? = null, val lyricsDurationMs: Long? = null
+    val lyricsTitle: String? = null, val lyricsArtist: String? = null, val lyricsDurationMs: Long? = null,
+    /** Track.artists as TrackArtists.encode text, so the other device credits each artist too. */
+    val artists: String? = null
 ) {
     fun toTrack(): Track = Track(
         id = id, title = title, artist = artist, album = album, albumId = albumId, duration = durationSec,
-        thumbnail = thumbnail, source = if (local) TrackSource.LOCAL else TrackSource.YOUTUBE
+        thumbnail = thumbnail, source = if (local) TrackSource.LOCAL else TrackSource.YOUTUBE,
+        artists = com.auralis.music.domain.model.TrackArtists.decode(artists)
     )
 
     companion object {
@@ -56,7 +59,8 @@ data class ConnectTrack(
             id = track.id, title = track.title.take(MAX_TEXT), artist = track.artist.take(MAX_TEXT),
             album = track.album?.take(MAX_TEXT), albumId = track.albumId?.take(MAX_TEXT),
             thumbnail = track.thumbnail.take(MAX_URL), durationSec = track.duration,
-            local = track.source == TrackSource.LOCAL
+            local = track.source == TrackSource.LOCAL,
+            artists = com.auralis.music.domain.model.TrackArtists.encode(track.artists)?.takeIf { it.length <= MAX_ARTISTS_TEXT }
         )
     }
 }
@@ -192,6 +196,7 @@ const val MAX_QUEUE = 100
 const val MAX_COMMANDS = 20
 private const val MAX_TEXT = 300
 private const val MAX_URL = 1000
+private const val MAX_ARTISTS_TEXT = 600
 
 /**
  * Encoding to Firestore field maps. Numbers come back as Long or Double, timestamps must be
@@ -205,7 +210,7 @@ object ConnectCodec {
         "ownerType" to s.ownerType.name,
         "epoch" to s.epoch,
         "leaseUntil" to s.leaseUntilMs,
-        "track" to s.track?.let(::encodeTrack),
+        "track" to s.track?.let { encodeTrack(it, withArtists = true) },
         "playing" to s.playing,
         "buffering" to s.buffering,
         "positionMs" to s.positionMs,
@@ -289,12 +294,15 @@ object ConnectCodec {
         createdMs = m.long("createdAt")
     )
 
-    private fun encodeTrack(t: ConnectTrack): Map<String, Any?> = mapOf(
+    // Artists ride only with the playing track (the one the other device records), keeping a
+    // 100-song queue well inside the frame limit.
+    private fun encodeTrack(t: ConnectTrack, withArtists: Boolean = false): Map<String, Any?> = mapOf(
         "id" to t.id, "title" to t.title, "artist" to t.artist, "album" to t.album, "albumId" to t.albumId,
         "thumbnail" to t.thumbnail, "duration" to t.durationSec, "local" to t.local,
         "lyricsProvider" to t.lyricsProvider, "lyricsSpotifyId" to t.lyricsSpotifyId,
         "lyricsTitle" to t.lyricsTitle?.take(MAX_TEXT), "lyricsArtist" to t.lyricsArtist?.take(MAX_TEXT),
-        "lyricsDurationMs" to t.lyricsDurationMs
+        "lyricsDurationMs" to t.lyricsDurationMs,
+        "artists" to t.artists?.takeIf { withArtists }
     )
 
     private fun decodeTrack(m: Map<String, Any?>): ConnectTrack? {
@@ -307,7 +315,8 @@ object ConnectCodec {
             lyricsSpotifyId = m.str("lyricsSpotifyId").takeIf { Regex("[A-Za-z0-9]{22}").matches(it) },
             lyricsTitle = m.str("lyricsTitle").take(MAX_TEXT).takeIf { it.isNotBlank() },
             lyricsArtist = m.str("lyricsArtist").take(MAX_TEXT).takeIf { it.isNotBlank() },
-            lyricsDurationMs = m.long("lyricsDurationMs").takeIf { it in 1..86_400_000L }
+            lyricsDurationMs = m.long("lyricsDurationMs").takeIf { it in 1..86_400_000L },
+            artists = m.str("artists").takeIf { it.isNotBlank() && it.length <= MAX_ARTISTS_TEXT }
         )
     }
 

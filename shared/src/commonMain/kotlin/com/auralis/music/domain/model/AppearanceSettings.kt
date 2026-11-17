@@ -46,6 +46,10 @@ data class AppearanceSettings(
     val lyricsAnimation: String = LyricsAnimationMode.SPICY_LYRICS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
     val standardLyricsBlur: Boolean = true,
+    /** Lighter visuals for smoothness and battery: no glass, blur or animated backgrounds. */
+    val reduceEffects: Boolean = false,
+    /** Turn on [reduceEffects] automatically while the phone's battery saver is on. */
+    val reduceEffectsOnBatterySaver: Boolean = false,
     val lyricsTextSize: Float = 22f,
     val lyricsLineSpacing: Float = 1.3f,
 
@@ -68,39 +72,34 @@ data class AppearanceSettings(
     val showCachedPlaylist: Boolean = true,
     val showUploadedPlaylist: Boolean = true
 ) {
+    /** Only Spicy Lyrics keeps the experimental view; every other style uses the Vivi Music port. */
     val shouldUseExperimentalLyrics: Boolean
-        get() = experimentalLyrics || LyricsAnimationMode.fromDisplayName(lyricsAnimation) in setOf(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.SPICY_LYRICS)
+        get() = LyricsAnimationMode.fromDisplayName(lyricsAnimation) == LyricsAnimationMode.SPICY_LYRICS
 }
 
+/** Spicy Lyrics plus the lyric styles ported from Vivi Music. */
 enum class LyricsAnimationMode(val displayName: String) {
-    AURALIS("Auralis (Default)"),
-    FLUID("Auralis (Fluid)"),
+    NONE("None"),
     FADE("Fade"),
-    GLOW("Glow"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
-    LYRICS_V2_FLUID("Lyrics V2 (Fluid)"),
+    VIVIMUSIC("Auralis Lyrics"),
     METRO_LYRICS("MetroLyrics"),
     SPICY_LYRICS("Spicy Lyrics");
 
     companion object {
         fun fromDisplayName(name: String?): LyricsAnimationMode {
-            if (name == null) return AURALIS
+            if (name == null) return VIVIMUSIC
             if (name.equals("Beautiful Lyrics", ignoreCase = true) || name.equals("BEAUTIFUL_LYRICS", ignoreCase = true)) return SPICY_LYRICS
             return entries.firstOrNull { it.displayName.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
                 ?: when {
-                    name.contains("auralis", ignoreCase = true) || name.contains("default", ignoreCase = true) -> AURALIS
+                    // Removed styles (Glow, Slide, Karaoke, Apple Music, Lyrics V2, the old Auralis
+                    // ones) and the former "ViviMusic" name all open as Auralis Lyrics.
                     name.contains("letter", ignoreCase = true) || name.contains("apple_v2", ignoreCase = true) -> APPLE_MUSIC_V2
-                    name.contains("lyrics_v2", ignoreCase = true) -> LYRICS_V2_FLUID
-                    name.contains("vivi", ignoreCase = true) -> LYRICS_V2_FLUID
                     name.contains("spicy", ignoreCase = true) -> SPICY_LYRICS
                     name.contains("metro", ignoreCase = true) -> METRO_LYRICS
-                    name.contains("glow", ignoreCase = true) -> GLOW
-                    name.contains("apple", ignoreCase = true) -> GLOW
                     name.contains("fade", ignoreCase = true) -> FADE
-                    name.contains("none", ignoreCase = true) -> AURALIS
-                    name.contains("karaoke", ignoreCase = true) -> AURALIS
-                    name.contains("slide", ignoreCase = true) -> AURALIS
-                    else -> AURALIS
+                    name.equals("none", ignoreCase = true) -> NONE
+                    else -> VIVIMUSIC
                 }
         }
     }

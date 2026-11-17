@@ -98,6 +98,11 @@ fun ProfileSheet(
     onDeselectAllPlaylists: () -> Unit = {},
     onImportSelectedPlaylists: () -> Unit = {},
     onImportSpotifyPlaylist: (String) -> Unit = {},
+    onImportExternalPlaylist: (String) -> Unit = {},
+    onImportPlaylistFile: (String, String) -> Unit = { _, _ -> },
+    isImportingExternal: Boolean = false,
+    externalImportMessage: String? = null,
+    onClearExternalImportMessage: () -> Unit = {},
     /** Playlists picked from the signed-in Spotify library. */
     onImportSpotifyLibraryPlaylists: (List<com.auralis.music.data.network.SpotifyLibrary.LibraryPlaylist>) -> Unit = {},
     importedPlaylistIds: Set<String> = emptySet(),
@@ -275,7 +280,12 @@ fun ProfileSheet(
                 importedPlaylistIds = importedPlaylistIds,
                 isImportingSpotify = isImportingSpotify,
                 spotifyImportMessage = spotifyImportMessage,
-                onClearSpotifyImportMessage = onClearSpotifyImportMessage
+                onClearSpotifyImportMessage = onClearSpotifyImportMessage,
+                onImportExternalPlaylist = onImportExternalPlaylist,
+                onImportPlaylistFile = onImportPlaylistFile,
+                isImportingExternal = isImportingExternal,
+                externalImportMessage = externalImportMessage,
+                onClearExternalImportMessage = onClearExternalImportMessage
             )
             ProfileSubPage.YOUTUBE -> com.auralis.music.ui.screens.YouTubeAccountScreen(
                 onDismiss = { isYouTubeAccountOpen = false }

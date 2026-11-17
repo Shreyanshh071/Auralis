@@ -59,7 +59,14 @@ interface ShortcutActions {
  * | I | Close the full player; otherwise immersive mode |
  * | Esc | Close the player, otherwise return to the previous page |
  */
-fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean {
+fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean =
+    handleControlShortcut(event, actions) || (!typing && handlePlainShortcut(event, actions))
+
+/**
+ * Ctrl shortcuts and Esc. The window runs these before the focused field sees the key, so they
+ * work everywhere, even in a text field.
+ */
+fun handleControlShortcut(event: KeyEvent, actions: ShortcutActions): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val ctrl = event.isCtrlPressed
     // Compare key codes, not keys: an arrow on the number pad (Num Lock off) is a different Key
@@ -77,8 +84,18 @@ fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): 
             else -> {}
         }
     }
-    if ((code == VK_ESCAPE || event.key == Key.Escape) && actions.closePlayer()) return true
-    if (typing) return false
+    return (code == VK_ESCAPE || event.key == Key.Escape) && actions.closePlayer()
+}
+
+/**
+ * Single keys (Space, K, M, I, arrows, Ctrl+arrows). The window runs these only after the focused
+ * element had the key: any text field uses the letters and arrows typed into it, so a shortcut
+ * never fires while typing, whichever field it is.
+ */
+fun handlePlainShortcut(event: KeyEvent, actions: ShortcutActions): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val ctrl = event.isCtrlPressed
+    val code = runCatching { event.key.nativeKeyCode }.getOrDefault(0)
     if (ctrl) {
         when (code) {
             VK_RIGHT -> actions.next()

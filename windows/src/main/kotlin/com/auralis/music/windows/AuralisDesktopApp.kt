@@ -109,7 +109,8 @@ fun AuralisDesktopApp(
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
-    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
+    /** The handler gets each key twice: before the focused element (true) and after it, if unused (false). */
+    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)?) -> Unit = {},
     /** Live check for whether an editable text field holds input-method focus in the window. */
     isTextInputActive: () -> Boolean = { false },
     selfTest: SelfTest? = null,
@@ -486,7 +487,7 @@ fun AuralisDesktopApp(
     val currentDialogOpen = androidx.compose.runtime.rememberUpdatedState(showSignIn || showCreatePlaylist ||
         showTogether || showDiscord || showImport || showSettings || showYouTubeAccounts)
     androidx.compose.runtime.DisposableEffect(actions) {
-        onShortcutHandler { event ->
+        onShortcutHandler { event, beforeFocused ->
             val typingNow = isShortcutTypingActive(
                 searchTyping = currentTyping.value,
                 playerOpen = currentShowPlayer.value,
@@ -494,7 +495,10 @@ fun AuralisDesktopApp(
                 windowTextInputActive = currentIsTextInputActive.value(),
                 dialogOpen = currentDialogOpen.value,
             )
-            handleShortcut(event, typingNow, actions)
+            // Ctrl shortcuts and Esc run before the focused element; single keys only after it,
+            // and only when no text input is active.
+            if (beforeFocused) handleControlShortcut(event, actions)
+            else !typingNow && handlePlainShortcut(event, actions)
         }
         onDispose { onShortcutHandler(null) }
     }

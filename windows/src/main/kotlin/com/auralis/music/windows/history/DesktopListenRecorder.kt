@@ -42,6 +42,8 @@ class DesktopListenRecorder(
         val track = accumulator.track ?: return
         if (accumulator.timeMs <= savedMs) return
         stats.record(accumulator.sessionId, track, accumulator.startedAt, accumulator.timeMs)
+        // A label upload ("T-Series") gets its real artists from the official song, in the background.
+        com.auralis.music.data.network.OfficialArtistResolver.request(track)
         savedMs = accumulator.timeMs
     }
 

@@ -123,6 +123,8 @@ class PlaylistSyncStore(private val store: KeyValueStore) {
     }
 }
 
+private const val BACKGROUND_POLL_MS = 5 * 60_000L
+
 class PlaylistSyncEngine(private val library: LibraryRepository, val store: PlaylistSyncStore,
     private val remotes: Map<SyncService, PlaylistSyncRemote>,
     private val pollIntervalMs: Long = 5_000, private val localDebounceMs: Long = 150,
@@ -141,7 +143,14 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
                     p.id to SyncSnapshot(p.title, p.description.orEmpty(), p.tracks.map { it.id })
                 } }.distinctUntilChanged().debounce(localDebounceMs).collect { requests.send(Unit) }
             }
-            launch { while (isActive) { requests.send(Unit); delay(pollIntervalMs) } }
+            // Checks the services for remote edits: often while the app is on screen, every 5 minutes
+            // while it's hidden (battery). Local edits still sync at once via the collector above.
+            launch {
+                while (isActive) {
+                    requests.send(Unit)
+                    com.auralis.music.data.AppVisibility.pause(pollIntervalMs, BACKGROUND_POLL_MS)
+                }
+            }
             var retry: Job? = null
             var retryWait = retryDelayMs
             for (request in requests) {

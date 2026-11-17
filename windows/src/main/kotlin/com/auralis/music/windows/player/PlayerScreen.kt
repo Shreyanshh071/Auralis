@@ -116,8 +116,19 @@ fun PlayerScreen(
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
     val lyricsState by lyrics.state.collectAsState()
-    val spotifyCanvasId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
+    val lyricsSpotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
         ?: lyricsState.takeIf { it.trackId == track?.id }?.lyrics?.spotifyTrackId
+    // Only some lyrics sources carry the Spotify id: keep the one seen for this song, so switching
+    // the lyrics source (or restarting) doesn't turn the Canvas off.
+    var knownSpotifyId by remember(track?.id) { mutableStateOf(SpotifyCanvasLookup.songId(track?.id)) }
+    LaunchedEffect(track?.id, lyricsSpotifyId) {
+        val id = track?.id ?: return@LaunchedEffect
+        if (lyricsSpotifyId != null) {
+            knownSpotifyId = lyricsSpotifyId
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { SpotifyCanvasLookup.rememberSongId(id, lyricsSpotifyId) }
+        }
+    }
+    val spotifyCanvasId = lyricsSpotifyId ?: knownSpotifyId
     val canvasPrefs by CanvasSettings.prefs.collectAsState()
     val motionAura = rememberMotionAura(track?.id)
     val canvasReady by remember(motionAura) {
@@ -156,9 +167,9 @@ fun PlayerScreen(
                     playbackClock = playback.clock,
                     onStageUnavailable = { stageDeclined = true }) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = .18f),
-                    .6f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = .55f))))
+                    0f to Color.Black.copy(alpha = .10f),
+                    .65f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = .35f))))
             }
         }
 
@@ -270,7 +281,7 @@ internal fun shouldShowCanvasStage(
     maxWidth: Dp,
     stagePlayer: Boolean,
     tabbedPlayer: Boolean
-): Boolean = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) &&
+): Boolean = canvasPrefs.spotifyCanvas && // The stage is for Spotify Canvas only; animated covers stay on the album cover.
     maxWidth > 964.dp &&
     stagePlayer &&
     tabbedPlayer

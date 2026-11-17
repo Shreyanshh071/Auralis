@@ -20,7 +20,9 @@ data class TrackEntity(
     val views: String? = null,
     val dominantColor: Int? = null,
     val isFavorite: Boolean = false,
-    val favoriteAddedAt: Long? = null
+    val favoriteAddedAt: Long? = null,
+    /** Track.artists as TrackArtists.encode text: each credited artist and its channel, or null. */
+    val artistsJson: String? = null
 )
 
 @Entity(tableName = "playlists")

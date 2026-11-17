@@ -447,7 +447,8 @@ open class InnerTubeClient(
                         albumId = albumId,
                         duration = durationSec,
                         thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(longRuns, title)
                     )
                 )
             }
@@ -859,7 +860,8 @@ open class InnerTubeClient(
             artist = artistName,
             duration = durationSec,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(bylineRuns, title)
         )
     }
 
@@ -1578,7 +1580,8 @@ open class InnerTubeClient(
             album = albumName,
             duration = 0L,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(subtitleRuns, title)
         )
     }
 
@@ -1752,7 +1755,8 @@ open class InnerTubeClient(
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
                 views = viewsStr,
                 isMusicVideo = cardType == "video" || card.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
-                source = TrackSource.YOUTUBE
+                source = TrackSource.YOUTUBE,
+                artists = ArtistRuns.forItem(subtitleRuns, title)
             )
             if (songs.none { it.id == videoId }) {
                 songs.add(0, track)
@@ -2019,7 +2023,8 @@ open class InnerTubeClient(
                         thumbnail = thumbUrl,
                         views = viewsStr,
                         isMusicVideo = itemType == "video" || item.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(col1Runs, title)
                     )
                 )
             }

@@ -31,12 +31,13 @@ fun main(rawArgs: Array<String>) = runBlocking {
     if (url == null) return@runBlocking
     println("CLIENT " + Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1) + " HOST " + java.net.URI(url).host)
     val client = com.auralis.music.data.network.NetworkClientProvider.okHttpClient
-    listOf(0L to 524287L, 524288L to 1048575L, 1048576L to 1572863L, 2097152L to 2621439L).forEach { (a, b) ->
+    listOf(0L to 32767L, 32768L to 65535L, 65536L to 98303L, 98304L to 622591L, 622592L to 1146879L, 2097152L to 2621439L).forEach { (a, b) ->
+        val rangeStarted = System.currentTimeMillis()
         val request = okhttp3.Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
             .header("Range", "bytes=$a-$b").build()
         val result = runCatching { client.newCall(request).execute().use { "${it.code} ${it.body?.bytes()?.size ?: 0} bytes" } }
-        println("RANGE $a-$b -> ${result.getOrElse { "error ${it.message}" }}")
+        println("RANGE $a-$b -> ${result.getOrElse { "error ${it.message}" }} in ${System.currentTimeMillis() - rangeStarted}ms")
     }
     if (args.size >= 5) {
         val player = checkNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(java.io.File(args[4])))

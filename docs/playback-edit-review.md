@@ -33,3 +33,9 @@ Reviewed 2026-11-17: commits `7dce9516`, `bfbe9af2`, `9ff82837`, and the pending
 - All nine local playback-controls checks pass. Windows and Discord bot compilation pass.
 - Frame-output guard exercised against a nonempty fixture: refused the directory and preserved its file. PowerShell parsing, diff whitespace checks and the repository's tracked Google-API-key scan pass.
 - Remote `main` advanced with substantial overlapping work during review. Delivery uses `codex/playback-review`; integration with current remote `main` requires a separate merge review.
+
+## Integration with main (2026-11-17)
+
+- Merged the incoming Canvas, artist-credit, shortcut and Android changes. Three conflict files were resolved by preserving the reviewed failure policy and resize-aware player overlay. The incoming 256 KiB relay chunks and text-input shortcut routing are retained.
+- Full merged core test suite passes. All 42 targeted Windows playback, Canvas, shortcut, resumed-player and search tests pass.
+- The playback-controls process crashed inside native libVLC while the Windows tests ran alongside it. Its isolated rerun passes all nine checks. This intermittent native failure remains a risk; a successful rerun does not establish its cause or eliminate it.

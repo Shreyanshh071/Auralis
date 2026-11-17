@@ -5,6 +5,7 @@ build/
 */build/
 *.apk
 *.aab
+Auralis-Setup.exe
 local.properties
 .cxx/
 
@@ -78,3 +79,6 @@ android/app/src/main/cpp/discord/
 
 # Firestore rules tests
 firestore-tests/node_modules/
+
+# Local JDK used for builds on this machine
+build-tools/

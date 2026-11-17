@@ -154,6 +154,11 @@ fun main(args: Array<String>) {
             store
         }
 
+        // Stats: names YouTube linked as one artist ("Tyler, The Creator") and label uploads' real artists.
+        val artistCredits = PropertiesFileKeyValueStore(java.io.File(dataDir, "artist-credits.properties"))
+        com.auralis.music.domain.stats.ArtistCredits.persistTo(artistCredits)
+        com.auralis.music.data.network.OfficialArtistResolver.persistTo(artistCredits)
+
         val searchRepositoryDeferred = async {
             SearchRepositoryImpl(
                 InnerTubeClient(),
@@ -306,7 +311,7 @@ fun main(args: Array<String>) {
     }
 
     val selfTest = SelfTest.fromArgs(args, dataDir)
-    var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
+    var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)? = null
 
     CaptureFrameEcho.installForAllWindows()
     application {
@@ -500,8 +505,10 @@ fun main(args: Array<String>) {
                 if (embeddedImmersive) false
                 else if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
                     setPlayerFullscreen(!playerFullscreen); true
-                } else shortcutHandler?.invoke(it) ?: false
+                } else shortcutHandler?.invoke(it, true) ?: false
             },
+            // Single-key shortcuts run only when the focused element (a text field typing them) didn't use the key.
+            onKeyEvent = { if (embeddedImmersive) false else shortcutHandler?.invoke(it, false) ?: false },
             onCloseRequest = requestClose,
             visible = windowVisible,
             undecorated = true,

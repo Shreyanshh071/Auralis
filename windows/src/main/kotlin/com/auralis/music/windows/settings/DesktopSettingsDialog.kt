@@ -114,13 +114,21 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
         }
     }
 
-    SettingsGroup("Lyrics video loops") {
+    SettingsGroup("Canvas") {
         val prefs by CanvasSettings.prefs.collectAsState()
         SettingToggle(
-            title = "Show video loops in Lyrics",
-            description = "Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art.",
+            title = "Show Canvas in Lyrics",
+            description = "Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover.",
             checked = prefs.spotifyCanvas,
             onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
+        )
+        val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+        SettingToggle(
+            title = "Fetch Canvas with your Spotify account",
+            description = if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account." else "Sign in to Spotify from your profile to use this.",
+            checked = prefs.spotifyAccount && spotifySignedIn,
+            enabled = spotifySignedIn && prefs.spotifyCanvas,
+            onChecked = { CanvasSettings.update(prefs.copy(spotifyAccount = it)) }
         )
     }
 

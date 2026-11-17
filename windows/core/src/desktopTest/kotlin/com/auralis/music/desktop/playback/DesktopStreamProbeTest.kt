@@ -50,7 +50,8 @@ class DesktopStreamProbeTest {
         assertEquals(206, result)
         assertContentEquals(data, saved)
         assertEquals(200, DesktopStreamProbe.check(client, "$base/full", "test") { _, bytes -> saved = bytes })
-        assertContentEquals(data, saved, "A whole-file response must only read the first block")
+        val firstBlock = ByteArray(LocalStreamRelay.FIRST_BLOCK_BYTES.toInt()) { (it % 251).toByte() }
+        assertContentEquals(firstBlock, saved, "A whole-file response must only read the first block")
         assertEquals(206, DesktopStreamProbe.check(client, "$base/tiny?clen=512", "test") { _, bytes -> saved = bytes })
         assertEquals(512, saved.size)
     }

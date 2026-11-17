@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Swipe
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.TrendingUp
@@ -110,10 +111,15 @@ fun AppearanceScreen(
 
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<AppearanceDialogType?>(null) }
     var showThemeAndColors by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showLyricsSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
-        if (showThemeAndColors) {
+        if (activeDialog != null) {
+            activeDialog = null
+        } else if (showThemeAndColors) {
             showThemeAndColors = false
+        } else if (showLyricsSettings) {
+            showLyricsSettings = false
         } else if (activeDialog != null) {
             activeDialog = null
         } else {
@@ -150,7 +156,7 @@ fun AppearanceScreen(
     val onPrimary = MaterialTheme.colorScheme.onPrimary
 
     // Theme & colours pushes over this page instead of replacing it on one frame.
-    val themePush = rememberPushProgress(showThemeAndColors)
+    val themePush = rememberPushProgress(showThemeAndColors || showLyricsSettings)
 
     SettingsPage(
         title = str(R.string.appearance),
@@ -178,6 +184,25 @@ fun AppearanceScreen(
                     subtitle = str(R.string.scale_ui_in_landscape_mode_for_larger_sc),
                     isChecked = settings.landscapeScaling,
                     onCheckedChange = { update { copy(landscapeScaling = it) } }
+                )
+            }
+        }
+
+        item(key = "hdr_performance") {
+            SettingsGroup(str(R.string.performance_battery)) {
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Speed,
+                    title = str(R.string.reduce_effects),
+                    subtitle = str(R.string.reduce_effects_description),
+                    isChecked = settings.reduceEffects,
+                    onCheckedChange = { update { copy(reduceEffects = it) } }
+                )
+                AppearanceSwitchItem(
+                    icon = Icons.Default.BatterySaver,
+                    title = str(R.string.reduce_effects_battery_saver),
+                    subtitle = str(R.string.reduce_effects_battery_saver_description),
+                    isChecked = settings.reduceEffectsOnBatterySaver,
+                    onCheckedChange = { update { copy(reduceEffectsOnBatterySaver = it) } }
                 )
             }
         }
@@ -280,49 +305,10 @@ fun AppearanceScreen(
         item(key = "hdr_lyrics") {
             SettingsGroup(str(R.string.lyrics)) {
                 AppearanceClickableItem(
-                    icon = Icons.Default.FormatAlignCenter,
-                    title = str(R.string.lyrics_text_position),
-                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(settings.lyricsTextPosition),
-                    onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION }
-                )
-                AppearanceClickableItem(
                     icon = Icons.Default.GraphicEq,
-                    title = str(R.string.lyrics_animation),
-                    subtitle = com.auralis.music.ui.i18n.UiLabels.of(com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName),
-                    onClick = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION }
-                )
-                AppearanceSwitchItem(
-                    icon = Icons.Default.HideImage,
-                    title = str(R.string.standard_lyrics_blur),
-                    subtitle = str(R.string.apply_soft_blur_focus_to_inactive_lyrics),
-                    isChecked = settings.standardLyricsBlur,
-                    onCheckedChange = { update { copy(standardLyricsBlur = it) } }
-                )
-                AppearanceClickableItem(
-                    icon = Icons.Default.AspectRatio,
-                    title = str(R.string.lyrics_text_size),
-                    subtitle = str(R.string.x_sp, settings.lyricsTextSize.roundToInt()),
-                    onClick = { activeDialog = AppearanceDialogType.LYRICS_TEXT_SIZE }
-                )
-                AppearanceClickableItem(
-                    icon = Icons.Default.LinearScale,
-                    title = str(R.string.lyrics_line_spacing),
-                    subtitle = "${String.format(java.util.Locale.US, "%.1f", settings.lyricsLineSpacing)}x",
-                    onClick = { activeDialog = AppearanceDialogType.LYRICS_LINE_SPACING }
-                )
-                AppearanceSwitchItem(
-                    icon = Icons.Default.TouchApp,
-                    title = str(R.string.change_lyrics_on_click),
-                    subtitle = str(R.string.seek_track_playback_to_the_clicked_lyric),
-                    isChecked = settings.changeLyricsOnTap,
-                    onCheckedChange = { update { copy(changeLyricsOnTap = it) } }
-                )
-                AppearanceSwitchItem(
-                    icon = Icons.Default.VerticalAlignBottom,
-                    title = str(R.string.auto_scroll_lyrics),
-                    subtitle = str(R.string.automatically_keep_the_active_lyric_cent),
-                    isChecked = settings.autoScrollLyrics,
-                    onCheckedChange = { update { copy(autoScrollLyrics = it) } }
+                    title = str(R.string.lyrics),
+                    subtitle = "${com.auralis.music.ui.i18n.UiLabels.of(com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).displayName)} • ${str(R.string.x_sp, settings.lyricsTextSize.roundToInt())}",
+                    onClick = { showLyricsSettings = true }
                 )
             }
         }
@@ -405,6 +391,17 @@ fun AppearanceScreen(
                 )
             }
         }
+    }
+
+    AuralisPushedPage(page = if (showLyricsSettings) Unit else null) {
+        LyricsSettingsScreen(
+            settings = settings,
+            onUpdate = { transform -> update(transform) },
+            onPickPosition = { activeDialog = AppearanceDialogType.LYRICS_TEXT_POSITION },
+            onPickAnimation = { activeDialog = AppearanceDialogType.LYRICS_ANIMATION },
+            onBack = { showLyricsSettings = false },
+            paused = activeDialog != null
+        )
     }
 
     AuralisPushedPage(page = if (showThemeAndColors) Unit else null) {

@@ -1244,12 +1244,29 @@ class PlayerViewModel(
         }
     }
 
-    fun playNext(track: Track) {
-        playNext(listOf(track))
+    /** False when nothing was queued because [track] is the song already playing. */
+    fun playNext(track: Track): Boolean = playNext(listOf(track))
+
+    /**
+     * Queues [tracks] right after the current song. The song already playing is never queued
+     * again behind itself; asking for only that song shows an "already playing" pill instead.
+     * Returns false when nothing was queued.
+     */
+    fun playNext(tracks: List<Track>): Boolean {
+        if (tracks.isEmpty()) return false
+        val playingId = _uiState.value.currentTrack?.id
+        val toQueue = if (playingId == null) tracks else tracks.filter { it.id != playingId }
+        if (toQueue.isEmpty()) {
+            com.auralis.music.ui.components.AppPillManager.showPill(
+                com.auralis.music.ui.i18n.str(com.auralis.music.R.string.already_playing_x, tracks.first().title)
+            )
+            return false
+        }
+        playNextFiltered(toQueue)
+        return true
     }
 
-    fun playNext(tracks: List<Track>) {
-        if (tracks.isEmpty()) return
+    private fun playNextFiltered(tracks: List<Track>) {
         if (audioPlayer != null) {
             audioPlayer.playNext(tracks)
         } else {
