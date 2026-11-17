@@ -25,6 +25,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
@@ -134,6 +135,53 @@ internal object CanvasLookup {
         runCatching { disk.putStrings(mapOf(key to "${url.orEmpty()}\t${System.currentTimeMillis()}")) }
         if (url != null) Log.i(TAG, "Animated cover for '${track.title}': $url")
         url
+    }
+
+    private val videoFolder by lazy { File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers") }
+    private val playableLock = kotlinx.coroutines.sync.Mutex()
+    private const val MAX_VIDEO_BYTES = 64L * 1024 * 1024
+
+    /**
+     * A source VLC can open. The curated library serves MP4s with their index at the end and
+     * ignores range requests, so VLC cannot stream them; those are kept as local files (as the
+     * phone's player effectively does). Apple's HLS streams are returned unchanged.
+     */
+    suspend fun playable(url: String): String = withContext(Dispatchers.IO) {
+        if (!url.startsWith("https://") || url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) return@withContext url
+        playableLock.withLock {
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
+            val name = digest.take(16).joinToString("") { "%02x".format(it) } + ".mp4"
+            val target = File(videoFolder, name)
+            if (target.isFile && target.length() > 64 * 1024) return@withLock target.absolutePath
+            runCatching {
+                videoFolder.mkdirs()
+                val temporary = File.createTempFile(name, ".partial", videoFolder)
+                try {
+                    http.newCall(Request.Builder().url(url).header("User-Agent", UA).build()).execute().use { response ->
+                        check(response.isSuccessful)
+                        var bytes = 0L
+                        temporary.outputStream().use { output ->
+                            checkNotNull(response.body).byteStream().use { input ->
+                                val buffer = ByteArray(8192)
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    bytes += count
+                                    check(bytes <= MAX_VIDEO_BYTES)
+                                    output.write(buffer, 0, count)
+                                }
+                            }
+                        }
+                        check(bytes > 64 * 1024)
+                    }
+                    java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    target.absolutePath
+                } finally {
+                    temporary.delete()
+                }
+            }.onFailure { Log.w(TAG, "Could not keep animated cover locally: ${it.message}") }
+                .getOrDefault(url)
+        }
     }
 
     // ── Matching ──
@@ -278,7 +326,8 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             // curated library), 3. nothing: the still artwork() underneath stays.
             val canvas = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
             fromSpotify = canvas != null
-            url = canvas ?: if (prefs.enabled) CanvasLookup.find(track, prefs.source, tall = canvasOnly) else null
+            url = canvas ?: (if (prefs.enabled) CanvasLookup.find(track, prefs.source, tall = canvasOnly) else null)
+                ?.let { CanvasLookup.playable(it) }
         }
     }
     Box(modifier) {

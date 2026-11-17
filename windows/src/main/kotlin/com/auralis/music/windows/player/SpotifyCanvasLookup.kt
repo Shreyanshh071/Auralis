@@ -42,9 +42,22 @@ internal object SpotifyCanvasLookup {
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
-            indexedFileId(trackId)?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
+            val known = indexedFileId(trackId)
+            known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = System.currentTimeMillis()
             if (now < retryAt || now < (misses[trackId] ?: 0L)) return@withLock null
+            // The video was cleared from disk but its id is still known: fetch it again directly.
+            // SpicyLyrics can stop listing a canvas it once returned, so it is not asked first.
+            if (known != null) {
+                try {
+                    (downloadDirect(diskIndex.getString("url.$trackId", "").orEmpty(), known)
+                        ?: downloadViaManifest(trackId, known)).let { return@withLock it }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Fall through to SpicyLyrics, which may list a newer canvas for the track.
+                }
+            }
             try {
                 val request = Request.Builder()
                     .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
@@ -66,7 +79,8 @@ internal object SpotifyCanvasLookup {
                 }
                 val fileId = item.getString("fileId")
                 check(filePattern.matches(fileId))
-                diskIndex.putStrings(mapOf(trackId to fileId))
+                // The direct URL is kept too, so a cleared video can be fetched again without SpicyLyrics.
+                diskIndex.putStrings(mapOf(trackId to fileId, "url.$trackId" to item.optString("url")))
                 cachedFile(fileId)?.absolutePath
                     ?: downloadDirect(item.optString("url"), fileId)
                     ?: downloadViaManifest(trackId, fileId)
