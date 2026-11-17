@@ -64,6 +64,14 @@ internal fun spicyLyricsTextSize(setting: Float, synced: Boolean = true): Float 
     return if (synced) size else 22f * (size / 34f)
 }
 
+/** Where a lyric line grows from when it becomes active: its aligned side, at mid height. */
+internal fun lyricTransformOrigin(alignment: androidx.compose.ui.Alignment.Horizontal): androidx.compose.ui.graphics.TransformOrigin =
+    when (alignment) {
+        androidx.compose.ui.Alignment.Start -> androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+        androidx.compose.ui.Alignment.End -> androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+        else -> androidx.compose.ui.graphics.TransformOrigin.Center
+    }
+
 internal fun isHindiText(text: String): Boolean = text.any { it in 'ऀ'..'ॿ' }
 
 /**

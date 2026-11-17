@@ -1262,40 +1262,9 @@ internal fun LyricPreviewLine(
 
     key(trackId) {
     val reducedMotion = LocalReducedMotion.current
-    val lineTransition = updateTransition(targetState = current, label = "previewWordMorph")
-    val animatedLineIndex by lineTransition.animateFloat(
-        transitionSpec = { if (reducedMotion) snap() else tween(620, easing = FastOutSlowInEasing) },
-        label = "previewLineIndex"
-    ) { state -> (state as? PreviewSlot.Sung)?.index?.toFloat() ?: -1f }
-    val fromLine = lineTransition.currentState as? PreviewSlot.Sung
-    val toLine = lineTransition.targetState as? PreviewSlot.Sung
-    if (!reducedMotion && fromLine != null && toLine != null && fromLine.index != toLine.index) {
-        val morphProgress = ((animatedLineIndex - fromLine.index) / (toLine.index - fromLine.index))
-            .coerceIn(0f, 1f)
-        Row(
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MetroPreviewWordMorph(
-                fromText = fromLine.line.text.trim(),
-                toLine = toLine.line,
-                progress = morphProgress,
-                positionMs = positionState.value + offsetMs,
-                hasWordTiming = syncType == SyncType.RICHSYNC
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = str(R.string.lyrics),
-                tint = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    } else AnimatedContent(
+    // Only the selected lyrics style animates the words; between lines the preview just moves
+    // on as the main lyrics scroll (no separate word morph, which drew words out of line).
+    AnimatedContent(
         targetState = current,
         transitionSpec = {
             val from = (initialState as? PreviewSlot.Sung)?.index ?: (initialState as? PreviewSlot.Break)?.index ?: -1
@@ -1471,108 +1440,6 @@ private fun MetroPreviewText(
                 PreviewStyledLine(line, positionMs, PreviewLyricStyle, onClick)
             } else {
                 Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-private data class PreviewMorphWord(val text: String, val start: Int)
-
-private fun previewMorphWords(text: String): List<PreviewMorphWord> =
-    Regex("\\S+").findAll(text).map { PreviewMorphWord(it.value, it.range.first) }.toList()
-
-private fun pairedWordIndex(index: Int, sourceCount: Int, targetCount: Int): Int {
-    if (targetCount <= 1 || sourceCount <= 1) return 0
-    return ((index.toFloat() / (sourceCount - 1)) * (targetCount - 1)).roundToInt()
-        .coerceIn(0, targetCount - 1)
-}
-
-/** Moves each outgoing word toward its counterpart while the next line takes its shape. */
-@Composable
-private fun MetroPreviewWordMorph(
-    fromText: String,
-    toLine: LyricLine,
-    progress: Float,
-    positionMs: Long,
-    hasWordTiming: Boolean
-) {
-    val toText = toLine.text.trim()
-    val PreviewLyricStyle = previewLyricStyle()
-    val previewMaxLines = LocalPreviewLyricSpec.current.maxLines
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val fromWords = remember(fromText) { previewMorphWords(fromText) }
-    val toWords = remember(toText) { previewMorphWords(toText) }
-    val timedWords = if (hasWordTiming) toLine.words.orEmpty() else emptyList()
-    if (fromWords.isEmpty() || toWords.isEmpty()) {
-        Text(toText, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
-        return
-    }
-    BoxWithConstraints {
-        val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
-        val widthPx = remember(fromText, toText, availablePx) {
-            maxOf(
-                textMeasurer.measure(fromText, PreviewLyricStyle, softWrap = false).size.width,
-                textMeasurer.measure(toText, PreviewLyricStyle, softWrap = false).size.width
-            ).coerceAtMost(availablePx).coerceAtLeast(1)
-        }
-        val fromLayout = remember(fromText, widthPx) {
-            textMeasurer.measure(fromText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
-        }
-        val toLayout = remember(toText, widthPx) {
-            textMeasurer.measure(toText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
-        }
-        val fromAnchors = remember(fromLayout, fromWords) {
-            fromWords.map { fromLayout.getBoundingBox(it.start).topLeft }
-        }
-        val toAnchors = remember(toLayout, toWords) {
-            toWords.map { toLayout.getBoundingBox(it.start).topLeft }
-        }
-        val fromGlyphs = remember(fromWords) {
-            fromWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
-        }
-        val toGlyphs = remember(toWords) {
-            toWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
-        }
-        val heightPx = maxOf(fromLayout.size.height, toLayout.size.height)
-            .coerceAtMost(with(density) {
-                minOf(58.dp.roundToPx(), (PreviewLyricStyle.lineHeight * previewMaxLines).roundToPx())
-            })
-        Canvas(Modifier.width(with(density) { widthPx.toDp() }).height(with(density) { heightPx.toDp() })) {
-            val p = progress.coerceIn(0f, 1f)
-            fromWords.indices.forEach { index ->
-                val target = toAnchors[pairedWordIndex(index, fromWords.size, toWords.size)]
-                val source = fromAnchors[index]
-                val x = source.x + (target.x - source.x) * p
-                val y = source.y + (target.y - source.y) * p
-                withTransform({
-                    translate(x, y)
-                    scale(1f - 0.05f * p, 1f - 0.05f * p, pivot = Offset.Zero)
-                }) {
-                    drawText(fromGlyphs[index], color = Color.White.copy(alpha = 1f - p))
-                }
-            }
-            toWords.indices.forEach { index ->
-                val source = fromAnchors[pairedWordIndex(index, toWords.size, fromWords.size)]
-                val target = toAnchors[index]
-                val x = source.x + (target.x - source.x) * p
-                val y = source.y + (target.y - source.y) * p
-                // The Metro renderer starts unsung letters at 35% opacity. Match that
-                // baseline during the morph, then reveal only words their timestamps
-                // have reached so the renderer does not make the new line flash white.
-                val incomingAlpha = if (timedWords.isEmpty()) 1f else {
-                    val word = timedWords[pairedWordIndex(index, toWords.size, timedWords.size)]
-                    val durationMs = (word.duration ?: 200L).coerceAtLeast(100L)
-                    val sungProgress = ((positionMs - word.time).toFloat() / durationMs).coerceIn(0f, 1f)
-                    val highlightReveal = ((p - 0.5f) * 2f).coerceIn(0f, 1f)
-                    0.35f + 0.65f * sungProgress * highlightReveal
-                }
-                withTransform({
-                    translate(x, y)
-                    scale(0.95f + 0.05f * p, 0.95f + 0.05f * p, pivot = Offset.Zero)
-                }) {
-                    drawText(toGlyphs[index], color = Color.White.copy(alpha = p * incomingAlpha))
-                }
             }
         }
     }

@@ -733,12 +733,18 @@ private fun ViviListLine(
     val cappedLineHeight = (lyricsTextSize * lyricsLineSpacing.coerceAtMost(1.3f)).sp
 
     Column(
-        modifier = itemModifier
+        // The scale goes on before the row's clip, so a growing line is never cut by its own row.
+        modifier = Modifier
+            .fillMaxWidth()
             .graphicsLayer {
                 this.alpha = if (item.isBackground) alpha * 0.8f else alpha
                 this.scaleX = scale * bgScale
                 this.scaleY = scale * bgScale
+                // Grow from the side the text is aligned to: grown from the centre, a left-aligned
+                // line spread past the row's clipped left edge and lost its first letter.
+                transformOrigin = lyricTransformOrigin(agentAlignment)
             }
+            .then(itemModifier)
             .blur(blurRadius.dp),
         horizontalAlignment = agentAlignment
     ) {

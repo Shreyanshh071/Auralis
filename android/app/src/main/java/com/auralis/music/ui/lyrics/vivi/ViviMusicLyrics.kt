@@ -170,6 +170,15 @@ fun ViviMusicLyricsLine(
             this.alpha = animatedAlpha
             this.scaleX = scale
             this.scaleY = scale
+            // Grow from the side the text is aligned to, so the first letter never moves out of view.
+            transformOrigin = lyricTransformOrigin(when {
+                entry.isBackground || entry.agent == "v1000" -> Alignment.CenterHorizontally
+                entry.agent == "v1" -> Alignment.Start
+                entry.agent == "v2" -> Alignment.End
+                lyricsTextPosition == LyricsPosition.LEFT -> Alignment.Start
+                lyricsTextPosition == LyricsPosition.RIGHT -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            })
         }
         .clip(RoundedCornerShape(16.dp))
         .combinedClickable(
