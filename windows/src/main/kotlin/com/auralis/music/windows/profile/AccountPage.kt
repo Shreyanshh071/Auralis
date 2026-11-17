@@ -165,7 +165,7 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        state.message?.let {
+        (state.syncMessage ?: state.message)?.let {
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),

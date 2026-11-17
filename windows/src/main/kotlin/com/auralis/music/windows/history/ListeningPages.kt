@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -125,14 +126,23 @@ fun ListeningStatsPage(
     onOpenWrapped: () -> Unit = {},
     search: com.auralis.music.domain.repository.SearchRepository? = null,
     onOpenArtist: (Artist) -> Unit = {},
-    onTrackMenu: (Track) -> Unit = {}
+    onTrackMenu: (Track) -> Unit = {},
+    /**
+     * Set only when listening history syncs through the account sync service: then the confirmation
+     * offers clearing every device of the account as a separate, explicit choice. Null keeps
+     * today's local-only clear and its wording.
+     */
+    onClearAllDevices: (suspend () -> Unit)? = null
 ) {
     val events by stats.listens.collectAsState()
+    val clearScope = rememberCoroutineScope()
     var option by remember { mutableStateOf(StatsOption.CONTINUOUS) }
     var chip by remember { mutableStateOf(0) }
     var optionMenu by remember { mutableStateOf(false) }
     var statsMenu by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var clearBusy by remember { mutableStateOf(false) }
+    var clearError by remember { mutableStateOf(false) }
     val year = LocalDate.now().year
     val firstEvent = events.minOfOrNull { it.startedAt }
     val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
@@ -274,9 +284,10 @@ fun ListeningStatsPage(
             containerColor = colours.surfaceContainerHigh, contentColor = accent,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
-    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text(desktopText("Clear listening stats?")) },
+    val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+    val thisComputer = if (isMac) "this Mac" else "this PC"
+    if (confirmClear && onClearAllDevices == null) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text(desktopText("Clear listening stats?")) },
         text = {
-            val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
             val clearStatsText = if (isMac)
                 "This removes measured listening stats on this Mac. Your library and listening history are kept."
             else
@@ -285,6 +296,32 @@ fun ListeningStatsPage(
         },
         confirmButton = { TextButton(onClick = { stats.clear(); confirmClear = false }) { Text(desktopText("Clear")) } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(desktopText("Cancel")) } })
+    // With account sync, the scope is a choice the person makes here, never a silent default.
+    if (confirmClear && onClearAllDevices != null) AlertDialog(onDismissRequest = { if (!clearBusy) confirmClear = false }, title = { Text(desktopText("Clear listening stats?")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(desktopText("Only on $thisComputer: removes the stats measured here. Your other devices and your account keep their listening history."))
+                Text(desktopText("On all my devices: removes listening history before now from your account and updated devices. Older app versions may retain local copies. This can't be undone."))
+                if (clearError) Text(desktopText("Couldn't finish clearing account history. Check your connection and try again."), color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(enabled = !clearBusy, onClick = { stats.clear(); confirmClear = false; clearError = false }) { Text(desktopText("Only on $thisComputer")) }
+                TextButton(onClick = {
+                    clearBusy = true; clearError = false
+                    clearScope.launch {
+                        try {
+                            com.auralis.music.data.sync.ListeningStatsClear.run(true, onClearAllDevices) { stats.clear() }
+                            confirmClear = false
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (_: Exception) { clearError = true }
+                        finally { clearBusy = false }
+                    }
+                }, enabled = !clearBusy) { Text(desktopText(if (clearBusy) "Clearing…" else "On all my devices"), color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        dismissButton = { TextButton(enabled = !clearBusy, onClick = { confirmClear = false; clearError = false }) { Text(desktopText("Cancel")) } })
 }
 
 @Composable

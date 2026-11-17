@@ -140,6 +140,29 @@ service cloud.firestore {
         || after.updatedBy == before.ownerId);
     }
 
+    // ---- Library authority (docs/library-sync/spec.md) --------------------
+    // Written only by the migration tool with backend credentials, which bypass rules. No client
+    // can read, create, change or remove it, so a client can never lift the fence.
+    match /libraryAuthority/{uid} {
+      allow read, write: if false;
+    }
+
+    function libraryFenced(uid) {
+      return exists(/databases/$(database)/documents/libraryAuthority/$(uid));
+    }
+
+    function libraryFields() {
+      return ['playlists', 'favorites', 'savedArtists', 'savedAlbums', 'librarySync'];
+    }
+
+    // Covers merges, masked updates, whole-document replacements (a dropped field counts as
+    // changed) and creating the document again after it was deleted.
+    function changesLibrary() {
+      return resource == null
+        ? request.resource.data.keys().hasAny(libraryFields())
+        : request.resource.data.diff(resource.data).affectedKeys().hasAny(libraryFields());
+    }
+
     // ---- User library ----------------------------------------------------
 
     match /users/{uid} {
@@ -149,10 +172,17 @@ service cloud.firestore {
       // No collection-wide listing: it would expose the set of user ids.
       allow list: if false;
 
-      allow create, update: if isOwner(uid) && hasValidUserShape() && withinUserSizeLimit();
+      // Once an account's library has moved to the library service (or is being moved), the
+      // server-only document libraryAuthority/{uid} exists and the library fields here are frozen.
+      // Other fields (settings, starter picks) and every subcollection stay writable. The lookup
+      // only runs for writes that change a library field, so it costs a read only for those.
+      allow create, update: if isOwner(uid) && hasValidUserShape() && withinUserSizeLimit()
+        && (!changesLibrary() || !libraryFenced(uid));
 
       // Account deletion is not implemented in the client yet. Allowing the owner
-      // to delete their own document is intentional and self-limited.
+      // to delete their own document is intentional and self-limited. It stays allowed while the
+      // library is fenced: the fence is a separate document, so deleting this one does not lift it
+      // (creating it again with library fields is refused above).
       allow delete: if isOwner(uid);
 
       // Listening stats, one document per UTC day, so they survive a reinstall.

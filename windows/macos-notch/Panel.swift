@@ -51,7 +51,7 @@ final class AuralisNotchPanel: NSPanel {
             name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenUnlocked),
             name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
-        pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+        pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
         if preview {
@@ -62,7 +62,7 @@ final class AuralisNotchPanel: NSPanel {
             state.positionMs = 66_500; state.lyrics = notchPreviewLyrics()
             apply(state)
             player.albumArt = AuralisArtwork.appIcon
-            vm.open()
+            vm.open(feedback: false)
         } else {
             readInput()
         }

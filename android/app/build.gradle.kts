@@ -66,6 +66,20 @@ android {
             "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         buildConfigField("String", "CONNECT_REALTIME_URL", "\"$realtimeUrl\"")
+        // Blank while the Cloudflare library rollout is off (docs/library-sync/spec.md, D2): the app
+        // then never contacts the library service and keeps syncing the library through Firestore.
+        val libraryUrl = providers.gradleProperty("library.sync.url").orElse("").get().trim()
+        require(libraryUrl.isEmpty() || (libraryUrl.startsWith("https://") && libraryUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !libraryUrl.contains("staging", ignoreCase = true))) {
+            "library.sync.url must be blank or a production HTTPS endpoint."
+        }
+        buildConfigField("String", "LIBRARY_SYNC_URL", "\"$libraryUrl\"")
+        // Account sync for settings (and later listening history): blank keeps them on Firestore.
+        val accountSyncUrl = providers.gradleProperty("account.sync.url").orElse("").get().trim()
+        require(accountSyncUrl.isEmpty() || (accountSyncUrl.startsWith("https://") && accountSyncUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !accountSyncUrl.contains("staging", ignoreCase = true))) {
+            "account.sync.url must be blank or a production HTTPS endpoint."
+        }
+        buildConfigField("String", "ACCOUNT_SYNC_URL", "\"$accountSyncUrl\"")
+        buildConfigField("boolean", "SYNC_PILOT", "false")
     }
 
     testOptions {
@@ -97,6 +111,17 @@ android {
         }
         debug {
             isDebuggable = true
+        }
+        create("syncPilot") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".syncpilot"
+            versionNameSuffix = "-sync-pilot"
+            matchingFallbacks += listOf("debug")
+            // An explicit, isolated internal variant; public URL validation remains unchanged.
+            buildConfigField("boolean", "SYNC_PILOT", "true")
+            buildConfigField("String", "LIBRARY_SYNC_URL", "\"\"")
+            buildConfigField("String", "ACCOUNT_SYNC_URL", "\"https://auralis-connect-staging.auralis018.workers.dev\"")
+            buildConfigField("String", "CONNECT_REALTIME_URL", "\"wss://auralis-connect-staging.auralis018.workers.dev/v1/connect\"")
         }
     }
 
@@ -277,6 +302,13 @@ tasks.matching { it.name == "assembleRelease" }.configureEach {
 val servicesJson = file("google-services.json")
 if (servicesJson.exists() && servicesJson.length() > 0) {
     apply(plugin = "com.google.gms.google-services")
+    // The internal clone uses the existing project's Firebase options for email/password only.
+    // Its Android sandbox and Firebase session are separate; no Firebase project/app is created.
+    afterEvaluate {
+        tasks.named<com.google.gms.googleservices.GoogleServicesTask>("processSyncPilotGoogleServices") {
+            applicationId.set("com.auralis.music")
+        }
+    }
 }
 
 val verifyReleaseFirebaseConfiguration by tasks.registering {

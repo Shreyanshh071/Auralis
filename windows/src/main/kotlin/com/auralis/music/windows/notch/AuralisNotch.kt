@@ -80,7 +80,7 @@ internal fun AuralisNotch(
         while (isActive) {
             val now = System.nanoTime() / 1_000_000
             val r = request
-            val wanted = session.update(r.enabled, r.locked, r.hasTrack, r.local, r.state, r.resolving, now)
+            val wanted = session.update(r.enabled, r.locked, r.hasTrack, r.local, r.state)
             try {
                 // Start hidden before acquiring another app's visibility, so a missing/crashed
                 // helper can never leave Boring Notch hidden with no replacement surface.

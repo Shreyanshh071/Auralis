@@ -309,7 +309,7 @@ internal fun DesktopSignInDialog(
                     }
 
                     // Message alerts
-                    val activeMessage = localMessage ?: accountState.message
+                    val activeMessage = localMessage ?: accountState.syncMessage ?: accountState.message
                     activeMessage?.let { msg ->
                         Surface(
                             shape = MaterialTheme.shapes.small,

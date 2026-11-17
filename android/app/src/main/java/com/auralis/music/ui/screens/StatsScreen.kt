@@ -1042,17 +1042,39 @@ fun StatsScreen(
         }
 
         if (showClearConfirmation) {
+            // With account sync, clearing every device is an explicit opt-in here, never the default.
+            val accountWideAvailable by com.auralis.music.data.sync.StatsCloudSync.accountWideClearAvailable.collectAsState()
+            var clearAllDevices by remember { mutableStateOf(false) }
+            var clearError by remember { mutableStateOf(false) }
             com.auralis.music.ui.components.AuralisConfirmDialog(
                 title = str(R.string.clear_listening_stats_2),
                 message = str(R.string.this_clears_your_listening_history_play),
                 confirmLabel = str(R.string.clear),
                 onDismiss = { if (!isClearingStats) showClearConfirmation = false },
                 enabled = !isClearingStats,
+                content = if (!accountWideAvailable) null else ({
+                    androidx.compose.foundation.layout.Column {
+                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(checked = clearAllDevices, onCheckedChange = { clearAllDevices = it }, enabled = !isClearingStats)
+                            androidx.compose.material3.Text(str(R.string.clear_stats_all_devices), style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
+                        }
+                        androidx.compose.material3.Text(
+                            if (clearAllDevices) str(R.string.clear_stats_all_devices_detail) else str(R.string.clear_stats_this_device_only_note),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = if (clearAllDevices) androidx.compose.material3.MaterialTheme.colorScheme.error
+                                else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (clearError) androidx.compose.material3.Text(
+                            str(R.string.could_not_clear_listening_stats),
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                    }
+                }),
                 onConfirm = {
                             isClearingStats = true
-                            viewModel.clearListeningStats { succeeded ->
+                            clearError = false
+                            viewModel.clearListeningStats(allDevices = accountWideAvailable && clearAllDevices) { succeeded ->
                                 isClearingStats = false
                                 if (succeeded) showClearConfirmation = false
+                                else clearError = true
                                 Toast.makeText(
                                     context,
                                     if (succeeded) str(R.string.listening_stats_cleared) else str(R.string.could_not_clear_listening_stats),

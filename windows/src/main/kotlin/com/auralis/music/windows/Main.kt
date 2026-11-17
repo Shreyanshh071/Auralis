@@ -65,6 +65,18 @@ private data class ReadyComponents(
 
 fun main(args: Array<String>) {
     awaitRestartParent(args)
+    val syncPilot = System.getProperty("auralis.syncPilot") == "true"
+    if (syncPilot) {
+        require(System.getProperty("auralis.accountSyncUrl") == "https://auralis-connect-staging.auralis018.workers.dev") {
+            "The internal sync pilot must use the staging account service."
+        }
+        require(System.getProperty("auralis.librarySyncUrl").orEmpty().isBlank()) { "Library migration is outside this pilot." }
+        val profile = System.getProperty("auralis.dataDir")?.let { java.io.File(it).canonicalFile }
+        require(profile != null && profile.parentFile?.name == "sync-pilot") {
+            "The sync pilot requires an isolated profile inside a sync-pilot directory."
+        }
+        System.setProperty("auralis.connectRealtimeUrl", "wss://auralis-connect-staging.auralis018.workers.dev/v1/connect")
+    }
     if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
         if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
             System.setProperty("skiko.renderApi", "METAL")
@@ -86,7 +98,7 @@ fun main(args: Array<String>) {
     val dataDir = desktopAppDataDir()
     val newProfile = dataDir.listFiles()?.isNotEmpty() != true
     kotlinx.coroutines.runBlocking { com.auralis.music.windows.settings.InstallerDefaults.install(dataDir) }
-    val windowTitle = if (dev) "Auralis Dev" else "Auralis"
+    val windowTitle = if (syncPilot) "Auralis Sync Pilot" else if (dev) "Auralis Dev" else "Auralis"
     // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
     Log.logToFile(java.io.File(dataDir, "auralis.log"), append = true)
     // The installer's step keeping gaming overlays off Auralis, and the elevated copy it starts.
@@ -694,7 +706,7 @@ fun main(args: Array<String>) {
             onCloseRequest = requestClose,
             visible = windowVisible,
             undecorated = !isMac,
-            title = if (dev) "Auralis Dev" else "Auralis",
+            title = windowTitle,
             icon = icon,
             state = windowState
         ) {
@@ -775,7 +787,7 @@ fun main(args: Array<String>) {
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
                 WindowTitleBar(
                     actions = actions,
-                    title = if (dev) "Auralis Dev" else "Auralis",
+                    title = windowTitle,
                     icon = icon,
                     systemDecorated = nativeTitlebar && nativeFrame != null,
                     maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,

@@ -28,12 +28,16 @@ let notchCanvasHeight: CGFloat = 238
     var contentWidth: CGFloat {
         notchState == .open ? openWidth : closedNotchSize.width + 2 * max(0, effectiveClosedNotchHeight - 12) + 38
     }
-    var contentHeight: CGFloat { notchState == .open ? 190 + (lyricRowVisible ? 28 : 0) : effectiveClosedNotchHeight }
+    var contentHeight: CGFloat { notchState == .open ? 198 : effectiveClosedNotchHeight }
 
-    func open() {
+    func open(feedback: Bool = true) {
+        guard notchState != .open else { return }
+        if feedback { NotchHaptics.perform(.alignment) }
         withAnimation(.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)) { notchState = .open }
     }
     func close() {
+        guard notchState != .closed else { return }
+        NotchHaptics.perform(.alignment)
         withAnimation(.spring(response: 0.45, dampingFraction: 1, blendDuration: 0)) { notchState = .closed }
     }
     func reset() {
@@ -45,11 +49,13 @@ let notchCanvasHeight: CGFloat = 238
         guard hovering != isHovering else { return }
         hoverTask?.cancel()
         withAnimation(.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)) { isHovering = hovering }
+        // Expansion and its haptic start at pointer entry. Only debounce departure,
+        // so briefly crossing the edge cannot chatter between open and closed.
+        if hovering { open(); return }
         hoverTask = Task { @MainActor in
-            try? await Task.sleep(for: hovering ? .milliseconds(300) : .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            if hovering && isHovering { open() }
-            else if !isHovering { close() }
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled, !isHovering else { return }
+            close()
         }
     }
 }
@@ -83,6 +89,7 @@ struct AuralisNotchView: View {
             }
             .shadow(color: vm.notchState == .open || vm.isHovering ? .black.opacity(0.7) : .clear, radius: 6)
             .contentShape(Rectangle())
+            .onHover { vm.hover($0) }
             .onTapGesture { vm.open() }
             .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { gesture in
                 if gesture.translation.height < -20 { vm.close() }

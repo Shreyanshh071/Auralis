@@ -62,6 +62,14 @@ class DesktopListeningStats(private val file: File) {
 
     @Synchronized fun clear() { mutable.value = emptyList(); clearVersion++; persist() }
 
+    /** Another device cleared the account's stats: listens before [cutoff] go here too. Returns how many. */
+    @Synchronized fun removeBefore(cutoff: Long): Int {
+        val kept = mutable.value.filter { it.startedAt >= cutoff }
+        val removed = mutable.value.size - kept.size
+        if (removed > 0) { mutable.value = kept; clearVersion++; persist() }
+        return removed
+    }
+
     private fun persist() {
         file.parentFile?.mkdirs()
         val json = JSONObject().put("version", 1).put("listens", JSONArray().apply {

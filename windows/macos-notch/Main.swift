@@ -29,7 +29,7 @@ import SwiftUI
             let vm = BoringViewModel()
             vm.closedNotchSize = CGSize(width: 206, height: 38)
             precondition(vm.contentWidth == 296)
-            vm.open(); precondition(vm.contentWidth == 640 && vm.contentHeight == 190)
+            vm.open(feedback: false); precondition(vm.contentWidth == 640 && vm.contentHeight == 198)
             vm.close(); precondition(vm.contentHeight == 38)
             let panel = AuralisNotchPanel()
             precondition(panel.level == .mainMenu + 3 && !panel.canBecomeKey && !panel.canBecomeMain && !panel.isVisible)
@@ -42,7 +42,7 @@ import SwiftUI
             snapshot.playing = true; snapshot.buffering = true
             MusicManager.shared.apply(snapshot)
             precondition(MusicManager.shared.estimatedPlaybackPosition(at: Date().addingTimeInterval(5)) == 66.5)
-            vm.lyricRowVisible = true; vm.open(); precondition(vm.contentHeight == 218)
+            vm.lyricRowVisible = true; vm.open(feedback: false); precondition(vm.contentHeight == 198)
             let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                 colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32)!
@@ -82,7 +82,7 @@ import SwiftUI
             manager.albumArt = AuralisArtwork.appIcon
             manager.avgColor = AuralisArtwork.averageColor(manager.albumArt)
             let vm = BoringViewModel()
-            vm.closedNotchSize = CGSize(width: 206, height: 38); vm.lyricRowVisible = true; vm.open()
+            vm.closedNotchSize = CGSize(width: 206, height: 38); vm.lyricRowVisible = true; vm.open(feedback: false)
             let renderer = ImageRenderer(content: AuralisNotchView().environmentObject(vm))
             renderer.scale = 2
             guard let tiff = renderer.nsImage?.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),

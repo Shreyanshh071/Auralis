@@ -17,9 +17,25 @@ simple = { limit = 300, period = 60 }
 name = "CONNECT"
 class_name = "ConnectAccount"
 
+# Account library (docs/library-sync/spec.md). Deploying this adds the namespace and routes only:
+# every account stays `legacy` until the migration tool is run for it, and the admin routes answer
+# 404 until LIBRARY_ADMIN_SECRET is set with `wrangler secret put`.
+[[ratelimits]]
+name = "LIBRARY_REQUESTS"
+namespace_id = "10403"
+simple = { limit = 600, period = 60 }
+
+[[durable_objects.bindings]]
+name = "LIBRARY"
+class_name = "LibraryAccount"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ConnectAccount"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LibraryAccount"]
 
 # Throwaway measurement target: see docs/connect-staging-plan.md. STAGING_SECRET is set with
 # `wrangler secret put` for this environment only, and production never has it.
@@ -38,6 +54,19 @@ simple = { limit = 300, period = 60 }
 name = "CONNECT"
 class_name = "ConnectAccount"
 
+[[env.staging.ratelimits]]
+name = "LIBRARY_REQUESTS"
+namespace_id = "10404"
+simple = { limit = 600, period = 60 }
+
+[[env.staging.durable_objects.bindings]]
+name = "LIBRARY"
+class_name = "LibraryAccount"
+
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["ConnectAccount"]
+
+[[env.staging.migrations]]
+tag = "v2"
+new_sqlite_classes = ["LibraryAccount"]

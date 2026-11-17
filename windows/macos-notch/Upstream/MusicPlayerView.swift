@@ -105,7 +105,7 @@ struct MusicSliderView: View {
 
 
     var body: some View {
-        VStack {
+        VStack(spacing: 4) {
             CustomSlider(
                 value: $sliderValue,
                 range: 0...max(duration, 0),
@@ -180,6 +180,7 @@ struct CustomSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
+                        if !dragging { NotchHaptics.perform(.alignment) }
                         withAnimation {
                             dragging = true
                         }
@@ -190,6 +191,7 @@ struct CustomSlider: View {
                     }
                     .onEnded { _ in
                         onValueChange?(value)
+                        NotchHaptics.perform(.levelChange)
                         dragging = false
                         lastDragged = Date()
                     }

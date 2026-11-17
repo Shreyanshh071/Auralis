@@ -91,32 +91,36 @@ class NotchTest {
         assertFalse(child.isAlive, "Closing Auralis must terminate its native notch child")
     }
 
-    @Test fun pauseDeadlineResumeBufferingAndSessionEnd() {
+    @Test fun firstPlaybackActivatesNotchUntilAppSessionEnds() {
         val session = NotchSession()
-        fun tick(state: State, now: Long, resolving: Boolean = false) =
-            session.update(true, false, true, true, state, resolving, now)
-        assertFalse(tick(State.PAUSED, 0), "A restored paused queue must not take over the notch")
-        assertTrue(tick(State.PLAYING, 10))
-        assertTrue(tick(State.PAUSED, 100))
-        assertTrue(tick(State.PAUSED, 10_099))
-        assertFalse(tick(State.PAUSED, 10_100))
-        assertTrue(tick(State.PLAYING, 11_000))
-        assertTrue(tick(State.PAUSED, 12_000))
-        assertTrue(tick(State.BUFFERING, 15_000))
-        assertTrue(tick(State.PAUSED, 30_000), "Buffering resets the pause timer")
-        assertTrue(tick(State.IDLE, 31_000, resolving = true), "Track resolution keeps ownership")
-        assertFalse(tick(State.ENDED, 32_000))
-        assertFalse(tick(State.ERROR, 33_000))
+        fun tick(state: State) = session.update(true, false, true, true, state)
+        assertFalse(tick(State.PAUSED), "A restored paused queue must not take over the notch")
+        assertFalse(tick(State.IDLE))
+        assertFalse(tick(State.BUFFERING), "Wait until a song actually plays")
+        assertFalse(tick(State.ERROR))
+        assertTrue(tick(State.PLAYING))
+        repeat(1000) { assertTrue(tick(State.PAUSED), "Pausing has no expiry") }
+        assertTrue(tick(State.BUFFERING))
+        assertTrue(tick(State.IDLE))
+        assertTrue(tick(State.ENDED))
+        assertTrue(tick(State.ERROR))
+        assertFalse(NotchSession().update(true, false, true, true, State.PAUSED),
+            "A new app session must wait for playback again")
     }
 
-    @Test fun lockDisableQueueClearAndRemotePlaybackCannotShowTheNotch() {
+    @Test fun temporarySuppressionDoesNotForgetFirstPlayback() {
         val session = NotchSession()
-        assertTrue(session.update(true, false, true, true, State.PLAYING, false, 0))
-        assertFalse(session.update(true, true, true, true, State.PLAYING, false, 1))
-        assertTrue(session.update(true, false, true, true, State.PLAYING, false, 2))
-        assertFalse(session.update(true, false, true, false, State.PLAYING, false, 3))
-        assertFalse(session.update(false, false, true, true, State.PLAYING, false, 4))
-        assertFalse(session.update(true, false, false, true, State.PLAYING, false, 5))
+        assertFalse(session.update(true, false, true, false, State.PLAYING))
+        assertFalse(session.update(true, false, true, true, State.PAUSED))
+        assertTrue(session.update(true, false, true, true, State.PLAYING))
+        assertFalse(session.update(true, true, true, true, State.PAUSED))
+        assertTrue(session.update(true, false, true, true, State.PAUSED))
+        assertFalse(session.update(true, false, true, false, State.PAUSED))
+        assertTrue(session.update(true, false, true, true, State.PAUSED))
+        assertFalse(session.update(false, false, true, true, State.PAUSED))
+        assertTrue(session.update(true, false, true, true, State.PAUSED))
+        assertFalse(session.update(true, false, false, true, State.IDLE))
+        assertTrue(session.update(true, false, true, true, State.PAUSED))
     }
 
     @Test fun refusedHideNeverAllowsDuplicationOrRepeatedlyDisturbsThePeer() {

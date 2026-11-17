@@ -38,11 +38,22 @@ struct HoverButton: View {
                         }
                 }
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(NotchPressFeedbackStyle())
         .onHover { hovering in
             withAnimation(.smooth(duration: 0.3)) {
                 isHovering = hovering
             }
         }
+    }
+}
+
+/// A button action arrives on release; the tactile response belongs to press-down.
+private struct NotchPressFeedbackStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { NotchHaptics.perform() }
+            }
     }
 }

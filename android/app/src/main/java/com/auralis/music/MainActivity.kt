@@ -186,7 +186,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val updaterStore = com.auralis.music.data.datastore.UpdaterDataStore(applicationContext)
                 val updaterSettings = updaterStore.settingsFlow.first()
-                if (updaterSettings.autoCheckUpdates) {
+                if (!BuildConfig.SYNC_PILOT && updaterSettings.autoCheckUpdates) {
                     val updateInfo = com.auralis.music.data.network.UpdateChecker.checkForUpdates(applicationContext)
                     if (updateInfo.hasUpdate) {
                         Log.d("AuralisUpdater", "New update detected on startup: v${updateInfo.latestVersion}")

@@ -379,19 +379,19 @@ fun AuralisDesktopApp(
     // the title bar's refresh pulls again.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid, refreshTick) {
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
-        try {
-            // Normal startup sync is silent; actionable failures are logged below.
-            account.pullCloudBackup(library, listeningStats, history)
-            libraryViewModel.refresh()
-            // Then send this PC's side: the merged library, and listens measured here.
-            account.pushLibrary(library)
-            account.pushListens(listeningStats)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync with the account: ${e.message}") }
+        account.syncCloudLibrary(library, listeningStats, history)
+        libraryViewModel.refresh()
+        if (account.listensOnCloud()) runCatching { account.syncListensCloud(listeningStats, history) }
+            .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+        else runCatching { account.pushListens(listeningStats) }
+            .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
     }
+
     // Signing out removes what the account brought here (its playlists and liked songs); what
     // was imported on this PC stays. The previous account is remembered to know whose to remove.
     var syncedUid by remember { mutableStateOf(accountState.profile?.uid) }
+    // Whether this account's listening history uses the account sync service (offers the all-devices clear).
+    var listensCloudActive by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
         val uid = accountState.profile?.uid?.takeIf { it.isNotBlank() }
         val previous = syncedUid
@@ -404,30 +404,54 @@ fun AuralisDesktopApp(
         }
     }
     // While signed in, keep the account current: library edits a few seconds after they happen,
-    // listening within about 20 seconds, and the phone's new listening each minute.
+    // listening within about 20 seconds, remote listening each minute. Remote library edits arrive
+    // by notification once the account is on the Cloudflare library; on Firestore they are checked
+    // every 15 minutes, because every check there is a billed read for every running desktop.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
+        account.onLibraryChanged = {
+            if (account.syncCloudLibrary(library, listeningStats, history)) libraryViewModel.refresh()
+        }
         launch {
             kotlinx.coroutines.flow.combine(library.getPlaylists(), library.getFavoriteTracks(),
                 library.getSavedAlbums(), library.getSavedArtists()) { a, b, c, d -> listOf<Any>(a, b, c, d) }
                 .distinctUntilChanged()
-                .collectLatest {
+                .collect {
+                    // Applying remote edits emits this flow too; finish the merge and baseline
+                    // before handling its next value instead of cancelling our own sync.
                     kotlinx.coroutines.delay(5_000)
-                    runCatching { account.pushLibrary(library) }
+                    runCatching { account.syncCloudLibrary(library, listeningStats, history) }
                         .onFailure { com.auralis.music.util.Log.w("AccountSync", "Library upload failed: ${it.message}") }
                 }
+        }
+        val listensOnCloud = account.listensOnCloud()
+        listensCloudActive = listensOnCloud
+        if (listensOnCloud) {
+            // Other devices' listens arrive by notification (or are pulled after a reconnect), and
+            // this PC's finished listens go up in batches at most every 5 minutes. Nothing is polled.
+            account.accountSync.listen(accountState.profile!!.uid, "listens") { frame ->
+                runCatching { account.listensChanged(frame, listeningStats, history) }
+                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening update failed: ${it.message}") }
+            }
         }
         launch {
             // The recorder saves every 5 s while playing, so sample rather than debounce.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            listeningStats.listens.sample(20_000).collect {
-                runCatching { account.pushListens(listeningStats) }
+            listeningStats.listens.sample(if (listensOnCloud) 5 * 60_000L else 20_000L).collect {
+                if (listensOnCloud) runCatching { account.syncListensCloud(listeningStats, history) }
+                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+                else runCatching { account.pushListens(listeningStats) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
             }
         }
+        val libraryChecks = com.auralis.music.windows.profile.LibraryCheckSchedule()
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            runCatching { account.pullNewListens(listeningStats, history) }
+            if (libraryChecks.due(System.currentTimeMillis(), account.libraryNotifies)) {
+                libraryChecks.done(System.currentTimeMillis(), account.syncCloudLibrary(library, listeningStats, history))
+            }
+            // The interim 15-minute listening check is kept apart in patches/interim-polling-reduction.patch.
+            if (!listensOnCloud) runCatching { account.pullNewListens(listeningStats, history) }
                 .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening check failed: ${it.message}") }
         }
     }
@@ -926,7 +950,8 @@ fun AuralisDesktopApp(
                                 onOpenWrapped = { destination = DesktopDestination.WRAPPED },
                                 search = backgroundSearch,
                                 onOpenArtist = browse::openArtist,
-                                onTrackMenu = { menuTrack = it }
+                                onTrackMenu = { menuTrack = it },
+                                onClearAllDevices = if (listensCloudActive && accountState.profile != null) ({ account.clearListensCloud() }) else null
                             )
                             DesktopDestination.PROFILE -> com.auralis.music.windows.profile.DesktopProfile(
                                 account = account,

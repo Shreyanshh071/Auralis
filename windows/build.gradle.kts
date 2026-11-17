@@ -235,6 +235,21 @@ compose.desktop {
             "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
+        // Blank while the Cloudflare library rollout is off (docs/library-sync/spec.md, D2): the app
+        // then never contacts the library service and keeps syncing the library through Firestore.
+        val libraryUrl = providers.gradleProperty("library.sync.url").orElse("").get().trim()
+        require(libraryUrl.isEmpty() || (libraryUrl.startsWith("https://") && libraryUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !libraryUrl.contains("staging", ignoreCase = true))) {
+            "library.sync.url must be blank or a production HTTPS endpoint."
+        }
+        if (libraryUrl.isNotEmpty()) jvmArgs("-Dauralis.librarySyncUrl=$libraryUrl")
+        // Account sync for settings (and later listening history): blank keeps them on Firestore.
+        val accountSyncUrl = providers.gradleProperty("account.sync.url").orElse("").get().trim()
+        require(accountSyncUrl.isEmpty() || (accountSyncUrl.startsWith("https://") && accountSyncUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !accountSyncUrl.contains("staging", ignoreCase = true))) {
+            "account.sync.url must be blank or a production HTTPS endpoint."
+        }
+        if (accountSyncUrl.isNotEmpty()) jvmArgs("-Dauralis.accountSyncUrl=$accountSyncUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 

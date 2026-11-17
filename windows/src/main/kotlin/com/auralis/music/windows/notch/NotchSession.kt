@@ -2,36 +2,21 @@ package com.auralis.music.windows.notch
 
 import com.auralis.music.desktop.playback.VlcAudioPlayer
 
-internal const val NOTCH_PAUSE_GRACE_MS = 10_000L
-
-/** Monotonic time only: wall-clock changes must not extend a paused session. */
+/** First local playback activates the notch for this app lifetime. */
 internal class NotchSession {
     private var engaged = false
-    private var pausedAt: Long? = null
 
     fun update(
         enabled: Boolean,
         locked: Boolean,
         hasTrack: Boolean,
         localPlayback: Boolean,
-        state: VlcAudioPlayer.State,
-        resolving: Boolean,
-        nowMs: Long
+        state: VlcAudioPlayer.State
     ): Boolean {
-        if (!enabled || !hasTrack || !localPlayback) {
-            engaged = false
-            pausedAt = null
-        } else if (resolving || state == VlcAudioPlayer.State.PLAYING || state == VlcAudioPlayer.State.BUFFERING) {
-            engaged = true
-            pausedAt = null
-        } else if (state == VlcAudioPlayer.State.PAUSED && engaged) {
-            val since = pausedAt ?: nowMs.also { pausedAt = it }
-            if (nowMs - since >= NOTCH_PAUSE_GRACE_MS) engaged = false
-        } else {
-            engaged = false
-            pausedAt = null
-        }
-        return engaged && !locked
+        // Restored queues and initial resolution/buffering must not expose the notch.
+        if (hasTrack && localPlayback && state == VlcAudioPlayer.State.PLAYING) engaged = true
+        // Lock, settings and remote playback temporarily suppress presentation only.
+        return engaged && enabled && !locked && hasTrack && localPlayback
     }
 }
 
