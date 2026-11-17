@@ -93,3 +93,21 @@ internal fun robustMean(values: List<Float>): Float {
     for (i in from until to) sum += sorted[i]
     return sum / (to - from)
 }
+
+/** Emit analysis samples at a fixed rate, including exact ratios such as 44.1 kHz / 11.025 kHz. */
+internal class MonoAnalysisResampler(sourceRate: Int, targetRate: Int, private val emit: (Float) -> Unit) {
+    private val step = sourceRate.toDouble() / targetRate
+    private var phase = 0.0
+    private var previous = 0f
+
+    init { require(sourceRate > 0 && targetRate > 0) }
+
+    fun push(sample: Float) {
+        while (phase <= 0.0) {
+            emit(previous)
+            phase += step
+        }
+        phase -= 1.0
+        previous = sample
+    }
+}

@@ -18,15 +18,15 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AudioTransitionsTest {
-    private class Fixture(val scope: TestScope) {
+    private class Fixture(val scope: TestScope, analysis: AutoMixAnalyzer? = null) {
         val primary = mockk<ExoPlayer>(relaxed = true)
         val secondary = mockk<ExoPlayer>(relaxed = true)
         val primaryListener = slot<Player.Listener>()
         val secondaryListener = slot<Player.Listener>()
         val outgoing = Track(id = "a", title = "A", artist = "Artist A", duration = 180)
         val next = Track(id = "b", title = "B", artist = "Artist B", duration = 200)
-        val outgoingItem = MediaItem.Builder().setMediaId("a").build()
-        val incomingItem = MediaItem.Builder().setMediaId("b").build()
+        val outgoingItem = MediaItem.Builder().setMediaId("a").setUri(mockk<android.net.Uri>(relaxed = true)).build()
+        val incomingItem = MediaItem.Builder().setMediaId("b").setUri(mockk<android.net.Uri>(relaxed = true)).build()
         var currentItem = outgoingItem
         var index = 0
         var position = 174_750L
@@ -61,7 +61,7 @@ class AudioTransitionsTest {
             every { secondary.volume = any() } answers { secondaryVolume = firstArg() }
             every { secondary.addListener(capture(secondaryListener)) } just Runs
             controller = AudioTransitionController(primary, AutoMixFilterProcessor(), scope,
-                createIncoming = { secondary }, createAnalyzer = { error("Fixed crossfade must not start analysis") },
+                createIncoming = { secondary }, createAnalyzer = { analysis ?: error("Fixed crossfade must not start analysis") },
                 eligible = { eligible }, onTransition = { track, _ -> transitions += track },
                 nanoTime = { scope.testScheduler.currentTime * 1_000_000L })
         }
@@ -69,6 +69,57 @@ class AudioTransitionsTest {
         fun tick(settings: PlayerSettings = PlayerSettings(crossfadeEnabled = true), track: Track = next) {
             controller.tick(outgoing, track, 0, settings)
         }
+    }
+
+    private fun analysed(durationMs: Long, bpm: Double = 120.0, confidence: Double = .9) =
+        AutoMixAnalysis(
+            durationMs = durationMs, bpm = bpm, beatIntervalMs = 60_000.0 / bpm,
+            beatConfidence = confidence, downbeatPhaseMs = 0.0, audibleStartMs = 0,
+            introEndMs = 2_000, outroStartMs = durationMs - 10_000, contentEndMs = durationMs - 1_500,
+            finalFadeOnsetMs = durationMs - 10_000, mixInCandidatesMs = listOf(2_000),
+            mixOutCandidatesMs = listOf(durationMs - 10_000),
+            energyCurve = List((durationMs / 250).toInt()) { .6f },
+            vocalActivity = List((durationMs / 250).toInt()) { 0f }
+        )
+
+    @Test fun autoMixWaitsForAnalysisWithoutSilentlyCrossfading() = runTest {
+        val analysis = mockk<AutoMixAnalyzer>(relaxed = true)
+        every { analysis.analysisFor(any()) } returns null
+        val f = Fixture(this, analysis)
+        val settings = PlayerSettings(automixEnabled = true, crossfadeEnabled = false)
+        f.tick(settings)
+        runCurrent()
+        verify(exactly = 0) { f.secondary.prepare() }
+        assertEquals(1f, f.volume, 0f)
+
+        // Analysis arriving later must still enable the real mix, rather than consume the attempt.
+        every { analysis.analysisFor("a") } returns analysed(180_000)
+        every { analysis.analysisFor("b") } returns analysed(200_000, 122.0)
+        f.tick(settings)
+        runCurrent()
+        verify(exactly = 1) { f.secondary.play() }
+        verify { f.secondary.playbackParameters = match { kotlin.math.abs(it.speed - 1f) > .001f } }
+        f.controller.release()
+    }
+
+    @Test fun autoMixDoesNotUseLowConfidenceFadeWhenCrossfadeIsOff() = runTest {
+        val analysis = mockk<AutoMixAnalyzer>(relaxed = true)
+        every { analysis.analysisFor("a") } returns analysed(180_000, confidence = .1)
+        every { analysis.analysisFor("b") } returns analysed(200_000, confidence = .1)
+        val f = Fixture(this, analysis)
+        f.tick(PlayerSettings(automixEnabled = true, crossfadeEnabled = false))
+        verify(exactly = 0) { f.secondary.prepare() }
+        assertEquals(1f, f.volume, 0f)
+        f.controller.release()
+    }
+
+    @Test fun autoMixAnalysesTheCurrentSongBeforeTheNextStreamIsAvailable() = runTest {
+        val analysis = mockk<AutoMixAnalyzer>(relaxed = true)
+        val f = Fixture(this, analysis)
+        f.controller.tick(f.outgoing, null, 0, PlayerSettings(automixEnabled = true))
+        verify { analysis.request("a", any(), 180_000L) }
+        verify(exactly = 0) { f.secondary.prepare() }
+        f.controller.release()
     }
 
     @Test fun crossfadeOverlapsThenCommitsExactlyOneQueueAdvanceAndRestoresVolume() = runTest {

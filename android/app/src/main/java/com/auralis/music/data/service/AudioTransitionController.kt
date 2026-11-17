@@ -61,6 +61,13 @@ internal class AudioTransitionController(
             return
         }
         if (job != null) return
+        val currentItem = primary.currentMediaItem ?: return
+        val duration = primary.duration
+        if (duration == C.TIME_UNSET || duration <= 0L || !primary.isPlaying) return
+        // Start analysing the outgoing song immediately, even while its successor is still being
+        // resolved/preloaded. Waiting for the next MediaItem delayed both analyses.
+        val analysis = if (settings.automixEnabled) analyzer ?: createAnalyzer().also { analyzer = it } else null
+        currentItem.localConfiguration?.uri?.let { analysis?.request(current.id, it, duration) }
         if (next == null) { cancel(); return }
         val key = "$queueIndex:${current.id}:${next.id}"
         if (sourceKey != key) {
@@ -70,21 +77,17 @@ internal class AudioTransitionController(
         }
         if (attempted || !primary.isPlaying || primary.currentMediaItemIndex + 1 >= primary.mediaItemCount) return
         if (settings.skipGaplessAlbums && AudioTransitionPolicy.sameAlbum(current, next)) return
-        val duration = primary.duration
-        if (duration == C.TIME_UNSET || duration <= 0L) return
         val nextItem = primary.getMediaItemAt(primary.currentMediaItemIndex + 1)
-        val currentItem = primary.currentMediaItem ?: return
-        if (settings.automixEnabled) {
-            val analysis = analyzer ?: createAnalyzer().also { analyzer = it }
-            currentItem.localConfiguration?.uri?.let { analysis.request(current.id, it, duration) }
-            nextItem.localConfiguration?.uri?.let { analysis.request(next.id, it, next.duration * 1000L) }
-        }
+        nextItem.localConfiguration?.uri?.let { analysis?.request(next.id, it, next.duration * 1000L) }
         val requestedMs = if (settings.automixEnabled) 5_000L else (settings.crossfadeSeconds * 1000).toLong()
         val plan = if (settings.automixEnabled) AutoMixPlanner.plan(
             analyzer?.analysisFor(current.id), analyzer?.analysisFor(next.id), current.info(duration), next.info(next.duration * 1000L),
             primary.currentPosition, requestedMs, 1_000L, false
         ) else AutoMixPlan.fallback(requestedMs, (duration - requestedMs - 250L).coerceAtLeast(0L), "fixed fade")
         if (plan.blocked || plan.style == AutoMixStyle.GAPLESS) return
+        // Missing/low-confidence analysis produces the planner's ordinary fade fallback. Respect
+        // the separate Crossfade switch instead of silently fading when only AutoMix is enabled.
+        if (settings.automixEnabled && !settings.crossfadeEnabled && plan.style == AutoMixStyle.EQUAL_POWER) return
         val startMs = plan.transitionStartMs.coerceAtLeast(0L)
         if (primary.currentPosition < startMs - 10_000L) return
         val player = incoming ?: run {

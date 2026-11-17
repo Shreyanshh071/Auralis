@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import com.auralis.music.data.service.automix.AutoMixFilterProcessor
 import com.auralis.music.data.service.automix.Fft
+import com.auralis.music.data.service.automix.MonoAnalysisResampler
 import org.junit.Assert.*
 import org.junit.Test
 import java.nio.ByteBuffer
@@ -13,6 +14,24 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class AutoMixAudioProcessingTest {
+    @Test fun analysisResamplingKeepsAudioAtIntegerAndFractionalSampleRateRatios() {
+        for (sourceRate in listOf(44_100, 48_000)) {
+            for (targetRate in listOf(11_025, 22_050)) {
+                val output = ArrayList<Float>()
+                val resampler = MonoAnalysisResampler(sourceRate, targetRate) { output.add(it) }
+                repeat(sourceRate) { resampler.push(sin(2.0 * PI * 1000 * it / sourceRate).toFloat()) }
+                assertTrue("Unexpected resampled count for $sourceRate -> $targetRate: ${output.size}",
+                    kotlin.math.abs(output.size - targetRate) <= 1)
+                assertTrue("Analysis must receive audible samples", output.sumOf { it.toDouble() * it } / output.size > .4)
+                val size = 512
+                val spectrum = FloatArray(size / 2)
+                Fft(size).magnitudeSpectrum(output.take(size).toFloatArray(), FloatArray(size), spectrum)
+                val frequency = spectrum.indices.maxBy { spectrum[it] } * targetRate.toDouble() / size
+                assertEquals("The analysis must preserve the source tone", 1000.0, frequency, 50.0)
+            }
+        }
+    }
+
     @Test fun fftFindsTheKnownFrequencyOfASyntheticTone() {
         val size = 512
         val real = FloatArray(size) { sin(2.0 * PI * 32 * it / size).toFloat() }

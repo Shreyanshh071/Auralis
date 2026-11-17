@@ -166,8 +166,6 @@ class AutoMixAnalyzer(
             val energyCurve = ArrayList<Float>(2048)
             val vocalCurve = ArrayList<Float>(2048)
 
-            var resamplePos = 0.0
-            var lastSample = 0f
 
             val curveWindowSamples =
                 (analysisRate * AUTO_MIX_CURVE_STEP_MS / 1000L).toInt().coerceAtLeast(1)
@@ -184,56 +182,44 @@ class AutoMixAnalyzer(
             var outputDone = false
             var idleSpins = 0
 
-            fun pushSample(mono: Float) {
-                while (resamplePos <= 0.0) {
-                    val out = lastSample
-
-                    if (resamplePos == 0.0 && windowFill == 0 && flux.isEmpty() && curveSamples == 0) {
-                        resamplePos += sourceRate.toDouble() / analysisRate
-                        break
+            val resampler = MonoAnalysisResampler(sourceRate, analysisRate) { out ->
+                real[windowFill] = out * window[windowFill]
+                imag[windowFill] = 0f
+                windowFill++
+                if (windowFill == fftSize) {
+                    System.arraycopy(real, fftSize - fftHop, overlap, 0, fftHop)
+                    fft.magnitudeSpectrum(real, imag, mag)
+                    var fluxSum = 0f
+                    var band = 0f
+                    var total = 0f
+                    for (bin in 0 until fftSize / 2) {
+                        val m = mag[bin]
+                        val d = m - prevMag[bin]
+                        if (d > 0f) fluxSum += d
+                        total += m
+                        if (bin in vocalLowBin..vocalHighBin) band += m
                     }
-
-                    real[windowFill] = out * window[windowFill]
-                    imag[windowFill] = 0f
-                    windowFill++
-                    if (windowFill == fftSize) {
-                        System.arraycopy(real, fftSize - fftHop, overlap, 0, fftHop)
-                        fft.magnitudeSpectrum(real, imag, mag)
-                        var fluxSum = 0f
-                        var band = 0f
-                        var total = 0f
-                        for (bin in 0 until fftSize / 2) {
-                            val m = mag[bin]
-                            val d = m - prevMag[bin]
-                            if (d > 0f) fluxSum += d
-                            total += m
-                            if (bin in vocalLowBin..vocalHighBin) band += m
-                        }
-                        System.arraycopy(mag, 0, prevMag, 0, mag.size)
-                        flux.add(fluxSum)
-                        bandSum += band
-                        totalSum += total
-                        System.arraycopy(overlap, 0, real, 0, fftHop)
-                        java.util.Arrays.fill(real, fftHop, fftSize, 0f)
-                        java.util.Arrays.fill(imag, 0, fftSize, 0f)
-                        windowFill = fftHop
-                    }
-
-                    squareSum += out.toDouble() * out
-                    curveSamples++
-                    if (curveSamples >= curveWindowSamples) {
-                        energyCurve.add(kotlin.math.sqrt(squareSum / curveSamples).toFloat())
-                        val ratio = if (totalSum > 1e-6) (bandSum / totalSum).toFloat() else 0f
-                        vocalCurve.add(ratio)
-                        squareSum = 0.0
-                        bandSum = 0.0
-                        totalSum = 0.0
-                        curveSamples = 0
-                    }
-                    resamplePos += sourceRate.toDouble() / analysisRate
+                    System.arraycopy(mag, 0, prevMag, 0, mag.size)
+                    flux.add(fluxSum)
+                    bandSum += band
+                    totalSum += total
+                    System.arraycopy(overlap, 0, real, 0, fftHop)
+                    java.util.Arrays.fill(real, fftHop, fftSize, 0f)
+                    java.util.Arrays.fill(imag, 0, fftSize, 0f)
+                    windowFill = fftHop
                 }
-                resamplePos -= 1.0
-                lastSample = mono
+
+                squareSum += out.toDouble() * out
+                curveSamples++
+                if (curveSamples >= curveWindowSamples) {
+                    energyCurve.add(kotlin.math.sqrt(squareSum / curveSamples).toFloat())
+                    val ratio = if (totalSum > 1e-6) (bandSum / totalSum).toFloat() else 0f
+                    vocalCurve.add(ratio)
+                    squareSum = 0.0
+                    bandSum = 0.0
+                    totalSum = 0.0
+                    curveSamples = 0
+                }
             }
 
             val deadline = System.nanoTime() + 180_000_000_000L
@@ -274,7 +260,7 @@ class AutoMixAnalyzer(
                                 for (c in 0 until sourceChannels) {
                                     mono += chunk[f * sourceChannels + c]
                                 }
-                                pushSample(mono.toFloat() / (32768f * sourceChannels))
+                                resampler.push(mono.toFloat() / (32768f * sourceChannels))
                                 f++
                             }
                         }
