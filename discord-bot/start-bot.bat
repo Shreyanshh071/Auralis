@@ -2,6 +2,12 @@
 setlocal
 cd /d "%~dp0.."
 
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-token.ps1"
+if errorlevel 1 (
+    pause
+    exit /b 1
+)
+
 rem Set BOT_JAVA_HOME to override automatic Java 25+ detection.
 set "BOT_JAVA="
 for /f "usebackq delims=" %%J in (`powershell.exe -NoProfile -Command "$c = @(); if ($env:BOT_JAVA_HOME) { $c += Join-Path $env:BOT_JAVA_HOME 'bin\java.exe' }; if ($env:JAVA_HOME) { $c += Join-Path $env:JAVA_HOME 'bin\java.exe' }; $c += (Get-Command java.exe -ErrorAction SilentlyContinue).Source; foreach ($root in @('Java','Eclipse Adoptium','Microsoft','Zulu')) { $c += (Get-ChildItem (Join-Path $env:ProgramFiles ($root + '\*\bin\java.exe')) -ErrorAction SilentlyContinue).FullName }; foreach ($j in ($c | Select-Object -Unique)) { if ($j -and (Test-Path -LiteralPath $j)) { $v = (& $j -version 2>&1 | Out-String); if ($v -match 'version \x22(\d+)' -and [int]$Matches[1] -ge 25) { Write-Output $j; break } } }"`) do set "BOT_JAVA=%%J"
