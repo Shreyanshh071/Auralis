@@ -100,6 +100,7 @@ class LibraryViewModel(
     private val spotifyPreparation = kotlinx.coroutines.channels.Channel<List<Playlist>>(
         kotlinx.coroutines.channels.Channel.CONFLATED)
     private val attemptedSpotifyTracks = mutableSetOf<String>()
+    private val accountImportMatching = kotlinx.coroutines.sync.Semaphore(1)
 
     private suspend fun refreshSpotifyPlaylistMetadata(playlistId: String) {
         if (!com.auralis.music.data.network.SpotifySession.isSignedIn || !refreshedSpotifyPlaylists.add(playlistId)) return
@@ -1174,6 +1175,36 @@ class LibraryViewModel(
         }
     }
 
+    /** Complete metadata fetched through the user's authenticated service session. */
+    fun importMusicAccountPlaylists(playlists: List<com.auralis.music.data.importer.ExternalPlaylist>) {
+        if (playlists.isEmpty() || _uiState.value.isImportingExternal) return
+        val batch = playlists.distinctBy { "${it.service.id}:${it.remoteId}" }
+        _uiState.update { it.copy(isImportingExternal = true, externalImportMessage = null) }
+        viewModelScope.launch {
+            var saved = 0
+            var songs = 0
+            val failed = mutableListOf<String>()
+            try {
+                batch.forEachIndexed { index, playlist ->
+                    _uiState.update { it.copy(externalImportMessage = str(R.string.importing_x_of_x_x, index + 1, batch.size, playlist.title)) }
+                    try {
+                        // Preserve the service identity used by public-link imports on re-import.
+                        saveImportedTracks(playlist.service.id, playlist.remoteId, playlist.title,
+                            playlist.description, playlist.coverUrl, playlist.tracks,
+                            finishWhenSaved = false, reportMatchingProgress = false)
+                        saved++
+                        songs += playlist.tracks.size
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                    } catch (_: Exception) { failed += playlist.title }
+                }
+            } finally {
+                _uiState.update { it.copy(isImportingExternal = false,
+                    externalImportMessage = str(R.string.music_account_imported, saved, songs) +
+                        if (failed.isEmpty()) "" else "\n" + str(R.string.music_account_save_failed, failed.joinToString(", "))) }
+            }
+        }
+    }
+
     /** A playlist file (CSV, TSV, M3U, M3U8, JSON or text). JSON backups may hold several playlists. */
     fun importPlaylistFile(fileName: String, content: String) {
         if (_uiState.value.isImportingExternal) return
@@ -1221,7 +1252,8 @@ class LibraryViewModel(
         description: String?,
         coverUrl: String?,
         tracks: List<Track>,
-        finishWhenSaved: Boolean = true
+        finishWhenSaved: Boolean = true,
+        reportMatchingProgress: Boolean = true
     ) {
         val importedSync = onPlaylistImported.takeIf { syncOnImport }
         val twin = twinPlaylist(title, tracks, "imported:$source:$remoteId",
@@ -1240,18 +1272,28 @@ class LibraryViewModel(
         }
         if (tracks.any { it.id.startsWith("sp_") }) {
             viewModelScope.launch(Dispatchers.IO) {
+                val matchingGate = accountImportMatching.takeUnless { reportMatchingProgress }
+                matchingGate?.acquire()
                 try {
                     val matched = spotifyImporter.enrichTracksWithYouTubeData(tracks) { progress ->
-                        _uiState.update { it.copy(externalImportMessage = progress) }
+                        if (reportMatchingProgress) _uiState.update { it.copy(externalImportMessage = progress) }
+                    }
+                    // An older account-import matching job must not overwrite a newer import or
+                    // songs the user edited while matching was running.
+                    if (!reportMatchingProgress) {
+                        val current = libraryRepository.getPlaylists().firstOrNull().orEmpty().firstOrNull { it.id == playlist.id }
+                        if (current?.tracks != tracks) return@launch
                     }
                     libraryRepository.replacePlaylistTracks(playlist.id, matched)
-                    _uiState.update {
+                    if (reportMatchingProgress) _uiState.update {
                         it.copy(externalImportMessage = str(R.string.all_x_songs_in_x_matched_with_official_a, matched.size, title))
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     android.util.Log.e("ExternalImporter", "Matching failed: ${e.message}")
+                } finally {
+                    matchingGate?.release()
                 }
             }
         }

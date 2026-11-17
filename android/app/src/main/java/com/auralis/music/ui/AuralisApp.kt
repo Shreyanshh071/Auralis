@@ -1933,6 +1933,7 @@ fun AuralisApp(
                     onImportSelectedPlaylists = { authVM.importSelectedPlaylists() },
                     onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
                     onImportExternalPlaylist = { libVM.importExternalPlaylist(it) },
+                    onImportMusicAccountPlaylists = { libVM.importMusicAccountPlaylists(it) },
                     onImportPlaylistFile = { name, text -> libVM.importPlaylistFile(name, text) },
                     isImportingExternal = libraryUiState.isImportingExternal,
                     externalImportMessage = libraryUiState.externalImportMessage,
