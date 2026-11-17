@@ -24,6 +24,7 @@
     <string name="synced_with_host_controls_locked">Synced with host (controls locked)</string>
     <string name="playing_next_x">Playing next: %1$s</string>
     <string name="already_playing_x">Already playing: %1$s</string>
+    <string name="already_playing_next_x">Already playing next: %1$s</string>
     <string name="added_to_queue_x">Added to queue: %1$s</string>
     <string name="shuffling_x">Shuffling: %1$s</string>
     <string name="added_x_songs_to_queue">Added %1$s songs to queue</string>

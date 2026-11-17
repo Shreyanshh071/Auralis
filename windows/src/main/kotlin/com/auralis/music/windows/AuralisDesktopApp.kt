@@ -919,8 +919,12 @@ fun AuralisDesktopApp(
                                 onOpenArtist = browse::openArtist,
                                 onOpenAlbum = { browse.openAlbum(it) },
                                 onPlayNext = { track ->
-                                    playback?.playNext(track)
-                                    showUnavailable(com.auralis.music.ui.i18n.str(com.auralis.music.ui.i18n.Strings.playing_next_x, track.title))
+                                    val alreadyNext = playback?.isNext(track) == true
+                                    if (!alreadyNext) playback?.playNext(track)
+                                    showUnavailable(com.auralis.music.ui.i18n.str(
+                                        if (alreadyNext) com.auralis.music.ui.i18n.Strings.already_playing_next_x
+                                        else com.auralis.music.ui.i18n.Strings.playing_next_x,
+                                        track.title))
                                 },
                                 onAddToQueue = { track ->
                                     playback?.addToQueue(track)
