@@ -838,8 +838,9 @@ class DesktopPlaybackController(
         val blocked = failure?.category?.networkWide == true || (DesktopPlaybackMatch.isVideoId(track.id) && YouTubeBackoff.active)
         if (blocked) {
             com.auralis.music.util.Log.w("DesktopPlayback", "Not skipping past ${track.id}: YouTube is refusing this network")
-            _errors.tryEmit(messageFor(track, failure?.takeIf { it.category.networkWide }
-                ?: com.auralis.music.data.network.PlaybackFailure(YouTubeBackoff.cooldown.snapshot()?.cause.toCategory()), YouTubeBackoff.retryInMs()))
+            unavailable(track, ResolutionResult.Failed(failure?.takeIf { it.category.networkWide }
+                ?: com.auralis.music.data.network.PlaybackFailure(YouTubeBackoff.cooldown.snapshot()?.cause.toCategory())),
+                resumeAnchor?.positionMs ?: 0L)
             return
         }
         _errors.tryEmit(failure?.let { messageFor(track, it, 0L) } ?: "Couldn't play “${track.title}”")

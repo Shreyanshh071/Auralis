@@ -25,3 +25,11 @@ Reviewed 2026-11-17: commits `7dce9516`, `bfbe9af2`, `9ff82837`, and the pending
 - Extraction concurrency is bounded. Existing media reads, probes and interactive catalogue requests use separate paths; this is not a global cap on all HTTP traffic.
 - A source review and local fixture tests do not establish that YouTube will accept live playback. No repeated live network probes are part of this review.
 - Plan phases 4–7 (extractor/token integration, client health, alternate transports and public fallback services) remain separate future work.
+
+## Verification and delivery
+
+- Full core suite: 233 tests, zero failures, 15 skipped.
+- Broad Windows run: 521 tests, two failures, six skipped. The new crossfade test exposed the additional cooldown/unknown-failure path; it passes after that path was corrected. The unrelated settings-hover animation test passes on isolated rerun. All three playback intent tests and the settings-hover tests passed together on the final source.
+- All nine local playback-controls checks pass. Windows and Discord bot compilation pass.
+- Frame-output guard exercised against a nonempty fixture: refused the directory and preserved its file. PowerShell parsing, diff whitespace checks and the repository's tracked Google-API-key scan pass.
+- Remote `main` advanced with substantial overlapping work during review. Delivery uses `codex/playback-review`; integration with current remote `main` requires a separate merge review.
