@@ -49,7 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
  * Gives users clean choices:
  * 1. Pick from their signed-in YouTube Music account via a scrollable popup.
  * 2. Import a YouTube Music playlist by link.
- * 3. Import every playlist and Liked Songs from a signed-in Spotify account.
+ * 3. Select playlists and Liked Songs from a signed-in Spotify account, including private playlists.
  * 4. Import a Spotify playlist by link.
  */
 @Composable
@@ -87,7 +87,8 @@ fun ImportPlaylistsScreen(
     var spotifyPlaylistLoadFailed by remember { mutableStateOf(false) }
     var spotifyReloadKey by remember { mutableStateOf(0) }
     var spotifyImportFromAccount by remember { mutableStateOf(false) }
-    var importAllAfterSpotifySignIn by remember { mutableStateOf(false) }
+    var showSpotifyPicker by remember { mutableStateOf(false) }
+    val selectedSpotifyPlaylists = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(youTubeSignedIn, reloadKey) {
         if (youTubeSignedIn) {
@@ -106,19 +107,17 @@ fun ImportPlaylistsScreen(
     LaunchedEffect(spotifySignedIn, spotifyReloadKey) {
         if (spotifySignedIn) {
             isLoadingSpotifyPlaylists = true
+            spotifyPlaylistLoadFailed = false
             val result = SpotifyLibrary.fetchPlaylists()
             spotifyPlaylists = result
             spotifyPlaylistLoadFailed = result == null
             isLoadingSpotifyPlaylists = false
-            if (result != null && importAllAfterSpotifySignIn) {
-                importAllAfterSpotifySignIn = false
-                spotifyImportFromAccount = true
-                onImportSpotifyLibraryPlaylists(result)
-            }
+            if (result != null) selectedSpotifyPlaylists.retainAll(result.map { it.id }.toSet())
         } else {
             spotifyPlaylists = null
             spotifyPlaylistLoadFailed = false
-            importAllAfterSpotifySignIn = false
+            showSpotifyPicker = false
+            selectedSpotifyPlaylists.clear()
         }
     }
 
@@ -127,7 +126,7 @@ fun ImportPlaylistsScreen(
         spotifySignIn(
             {
                 showSpotifySignIn = false
-                importAllAfterSpotifySignIn = true
+                showSpotifyPicker = true
                 spotifyReloadKey++
             },
             { showSpotifySignIn = false }
@@ -167,6 +166,19 @@ fun ImportPlaylistsScreen(
                     onImport = { spotifyImportFromAccount = false; onImportSpotifyPlaylist(it) },
                     onClearMessage = onClearSpotifyImportMessage
                 ) else YouTubeLinkCard(isImportingYouTube, youtubeImportMessage, onImportYouTubePlaylist, onClearYouTubeImportMessage)
+            } else if (showSpotifyPicker) {
+                SpotifyAccountPlaylistPicker(
+                    playlists = spotifyPlaylists,
+                    isLoading = isLoadingSpotifyPlaylists,
+                    loadFailed = spotifyPlaylistLoadFailed,
+                    selected = selectedSpotifyPlaylists,
+                    isImporting = isImportingSpotify,
+                    importMessage = if (spotifyImportFromAccount) spotifyImportMessage else null,
+                    onRefresh = { spotifyReloadKey++ },
+                    onSignInAgain = { showSpotifySignIn = true },
+                    onBack = { showSpotifyPicker = false },
+                    onImport = { spotifyImportFromAccount = true; onImportSpotifyLibraryPlaylists(it) }
+                )
             } else if (showPlaylistPickerPopup) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Your YouTube Music playlists", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -201,7 +213,7 @@ fun ImportPlaylistsScreen(
                 SpotifyAccountCard(spotifySignedIn, spotifyAccountLabel, isLoadingSpotifyPlaylists,
                     isImportingSpotify && spotifyImportFromAccount,
                     if (spotifyPlaylistLoadFailed) "Couldn't load Spotify playlists. Try again." else if (spotifyImportFromAccount) spotifyImportMessage else null,
-                    { spotifyImportFromAccount = true; importAllAfterSpotifySignIn = true; spotifyReloadKey++ },
+                    { showSpotifyPicker = true; spotifyReloadKey++ },
                     { if (spotifySignIn != null) showSpotifySignIn = true else platformActions.showMessage(com.auralis.music.ui.settings.PlatformNotes.noWebSignIn) },
                     { SpotifySession.signOut() })
             }
@@ -248,10 +260,9 @@ fun ImportPlaylistsScreen(
                 isImporting = isImportingSpotify && spotifyImportFromAccount,
                 importMessage = if (spotifyPlaylistLoadFailed) "Couldn't load Spotify playlists. Try again."
                     else if (spotifyImportFromAccount) spotifyImportMessage else null,
-                onImportAll = {
-                    spotifyImportFromAccount = true
-                    // A fresh library request is required to see playlists added since the last import.
-                    importAllAfterSpotifySignIn = true
+                onOpenPicker = {
+                    // Refresh the account library whenever the picker opens.
+                    showSpotifyPicker = true
                     spotifyReloadKey++
                 },
                 onSignIn = {
@@ -293,6 +304,16 @@ fun ImportPlaylistsScreen(
             Spacer(Modifier.height(32.dp))
         }
 
+        if (showSpotifyPicker) {
+            SpotifyPlaylistPickerBottomSheet(
+                playlists = spotifyPlaylists, isLoading = isLoadingSpotifyPlaylists,
+                loadFailed = spotifyPlaylistLoadFailed, onRetry = { spotifyReloadKey++ },
+                selected = selectedSpotifyPlaylists, isImporting = isImportingSpotify,
+                importMessage = if (spotifyImportFromAccount) spotifyImportMessage else null,
+                onImport = { spotifyImportFromAccount = true; onImportSpotifyLibraryPlaylists(it) },
+                onSignInAgain = { showSpotifySignIn = true }, onDismiss = { showSpotifyPicker = false }
+            )
+        }
         if (showPlaylistPickerPopup) {
             YouTubePlaylistPickerBottomSheet(
                 playlists = playlists,
@@ -908,6 +929,86 @@ val SPOTIFY_GREEN = Color(0xFF1DB954)
 // Compact imports sit on the parent's captured, blurred artwork. Keep every inner surface
 // translucent so it remains visible through the cards, fields and controls.
 private val LocalImportGlass = staticCompositionLocalOf { false }
+
+/** A bounded picker inside the desktop import dialog; importing always requires a selection. */
+@Composable
+fun SpotifyAccountPlaylistPicker(
+    playlists: List<SpotifyLibrary.LibraryPlaylist>?,
+    isLoading: Boolean,
+    loadFailed: Boolean,
+    selected: SnapshotStateList<String>,
+    isImporting: Boolean,
+    importMessage: String?,
+    onRefresh: () -> Unit,
+    onSignInAgain: () -> Unit,
+    onBack: () -> Unit,
+    onImport: (List<SpotifyLibrary.LibraryPlaylist>) -> Unit
+) {
+    val all = playlists.orEmpty()
+    val picked = all.filter { it.id in selected }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(str(Strings.your_spotify_playlists), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = onBack) { Text("Back") }
+        }
+        Text("Choose playlists from your Spotify account, including private playlists and Liked Songs.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row {
+            TextButton(enabled = all.isNotEmpty() && !isLoading && !isImporting, onClick = {
+                val clear = all.all { it.id in selected }
+                selected.clear()
+                if (!clear) selected.addAll(all.map { it.id })
+            }) { Text(if (all.isNotEmpty() && all.all { it.id in selected }) str(Strings.clear) else str(Strings.select_all)) }
+            TextButton(enabled = !isLoading && !isImporting, onClick = onRefresh) { Text("Refresh") }
+        }
+        when {
+            isLoading -> Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(28.dp))
+            }
+            loadFailed || playlists == null -> Column {
+                Text(str(Strings.spotify_playlists_load_failed))
+                TextButton(onClick = onRefresh) { Text(str(Strings.try_again)) }
+                TextButton(onClick = onSignInAgain) { Text(str(Strings.sign_in_again)) }
+            }
+            all.isEmpty() -> Text(str(Strings.spotify_playlists_empty))
+            else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
+                items(all, key = { it.id }) { playlist ->
+                    val checked = playlist.id in selected
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(if (checked) IMPORT_ACCENT.copy(alpha = .08f) else Color.Transparent)
+                        .clickable(enabled = !isImporting) {
+                            if (checked) selected.remove(playlist.id) else selected.add(playlist.id)
+                        }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(IMPORT_TIP_SURFACE),
+                            contentAlignment = Alignment.Center) {
+                            if (playlist.isLikedSongs) Icon(Icons.Default.Favorite, null)
+                            else if (playlist.thumbnail != null) com.auralis.music.ui.components.LocalArtworkRenderer.current.Image(
+                                url = playlist.thumbnail, contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                crossfade = false, modifier = Modifier.fillMaxSize())
+                            else SpotifyLogoIcon(Modifier.size(22.dp))
+                        }
+                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                            Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                            Text(playlist.subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Checkbox(checked = checked, enabled = !isImporting, onCheckedChange = { value ->
+                            if (value && playlist.id !in selected) selected.add(playlist.id)
+                            else if (!value) selected.remove(playlist.id)
+                        })
+                    }
+                }
+            }
+        }
+        ImportActionButton(onClick = { onImport(picked) },
+            enabled = picked.isNotEmpty() && !isLoading && !loadFailed && !isImporting,
+            modifier = Modifier.fillMaxWidth()) {
+            Text(if (isImporting) str(Strings.importing) else "Import selected (${picked.size})")
+        }
+        importMessage?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
 private val IMPORT_SURFACE: Color
     @Composable get() = if (LocalImportGlass.current) Color.White.copy(alpha = .045f) else MaterialTheme.colorScheme.surface
 private val IMPORT_FIELD_SURFACE: Color
@@ -941,7 +1042,7 @@ private fun SpotifyAccountCard(
     isLoadingPlaylists: Boolean,
     isImporting: Boolean,
     importMessage: String?,
-    onImportAll: () -> Unit,
+    onOpenPicker: () -> Unit,
     onSignIn: () -> Unit,
     onDisconnect: () -> Unit
 ) {
@@ -975,7 +1076,7 @@ private fun SpotifyAccountCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 16.sp)
         Spacer(Modifier.height(12.dp))
         ImportActionButton(
-            onClick = if (signedIn) onImportAll else onSignIn,
+            onClick = if (signedIn) onOpenPicker else onSignIn,
             enabled = !isImporting && !isLoadingPlaylists,
             colors = ButtonDefaults.buttonColors(containerColor = IMPORT_BUTTON_SURFACE, contentColor = IMPORT_ON_ACCENT, disabledContainerColor = IMPORT_DISABLED_BUTTON_SURFACE, disabledContentColor = IMPORT_ON_ACCENT.copy(alpha = .55f)),
             shape = RoundedCornerShape(12.dp),
@@ -987,7 +1088,7 @@ private fun SpotifyAccountCard(
             Text(if (!signedIn) str(Strings.sign_in_to_spotify)
                 else if (isImporting) str(Strings.importing_songs)
                 else if (isLoadingPlaylists) str(Strings.loading_playlists)
-                else str(Strings.import_all_spotify_playlists),
+                else str(Strings.your_spotify_playlists),
                 fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         if (isImporting || importMessage != null) {

@@ -1034,7 +1034,7 @@ class LibraryViewModel(
                 it.copy(
                     isImportingSpotify = false,
                     spotifyImportMessage = if (failed == 0) str(Strings.imported_x_x, imported, noun)
-                    else "Imported $imported/${toImport.size} playlists. Failed: ${failedTitles.take(3).joinToString()}${if (failedTitles.size > 3) " (+${failedTitles.size - 3} more)" else ""}. Tap Import all to retry."
+                    else "Imported $imported/${toImport.size} playlists. Failed: ${failedTitles.take(3).joinToString()}${if (failedTitles.size > 3) " (+${failedTitles.size - 3} more)" else ""}. Select the failed playlists and import again to retry."
                 )
             }
         }
