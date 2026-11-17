@@ -115,8 +115,19 @@ fun PlayerScreen(
     val artworkUrl = track?.thumbnail?.let { getHighResArtworkUrl(it) ?: it }
 
     val lyricsState by lyrics.state.collectAsState()
-    val spotifyCanvasId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
+    val lyricsSpotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track?.id)
         ?: lyricsState.takeIf { it.trackId == track?.id }?.lyrics?.spotifyTrackId
+    // Only some lyrics sources carry the Spotify id: keep the one seen for this song, so switching
+    // the lyrics source (or restarting) doesn't turn the Canvas off.
+    var knownSpotifyId by remember(track?.id) { mutableStateOf(SpotifyCanvasLookup.songId(track?.id)) }
+    LaunchedEffect(track?.id, lyricsSpotifyId) {
+        val id = track?.id ?: return@LaunchedEffect
+        if (lyricsSpotifyId != null) {
+            knownSpotifyId = lyricsSpotifyId
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { SpotifyCanvasLookup.rememberSongId(id, lyricsSpotifyId) }
+        }
+    }
+    val spotifyCanvasId = lyricsSpotifyId ?: knownSpotifyId
     val canvasPrefs by CanvasSettings.prefs.collectAsState()
     val motionAura = rememberMotionAura(track?.id)
     val canvasReady by remember(motionAura) {

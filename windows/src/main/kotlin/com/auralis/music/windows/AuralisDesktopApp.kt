@@ -1008,12 +1008,23 @@ fun AuralisDesktopApp(
                         onClose = ::previousPage)
                 }
             }
+            // Around a fullscreen switch the window is resizing, and a fade could be left half-drawn
+            // (the player stuck see-through over Home). Then the player appears and leaves at once.
+            var fullscreenSettling by remember { mutableStateOf(false) }
+            androidx.compose.runtime.LaunchedEffect(playerFullscreen) {
+                fullscreenSettling = true
+                kotlinx.coroutines.delay(800)
+                fullscreenSettling = false
+            }
+            val instantPlayer = playerFullscreen || fullscreenSettling
             // The full player slides up over everything, like the phone's player sheet.
             androidx.compose.animation.AnimatedVisibility(
                 modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT),
                 visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                enter = if (instantPlayer) androidx.compose.animation.EnterTransition.None
+                    else androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+                exit = if (instantPlayer) androidx.compose.animation.ExitTransition.None
+                    else androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
             ) {
                 if (playback != null && lyrics != null) {
                     com.auralis.music.windows.player.PlayerScreen(

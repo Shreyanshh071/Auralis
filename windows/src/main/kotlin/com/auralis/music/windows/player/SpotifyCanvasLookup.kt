@@ -41,6 +41,18 @@ internal object SpotifyCanvasLookup {
         http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
     }
 
+    /**
+     * A song's Spotify track id, once any lyrics source has named it. Kept on disk so the Canvas
+     * stays when the lyrics source changes (only some sources carry the id) and after a restart.
+     */
+    fun rememberSongId(songId: String, spotifyId: String) {
+        if (songId.isBlank() || !trackPattern.matches(spotifyId)) return
+        if (diskIndex.getString("song.$songId", "") != spotifyId) runCatching { diskIndex.putStrings(mapOf("song.$songId" to spotifyId)) }
+    }
+
+    fun songId(songId: String?): String? =
+        songId?.takeIf { it.isNotBlank() }?.let { diskIndex.getString("song.$it", "") }?.takeIf(trackPattern::matches)
+
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
@@ -61,8 +73,11 @@ internal object SpotifyCanvasLookup {
                     // Fall through to SpicyLyrics, which may list a newer canvas for the track.
                 }
             }
+            // Only SpicyLyrics saying it has no canvas blocks the track for a while; a failed
+            // download (no network, a deleted folder) is simply tried again next time.
+            var noneListed = false
             val viaSpicy: String? = if (now < retryAt) null else try {
-                fromSpicyLyrics(trackId, now)
+                fromSpicyLyrics(trackId, now) { noneListed = true }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -71,12 +86,12 @@ internal object SpotifyCanvasLookup {
             }
             viaSpicy
                 ?: fromAccount(trackId)
-                ?: run { misses[trackId] = now + MISS_RETRY_MS; null }
+                ?: run { if (noneListed) misses[trackId] = now + MISS_RETRY_MS; null }
         }
     }
 
     /** SpicyLyrics' public canvas list; null when it has none (or is rate-limiting). */
-    private fun fromSpicyLyrics(trackId: String, now: Long): String? {
+    private fun fromSpicyLyrics(trackId: String, now: Long, onNoneListed: () -> Unit): String? {
         val request = Request.Builder()
             .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
             .header("Accept", "application/json").build()
@@ -91,7 +106,10 @@ internal object SpotifyCanvasLookup {
             data.optJSONObject(trackId)
         }
         check(item?.has("error") != true)
-        if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) return null
+        if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+            onNoneListed()
+            return null
+        }
         val fileId = item.getString("fileId")
         check(filePattern.matches(fileId))
         // The direct URL is kept too, so a cleared video can be fetched again without SpicyLyrics.
@@ -246,6 +264,8 @@ internal object SpotifyCanvasLookup {
         if (uri.scheme != "https" || uri.host != "canvaz.scdn.co" || uri.userInfo != null ||
             (uri.port != -1 && uri.port != 443) || uri.path?.endsWith(".cnvs.mp4", ignoreCase = true) != true) return null
         val target = File(folder, "$fileId-hq.mp4")
+        // The folder may have been deleted while the app runs (clearing the cache by hand).
+        folder.mkdirs()
         val temporary = File.createTempFile(fileId, ".mp4.partial", folder)
         try {
             directHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
@@ -321,6 +341,7 @@ internal object SpotifyCanvasLookup {
         val urls = (start until end step step).map { time ->
             base + segment.replace("{{segment_timestamp}}", (time / 1000).toString())
         }
+        folder.mkdirs()
         val temporary = File.createTempFile(fileId, ".partial", folder)
         try {
             temporary.outputStream().use { output ->
