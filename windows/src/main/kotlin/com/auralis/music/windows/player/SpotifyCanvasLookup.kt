@@ -45,9 +45,10 @@ internal object SpotifyCanvasLookup {
             val known = indexedFileId(trackId)
             known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = System.currentTimeMillis()
-            if (now < retryAt || now < (misses[trackId] ?: 0L)) return@withLock null
+            if (now < (misses[trackId] ?: 0L)) return@withLock null
             // The video was cleared from disk but its id is still known: fetch it again directly.
-            // SpicyLyrics can stop listing a canvas it once returned, so it is not asked first.
+            // SpicyLyrics can stop listing a canvas it once returned, so it is not asked first, and
+            // a SpicyLyrics rate limit (retryAt) does not block this.
             if (known != null) {
                 try {
                     (downloadDirect(diskIndex.getString("url.$trackId", "").orEmpty(), known)
@@ -58,6 +59,7 @@ internal object SpotifyCanvasLookup {
                     // Fall through to SpicyLyrics, which may list a newer canvas for the track.
                 }
             }
+            if (now < retryAt) return@withLock null
             try {
                 val request = Request.Builder()
                     .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")

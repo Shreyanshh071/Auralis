@@ -327,8 +327,10 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             if (canvasOnly) {
                 url = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
                 fromSpotify = url != null
+                Log.i("AnimatedCovers", "Stage for '${track.title}' (Spotify $spotifyCanvasId): ${url ?: "no Spotify Canvas"}")
             } else if (prefs.enabled) {
                 url = CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
+                Log.i("AnimatedCovers", "Cover for '${track.title}': ${url ?: "still artwork"}")
             }
         }
     }
@@ -365,10 +367,17 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     stop?.invoke()
                 }
             }
+            // Only a video VLC actually rejected (no player, or frames that aren't a portrait Canvas)
+            // is discarded for the manifest copy. A slow start is not a failure: right after an update
+            // VLC spends 10-20s rebuilding its plugin cache, and a timeout here used to delete good
+            // Canvas files.
             if (fromSpotify && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
-                if (withTimeoutOrNull(12_000L) { firstFrame.await() } != true) {
-                    firstFrame.complete(false)
+                val started = System.currentTimeMillis()
+                if (!firstFrame.await()) {
+                    Log.w("AnimatedCovers", "Spotify Canvas rejected by the player, trying the manifest copy: $video")
                     url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
+                } else {
+                    Log.i("AnimatedCovers", "Spotify Canvas playing after ${System.currentTimeMillis() - started}ms: $video")
                 }
             }
             val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
