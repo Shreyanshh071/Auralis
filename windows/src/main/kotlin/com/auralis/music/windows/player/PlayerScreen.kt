@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -138,11 +139,21 @@ fun PlayerScreen(
     val combinedBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
     val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
-    // Opaque: the main window must never show through the player.
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        // The stage is for Spotify Canvas only; animated covers stay on the album cover.
-        val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
-            prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
+    // Opaque: the main window must never show or receive pointer events through the player.
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF050505))
+            .blockUnderlyingPointerEvents()
+    ) {
+        val canvasStage = track != null && shouldShowCanvasStage(
+            canvasPrefs = canvasPrefs,
+            maxWidth = maxWidth,
+            stagePlayer = prefs.bool("stagePlayer", true),
+            tabbedPlayer = prefs.bool("tabbedPlayer", true)
+        )
+        // Wait for the stage canvas check to decline before starting a 1:1 cover decoder in CoverWithControls.
+        var stageDeclined by remember(track?.id, canvasStage, canvasPrefs, spotifyCanvasId) { mutableStateOf(false) }
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
         }
@@ -153,8 +164,8 @@ fun PlayerScreen(
                 AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
                     .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
                     motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
-                    playbackClock = playback.clock) {}
-                // Light dimming: enough for the dock and lyrics, without muting the video.
+                    playbackClock = playback.clock,
+                    onStageUnavailable = { stageDeclined = true }) {}
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .10f),
                     .65f to Color.Transparent,
@@ -180,7 +191,14 @@ fun PlayerScreen(
                         CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
                     } else {
                         Box(Modifier.offset(y = 12.dp)) {
-                            CoverWithControls(playback, track, spotifyCanvasId, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                            CoverWithControls(
+                                playback = playback,
+                                track = track,
+                                artworkUrl = artworkUrl,
+                                size = coverSize,
+                                scale = ContentScale.Crop,
+                                animateCover = !canvasStage || stageDeclined
+                            )
                         }
                         Spacer(Modifier.height(22.dp))
                         PlayerSeekBar(playback, Modifier.width(coverSize))
@@ -239,6 +257,34 @@ fun PlayerScreen(
 }
 
 }
+
+/**
+ * Stops pointer events on non-interactive regions of an overlay (clicks, hovers, drags, wheel
+ * scrolls) from passing through to siblings drawn underneath in the same [Box], while still
+ * letting this overlay's own children handle events first in the main pass.
+ */
+internal fun Modifier.blockUnderlyingPointerEvents(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent().changes.forEach { it.consume() }
+        }
+    }
+}
+
+/**
+ * Whether the full player's stage canvas layout (full-height animated video + bottom-left dock)
+ * should be active; persists across Lyrics and Queue tabs so switching tabs never tears down or
+ * restarts the canvas playback.
+ */
+internal fun shouldShowCanvasStage(
+    canvasPrefs: CanvasPrefs,
+    maxWidth: Dp,
+    stagePlayer: Boolean,
+    tabbedPlayer: Boolean
+): Boolean = canvasPrefs.spotifyCanvas && // The stage is for Spotify Canvas only; animated covers stay on the album cover.
+    maxWidth > 964.dp &&
+    stagePlayer &&
+    tabbedPlayer
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
@@ -583,8 +629,8 @@ private val BlankCursor: PointerIcon by lazy {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun CoverWithControls(
-    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?, spotifyCanvasId: String?, artworkUrl: String?, title: String?, size: Dp,
-    scale: ContentScale
+    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?,
+    artworkUrl: String?, size: Dp, scale: ContentScale, animateCover: Boolean = true
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
@@ -610,10 +656,14 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        // The chosen animated-cover source (Auto: Apple Music, Tidal, curated library), else the still artwork.
-        AnimatedCover(track, Modifier.fillMaxSize()) {
+        AnimatedCover(
+            track = track,
+            modifier = Modifier.fillMaxSize(),
+            playbackClock = playback.clock,
+            enabled = animateCover
+        ) {
             DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
-                contentDescription = title, contentScale = scale)
+                contentDescription = track?.title, contentScale = scale)
         }
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(

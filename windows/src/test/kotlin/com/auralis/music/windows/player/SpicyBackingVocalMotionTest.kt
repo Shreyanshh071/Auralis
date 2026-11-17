@@ -21,6 +21,11 @@ import javax.imageio.ImageIO
 import kotlin.test.*
 
 class SpicyBackingVocalMotionTest {
+    // Blur glow masks inline, so whether a glow is drawn never depends on a background thread.
+    private val glowDispatcher = SpicyGlowPreparation.dispatcher
+    @BeforeTest fun prepareGlowInline() { SpicyGlowPreparation.dispatcher = Dispatchers.Unconfined }
+    @AfterTest fun restoreGlowDispatcher() { SpicyGlowPreparation.dispatcher = glowDispatcher }
+
     @Test fun nestedBackingMarkersNeverEraseBoundaryWordsDuringAnimation() {
         val clean = listOf(LyricWord("Be ", 1000, 422, true), LyricWord("my, ", 1422, 953, true),
             LyricWord("be ", 2375, 299, true), LyricWord("my ", 2674, 486, true), LyricWord("baby", 3160, 724, true))

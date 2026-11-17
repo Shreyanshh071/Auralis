@@ -212,8 +212,6 @@ internal fun ViviLyricsView(
     // Auralis selection: long-press picks up to five lines for the share sheet.
     var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val isSelectionModeActive = selectedIndices.isNotEmpty()
-    var showShareSheet by remember { mutableStateOf(false) }
-    var shareLyricsText by remember { mutableStateOf("") }
 
     val lazyListState = rememberLazyListState()
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
@@ -677,62 +675,15 @@ internal fun ViviLyricsView(
                 isAutoScrollEnabled = true
             }
         }
-
-        AnimatedVisibility(
-            visible = isSelectionModeActive,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF2C251F).copy(alpha = 0.95f))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(32.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                IconButton(onClick = { selectedIndices = emptySet() }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.cancel_selection),
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Button(
-                    onClick = {
-                        val selectedText = selectedIndices.sorted()
-                            .mapNotNull { lines.getOrNull(it)?.text }
-                            .filter { it.isNotBlank() }
-                            .joinToString("\n")
-                        if (selectedText.isNotBlank()) {
-                            shareLyricsText = selectedText
-                            showShareSheet = true
-                        }
-                    },
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A3E33), contentColor = Color(0xFFE5C89C))
-                ) {
-                    Icon(imageVector = Icons.Default.Share, contentDescription = str(R.string.share), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-            }
-        }
     }
 
-    if (showShareSheet && track != null) {
-        com.auralis.music.ui.lyrics.share.LyricShareBottomSheet(
-            track = track,
-            initialLyricsText = shareLyricsText,
-            onDismissRequest = {
-                showShareSheet = false
-                selectedIndices = emptySet()
-            }
-        )
-    }
+    // Long-pressed lines open the docked share panel at once, as in the rest of the app.
+    com.auralis.music.ui.lyrics.share.LyricSharePanel(
+        visible = isSelectionModeActive,
+        track = track,
+        lines = selectedIndices.sorted().mapNotNull { lines.getOrNull(it)?.text?.takeIf(String::isNotBlank) },
+        onDismiss = { selectedIndices = emptySet() }
+    )
 }
 
 /** Vivi's MetroLyrics layout: absolutely placed lines with a staggered glide and a hand-rolled drag/fling. */

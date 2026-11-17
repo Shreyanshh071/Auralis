@@ -81,6 +81,8 @@ data class ListenTogetherUiState(
 )
 
 private const val OPTIMISTIC_WINDOW_MS = 2_500L
+/** How long creating or joining a room may wait for the server before giving up with a message. */
+private const val CONNECT_TIMEOUT_MS = 15_000L
 /** How long a guest's skip waits for the host to switch before this phone goes back to the room's song. */
 private const val PENDING_SKIP_TIMEOUT_MS = 6_000L
 
@@ -1002,15 +1004,19 @@ class ListenTogetherViewModel(
         val effectiveName = getEffectiveDisplayName()
         viewModelScope.launch {
             try {
-                val (roomCode, uid) = manager.createRoom(
-                    hostDisplayName = effectiveName,
-                    initialTrack = initialTrack,
-                    queue = queue,
-                    queueIndex = queueIndex,
-                    isPlaying = isPlaying,
-                    playbackPositionMs = positionMs,
-                    settings = _uiState.value.hostSettings
-                )
+                // The writes wait for the server to confirm. On a dead or blocked connection that
+                // never happens, which left the screen on "Connecting..." forever.
+                val (roomCode, uid) = kotlinx.coroutines.withTimeout(CONNECT_TIMEOUT_MS) {
+                    manager.createRoom(
+                        hostDisplayName = effectiveName,
+                        initialTrack = initialTrack,
+                        queue = queue,
+                        queueIndex = queueIndex,
+                        isPlaying = isPlaying,
+                        playbackPositionMs = positionMs,
+                        settings = _uiState.value.hostSettings
+                    )
+                }
                 guestCommands.reset()
                 knownSlowConnection.clear()
                 handledRecommendationIds.clear()
@@ -1039,6 +1045,10 @@ class ListenTogetherViewModel(
                 }
                 startObservingRoom(roomCode)
                 startRoomJanitor(roomCode)
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                val reason = manager.diagnoseConnection()
+                Log.e("ListenTogether", "[Create Room Timed Out]: $reason")
+                _uiState.update { it.copy(isConnecting = false, errorMessage = str(R.string.lt_connect_timeout_x, reason)) }
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Create Room Failed]: ${e.message}", e)
                 _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: str(R.string.failed_to_create_room)) }
@@ -1052,7 +1062,9 @@ class ListenTogetherViewModel(
         val effectiveName = getEffectiveDisplayName()
         viewModelScope.launch {
             try {
-                val initialRoomState = manager.joinRoom(roomCode, effectiveName)
+                val initialRoomState = kotlinx.coroutines.withTimeout(CONNECT_TIMEOUT_MS) {
+                    manager.joinRoom(roomCode, effectiveName)
+                }
                 val uid = manager.ensureAuthenticated()
                 clockOffsetSamples.clear()
                 recordClockOffset(manager.lastJoinClockOffset)
@@ -1079,6 +1091,10 @@ class ListenTogetherViewModel(
                 // Perform immediate initial playback sync on join
                 syncGuestWithRoomState(initialRoomState, isInitialJoin = true)
                 startObservingRoom(roomCode)
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                val reason = manager.diagnoseConnection()
+                Log.e("ListenTogether", "[Join Room Timed Out]: $reason")
+                _uiState.update { it.copy(isConnecting = false, errorMessage = str(R.string.lt_connect_timeout_x, reason)) }
             } catch (e: Exception) {
                 Log.e("ListenTogether", "[Join Room Failed]: ${e.message}", e)
                 _uiState.update { it.copy(isConnecting = false, errorMessage = e.localizedMessage ?: str(R.string.failed_to_join_room)) }

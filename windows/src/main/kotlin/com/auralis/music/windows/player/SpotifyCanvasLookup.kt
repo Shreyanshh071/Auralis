@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -17,29 +18,55 @@ import java.io.File
 import java.net.URI
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.util.concurrent.TimeUnit
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.TimeUnit
 
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
-    private const val MAX_BYTES = 64L * 1024 * 1024
-    // Small direct MP4s are typically mobile previews. Prefer the manifest for those clips.
-    private const val MIN_DIRECT_BYTES = 1_500_000L
-    private const val MIN_CACHE_BYTES = 64L * 1024
-    // A song SpicyLyrics has no video for is asked again after a few minutes, not a day: its
-    // catalogue fills in over time, and a clean install must not stay locked out.
-    private const val MISS_RETRY_MS = 300_000L
+    private val client by lazy {
+        SpotifyCanvasClient(NetworkClientProvider.okHttpClient, File(desktopAppDataDir(), "cache/spotify-canvas"),
+            accountToken = {
+                // Settings > Canvas > "Fetch Canvas with your Spotify account", signed in only.
+                if (CanvasSettings.prefs.value.spotifyAccount && com.auralis.music.data.network.SpotifySession.signedIn.value)
+                    com.auralis.music.data.network.SpotifySession.getValidAccessToken() else null
+            })
+    }
+
+    suspend fun find(trackId: String?): String? = client.find(trackId)
+    suspend fun fallback(trackId: String, failedPath: String): String? = client.fallback(trackId, failedPath)
+    fun rememberSongId(songId: String, spotifyId: String) = client.rememberSongId(songId, spotifyId)
+    fun songId(songId: String?): String? = client.songId(songId)
+}
+
+/** Injectable transport/cache for exercising real provider responses without Spotify or VLC. */
+internal class SpotifyCanvasClient(
+    private val http: OkHttpClient,
+    private val folder: File,
+    /** The signed-in user's Spotify web-player token when they allow Canvas lookups with it; null otherwise. */
+    private val accountToken: (suspend () -> String?)? = null,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
+    private companion object {
+        private const val MAX_BYTES = 64L * 1024 * 1024
+        private const val MIN_CACHE_BYTES = 64L * 1024
+        // A song SpicyLyrics has no video for is asked again after a few minutes, not a day: its
+        // catalogue fills in over time, and a clean install must not stay locked out.
+        private const val MISS_RETRY_MS = 300_000L
+    }
     private val trackPattern = Regex("[A-Za-z0-9]{22}")
     private val filePattern = Regex("[a-fA-F0-9]{32}")
-    private val folder by lazy { File(desktopAppDataDir(), "cache/spotify-canvas") }
     private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
     private val misses = mutableMapOf<String, Long>()
+    private val failures = mutableMapOf<String, Long>()
     private val lock = Mutex()
     private var retryAt = 0L
-    private val http get() = NetworkClientProvider.okHttpClient
     private val directHttp by lazy {
         http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
     }
+    private val segmentPool = java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
+        Thread(r, "canvas-segments").apply { isDaemon = true }
+    }
+    @Volatile private var partialsCleaned = false
 
     /**
      * A song's Spotify track id, once any lyrics source has named it. Kept on disk so the Canvas
@@ -53,24 +80,19 @@ internal object SpotifyCanvasLookup {
     fun songId(songId: String?): String? =
         songId?.takeIf { it.isNotBlank() }?.let { diskIndex.getString("song.$it", "") }?.takeIf(trackPattern::matches)
 
-    private val segmentPool = java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
-        Thread(r, "canvas-segments").apply { isDaemon = true }
-    }
-    @Volatile private var partialsCleaned = false
-
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
         lock.withLock {
             // A download cut off by closing the app leaves a .partial file behind; clear old ones once.
             if (!partialsCleaned) {
                 partialsCleaned = true
-                val cutoff = System.currentTimeMillis() - 10 * 60_000L
+                val cutoff = clock() - 10 * 60_000L
                 folder.listFiles { file -> file.name.endsWith(".partial") && file.lastModified() < cutoff }?.forEach { runCatching { it.delete() } }
             }
             val known = indexedFileId(trackId)
             known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
-            val now = System.currentTimeMillis()
-            if (now < (misses[trackId] ?: 0L)) return@withLock null
+            val now = clock()
+            if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L)) return@withLock null
             // The video was cleared from disk but its id is still known: fetch it again directly.
             // SpicyLyrics can stop listing a canvas it once returned, so it is not asked first, and
             // a SpicyLyrics rate limit (retryAt) does not block this.
@@ -84,15 +106,17 @@ internal object SpotifyCanvasLookup {
                     // Fall through to SpicyLyrics, which may list a newer canvas for the track.
                 }
             }
+            if (now < retryAt) return@withLock null
             // Only SpicyLyrics saying it has no canvas blocks the track for a while; a failed
-            // download (no network, a deleted folder) is simply tried again next time.
+            // download (no network, a deleted folder) is retried after a minute.
             var noneListed = false
-            val viaSpicy: String? = if (now < retryAt) null else try {
+            val viaSpicy: String? = try {
                 fromSpicyLyrics(trackId, now) { noneListed = true }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                retryAt = now + 60_000L
+            } catch (error: Exception) {
+                com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId failed: $error")
+                failures[trackId] = now + 60_000L
                 null
             }
             viaSpicy
@@ -101,15 +125,17 @@ internal object SpotifyCanvasLookup {
         }
     }
 
-    /** SpicyLyrics' public canvas list; null when it has none (or is rate-limiting). */
+    /** SpicyLyrics' public canvas list; null when it has none, is rate-limiting, or failed. */
     private fun fromSpicyLyrics(trackId: String, now: Long, onNoneListed: () -> Unit): String? {
         val request = Request.Builder()
             .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
             .header("Accept", "application/json").build()
         val item = http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId: HTTP ${response.code}")
                 val pause = response.header("Retry-After")?.toLongOrNull()?.coerceIn(60, 1800) ?: 60L
-                retryAt = now + pause * 1000
+                if (response.code == 429 || response.header("Retry-After") != null) retryAt = now + pause * 1000
+                else failures[trackId] = now + 60_000L
                 return null
             }
             val data = JSONObject(response.body?.string().orEmpty()).getJSONObject("data")
@@ -118,6 +144,7 @@ internal object SpotifyCanvasLookup {
         }
         check(item?.has("error") != true)
         if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+            com.auralis.music.util.Log.i("SpotifyCanvas", "No video canvas for $trackId")
             onNoneListed()
             return null
         }
@@ -131,13 +158,12 @@ internal object SpotifyCanvasLookup {
     }
 
     /**
-     * Settings > Canvas > "Fetch Canvas with your Spotify account": Spotify's own Canvas lookup,
-     * which only answers a signed-in session, asked with the user's web-player token. Used only
-     * when SpicyLyrics has no canvas for the track. The token goes to Spotify and nowhere else.
+     * Spotify's own Canvas lookup, which only answers a signed-in session, asked with the user's
+     * web-player token. Used only when SpicyLyrics has no canvas for the track. The token goes to
+     * Spotify and nowhere else.
      */
     private suspend fun fromAccount(trackId: String): String? {
-        if (!CanvasSettings.prefs.value.spotifyAccount || !com.auralis.music.data.network.SpotifySession.signedIn.value) return null
-        val token = com.auralis.music.data.network.SpotifySession.getValidAccessToken() ?: return null
+        val token = accountToken?.invoke() ?: return null
         return try {
             val uri = "spotify:track:$trackId".toByteArray()
             val entity = byteArrayOf(0x0a) + varint(uri.size) + uri
@@ -150,22 +176,17 @@ internal object SpotifyCanvasLookup {
                 .post(body.toRequestBody("application/x-protobuf".toMediaType()))
                 .build()).execute().use { if (it.isSuccessful) it.body?.bytes() else null } ?: return null
             val canvas = parseAccountCanvas(response) ?: run {
-                com.auralis.music.util.Log.i("AnimatedCovers", "No Spotify Canvas for $trackId on the account either")
+                com.auralis.music.util.Log.i("SpotifyCanvas", "No Spotify Canvas for $trackId on the account either")
                 return null
             }
-            val fileId = canvas.fileId
-            diskIndex.putStrings(buildMap {
-                put(trackId, fileId)
-                put("url.$trackId", canvas.url)
-            })
-            cachedFile(fileId)?.absolutePath
-                ?: downloadDirect(canvas.url, fileId)
-                ?: if (canvas.realFileId) downloadViaManifest(trackId, fileId)
-                   else downloadDirect(canvas.url, fileId, minimumBytes = MIN_CACHE_BYTES)
+            diskIndex.putStrings(mapOf(trackId to canvas.fileId, "url.$trackId" to canvas.url))
+            cachedFile(canvas.fileId)?.absolutePath
+                ?: downloadDirect(canvas.url, canvas.fileId)
+                ?: if (canvas.realFileId) downloadViaManifest(trackId, canvas.fileId) else null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
-            com.auralis.music.util.Log.w("AnimatedCovers", "Spotify account Canvas lookup failed: ${e.message}")
+            com.auralis.music.util.Log.w("SpotifyCanvas", "Spotify account Canvas lookup failed: ${e.message}")
             null
         }
     }
@@ -262,15 +283,14 @@ internal object SpotifyCanvasLookup {
         diskIndex.getString(trackId, "")?.takeIf(filePattern::matches)
 
     private fun usable(file: File): Boolean {
-        val minimum = if (file.extension == "mp4") MIN_DIRECT_BYTES else MIN_CACHE_BYTES
-        return file.isFile && file.length() in minimum..MAX_BYTES &&
+        return file.isFile && file.length() in MIN_CACHE_BYTES..MAX_BYTES &&
             diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
     }
 
     private fun cachedFile(fileId: String): File? =
         listOf(File(folder, "$fileId-hq.mp4"), File(folder, "$fileId-hq.ts")).firstOrNull(::usable)
 
-    private fun downloadDirect(url: String, fileId: String, minimumBytes: Long = MIN_DIRECT_BYTES): String? {
+    private fun downloadDirect(url: String, fileId: String): String? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         if (uri.scheme != "https" || uri.host != "canvaz.scdn.co" || uri.userInfo != null ||
             (uri.port != -1 && uri.port != 443) || uri.path?.endsWith(".cnvs.mp4", ignoreCase = true) != true) return null
@@ -283,7 +303,8 @@ internal object SpotifyCanvasLookup {
                 if (response.code != 200) return null
                 val body = response.body ?: return null
                 val length = body.contentLength()
-                if (length >= 0 && length !in minimumBytes..MAX_BYTES) return null
+                // Encoded size is not resolution: a legitimate short HD loop can be under 1.5 MB.
+                if (length >= 0 && length !in MIN_CACHE_BYTES..MAX_BYTES) return null
                 var bytes = 0L
                 temporary.outputStream().use { output ->
                     body.byteStream().use { input ->
@@ -297,7 +318,7 @@ internal object SpotifyCanvasLookup {
                         }
                     }
                 }
-                if (bytes < minimumBytes || length >= 0 && bytes != length) return null
+                if (bytes < MIN_CACHE_BYTES || length >= 0 && bytes != length) return null
             }
             publish(temporary, target)
             return target.absolutePath
@@ -349,34 +370,33 @@ internal object SpotifyCanvasLookup {
         val step = content.getLong("segment_length") * 1000
         check(start >= 0 && end - start in 1..15_000 && step in 1..15_000)
         val segment = manifest.getString("segment_template")
-        val urls = (start until end step step).map { time ->
-            base + segment.replace("{{segment_timestamp}}", (time / 1000).toString())
+        val segmentUrls = (start until end step step).map { time ->
+            (base + segment.replace("{{segment_timestamp}}", (time / 1000).toString()))
+                .replace("{{profile_id}}", profile.getInt("id").toString()).replace("{{file_type}}", "ts")
+                .also { url ->
+                    val uri = URI(url)
+                    check(uri.scheme == "https" && (uri.host.endsWith(".scdn.co") || uri.host.endsWith(".spotifycdn.com")))
+                }
+        }
+        // Segments are fetched side by side: each request waits ~0.5s on its own, so one after
+        // another made a cleared Canvas take several seconds to come back.
+        val segments = segmentUrls.map { url ->
+            segmentPool.submit<ByteArray> {
+                http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    check(response.isSuccessful)
+                    val bytes = checkNotNull(response.body).bytes()
+                    check(bytes.size <= MAX_BYTES)
+                    bytes
+                }
+            }
         }
         folder.mkdirs()
         val temporary = File.createTempFile(fileId, ".partial", folder)
         try {
-            val segmentUrls = urls.map { template ->
-                template.replace("{{profile_id}}", profile.getInt("id").toString()).replace("{{file_type}}", "ts").also { url ->
-                    val uri = URI(url)
-                    check(uri.scheme == "https" && (uri.host.endsWith(".scdn.co") || uri.host.endsWith(".spotifycdn.com")))
-                }
-            }
-            // Segments are fetched side by side: each request waits ~0.5s on its own, so one after
-            // another made a cleared Canvas take several seconds to come back.
-            val segments = segmentUrls.map { url ->
-                segmentPool.submit<ByteArray> {
-                    http.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                        check(response.isSuccessful)
-                        val bytes = checkNotNull(response.body).bytes()
-                        check(bytes.size <= MAX_BYTES)
-                        bytes
-                    }
-                }
-            }
             temporary.outputStream().use { output ->
                 var bytes = 0L
-                for (segment in segments) {
-                    val data = segment.get(30, TimeUnit.SECONDS)
+                for (part in segments) {
+                    val data = part.get(30, TimeUnit.SECONDS)
                     bytes += data.size
                     check(bytes <= MAX_BYTES)
                     output.write(data)

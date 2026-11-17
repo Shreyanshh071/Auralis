@@ -112,4 +112,39 @@ class WindowInputRestoreTest {
             }
         }
     }
+
+    @Test fun detectsActiveInputMethodRequestsOnWindowSurface() = SwingUtilities.invokeAndWait {
+        val frame = JFrame("IME Test")
+        val inactiveSurface = SkiaLayer().apply { isFocusable = true }
+        frame.contentPane.add(inactiveSurface)
+        try {
+            assertFalse(
+                isWindowTextInputActive(frame),
+                "Plain SkiaLayer with null InputMethodRequests must not count as typing",
+            )
+        } finally {
+            inactiveSurface.dispose()
+            frame.dispose()
+        }
+
+        val activeFrame = JFrame("IME Active Test")
+        val activeSurface = object : SkiaLayer() {
+            init { isFocusable = true }
+            override fun getInputMethodRequests(): java.awt.im.InputMethodRequests =
+                java.lang.reflect.Proxy.newProxyInstance(
+                    java.awt.im.InputMethodRequests::class.java.classLoader,
+                    arrayOf(java.awt.im.InputMethodRequests::class.java),
+                ) { _, _, _ -> null } as java.awt.im.InputMethodRequests
+        }
+        activeFrame.contentPane.add(activeSurface)
+        try {
+            assertTrue(
+                isWindowTextInputActive(activeFrame),
+                "SkiaLayer with active InputMethodRequests must suppress shortcuts",
+            )
+        } finally {
+            activeSurface.dispose()
+            activeFrame.dispose()
+        }
+    }
 }

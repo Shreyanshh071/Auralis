@@ -109,12 +109,11 @@ internal object CanvasLookup {
         com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers.properties"))
     }
 
-    /** [tall]: the lyrics stage wants Apple's vertical motion video before the square one. */
-    suspend fun find(track: Track, source: CanvasSource, tall: Boolean = false): String? = withContext(Dispatchers.IO) {
+    suspend fun find(track: Track, source: CanvasSource, preferTall: Boolean = false): String? = withContext(Dispatchers.IO) {
         if (track.title.isBlank() || track.artist.isBlank()) return@withContext null
-        // v3: version tags and the album count (v2 matched "Let Down" to a DJ mix's "Let Down (Mixed)").
-        val key = "v3|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}" +
-            if (tall) "|tall" else ""
+        // v3: version tags and the album count; v4 (preferTall) drops 3:4 / square assets from the stage.
+        val version = if (preferTall) "v4" else "v3"
+        val key = "$version|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}|tall=$preferTall"
         found[key]?.let { return@withContext it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
@@ -127,8 +126,8 @@ internal object CanvasLookup {
         val url = sources.firstNotNullOfOrNull { s ->
             runCatching {
                 when (s) {
-                    CanvasSource.APPLE -> apple(track, tall)
-                    CanvasSource.TIDAL -> tidal(track)
+                    CanvasSource.APPLE -> apple(track, preferTall)
+                    CanvasSource.TIDAL -> if (preferTall) null else tidal(track)
                     CanvasSource.CURATED -> curated(track)
                     CanvasSource.AUTO -> null
                 }
@@ -136,7 +135,7 @@ internal object CanvasLookup {
         }
         found[key] = url.orEmpty()
         runCatching { disk.putStrings(mapOf(key to "${url.orEmpty()}\t${System.currentTimeMillis()}")) }
-        if (url != null) Log.i(TAG, "Animated cover for '${track.title}': $url")
+        if (url != null) Log.i(TAG, "Animated cover (tall=$preferTall) for '${track.title}': $url")
         url
     }
 
@@ -185,6 +184,12 @@ internal object CanvasLookup {
             }.onFailure { Log.w(TAG, "Could not keep animated cover locally: ${it.message}") }
                 .getOrDefault(url)
         }
+    }
+
+    internal fun appleAssetKeys(preferTall: Boolean): List<String> = if (preferTall) {
+        listOf("motionDetailTall")
+    } else {
+        listOf("motionDetailSquare", "motionSquareVideo1x1", "motionDetailTall", "motionTallVideo3x4")
     }
 
     // ── Matching ──
@@ -246,7 +251,7 @@ internal object CanvasLookup {
         return null
     }
 
-    private fun apple(track: Track, tall: Boolean = false): String? {
+    private fun apple(track: Track, preferTall: Boolean = false): String? {
         val token = appleToken() ?: return null
         val auth = mapOf("Authorization" to "Bearer $token", "Origin" to "https://music.apple.com", "Referer" to "https://music.apple.com/")
         val search = get("https://amp-api.music.apple.com/v1/catalog/us/search?term=${enc("${primaryArtist(track)} ${track.title}")}" +
@@ -266,9 +271,7 @@ internal object CanvasLookup {
             // A DJ mix or various-artists compilation's video is that compilation's, not this song's.
             if (albumAttrs.optBoolean("isCompilation") && albumKey(track.album.orEmpty()) != albumKey(albumAttrs.optString("name"))) continue
             val video = albumAttrs.optJSONObject("editorialVideo") ?: continue
-            val square = listOf("motionDetailSquare", "motionSquareVideo1x1")
-            val vertical = listOf("motionDetailTall", "motionTallVideo3x4")
-            for (asset in if (tall) vertical + square else square + vertical) {
+            for (asset in appleAssetKeys(preferTall)) {
                 video.optJSONObject(asset)?.optString("video")?.takeIf { it.startsWith("http") }?.let { return it }
             }
         }
@@ -306,6 +309,10 @@ internal object CanvasLookup {
     }
 }
 
+/** Stage canvas slots require ~9:16 portrait video; 3:4 and 1:1 album videos stay in the square cover. */
+internal fun isStageCanvasAspect(width: Int, height: Int): Boolean =
+    width > 0 && height > 0 && kotlin.math.abs(width.toDouble() / height - 9.0 / 16) < .05
+
 /**
  * The cover with its animated version over it when there is one (and Appearance allows it): the
  * still [artwork] shows until the first video frame, then the video fades in.
@@ -313,28 +320,34 @@ internal object CanvasLookup {
 @Composable
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     motionAura: MotionAura? = null, spotifyCanvasId: String? = null, canvasOnly: Boolean = false,
-    playbackClock: PlaybackClockSource? = null,
+    playbackClock: PlaybackClockSource? = null, enabled: Boolean = true,
+    onStageUnavailable: (() -> Unit)? = null,
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
+    val latestStageUnavailable by rememberUpdatedState(onStageUnavailable)
     var url by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
-    // True while the video is Spotify's Canvas, false once it fell back to motion artwork.
-    var fromSpotify by remember(track?.id, spotifyCanvasId) { mutableStateOf(false) }
-    LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
+    var resolvedSpotifyId by remember(track?.id, spotifyCanvasId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(track, prefs, spotifyCanvasId, canvasOnly, enabled) {
         url = null
-        fromSpotify = false
-        if (track != null && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+        resolvedSpotifyId = null
+        val allowed = enabled && if (canvasOnly) prefs.spotifyCanvas else prefs.enabled
+        if (track != null && allowed && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
             com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
             // The lyrics stage plays only Spotify Canvas, the full-height artist loop it is built
             // for. Animated covers (Apple Music, Tidal, curated library) play on the album cover,
             // at their own square size; with neither, the still artwork() underneath stays.
             if (canvasOnly) {
-                url = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
-                fromSpotify = url != null
-                Log.i("AnimatedCovers", "Stage for '${track.title}' (Spotify $spotifyCanvasId): ${url ?: "no Spotify Canvas"}")
-            } else if (prefs.enabled) {
+                val spotify = TrackCanvasLookup.find(track, spotifyCanvasId)
+                resolvedSpotifyId = spotify?.spotifyId
+                url = spotify?.path
+                Log.i("AnimatedCovers", "Stage for '${track.title}' (Spotify ${spotify?.spotifyId ?: spotifyCanvasId}): ${url ?: "no Spotify Canvas"}")
+                if (url == null) latestStageUnavailable?.invoke()
+            } else {
                 url = CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
                 Log.i("AnimatedCovers", "Cover for '${track.title}': ${url ?: "still artwork"}")
             }
+        } else if (canvasOnly) {
+            latestStageUnavailable?.invoke()
         }
     }
     Box(modifier) {
@@ -350,11 +363,8 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 ) {
                     synchronized(active) {
                         if (active.get()) {
-                            // VLC can pad a portrait frame by a few pixels.
-                            val portrait = kotlin.math.abs(it.width.toDouble() / it.height - 9.0 / 16) < .02
-                            // Motion artwork is square or 3:4: the stage crops it to fill.
-                            val stageFrame = !canvasOnly || portrait || !fromSpotify
-                            if (stageFrame) {
+                            // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
+                            if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
                                 // Also on the cover: the Spotify retry below waits for this first frame.
                                 if (firstFrame.complete(true) || frame != null) {
                                     frame = it
@@ -374,11 +384,14 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             // is discarded for the manifest copy. A slow start is not a failure: right after an update
             // VLC spends 10-20s rebuilding its plugin cache, and a timeout here used to delete good
             // Canvas files.
-            if (fromSpotify && spotifyCanvasId != null) LaunchedEffect(firstFrame) {
+            val stageSpotifyId = resolvedSpotifyId
+            if (canvasOnly && stageSpotifyId != null) LaunchedEffect(firstFrame, video) {
                 val started = System.currentTimeMillis()
                 if (!firstFrame.await()) {
                     Log.w("AnimatedCovers", "Spotify Canvas rejected by the player, trying the manifest copy: $video")
-                    url = SpotifyCanvasLookup.fallback(spotifyCanvasId, video)
+                    val replacement = SpotifyCanvasLookup.fallback(stageSpotifyId, video)?.takeIf { it != video }
+                    url = replacement
+                    if (replacement == null) latestStageUnavailable?.invoke()
                 } else {
                     Log.i("AnimatedCovers", "Spotify Canvas playing after ${System.currentTimeMillis() - started}ms: $video")
                 }

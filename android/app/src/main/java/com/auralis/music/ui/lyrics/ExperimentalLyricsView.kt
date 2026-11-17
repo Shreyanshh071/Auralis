@@ -16,6 +16,7 @@ import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -578,8 +579,8 @@ fun ExperimentalLyricsView(
 
     var isSelectionModeActive by rememberSaveable { mutableStateOf(false) }
     val selectedIndices = remember { mutableStateListOf<Int>() }
-    var shareLyricsText by remember { mutableStateOf("") }
-    var showShareSheet by remember { mutableStateOf(false) }
+    var sharePanelHeightPx by remember { mutableStateOf(0) }
+    val lyricsHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     BackHandler(enabled = isSelectionModeActive) {
         isSelectionModeActive = false
@@ -798,6 +799,9 @@ fun ExperimentalLyricsView(
     val resyncBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val resyncGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(resyncBackdrop)
     val lyricsGlide = remember { LyricsScrollGlide() }
+    // ViVi-style motion: each line glides to its place a beat after the one nearer the sung line.
+    val stagger = remember { LyricsStaggerScroll() }
+    val reducedMotion = com.auralis.music.ui.theme.LocalReducedMotion.current
     val lyricsOnScreen = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
     // Read when a scroll runs: the follow-the-song effect keeps the scroll it started with, and that
     // one can be from while this tab was still hidden, which made every line jump.
@@ -889,6 +893,53 @@ fun ExperimentalLyricsView(
         }
     }
 
+    // Returning to the sung line after the user left the list alone: a soft spring for the list,
+    // with each line trailing on its own spring so the block ripples into place.
+    val settleToLine: suspend (targetIndex: Int, profile: LyricsSettleWobble.Profile) -> Unit = settle@{ targetIndex, profile ->
+        if (targetIndex !in mergedLyricsList.indices) return@settle
+        if (!lyricsOnScreenNow.value) {
+            centerActiveLine(targetIndex, false)
+            return@settle
+        }
+        val startInfo = listState.layoutInfo
+        if (startInfo.viewportEndOffset - startInfo.viewportStartOffset <= 0 || startInfo.visibleItemsInfo.isEmpty()) {
+            centerActiveLine(targetIndex, true)
+            return@settle
+        }
+        // Distance still to go, recomputed every frame: exact once the sung line is on screen,
+        // estimated from the average visible line height until then.
+        val remaining: () -> Float = remaining@{
+            val info = listState.layoutInfo
+            val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+            val visible = info.visibleItemsInfo
+            if (viewport <= 0f || visible.isEmpty()) return@remaining 0f
+            val centerY = info.viewportStartOffset + viewport * LYRICS_ANCHOR_RATIO
+            val target = visible.firstOrNull { it.index == targetIndex }
+            if (target != null) {
+                target.offset + target.size / 2f - centerY
+            } else {
+                val avgItem = visible.map { it.size }.average().toFloat() + info.mainAxisItemSpacing
+                val anchor = if (targetIndex > visible.last().index) visible.last() else visible.first()
+                anchor.offset + anchor.size / 2f + (targetIndex - anchor.index) * avgItem - centerY
+            }
+        }
+        isProgrammaticScroll = true
+        try {
+            stagger.scroll(
+                list = listState,
+                targetIndex = targetIndex,
+                // Following the song: ViVi's 750ms glide. Returning after a manual scroll covers
+                // more ground, so it takes a little longer the further it has to go.
+                durationMs = if (profile == LyricsSettleWobble.FOLLOW) 750
+                    else (650 + kotlin.math.abs(remaining()) / 6f).toInt().coerceIn(650, 1100),
+                maxRipplePx = with(density) { 90.dp.toPx() },
+                remaining = remaining
+            )
+        } finally {
+            isProgrammaticScroll = false
+        }
+    }
+
     val resyncLyrics: () -> Unit = {
         if (appearance.autoScrollLyrics) {
             isAutoScrollEnabled = true
@@ -913,7 +964,7 @@ fun ExperimentalLyricsView(
             // auto scroll) does not launch a second, competing scroll to the same line.
             lastCenteredIndex = activeIndex
             scope.launch {
-                centerActiveLine(activeIndex, true)
+                settleToLine(activeIndex, LyricsSettleWobble.SETTLE)
             }
         }
     }
@@ -938,6 +989,7 @@ fun ExperimentalLyricsView(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!isProgrammaticScroll && source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 0.5f) {
+                    stagger.clear()
                     if (!isSelectionModeActive) {
                         isAutoScrollEnabled = false
                         isUserInteracting = true
@@ -981,8 +1033,20 @@ fun ExperimentalLyricsView(
             .collectLatest { (activeIndex, interacting, selecting) ->
                 if (interacting || selecting) return@collectLatest
                 if (activeIndex !in mergedLyricsList.indices) return@collectLatest
+                // Already handled: re-sync marks its line before springing back to it, and
+                // re-enabling auto scroll restarts this effect. Scrolling again here cancelled
+                // that spring mid-flight, so the lyrics snapped back with no animation.
+                if (hasInitialCentered && activeIndex == lastCenteredIndex) return@collectLatest
 
-                centerActiveLine(activeIndex, true)
+                // A neighbouring line while following the song: lines cascade into place, each
+                // trailing the one before it, instead of the block sliding as one sheet.
+                // Every move after the first ripples (ViVi does this for any jump, near or far).
+                val nearby = hasInitialCentered && lastCenteredIndex >= 0
+                if (nearby && !reducedMotion) {
+                    settleToLine(activeIndex, LyricsSettleWobble.FOLLOW)
+                } else {
+                    centerActiveLine(activeIndex, true)
+                }
                 lastCenteredIndex = activeIndex
                 hasInitialCentered = true
             }
@@ -1031,7 +1095,7 @@ fun ExperimentalLyricsView(
                     .nestedScroll(lyricsNestedScrollConnection),
                 contentPadding = PaddingValues(
                     top = topPadding,
-                    bottom = bottomPadding,
+                    bottom = maxOf(bottomPadding, with(LocalDensity.current) { sharePanelHeightPx.toDp() } + 24.dp),
                     start = 0.dp,
                     end = 0.dp
                 ),
@@ -1125,6 +1189,7 @@ fun ExperimentalLyricsView(
                                     speakerStyle = speakerStyle,
                                     useAgentSides = hasMultipleVocalists,
                                     onSizeChanged = { },
+                                    modifier = Modifier.graphicsLayer { translationY = stagger.offsets[listIndex] ?: 0f },
                                     onClick = {
                                         if (isSelectionModeActive) {
                                             if (selectedIndices.contains(index)) {
@@ -1156,6 +1221,7 @@ fun ExperimentalLyricsView(
                                     },
                                     onLongClick = {
                                         if (!isSelectionModeActive) {
+                                            lyricsHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                             isSelectionModeActive = true
                                             selectedIndices.add(index)
                                         }
@@ -1231,81 +1297,18 @@ fun ExperimentalLyricsView(
             LyricsResyncButton(resyncGlass, resyncLyrics)
         }
 
-        // Floating Action Bar for Selected Lyrics
-        AnimatedVisibility(
-            visible = isSelectionModeActive,
-            enter = fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF2C251F).copy(alpha = 0.95f))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(32.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                IconButton(
-                    onClick = {
-                        isSelectionModeActive = false
-                        selectedIndices.clear()
-                    },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.cancel_selection),
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        val selectedText = selectedIndices.sorted()
-                            .take(5)
-                            .mapNotNull { effectiveLines.getOrNull(it)?.text }
-                            .filter { it.isNotBlank() }
-                            .joinToString("\n")
-                        if (selectedText.isNotBlank()) {
-                            shareLyricsText = selectedText
-                            showShareSheet = true
-                        }
-                        isSelectionModeActive = false
-                        selectedIndices.clear()
-                    },
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4A3E33),
-                        contentColor = Color(0xFFE5C89C)
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = str(R.string.share),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(str(R.string.share), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-            }
-        }
     }
 
-    if (showShareSheet && track != null) {
-        com.auralis.music.ui.lyrics.share.LyricShareBottomSheet(
-            track = track,
-            initialLyricsText = shareLyricsText,
-            onDismissRequest = {
-                showShareSheet = false
-                selectedIndices.clear()
-            }
-        )
-    }
+    com.auralis.music.ui.lyrics.share.LyricSharePanel(
+        visible = isSelectionModeActive && selectedIndices.isNotEmpty(),
+        track = track,
+        lines = selectedIndices.sorted().mapNotNull { effectiveLines.getOrNull(it)?.text?.takeIf(String::isNotBlank) },
+        onDismiss = {
+            isSelectionModeActive = false
+            selectedIndices.clear()
+        },
+        onHeightChanged = { sharePanelHeightPx = it }
+    )
 }
 
 private val MetroSpeakerChangeGap = 6.dp
@@ -1476,7 +1479,7 @@ internal fun ExperimentalLyricsLine(
 
             val animatedBlur by animateFloatAsState(
                 targetValue = targetBlur,
-                animationSpec = if (!standardBlur) snap() else tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                animationSpec = if (!standardBlur) snap() else tween(durationMillis = 480, easing = FastOutSlowInEasing),
                 label = "expLineBlur"
             )
 
@@ -1516,7 +1519,11 @@ internal fun ExperimentalLyricsLine(
                     }
                 } else inactiveAlpha
 
-                val animatedAlpha by animateFloatAsState(targetAlpha, tween(250), label = "expLineAlpha")
+                val animatedAlpha by animateFloatAsState(
+                    targetAlpha,
+                    if (isSpicyStyle) tween(250) else tween(300),
+                    label = "expLineAlpha"
+                )
                 val lineColor = expressiveAccent.copy(alpha = if (line.isBackground) minOf(focusedAlpha, animatedAlpha) else animatedAlpha)
 
                 val resolvedLineText = remember(line.text, line.words) {

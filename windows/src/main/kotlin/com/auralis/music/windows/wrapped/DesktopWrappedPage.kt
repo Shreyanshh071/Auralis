@@ -21,7 +21,8 @@ internal fun wrappedState(events: List<DesktopListeningStats.Listen>, year: Int,
         .groupBy { artist(it.track) to it.track.album!! }.map { (key, list) ->
             AlbumStat(key.second, key.first, list.first().track.thumbnail, list.sumOf { it.timeMs })
         }.sortedByDescending { it.timeListenedMs }
-    val artists = selected.groupBy { artist(it.track) }.map { (name, list) ->
+    // Lists from the whole history, so a song played again since fixes this year's older listens.
+    val artists = DesktopListeningStats.artistGroups(selected, DesktopListeningStats.knownArtists(events)).map { (name, list) ->
         // An album cover is not an artist portrait; resolve portraits separately when available.
         ArtistStat(name, null, list.distinctBy { DesktopListeningStats.songKey(it.track) }.size, list.sumOf { it.timeMs })
     }.sortedByDescending { it.timeListenedMs }

@@ -60,6 +60,20 @@ class DesktopListeningStats(private val file: File) {
         return changed
     }
 
+    @Volatile private var artistListsCache: Pair<List<Listen>, Map<String, List<com.auralis.music.domain.model.TrackArtist>>>? = null
+
+    /**
+     * Each song's per-artist list from any of its listens (the newest that has one), over the
+     * whole history. Every listen keeps its own copy of the song, and listens recorded before
+     * the list existed have none; with this, playing a song once fixes all its past listens.
+     */
+    val artistLists: Map<String, List<com.auralis.music.domain.model.TrackArtist>>
+        get() {
+            val all = listens.value
+            artistListsCache?.let { (source, map) -> if (source === all) return map }
+            return knownArtists(all).also { artistListsCache = all to it }
+        }
+
     @Synchronized fun clear() { mutable.value = emptyList(); clearVersion++; persist() }
 
     private fun persist() {
@@ -77,6 +91,49 @@ class DesktopListeningStats(private val file: File) {
     }
 
     companion object {
+        /**
+         * [listens] per credited artist, most listened first: a collab counts in full for each
+         * artist on it, a label upload for its real artists (see OfficialArtistResolver.credits).
+         * Label uploads not looked up yet are queued for a background lookup, newest first.
+         */
+        /** Each track id's newest non-empty per-artist list in [listens]. */
+        fun knownArtists(listens: List<Listen>): Map<String, List<com.auralis.music.domain.model.TrackArtist>> {
+            val newest = HashMap<String, Listen>()
+            for (listen in listens) {
+                if (listen.track.artists.isEmpty()) continue
+                val current = newest[listen.track.id]
+                if (current == null || listen.startedAt > current.startedAt) newest[listen.track.id] = listen
+            }
+            return newest.mapValues { it.value.track.artists }
+        }
+
+        /** The artists [track] credits, using another listen's per-artist list when this copy has none. */
+        fun credits(track: Track, known: Map<String, List<com.auralis.music.domain.model.TrackArtist>>): List<String> {
+            val filled = if (track.artists.isEmpty()) known[track.id]?.let { track.copy(artists = it) } ?: track else track
+            return com.auralis.music.data.network.OfficialArtistResolver.credits(filled)
+        }
+
+        fun artistGroups(
+            listens: List<Listen>,
+            known: Map<String, List<com.auralis.music.domain.model.TrackArtist>> = knownArtists(listens)
+        ): List<Pair<String, List<Listen>>> {
+            var queued = 0
+            for (listen in listens.asReversed()) {
+                if (queued >= 25) break
+                if (com.auralis.music.data.network.OfficialArtistResolver.needsLookup(listen.track)) {
+                    com.auralis.music.data.network.OfficialArtistResolver.request(listen.track); queued++
+                }
+            }
+            return listens.flatMap { listen ->
+                credits(listen.track, known).mapNotNull { name ->
+                    com.auralis.music.domain.stats.ArtistCredits.key(name)?.let { Triple(it, name, listen) }
+                }
+            }.groupBy { it.first }.values.map { credits ->
+                // The most common spelling names the artist.
+                credits.groupingBy { it.second }.eachCount().maxBy { it.value }.key to credits.map { it.third }
+            }.sortedByDescending { (_, list) -> list.sumOf { it.timeMs } }
+        }
+
         fun songKey(track: Track): String {
             val fp = TrackDeduplicator.getSongFingerprint(track)
             return "${fp.normalizedArtist}|${fp.normalizedCoreTitle.ifBlank { fp.normalizedTitle }.ifBlank { track.id }}"

@@ -15,6 +15,8 @@ object TrackMetadataGuard {
             album = existing.album,
             duration = existing.duration.takeIf { it > 0 } ?: incoming.duration,
             thumbnail = existing.thumbnail.ifBlank { incoming.thumbnail },
+            // A fresh per-artist list from YouTube is better than none; never drop a known one.
+            artistsJson = incoming.artistsJson ?: existing.artistsJson,
             isFavorite = existing.isFavorite,
             favoriteAddedAt = existing.favoriteAddedAt
         )

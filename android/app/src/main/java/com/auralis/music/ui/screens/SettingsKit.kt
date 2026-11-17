@@ -266,7 +266,7 @@ internal fun SettingsFeatureCard(icon: ImageVector, title: String, hint: String,
 }
 
 @Composable
-private fun SettingsRowIcon(icon: ImageVector, busy: Boolean) {
+internal fun SettingsRowIcon(icon: ImageVector, busy: Boolean) {
     if (busy) {
         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.dynamicPrimary, strokeWidth = 2.dp)

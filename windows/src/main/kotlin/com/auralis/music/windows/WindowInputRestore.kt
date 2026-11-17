@@ -120,3 +120,21 @@ internal fun composeInputSurface(root: Component): Component? {
     if (root is org.jetbrains.skiko.SkiaLayer) return root.takeIf { it.isFocusable }
     return (root as? Container)?.components?.firstNotNullOfOrNull(::composeInputSurface)
 }
+
+/**
+ * Returns `true` when an editable text input inside [window] (or one of its owned
+ * popups/dialogs) currently holds input-method focus.
+ */
+internal fun isWindowTextInputActive(window: Window?): Boolean {
+    val focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    if (focusOwner != null && focusOwner.inputMethodRequests != null) {
+        if (window == null) return true
+        val ownerWindow = (focusOwner as? Window) ?: SwingUtilities.getWindowAncestor(focusOwner)
+        var current = ownerWindow
+        while (current != null) {
+            if (current === window) return true
+            current = current.owner
+        }
+    }
+    return window != null && composeInputSurface(window)?.inputMethodRequests != null
+}

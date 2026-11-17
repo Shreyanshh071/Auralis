@@ -31,4 +31,26 @@ class AnimatedCoverMatchTest {
     fun aMatchingTagOnBothSidesStillMatches() {
         assertTrue(same("Wonderwall (Live)", "Wonderwall - Live"))
     }
+
+    @Test
+    fun stageCanvasRequiresNineSixteenAspect() {
+        assertTrue(isStageCanvasAspect(720, 1280))
+        assertTrue(isStageCanvasAspect(1080, 1920))
+        // Slight macroblock padding around 9:16 is still accepted.
+        assertTrue(isStageCanvasAspect(560, 960))
+        // 3:4 album-header motion art (e.g. Currents 1078x1438) and 1:1 square covers are rejected.
+        assertFalse(isStageCanvasAspect(1078, 1438))
+        assertFalse(isStageCanvasAspect(768, 768))
+        assertFalse(isStageCanvasAspect(1280, 720))
+        assertFalse(isStageCanvasAspect(0, 1280))
+    }
+
+    @Test
+    fun appleStageLookupExcludesThreeByFourAndSquareAssets() {
+        assertEquals(listOf("motionDetailTall"), CanvasLookup.appleAssetKeys(preferTall = true))
+        assertEquals(
+            listOf("motionDetailSquare", "motionSquareVideo1x1", "motionDetailTall", "motionTallVideo3x4"),
+            CanvasLookup.appleAssetKeys(preferTall = false)
+        )
+    }
 }

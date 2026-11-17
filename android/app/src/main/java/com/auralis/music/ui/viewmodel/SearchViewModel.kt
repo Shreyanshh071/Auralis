@@ -60,6 +60,8 @@ data class SearchUiState(
     val query: String = "",
     val suggestions: List<String> = emptyList(),
     val liveSongRecommendations: List<Track> = emptyList(),
+    /** Artists whose name matches what is being typed, shown above the songs while typing. */
+    val liveArtistSuggestions: List<Artist> = emptyList(),
     val searchResults: SearchResults = SearchResults(),
     val recentQueries: List<String> = emptyList(),
     val isSearching: Boolean = false,
@@ -104,7 +106,7 @@ class SearchViewModel(
     fun clearSearchHistory() {
         viewModelScope.launch {
             searchRepository.clearSearchHistory()
-            _uiState.update { it.copy(recentQueries = emptyList(), suggestions = emptyList(), liveSongRecommendations = emptyList()) }
+            _uiState.update { it.copy(recentQueries = emptyList(), suggestions = emptyList(), liveSongRecommendations = emptyList(), liveArtistSuggestions = emptyList()) }
         }
     }
 
@@ -115,6 +117,8 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var suggestionsJob: Job? = null
     private var liveSongsJob: Job? = null
+    private var liveArtistsJob: Job? = null
+    private val liveArtistCache = LinkedHashMap<String, List<Artist>>()
     private val liveSongCache = linkedMapOf<String, List<Track>>()
     private val artistPages = java.util.concurrent.ConcurrentHashMap<String, ArtistPage>()
     private val artistRequests = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ArtistPage?>>()
@@ -179,9 +183,22 @@ class SearchViewModel(
         }
     }
 
+    /**
+     * True when the typed text is (the start of) this artist's name, or the name followed by more
+     * words ("tame imp", "tame impala", "tame impala loser" all match Tame Impala).
+     */
+    private fun artistMatchesQuery(artistName: String, query: String): Boolean {
+        fun norm(text: String) = text.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        val name = norm(artistName)
+        val typed = norm(query)
+        if (name.isEmpty() || typed.length < 2) return false
+        return name.startsWith(typed) || typed == name || typed.startsWith("$name ")
+    }
+
     fun onQueryChange(newQuery: String) {
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
+        liveArtistsJob?.cancel()
         searchJob?.cancel()
 
         if (newQuery.isBlank()) {
@@ -189,7 +206,7 @@ class SearchViewModel(
                 it.copy(
                     query = newQuery,
                     suggestions = emptyList(),
-                    liveSongRecommendations = emptyList(),
+                    liveSongRecommendations = emptyList(), liveArtistSuggestions = emptyList(),
                     searchResults = SearchResults(),
                     isSearching = false,
                     hasSubmittedSearch = false
@@ -209,6 +226,8 @@ class SearchViewModel(
                 hasSubmittedSearch = false,
                 suggestions = emptyList(),
                 liveSongRecommendations = liveSongCache[cacheKey] ?: reusable.take(8),
+                liveArtistSuggestions = liveArtistCache[cacheKey]
+                    ?: it.liveArtistSuggestions.filter { artist -> artistMatchesQuery(artist.name, trimmed) },
                 searchResults = SearchResults()
             )
         }
@@ -226,7 +245,27 @@ class SearchViewModel(
             }
         }
 
-        // 2. Direct song recommendations (ranked by popularity & views)
+        // 2. Matching artists, so typing an artist's name offers their page, not only their songs.
+        liveArtistsJob = viewModelScope.launch {
+            delay(160)
+            val artists = try {
+                searchRepository.searchArtists(trimmed)
+                    .filter { artistMatchesQuery(it.name, trimmed) }
+                    .distinctBy { it.name.lowercase() }
+                    .take(2)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            if (isActive && _uiState.value.query.trim() == trimmed) {
+                if (liveArtistCache.size >= 24) liveArtistCache.remove(liveArtistCache.keys.first())
+                liveArtistCache[cacheKey] = artists
+                _uiState.update { it.copy(liveArtistSuggestions = artists) }
+            }
+        }
+
+        // 3. Direct song recommendations (ranked by popularity & views)
         liveSongsJob = viewModelScope.launch {
             // Let a short burst of typing settle, then show either provider as soon as it arrives.
             delay(120)
@@ -316,6 +355,7 @@ class SearchViewModel(
 
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
+        liveArtistsJob?.cancel()
         searchJob?.cancel()
 
         val cachedSongs = liveSongCache[trimmed.lowercase()]
@@ -332,7 +372,7 @@ class SearchViewModel(
                 searchFailed = false,
                 hasSubmittedSearch = true,
                 suggestions = emptyList(),
-                liveSongRecommendations = emptyList(),
+                liveSongRecommendations = emptyList(), liveArtistSuggestions = emptyList(),
                 searchResults = immediate,
                 detailStack = emptyList(),
                 selectedArtistPage = null,
@@ -438,12 +478,13 @@ class SearchViewModel(
     fun clearSearch() {
         suggestionsJob?.cancel()
         liveSongsJob?.cancel()
+        liveArtistsJob?.cancel()
         searchJob?.cancel()
         _uiState.update {
             it.copy(
                 query = "",
                 suggestions = emptyList(),
-                liveSongRecommendations = emptyList(),
+                liveSongRecommendations = emptyList(), liveArtistSuggestions = emptyList(),
                 searchResults = SearchResults(),
                 isSearching = false,
                 hasSubmittedSearch = false,

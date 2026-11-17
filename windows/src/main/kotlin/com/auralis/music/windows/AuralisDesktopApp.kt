@@ -5,6 +5,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +83,19 @@ enum class DesktopDestination(val label: String, val icon: ImageVector) {
     DISCORD("Discord", Icons.Outlined.Forum),
 }
 
+/**
+ * Returns `true` when keyboard shortcuts without command modifiers should yield to text entry.
+ * Tracked dialog/settings inputs and window IME focus still count when the player sheet is open.
+ */
+internal fun isShortcutTypingActive(
+    searchTyping: Boolean,
+    playerOpen: Boolean,
+    trackedInputActive: Boolean,
+    windowTextInputActive: Boolean,
+    /** A modal dialog (create playlist, sign in, settings…) owns the keyboard: single keys belong to it. */
+    dialogOpen: Boolean = false,
+): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive || dialogOpen
+
 @Composable
 fun AuralisDesktopApp(
     searchRepository: com.auralis.music.domain.repository.SearchRepository,
@@ -94,6 +109,8 @@ fun AuralisDesktopApp(
     /** Main points the window's key handler here. */
     /** The handler gets each key twice: before the focused element (true) and after it, if unused (false). */
     onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)?) -> Unit = {},
+    /** Live check for whether an editable text field holds input-method focus in the window. */
+    isTextInputActive: () -> Boolean = { false },
     selfTest: SelfTest? = null,
     onSelfTestDone: (Boolean) -> Unit = {},
     /** Discord status through the desktop Discord app; null when unavailable. */
@@ -132,6 +149,12 @@ fun AuralisDesktopApp(
     var playerPanel by remember { mutableStateOf(com.auralis.music.windows.player.PlayerPanel.LYRICS) }
     var searchFocusRequests by remember { mutableStateOf(0) }
     var typing by remember { mutableStateOf(false) }
+    val activeTextInputs = remember { mutableSetOf<Any>() }
+    val typingFocusTracker: (Any, Boolean) -> Unit = remember {
+        { token, focused ->
+            if (focused) activeTextInputs.add(token) else activeTextInputs.remove(token)
+        }
+    }
     var destination by remember { mutableStateOf(DesktopDestination.HOME) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
@@ -448,11 +471,24 @@ fun AuralisDesktopApp(
     // The player covers the search field, so it must not keep the keyboard.
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     androidx.compose.runtime.LaunchedEffect(showPlayer) { if (showPlayer) focusManager.clearFocus() }
-    val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing && !showPlayer)
+    val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing)
+    val currentShowPlayer = androidx.compose.runtime.rememberUpdatedState(showPlayer)
+    val currentIsTextInputActive = androidx.compose.runtime.rememberUpdatedState(isTextInputActive)
+    val currentDialogOpen = androidx.compose.runtime.rememberUpdatedState(showSignIn || showCreatePlaylist ||
+        showTogether || showDiscord || showImport || showSettings || showYouTubeAccounts)
     androidx.compose.runtime.DisposableEffect(actions) {
         onShortcutHandler { event, beforeFocused ->
+            val typingNow = isShortcutTypingActive(
+                searchTyping = currentTyping.value,
+                playerOpen = currentShowPlayer.value,
+                trackedInputActive = activeTextInputs.isNotEmpty(),
+                windowTextInputActive = currentIsTextInputActive.value(),
+                dialogOpen = currentDialogOpen.value,
+            )
+            // Ctrl shortcuts and Esc run before the focused element; single keys only after it,
+            // and only when no text input is active.
             if (beforeFocused) handleControlShortcut(event, actions)
-            else !currentTyping.value && handlePlainShortcut(event, actions)
+            else !typingNow && handlePlainShortcut(event, actions)
         }
         onDispose { onShortcutHandler(null) }
     }
@@ -535,6 +571,7 @@ fun AuralisDesktopApp(
         modifier = Modifier.recordPopupGlass(popupGlass).then(com.auralis.music.windows.library.menuInvocationRecorder(menuInvocation))) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalPopupGlassSource provides popupGlass,
+        com.auralis.music.ui.components.LocalTypingFocusTracker provides typingFocusTracker,
         com.auralis.music.ui.lyrics.LocalLyricsProviderPicker provides
             if (lyrics != null) ({ showLyricsProviders = true }) else null,
         com.auralis.music.ui.library.LocalPlaylistCreation provides { request -> playlistCreationRequest = request; showCreatePlaylist = true },
@@ -751,7 +788,12 @@ fun AuralisDesktopApp(
                     }
                     val notchWidth = notchW.value
                     val notchHeight = notchH.value
-                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight)).then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
+                    // The page panel's bounds: wheel scrolling the sidebar doesn't use goes to the page.
+                    val pageBounds = remember { arrayOf(androidx.compose.ui.geometry.Rect.Zero) }
+                    val sidebarDensity = androidx.compose.ui.platform.LocalDensity.current.density
+                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight))
+                        .forwardUnusedScrollTo({ pageBounds[0] }, { sidebarDensity })
+                        .then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
                         playlistMenu?.let { p ->
                             com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
                                 playlist = p,
@@ -797,7 +839,9 @@ fun AuralisDesktopApp(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
+                    Box(Modifier.weight(1f).fillMaxHeight()
+                        .onGloballyPositioned { pageBounds[0] = it.boundsInWindow() }
+                        .clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
                         DesktopPageSurface(Modifier.fillMaxSize()) {
                         androidx.compose.runtime.key(refreshTick) {
                         // Pages fade up into place (and the old one fades out) instead of swapping on one frame.

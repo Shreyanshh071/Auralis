@@ -22,6 +22,11 @@ import org.jetbrains.skia.EncodedImageFormat
 import kotlin.test.*
 
 class SpicySwellClippingTest {
+    // Blur glow masks inline, so whether a glow is drawn never depends on a background thread.
+    private val glowDispatcher = com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation.dispatcher
+    @BeforeTest fun prepareGlowInline() { com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation.dispatcher = Dispatchers.Unconfined }
+    @AfterTest fun restoreGlowDispatcher() { com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation.dispatcher = glowDispatcher }
+
     @Test fun activeHeldWordsKeepTheSameInkAsAnUnboundedRow() {
         var reproducedClipping = false
         for (backing in listOf(false, true)) for (time in listOf(1200L, 1500L, 1900L)) {

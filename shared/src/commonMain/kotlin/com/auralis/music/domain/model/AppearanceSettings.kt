@@ -46,6 +46,10 @@ data class AppearanceSettings(
     val lyricsAnimation: String = LyricsAnimationMode.SPICY_LYRICS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
     val standardLyricsBlur: Boolean = true,
+    /** Lighter visuals for smoothness and battery: no glass, blur or animated backgrounds. */
+    val reduceEffects: Boolean = false,
+    /** Turn on [reduceEffects] automatically while the phone's battery saver is on. */
+    val reduceEffectsOnBatterySaver: Boolean = false,
     val lyricsTextSize: Float = 22f,
     val lyricsLineSpacing: Float = 1.3f,
 

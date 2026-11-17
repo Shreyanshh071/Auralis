@@ -30,6 +30,9 @@ import kotlin.system.exitProcess
 /** Streams per server playing at once; the relay's default of four suits a single player. */
 private const val RELAY_STREAMS = 256
 
+/** Opus frames --check decodes: 90 seconds of audio. */
+private const val CHECK_FRAMES = 4500
+
 /** usage: auralis-discord-bot.jar, or --check "song name or link" to test playback without Discord. */
 fun main(args: Array<String>) {
     LocalStreamRelay.maxStreams = RELAY_STREAMS
@@ -96,16 +99,17 @@ private fun check(query: String, catalog: AuralisCatalog, manager: AudioPlayerMa
 
     val player = manager.createPlayer()
     player.playTrack(audioTrack)
+    // 90s reaches past the first megabyte, where YouTube has cut streams off before.
     var frames = 0
-    val deadline = System.currentTimeMillis() + 15_000
-    while (frames < 250 && System.currentTimeMillis() < deadline) {
+    val deadline = System.currentTimeMillis() + 120_000
+    while (frames < CHECK_FRAMES && System.currentTimeMillis() < deadline) {
         val frame = player.provide(100, TimeUnit.MILLISECONDS)
         if (frame != null && frame.dataLength > 0) frames++
     }
     player.destroy()
     println("DECODE -> $frames Opus frames (${frames * 20 / 1000}s of audio)")
     println("DAVE -> ${runCatching { JDaveSessionFactory(); "ok" }.getOrElse { "failed: $it" }}")
-    frames >= 250
+    frames >= CHECK_FRAMES
 }
 
 private fun dotEnv(key: String): String? = sequenceOf(File(".env"), File("../.env")).firstOrNull { it.isFile }

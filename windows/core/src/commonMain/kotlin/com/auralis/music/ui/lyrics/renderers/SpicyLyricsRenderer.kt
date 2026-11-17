@@ -239,7 +239,11 @@ private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBoun
                               val rtl: Boolean, val from: Int, val to: Int, val row: Int, val letter: Int = -1)
 
 private data class SpicyBloom(val image: ImageBitmap, val origin: Offset)
-private val spicyPreparationDispatcher = Dispatchers.Default.limitedParallelism(2)
+/** Where glow masks are blurred. Off the UI thread in the app; pixel tests swap in an inline
+ *  dispatcher so a snapshot never depends on whether the background blur finished first. */
+object SpicyGlowPreparation {
+    var dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default.limitedParallelism(2)
+}
 
 /** Recorded native layers can outlive the active-text branch by a frame. Keep the
  * latest image generations alive when a row switches between active and static. */
@@ -381,7 +385,7 @@ fun SpicyLyricsLine(
             // Software mask blur used to block composition at every new phrase.
             // The timed fill/swells draw immediately; glow preparation is cancellable
             // background work and upcoming rows warm it before their first word.
-            val prepared = withContext(spicyPreparationDispatcher) {
+            val prepared = withContext(SpicyGlowPreparation.dispatcher) {
             geometry.mapIndexed { index, slice ->
                 coroutineContext.ensureActive()
                 // Spicy's regular shadow is wider on emphasized letters than words.

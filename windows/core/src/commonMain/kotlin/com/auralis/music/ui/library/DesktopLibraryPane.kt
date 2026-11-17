@@ -67,6 +67,7 @@ import com.auralis.music.domain.model.SavedAlbum
 import com.auralis.music.domain.model.SavedArtist
 import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.clickable
+import com.auralis.music.ui.components.reportTypingFocus
 import com.auralis.music.ui.components.secondaryClick
 import com.auralis.music.ui.i18n.Strings
 import com.auralis.music.ui.i18n.UiLabels
@@ -315,7 +316,7 @@ internal fun DesktopPaneSearchField(query: String, onQueryChange: (String) -> Un
         Spacer(Modifier.width(8.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) Text(placeholder, color = muted, style = CenteredLine, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BasicTextField(query, onQueryChange, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            BasicTextField(query, onQueryChange, singleLine = true, modifier = Modifier.fillMaxWidth().reportTypingFocus(),
                 textStyle = CenteredLine.copy(color = text, fontSize = 13.sp), cursorBrush = SolidColor(text))
         }
         if (query.isNotEmpty()) Icon(Icons.Default.Close, contentDescription = str(Strings.clear), tint = muted,

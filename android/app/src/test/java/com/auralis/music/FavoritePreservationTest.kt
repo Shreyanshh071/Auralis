@@ -49,12 +49,18 @@ class FavoritePreservationTest {
             }
         }
 
-        override suspend fun fillMissingThumbnail(id: String, thumbnail: String): Int = 0
         override suspend fun updateThumbnail(id: String, thumbnail: String) {
             val existing = storage[id]
             if (existing != null) {
                 storage[id] = existing.copy(thumbnail = thumbnail)
             }
+        }
+
+        override suspend fun fillMissingThumbnail(id: String, thumbnail: String): Int {
+            val current = storage[id] ?: return 0
+            if (current.thumbnail.isNotEmpty()) return 0
+            storage[id] = current.copy(thumbnail = thumbnail)
+            return 1
         }
 
         override suspend fun updateVerifiedRelease(id: String, expectedAlbum: String?,

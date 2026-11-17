@@ -151,6 +151,11 @@ fun main(args: Array<String>) {
             store
         }
 
+        // Stats: names YouTube linked as one artist ("Tyler, The Creator") and label uploads' real artists.
+        val artistCredits = PropertiesFileKeyValueStore(java.io.File(dataDir, "artist-credits.properties"))
+        com.auralis.music.domain.stats.ArtistCredits.persistTo(artistCredits)
+        com.auralis.music.data.network.OfficialArtistResolver.persistTo(artistCredits)
+
         val searchRepositoryDeferred = async {
             SearchRepositoryImpl(
                 InnerTubeClient(),
@@ -375,9 +380,7 @@ fun main(args: Array<String>) {
         DisposableEffect(components) {
             val comp = components
             val hotkeys = if (comp != null) com.auralis.music.windows.settings.DesktopGlobalHotkeys(comp.playback, openWindow) else null
-            val scrobbler = if (comp != null) com.auralis.music.windows.settings.DesktopScrobbler(comp.playback, comp.recorderScope) else null
-            val translator = comp?.lyrics?.let { com.auralis.music.windows.settings.DesktopAiLyrics(it, comp.stores.aiTranslation, comp.recorderScope) }
-            onDispose { hotkeys?.close(); scrobbler?.close(); translator?.close() }
+            onDispose { hotkeys?.close() }
         }
         LaunchedEffect(components) {
             val pb = components?.playback ?: return@LaunchedEffect
@@ -682,6 +685,7 @@ fun main(args: Array<String>) {
                     playback = ready.playback,
                     lyrics = ready.lyrics,
                     onShortcutHandler = { shortcutHandler = it },
+                    isTextInputActive = { isWindowTextInputActive(composeWindow) },
                     selfTest = selfTest,
                     onSelfTestDone = { passed ->
                         singleInstanceLock?.close()

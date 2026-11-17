@@ -23,7 +23,7 @@ import com.auralis.music.domain.model.LyricsAnimationMode
 import com.auralis.music.ui.theme.LocalAppearanceSettings
 
 class SidebarWordLyricsTest {
-    @Test fun spicySidebarDimsEndedPhrasesAndRestoresTheirStateOnSeek() {
+    @Test fun spicySidebarKeepsTheSungPhraseLitUntilTheNextAndRestoresItOnSeek() {
         val position = mutableLongStateOf(1500L)
         val data = com.auralis.music.domain.model.LyricsData(SyncType.RICHSYNC, listOf(
             LyricLine(1000, "AAAA", words = listOf(LyricWord("AAAA", 1000, 800))),
@@ -56,13 +56,14 @@ class SidebarWordLyricsTest {
                 (top until bottom).maxOf { y -> (20 until 120).maxOf { x -> image.getRGB(x, y) and 255 } }
             capture(1500, "singing")
             val rest = capture(3000, "between-phrases")
-            assertTrue(brightest(rest, 12, 43) in 80..130, "Completed phrase dims to Spicy's sung state during the breath")
+            // Like fullscreen, the last sung phrase stays lit through the breath until the next starts.
+            assertTrue(brightest(rest, 12, 43) > 200, "Completed phrase stays highlighted during the breath")
             assertTrue(brightest(rest, 50, 80) < 150, "Next phrase must remain dim before its start")
             val next = capture(4800, "next-phrase")
             assertTrue(brightest(next, 12, 43) < 150, "Previous phrase dims when the next starts")
             assertTrue(brightest(next, 50, 80) > 200, "Next phrase takes highlight ownership")
             val back = capture(3000, "seek-back")
-            assertTrue(brightest(back, 12, 43) in 80..130, "Seeking back restores the previous phrase's sung state")
+            assertTrue(brightest(back, 12, 43) > 200, "Seeking back restores the previous phrase's highlight")
             assertTrue(brightest(back, 50, 80) < 150, "Seeking back clears the future phrase highlight")
         } finally { scene.close() }
     }

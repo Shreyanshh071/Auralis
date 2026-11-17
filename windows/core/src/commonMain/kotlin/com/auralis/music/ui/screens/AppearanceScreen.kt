@@ -520,7 +520,14 @@ fun AppearanceScreen(
                         onPrimary = onPrimary,
                         outline = outline,
                         surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(swipeLeftQueueRightPlayNext = it) } }
+                        onCheckedChange = { enabled ->
+                            update {
+                                copy(
+                                    swipeLeftQueueRightPlayNext = enabled,
+                                    swipeToRemoveSongFromPlaylist = if (enabled) false else swipeToRemoveSongFromPlaylist
+                                )
+                            }
+                        }
                     )
                 }
                 item(key = "item_swipe_remove") {
@@ -537,7 +544,14 @@ fun AppearanceScreen(
                         onPrimary = onPrimary,
                         outline = outline,
                         surfaceVariant = surfaceVariant,
-                        onCheckedChange = { update { copy(swipeToRemoveSongFromPlaylist = it) } }
+                        onCheckedChange = { enabled ->
+                            update {
+                                copy(
+                                    swipeToRemoveSongFromPlaylist = enabled,
+                                    swipeLeftQueueRightPlayNext = if (enabled) false else swipeLeftQueueRightPlayNext
+                                )
+                            }
+                        }
                     )
                 }
                 item(key = "item_display_density") {

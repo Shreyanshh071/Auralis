@@ -21,7 +21,8 @@ fun TrackEntity.toDomain(): Track {
         source = source,
         channelTitle = channelTitle,
         views = views,
-        dominantColor = dominantColor
+        dominantColor = dominantColor,
+        artists = TrackArtists.decode(artistsJson)
     )
 }
 
@@ -38,7 +39,8 @@ fun Track.toEntity(isFavorite: Boolean = false, favoriteAddedAt: Long? = null): 
         views = views,
         dominantColor = dominantColor,
         isFavorite = isFavorite,
-        favoriteAddedAt = favoriteAddedAt
+        favoriteAddedAt = favoriteAddedAt,
+        artistsJson = TrackArtists.encode(artists)
     )
 }
 

@@ -145,6 +145,7 @@ Type these in any channel the bot can read. Upper or lower case both work.
 | `ausearch <song>` | Pick from the top results |
 | `aupause`, `auresume` | Pause, resume |
 | `auskip`, `austop`, `auleave` | Skip, stop and clear, leave |
+| `auskip <timestamp>` | Jump within the current song, e.g. `auskip 1:30` or `auskip 90` |
 | `auseek <1:30>`, `auvolume <0-150>` | Jump within a song, set the volume |
 | `auqueue`, `aunp`, `aulyrics` | Show the queue, current song, lyrics |
 | `aushuffle`, `auloop <off/song/queue>` | Shuffle, set looping |

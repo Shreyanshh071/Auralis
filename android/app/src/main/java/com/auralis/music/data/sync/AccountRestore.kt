@@ -187,7 +187,8 @@ object CloudListens {
                     artist = e["ar"] as? String ?: "Unknown Artist",
                     album = e["al"] as? String,
                     thumbnail = e["th"] as? String ?: "",
-                    duration = (e["du"] as? Number)?.toLong() ?: 0L
+                    duration = (e["du"] as? Number)?.toLong() ?: 0L,
+                    artists = com.auralis.music.domain.model.TrackArtists.decode(e["as"] as? String)
                 ),
                 ts, ms
             )

@@ -124,7 +124,8 @@ class SettingsBehaviourTest {
             ).awaitAll()
         }
         val actual=store.settingsFlow.first()
-        assertEquals("Light Mode",actual.appTheme)
+        // The PC app is dark only: a saved Light reads back as Dark.
+        assertEquals("Dark Mode",actual.appTheme)
         // Liquidify is permanent on Windows: the stored flag no longer turns it off.
         assertTrue(actual.dynamicTheme)
         assertEquals(31f,actual.lyricsTextSize)

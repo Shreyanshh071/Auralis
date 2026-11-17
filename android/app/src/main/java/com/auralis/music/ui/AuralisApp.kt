@@ -435,6 +435,8 @@ fun AuralisApp(
     var showMiniPlayerTrackOptions by remember { mutableStateOf(false) }
     // The credited artists of a multi-artist credit someone tapped, for the "Choose artist" picker.
     var artistChoices by remember { mutableStateOf<List<com.auralis.music.domain.model.Artist>>(emptyList()) }
+    // Normalized credit -> the channel named exactly that (null = a real multi-artist credit).
+    val wholeCreditArtists = remember { mutableMapOf<String, com.auralis.music.domain.model.Artist?>() }
     var isAmbientOpen by rememberSaveable { mutableStateOf(false) }
     var isExternalCreatePlaylistOpen by remember { mutableStateOf(false) }
     var isHomeMenuOpen by remember { mutableStateOf(false) }
@@ -471,19 +473,23 @@ fun AuralisApp(
         if (!artist.id.startsWith("UC")) {
             val credits = com.auralis.music.domain.recommendations.SimilarSeedPlanner.splitArtistCredit(artist.name)
             if (credits.size > 1) {
-                artistChoices = credits.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
-                // "Simon & Garfunkel" is one artist: if a channel carries the whole credit, offer it first.
+                // "She & Him" and "Tyler, The Creator" are one artist, not a collab: when a channel
+                // carries the whole credit, open it directly. Only real collabs get the chooser.
+                val key = com.auralis.music.domain.search.SearchQueryMatcher.normalize(artist.name)
                 coroutineScope.launch {
-                    val whole = try {
-                        kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                    val whole = if (wholeCreditArtists.containsKey(key)) wholeCreditArtists[key] else try {
+                        kotlinx.coroutines.withTimeoutOrNull(3_000L) {
                             viewModelProvider.searchRepository.searchArtists(artist.name)
-                        }?.firstOrNull {
-                            it.id.startsWith("UC") && com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) ==
-                                com.auralis.music.domain.search.SearchQueryMatcher.normalize(artist.name)
+                        }?.let { results ->
+                            // Only remember completed searches; a timeout may just be a slow network.
+                            results.firstOrNull {
+                                it.id.startsWith("UC") &&
+                                    com.auralis.music.domain.search.SearchQueryMatcher.normalize(it.name) == key
+                            }.also { wholeCreditArtists[key] = it }
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                    if (whole != null && artistChoices.size == credits.size &&
-                        artistChoices.map { it.name } == credits) artistChoices = listOf(whole) + artistChoices
+                    if (whole != null) openArtistDetail(whole)
+                    else artistChoices = credits.map { com.auralis.music.domain.model.Artist(id = "", name = it) }
                 }
                 return
             }
@@ -1528,6 +1534,8 @@ fun AuralisApp(
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
                                                 },
                                                 onRemoveRecentQuery = { searchVM.removeRecentQuery(it) },
+                                                onClearRecentQueries = { searchVM.clearSearchHistory() },
+                                                recentlyPlayed = remember(homeUiState.recentTracks) { homeUiState.recentTracks.map { it.track } },
                                                 onOpenRecognition = { searchVM.openRecognitionModal(it) },
                                                 onCloseRecognition = { searchVM.closeRecognitionModal() },
                                                 onModeSelect = { searchVM.setRecognitionMode(it) },
@@ -1867,7 +1875,22 @@ fun AuralisApp(
             exit = auralisHeaderPageExit(),
             modifier = Modifier.fillMaxSize().hazeSource(state = hazeState, zIndex = 1f).hazeSource(state = pillHazeState, zIndex = 1f).then(if (recordGlassBackdrop) Modifier.layerBackdrop(profileGlassBackdrop) else Modifier)
         ) {
-            CompositionLocalProvider(LocalBottomChrome provides overlayBottomChrome) {
+            // The Lyrics settings preview plays the current song's own lyrics, in sync.
+            val previewPosition = obtainPlayerViewModel().playbackPositionMs.collectAsState()
+            val nowPlayingLyrics = remember(playerUiStateHolder, playerUiState.currentTrack, playerUiState.isPlaying, previewPosition) {
+                com.auralis.music.ui.lyrics.NowPlayingLyricsPreview(
+                    lyricsSource = { playerUiStateHolder.value.lyrics },
+                    title = playerUiState.currentTrack?.title,
+                    artist = playerUiState.currentTrack?.artist,
+                    isPlaying = playerUiState.isPlaying,
+                    position = previewPosition,
+                    clockSource = obtainPlayerViewModel().playbackClockSource
+                )
+            }
+            CompositionLocalProvider(
+                LocalBottomChrome provides overlayBottomChrome,
+                com.auralis.music.ui.lyrics.LocalNowPlayingLyrics provides nowPlayingLyrics
+            ) {
                 val authVM = obtainAuthViewModel()
                 val libVM = obtainLibraryViewModel()
                 ProfileSheet(
@@ -1909,6 +1932,11 @@ fun AuralisApp(
                     onDeselectAllPlaylists = { authVM.deselectAllPlaylists() },
                     onImportSelectedPlaylists = { authVM.importSelectedPlaylists() },
                     onImportSpotifyPlaylist = { libVM.importSpotifyPlaylist(it) },
+                    onImportExternalPlaylist = { libVM.importExternalPlaylist(it) },
+                    onImportPlaylistFile = { name, text -> libVM.importPlaylistFile(name, text) },
+                    isImportingExternal = libraryUiState.isImportingExternal,
+                    externalImportMessage = libraryUiState.externalImportMessage,
+                    onClearExternalImportMessage = { libVM.clearExternalImportMessage() },
                     onImportSpotifyLibraryPlaylists = { libVM.importSpotifyLibraryPlaylists(it) },
                     importedPlaylistIds = remember(libraryUiState.playlists) { libraryUiState.playlists.mapTo(HashSet()) { it.id } },
                     onClearSpotifyImportMessage = { libVM.clearSpotifyImportMessage() },
@@ -2785,19 +2813,20 @@ fun AuralisApp(
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Tonal rounded square with a sound wave in a viewfinder: reads as
+                            // "identify this song", not "voice search" like the old mic did.
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape),
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Mic,
+                                    painter = androidx.compose.ui.res.painterResource(R.drawable.ic_song_recognition),
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
