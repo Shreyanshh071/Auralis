@@ -209,6 +209,16 @@ object SpicyLyricsMotion {
     }
 }
 
+/** Each character may belong to one animation unit only. The span mapper falls back to
+ * searching from the line start, so a repeated word ("Always-ways-ways") could claim
+ * letters an earlier unit already owns; both then drew them, offset by their own motion. */
+internal fun spicyExclusiveSpans(spans: List<LyricsEngine.WordRange>): List<LyricsEngine.WordRange> {
+    var claimed = 0
+    return spans.filter { span ->
+        (span.startIndex >= claimed).also { kept -> if (kept) claimed = span.endIndex }
+    }
+}
+
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
 private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>,
                              val emphasizedLetters: List<SpicyEmphasizedLetter>?) {
@@ -312,7 +322,7 @@ fun SpicyLyricsLine(
         })
         // A source syllable is an animation unit, even inside a written word.
         // Combining all syllables first loses the motion of a held final syllable.
-        spans.mapNotNull { span ->
+        spicyExclusiveSpans(spans).mapNotNull { span ->
             var start = span.startIndex
             var end = span.endIndex
             while (start < end && displayText[start].isWhitespace()) start++
@@ -351,9 +361,9 @@ fun SpicyLyricsLine(
         val fontPx = with(density) { style.fontSize.toPx() }
         geometry.map { slice ->
             if (slice.letter >= 0) slice.bounds else {
-                        val previous = geometry.filter { it.row == slice.row && it.bounds.right <= slice.bounds.left }
+                        val previous = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x < slice.bounds.center.x }
                             .maxOfOrNull { it.bounds.right }
-                        val next = geometry.filter { it.row == slice.row && it.bounds.left >= slice.bounds.right }
+                        val next = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x > slice.bounds.center.x }
                             .minOfOrNull { it.bounds.left }
                         Rect(previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - fontPx * .2f),
                             layout!!.getLineTop(slice.row),
