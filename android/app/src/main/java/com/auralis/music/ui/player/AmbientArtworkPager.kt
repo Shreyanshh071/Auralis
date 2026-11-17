@@ -96,7 +96,7 @@ internal fun AmbientArtworkPager(
                 scaleX = 1f - offset * 0.15f
                 scaleY = scaleX
                 alpha = 1f - offset * 0.70f
-            }.clip(RoundedCornerShape(18.dp)))
+            }.clip(RoundedCornerShape(18.dp)), spotifyTrackId = uiState.lyrics?.spotifyTrackId)
         }
         }
     }

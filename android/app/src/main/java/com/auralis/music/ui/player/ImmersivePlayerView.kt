@@ -522,7 +522,8 @@ fun ImmersivePlayerContainer(
                         crossfade = true
                     )
                     if (pageTrack.id == uiState.currentTrack?.id) {
-                        AnimatedCover(pageTrack, uiState.isPlaying && coverMoves, Modifier.fillMaxSize(), visible = coverMoves)
+                        AnimatedCover(pageTrack, uiState.isPlaying && coverMoves, Modifier.fillMaxSize(), visible = coverMoves,
+                            spotifyTrackId = uiState.lyrics?.spotifyTrackId)
                     }
                 }
             }

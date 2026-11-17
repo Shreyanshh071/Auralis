@@ -1750,7 +1750,7 @@ fun NowPlayingModal(
                                                         animatedVisibilityScope = animatedVisibilityScope,
                                                         expanded = true
                                                     ))
-                                                ))
+                                                ), spotifyTrackId = uiState.lyrics?.takeIf { pageTrack.id == uiState.currentTrack?.id }?.spotifyTrackId)
                                             }
                                         }
                                     }

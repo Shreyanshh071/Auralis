@@ -474,7 +474,8 @@ fun ClassicPlayerView(
                                         pageTrack,
                                         uiState.isPlaying && coverAtRest && !pagerState.isScrollInProgress,
                                         Modifier.fillMaxSize(),
-                                        visible = coverAtRest && !pagerState.isScrollInProgress
+                                        visible = coverAtRest && !pagerState.isScrollInProgress,
+                                        spotifyTrackId = uiState.lyrics?.spotifyTrackId
                                     )
                                 }
                             }
@@ -501,7 +502,8 @@ fun ClassicPlayerView(
                             contentScale = if (cropAlbumArt) ContentScale.Crop else ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
-                        AnimatedCover(displayedTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize(), visible = coverAtRest)
+                        AnimatedCover(displayedTrack, uiState.isPlaying && coverAtRest, Modifier.fillMaxSize(), visible = coverAtRest,
+                            spotifyTrackId = uiState.lyrics?.takeIf { displayedTrack.id == uiState.currentTrack?.id }?.spotifyTrackId)
                     }
                 }
             } else {

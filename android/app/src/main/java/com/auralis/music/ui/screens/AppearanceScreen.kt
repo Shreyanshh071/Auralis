@@ -277,8 +277,8 @@ fun AppearanceScreen(
                 )
                 AppearanceSwitchItem(
                     icon = Icons.Default.Image,
-                    title = "Animated covers",
-                    subtitle = "Loop motion artwork when available",
+                    title = "Canvas and animated covers",
+                    subtitle = "Spotify Canvas first, then animated artwork, then the still cover",
                     isChecked = settings.animatedCovers,
                     onCheckedChange = { update { copy(animatedCovers = it) } }
                 )
@@ -292,7 +292,7 @@ fun AppearanceScreen(
                     
                     AppearanceSwitchItem(
                     icon = Icons.Default.Image,
-                    title = "Load animated covers on Wi-Fi only",
+                    title = "Load Canvas and animated covers on Wi-Fi only",
                     subtitle = "Keep still artwork when using mobile data",
                     isChecked = settings.animatedCoversWifiOnly,
                     onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }

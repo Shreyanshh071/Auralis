@@ -54,7 +54,8 @@ internal object AnimatedCoverVideoCache {
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier = Modifier, visible: Boolean = true) {
+internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier = Modifier, visible: Boolean = true,
+    spotifyTrackId: String? = null) {
     val settings = LocalAppearanceSettings.current
     if (!settings.animatedCovers || track == null) return
     val context = LocalContext.current.applicationContext
@@ -62,9 +63,12 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
     if (!wifi) return
     // The lookup starts as soon as the song does.
     val source = CanvasSource.from(settings.animatedCoverSource)
-    var url by remember(track.id, track.title, track.artist, track.album, source) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track.id, track.title, track.artist, track.album, source) {
-        url = CanvasLookup.find(context, track, source)
+    var video by remember(track.id, track.title, track.artist, track.album, source, spotifyTrackId) { mutableStateOf<CoverVideo?>(null) }
+    LaunchedEffect(track.id, track.title, track.artist, track.album, source, spotifyTrackId) {
+        video = resolveCoverVideo(
+            canvas = { PhoneCanvasLookup.find(context, track, spotifyTrackId) },
+            animatedCover = { CanvasLookup.find(context, track, source) }
+        )
     }
     // A video player is heavy to start and stop, so skipping through songs never starts one.
     var settled by remember(track.id) { mutableStateOf(false) }
@@ -73,8 +77,9 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
         settled = true
     }
     if (!settled) return
-    val videoUrl = url ?: return
-    key(videoUrl) {
+    val selectedVideo = video ?: return
+    val videoUrl = selectedVideo.url
+    key(selectedVideo) {
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
         DisposableEffect(lifecycle) {
@@ -115,6 +120,20 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
             player.setMediaItem(MediaItem.fromUri(videoUrl))
             player.prepare()
             onDispose { player.removeListener(listener); player.release() }
+        }
+        // A Canvas that cannot be decoded tries the manifest copy, then motion artwork. If that
+        // also fails, the still artwork underneath remains visible; no failed video hides it.
+        LaunchedEffect(failed) {
+            if (failed && selectedVideo.spotifyId != null) {
+                video = resolveCoverVideo(
+                    canvas = {
+                        if (selectedVideo.attempt < 2)
+                            PhoneCanvasLookup.fallback(context, ResolvedCanvas(selectedVideo.spotifyId, videoUrl))
+                        else null
+                    },
+                    animatedCover = { CanvasLookup.find(context, track, source) }
+                )?.copy(attempt = selectedVideo.attempt + 1)
+            }
         }
         LaunchedEffect(isPlaying, foreground, failed) { player.playWhenReady = isPlaying && foreground && !failed }
         val opacity by animateFloatAsState(if (ready && !failed && visible) 1f else 0f, tween(if (visible) 350 else 180), label = "motionCover")
