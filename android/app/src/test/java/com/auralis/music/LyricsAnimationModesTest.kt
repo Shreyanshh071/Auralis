@@ -59,17 +59,13 @@ class LyricsAnimationModesTest {
         val expectedModes = listOf(
             LyricsAnimationMode.NONE,
             LyricsAnimationMode.FADE,
-            LyricsAnimationMode.GLOW,
-            LyricsAnimationMode.SLIDE,
-            LyricsAnimationMode.KARAOKE,
-            LyricsAnimationMode.APPLE_MUSIC,
             LyricsAnimationMode.APPLE_MUSIC_V2,
             LyricsAnimationMode.VIVIMUSIC,
-            LyricsAnimationMode.LYRICS_V2_FLUID,
             LyricsAnimationMode.METRO_LYRICS,
             LyricsAnimationMode.SPICY_LYRICS
         )
         assertEquals(expectedModes, LyricsAnimationMode.entries)
+        assertEquals("Auralis Lyrics", LyricsAnimationMode.VIVIMUSIC.displayName)
         val displayNames = LyricsAnimationMode.entries.map { it.displayName }
         assertEquals("Each mode must have a unique display name", LyricsAnimationMode.entries.size, displayNames.toSet().size)
     }
@@ -85,15 +81,15 @@ class LyricsAnimationModesTest {
     }
 
     @Test
-    fun fromDisplayName_mapsRemovedAuralisStylesToViviStyles() {
-        assertEquals(LyricsAnimationMode.VIVIMUSIC, LyricsAnimationMode.fromDisplayName("Auralis (Default)"))
-        assertEquals(LyricsAnimationMode.LYRICS_V2_FLUID, LyricsAnimationMode.fromDisplayName("Auralis (Fluid)"))
-        assertEquals(LyricsAnimationMode.LYRICS_V2_FLUID, LyricsAnimationMode.fromDisplayName("Vivimusic (Fluid)"))
+    fun fromDisplayName_mapsRemovedStylesToAuralisLyrics() {
+        for (removed in listOf("ViviMusic", "Glow", "Slide", "Karaoke", "Apple Music", "Lyrics V2 (Fluid)",
+            "Auralis (Default)", "Auralis (Fluid)", "UnknownStyle")) {
+            assertEquals(removed, LyricsAnimationMode.VIVIMUSIC, LyricsAnimationMode.fromDisplayName(removed))
+        }
+        assertEquals(LyricsAnimationMode.VIVIMUSIC, LyricsAnimationMode.fromDisplayName(null))
         assertEquals(LyricsAnimationMode.METRO_LYRICS, LyricsAnimationMode.fromDisplayName("metro_lyrics"))
         assertEquals(LyricsAnimationMode.APPLE_MUSIC_V2, LyricsAnimationMode.fromDisplayName("letter by letter"))
-        assertEquals(LyricsAnimationMode.APPLE_MUSIC, LyricsAnimationMode.fromDisplayName("apple"))
-        assertEquals(LyricsAnimationMode.VIVIMUSIC, LyricsAnimationMode.fromDisplayName(null))
-        assertEquals(LyricsAnimationMode.VIVIMUSIC, LyricsAnimationMode.fromDisplayName("UnknownStyle"))
+        assertEquals(LyricsAnimationMode.NONE, LyricsAnimationMode.fromDisplayName("None"))
     }
 
     @Test

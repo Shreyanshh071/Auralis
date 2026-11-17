@@ -31,20 +31,9 @@ class ArtistPageLoadingTest {
         assertEquals(official.id, assertNotNull(tube.getArtistPage(official.copy(id = ""))).artist.id)
     }
 
-    private var originalPause = 0L
-    private var originalTrips = 0
-    private val pauseField = YouTubeBackoff::class.java.getDeclaredField("pausedUntil").apply { isAccessible = true }
-    private val tripsField = YouTubeBackoff::class.java.getDeclaredField("trips").apply { isAccessible = true }
-
-    @org.junit.Before fun rememberCooldown() {
-        originalPause = pauseField.getLong(YouTubeBackoff)
-        originalTrips = tripsField.getInt(YouTubeBackoff)
-    }
-
-    @org.junit.After fun restoreCooldown() {
-        pauseField.setLong(YouTubeBackoff, originalPause)
-        tripsField.setInt(YouTubeBackoff, originalTrips)
-    }
+    // Tests trip the shared cooldown; a successful stream lookup is what ends one.
+    @org.junit.Before fun clearCooldownBefore() = YouTubeBackoff.recordSuccess()
+    @org.junit.After fun clearCooldownAfter() = YouTubeBackoff.recordSuccess()
 
     @Test fun artistOpensDuringBackgroundCooldownWithoutResumingBackgroundWork() = runBlocking {
         var requests = 0

@@ -173,7 +173,6 @@ fun AppTour(
                         4 -> TourChoices(LyricsAnimationMode.entries.map { it.displayName }, appearance.lyricsAnimation, accent, ink, columns = 4,
                             label = { when (LyricsAnimationMode.fromDisplayName(it)) {
                                 LyricsAnimationMode.APPLE_MUSIC_V2 -> "Apple V2"
-                                LyricsAnimationMode.LYRICS_V2_FLUID -> "V2 Fluid"
                                 else -> it
                             } }) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(lyricsAnimation = value)) } }
                         5 -> Text("Tap ⋮ beside a song → Download", color = ink.copy(alpha = .7f), fontSize = 13.sp)

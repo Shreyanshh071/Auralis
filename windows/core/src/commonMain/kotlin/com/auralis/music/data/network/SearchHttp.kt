@@ -41,11 +41,19 @@ internal class AlbumBrowseRequest private constructor() : AbstractCoroutineConte
 suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
     withTimeout(budgetMs) {
         val youtube = request.url.host.contains("youtube")
-        if (youtube && YouTubeBackoff.active && currentCoroutineContext()[ArtistBrowseRequest] == null &&
-            currentCoroutineContext()[AlbumBrowseRequest] == null && currentCoroutineContext()[UserSearchRequest] == null)
+        val foreground = currentCoroutineContext()[ArtistBrowseRequest] != null ||
+            currentCoroutineContext()[AlbumBrowseRequest] != null || currentCoroutineContext()[UserSearchRequest] != null
+        // Background work waits out a pause, and only one request goes out as its trial; the
+        // listener's own searches and pages still go (they are single requests they asked for).
+        if (youtube && !foreground && !YouTubeBackoff.permit())
             throw IOException("YouTube is temporarily limiting this network")
+        val intent = currentCoroutineContext()[PlaybackIntentContext]?.budget
+        val taggedRequest = intent?.let {
+            request.newBuilder().tag(YouTubeTraffic.Tag::class.java,
+                YouTubeTraffic.Tag(it.correlationId, it.reason, it)).build()
+        } ?: request
         suspendCancellableCoroutine { continuation ->
-            val call = newCall(request)
+            val call = newCall(taggedRequest)
             call.timeout().timeout(budgetMs, TimeUnit.MILLISECONDS)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
@@ -60,9 +68,11 @@ suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
                             if (!it.isSuccessful) {
                                 val error = it.body?.string().orEmpty()
                                 if (youtube && it.code == 403 && YouTubeBackoff.isBlockPage(error)) YouTubeBackoff.trip()
-                                throw IOException("Search HTTP ${it.code} " + error.replace(Regex("\\s+"), " ").take(200))
+                                if (youtube && it.code >= 500) YouTubeBackoff.trip(PlaybackFailure(FailureCategory.TRANSIENT, "search", it.code))
+                                throw IOException("Search HTTP ${it.code} " + YouTubeTraffic.redact(error.replace(Regex("\\s+"), " ").take(200)))
                             }
-                            it.body?.string() ?: throw IOException("Empty search response")
+                            (it.body?.string() ?: throw IOException("Empty search response"))
+                                .also { if (youtube) YouTubeBackoff.recordSuccess(fromPlayer = false) }
                         }
                         continuation.resume(body)
                     } catch (e: Exception) {

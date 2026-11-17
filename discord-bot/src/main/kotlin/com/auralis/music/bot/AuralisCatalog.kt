@@ -97,10 +97,13 @@ class AuralisCatalog {
      * can't be played. The relay is what keeps YouTube serving a whole song, as it does for libVLC.
      */
     suspend fun streamUrl(track: Track): String? {
-        val direct = DesktopStreamResolver.resolve(track.id)
-        val (id, url) = if (direct != null) track.id to direct
-        else DesktopPlaybackMatch.alternative(track, track.id) { DesktopStreamResolver.resolve(it) } ?: return null
-        return LocalStreamRelay.register(url) { DesktopStreamResolver.refreshBlocking(id) }
+        val direct = DesktopStreamResolver.resolveResult(track.id)
+        val (id, url) = direct.url?.let { track.id to it }
+            // Another upload only helps a restricted or missing video, not a refused network.
+            ?: if (direct is com.auralis.music.desktop.playback.ResolutionResult.Failed && direct.failure.category.alternateMayHelp)
+                DesktopPlaybackMatch.alternative(track, track.id) { DesktopStreamResolver.resolve(it) } ?: return null
+            else return null
+        return LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(id, it.failedUrl, it.failure) })
     }
 
     companion object {

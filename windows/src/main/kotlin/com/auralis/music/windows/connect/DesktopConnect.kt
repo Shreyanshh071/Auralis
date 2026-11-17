@@ -101,11 +101,10 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, pr
                     ?: track.id.takeIf(com.auralis.music.desktop.playback.DesktopPlaybackMatch::isVideoId)
                     ?: com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(track)
                     ?: return@runCatching
-                com.auralis.music.desktop.playback.DesktopStreamResolver.resolve(id)?.let { url ->
-                    com.auralis.music.desktop.playback.LocalStreamRelay.preload(url, refresh = {
-                        com.auralis.music.desktop.playback.DesktopStreamResolver.refreshBlocking(track.id)
-                    })
-                }
+                // Only the link: the relay preload waits for playback to register it (this PC may
+                // still hand the song back), and nothing runs while YouTube requests are paused.
+                if (!com.auralis.music.data.network.YouTubeBackoff.active)
+                    com.auralis.music.desktop.playback.DesktopStreamResolver.resolve(id)
             }
         }
         true

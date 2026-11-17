@@ -55,6 +55,23 @@ enum class LyricsPosition { LEFT, CENTER, RIGHT;
  */
 val LocalViviPlaybackClock = staticCompositionLocalOf<(() -> Long)?> { null }
 
+/**
+ * Spicy Lyrics' lyric size, which every style shares: 34sp at the default 22 setting, following
+ * Settings' text size within 0.8x-1.4x; unsynced lyrics are drawn smaller, as Spicy does.
+ */
+internal fun spicyLyricsTextSize(setting: Float, synced: Boolean = true): Float {
+    val size = 34f * (setting / 22f).coerceIn(0.8f, 1.4f)
+    return if (synced) size else 22f * (size / 34f)
+}
+
+/** Where a lyric line grows from when it becomes active: its aligned side, at mid height. */
+internal fun lyricTransformOrigin(alignment: androidx.compose.ui.Alignment.Horizontal): androidx.compose.ui.graphics.TransformOrigin =
+    when (alignment) {
+        androidx.compose.ui.Alignment.Start -> androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+        androidx.compose.ui.Alignment.End -> androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+        else -> androidx.compose.ui.graphics.TransformOrigin.Center
+    }
+
 internal fun isHindiText(text: String): Boolean = text.any { it in 'ऀ'..'ॿ' }
 
 /**

@@ -143,7 +143,9 @@ fun MetroLyricsLine(
     isAutoScrollActive: Boolean,
     expressiveAccent: Color,
     bgVisible: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Vivi's 36sp, or the small lyric preview's own size. */
+    textSize: Float = 36f
 ) {
     val romanizeAsMain = false
     
@@ -180,7 +182,7 @@ fun MetroLyricsLine(
         label = "lineAlpha"
     )
 
-    val lyricsTextSize = 36f
+    val lyricsTextSize = textSize
     val lyricsLineSpacing = 1.3f
 
     val itemModifier = modifier
@@ -196,11 +198,12 @@ fun MetroLyricsLine(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             else Color.Transparent
         )
+        // Auralis's row spacing: the gap between lines comes from the list, not from the row.
         .padding(
-            start = 24.dp,
-            end = 24.dp,
-            top = if (entry.isBackground) 0.dp else (8 * lyricsLineSpacing).dp,
-            bottom = if (entry.isBackground) 2.dp else (8 * lyricsLineSpacing).dp
+            start = 4.dp,
+            end = 4.dp,
+            top = if (entry.isBackground) 1.dp else (3 * (lyricsLineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp,
+            bottom = if (entry.isBackground) 1.dp else (3 * (lyricsLineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp
         )
 
     val agentAlignment = when {

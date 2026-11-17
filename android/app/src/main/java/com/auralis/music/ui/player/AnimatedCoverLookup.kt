@@ -35,7 +35,7 @@ internal object CanvasLookup {
         val url = sources.firstNotNullOfOrNull { s ->
             runCatching {
                 when (s) {
-                    CanvasSource.APPLE -> apple(track)
+                    CanvasSource.APPLE -> apple(track, disk)
                     CanvasSource.TIDAL -> tidal(track)
                     CanvasSource.CURATED -> curated(track)
                     CanvasSource.AUTO -> null
@@ -91,26 +91,43 @@ internal object CanvasLookup {
     // ── Apple Music: album motion artwork (HLS), via the web player's public token ──
     @Volatile private var appleToken: String? = null
     @Volatile private var appleTokenExpiry = 0L
-    private fun appleToken(): String? {
+    /**
+     * Apple's web-player token, which lasts months. Kept on disk too: fetching it means loading
+     * Apple's page and a large script, which made the first animated cover of each launch slow.
+     */
+    private fun appleToken(disk: android.content.SharedPreferences): String? {
         val now = System.currentTimeMillis()
         appleToken?.takeIf { now < appleTokenExpiry - 60_000 }?.let { return it }
+        disk.getString("apple_token", null)?.let { saved ->
+            val expiry = disk.getLong("apple_token_expiry", 0L)
+            if (now < expiry - 60_000) { appleToken = saved; appleTokenExpiry = expiry; return saved }
+        }
         val html = get("https://music.apple.com/us/browse") ?: return null
         for (script in Regex("""/assets/index(?:-legacy)?[~-][a-zA-Z0-9_-]+\.js""").findAll(html).map { it.value }.distinct()) {
             val js = get("https://music.apple.com$script") ?: continue
             for (token in Regex("""ey[a-zA-Z0-9_-]+\.ey[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+""").findAll(js).map { it.value }) {
                 val payload = runCatching { String(java.util.Base64.getUrlDecoder().decode(token.split(".")[1])) }.getOrNull() ?: continue
                 val exp = Regex(""""exp":(\d+)""").find(payload)?.groupValues?.get(1)?.toLongOrNull() ?: continue
-                if (exp * 1000 > now) { appleToken = token; appleTokenExpiry = exp * 1000; return token }
+                if (exp * 1000 > now) {
+                    appleToken = token; appleTokenExpiry = exp * 1000
+                    runCatching { disk.edit().putString("apple_token", token).putLong("apple_token_expiry", exp * 1000).apply() }
+                    return token
+                }
             }
         }
         return null
     }
 
-    private fun apple(track: Track): String? {
-        val token = appleToken() ?: return null
+    private fun apple(track: Track, disk: android.content.SharedPreferences): String? {
+        val token = appleToken(disk) ?: return null
         val auth = mapOf("Authorization" to "Bearer $token", "Origin" to "https://music.apple.com", "Referer" to "https://music.apple.com/")
         val search = get("https://amp-api.music.apple.com/v1/catalog/us/search?term=${enc("${primaryArtist(track)} ${track.title}")}" +
-            "&types=songs&limit=10&include=albums", auth) ?: return null
+            "&types=songs&limit=10&include=albums", auth) ?: run {
+            // A saved token Apple no longer accepts: forget it so the next lookup fetches a new one.
+            appleToken = null; appleTokenExpiry = 0L
+            runCatching { disk.edit().remove("apple_token").remove("apple_token_expiry").apply() }
+            return null
+        }
         val songs = JSONObject(search).optJSONObject("results")?.optJSONObject("songs")?.optJSONArray("data") ?: return null
         for (i in 0 until songs.length()) {
             val song = songs.optJSONObject(i) ?: continue

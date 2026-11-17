@@ -36,6 +36,8 @@ interface ShortcutActions {
     fun showQueue()
     /** Closes the player, otherwise goes back through local pages and navigation history. */
     fun closePlayer(): Boolean
+    /** Closes the full player if it is open (and nothing else); false when it wasn't open. */
+    fun hidePlayer(): Boolean = false
     fun openImmersive() {}
 }
 
@@ -54,7 +56,7 @@ interface ShortcutActions {
  * | Ctrl+F or Ctrl+K | Search |
  * | Ctrl+P | Open / close the player |
  * | Ctrl+L / Ctrl+Q | Player with lyrics / queue |
- * | I | Immersive mode |
+ * | I | Close the full player; otherwise immersive mode |
  * | Esc | Close the player, otherwise return to the previous page |
  */
 fun handleShortcut(event: KeyEvent, typing: Boolean, actions: ShortcutActions): Boolean =
@@ -108,7 +110,7 @@ fun handlePlainShortcut(event: KeyEvent, actions: ShortcutActions): Boolean {
         VK_RIGHT -> actions.seekBy(step)
         VK_LEFT -> actions.seekBy(-step)
         VK_M -> actions.toggleMute()
-        VK_I -> actions.openImmersive()
+        VK_I -> if (!actions.hidePlayer()) actions.openImmersive()
         else -> return false
     }
     return true

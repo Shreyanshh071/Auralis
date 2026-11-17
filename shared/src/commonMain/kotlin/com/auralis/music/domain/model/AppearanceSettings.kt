@@ -77,17 +77,12 @@ data class AppearanceSettings(
         get() = LyricsAnimationMode.fromDisplayName(lyricsAnimation) == LyricsAnimationMode.SPICY_LYRICS
 }
 
-/** Spicy Lyrics plus the ten lyric styles ported from Vivi Music. */
+/** Spicy Lyrics plus the lyric styles ported from Vivi Music. */
 enum class LyricsAnimationMode(val displayName: String) {
     NONE("None"),
     FADE("Fade"),
-    GLOW("Glow"),
-    SLIDE("Slide"),
-    KARAOKE("Karaoke"),
-    APPLE_MUSIC("Apple Music"),
     APPLE_MUSIC_V2("Apple Music (Letter by Letter)"),
-    VIVIMUSIC("ViviMusic"),
-    LYRICS_V2_FLUID("Lyrics V2 (Fluid)"),
+    VIVIMUSIC("Auralis Lyrics"),
     METRO_LYRICS("MetroLyrics"),
     SPICY_LYRICS("Spicy Lyrics");
 
@@ -97,20 +92,13 @@ enum class LyricsAnimationMode(val displayName: String) {
             if (name.equals("Beautiful Lyrics", ignoreCase = true) || name.equals("BEAUTIFUL_LYRICS", ignoreCase = true)) return SPICY_LYRICS
             return entries.firstOrNull { it.displayName.equals(name, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
                 ?: when {
-                    // Styles removed with the Vivi port map to their nearest Vivi style.
-                    name.contains("auralis (fluid)", ignoreCase = true) -> LYRICS_V2_FLUID
-                    name.contains("auralis", ignoreCase = true) || name.contains("default", ignoreCase = true) -> VIVIMUSIC
+                    // Removed styles (Glow, Slide, Karaoke, Apple Music, Lyrics V2, the old Auralis
+                    // ones) and the former "ViviMusic" name all open as Auralis Lyrics.
                     name.contains("letter", ignoreCase = true) || name.contains("apple_v2", ignoreCase = true) -> APPLE_MUSIC_V2
-                    name.contains("lyrics_v2", ignoreCase = true) || name.contains("fluid", ignoreCase = true) -> LYRICS_V2_FLUID
-                    name.contains("vivi", ignoreCase = true) -> VIVIMUSIC
                     name.contains("spicy", ignoreCase = true) -> SPICY_LYRICS
                     name.contains("metro", ignoreCase = true) -> METRO_LYRICS
-                    name.contains("glow", ignoreCase = true) -> GLOW
-                    name.contains("apple", ignoreCase = true) -> APPLE_MUSIC
                     name.contains("fade", ignoreCase = true) -> FADE
-                    name.contains("none", ignoreCase = true) -> NONE
-                    name.contains("karaoke", ignoreCase = true) -> KARAOKE
-                    name.contains("slide", ignoreCase = true) -> SLIDE
+                    name.equals("none", ignoreCase = true) -> NONE
                     else -> VIVIMUSIC
                 }
         }

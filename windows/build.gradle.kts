@@ -251,6 +251,7 @@ tasks.register<JavaExec>("probeStream") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
     args = listOfNotNull(findProperty("args")?.toString())
+    findProperty("streamClients")?.let { systemProperty("auralis.streamClients", it.toString()) }
 }
 
 // Development check: ./gradlew :windows:probeStartup -Pargs="vlcDir::videoId::videoId..." (silent; time to sound)
