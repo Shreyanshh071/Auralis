@@ -30,10 +30,13 @@ import java.util.concurrent.TimeUnit
  */
 object LocalStreamRelay {
     private const val TAG = "LocalStreamRelay"
-    private const val CHUNK_BYTES = 32L * 1024L
-    private const val CACHE_BLOCKS = 256 // 8 MiB per retained stream, at most four streams.
-    private const val PREFETCH_BLOCKS = 64 // 2 MiB ahead; foreground seeks never queue behind this.
-    private const val PRELOAD_BLOCKS = 8 // 256 KiB: ~10s of 160 kbps audio
+    // Each request to YouTube costs ~0.4-0.6s of waiting whatever its size, while bandwidth is
+    // ~850 KB/s: 32 KiB pieces made a cold start pay that wait five to eight times before sound
+    // (5-7s). 256 KiB is still well within what YouTube serves per request.
+    private const val CHUNK_BYTES = 256L * 1024L
+    private const val CACHE_BLOCKS = 32 // 8 MiB per retained stream, at most four streams.
+    private const val PREFETCH_BLOCKS = 8 // 2 MiB ahead; foreground seeks never queue behind this.
+    private const val PRELOAD_BLOCKS = 1 // 256 KiB: ~10s of 160 kbps audio
     private const val CHUNK_ATTEMPTS = 2
     private const val MAX_REFRESHES = 3
     private const val USER_AGENT =
