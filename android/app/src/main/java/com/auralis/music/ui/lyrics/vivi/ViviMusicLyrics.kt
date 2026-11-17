@@ -182,7 +182,8 @@ fun ViviMusicLyricsLine(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             else Color.Transparent
         )
-        .padding(horizontal = 24.dp, vertical = (8 * lineSpacing).dp)
+        // Auralis's row spacing: the gap between lines comes from the list, not from the row.
+        .padding(horizontal = 4.dp, vertical = (3 * (lineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp)
         .blur(animatedBlur.dp)
 
     // ── Agent alignment ───────────────────────────────────────────────────────

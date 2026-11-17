@@ -196,11 +196,12 @@ fun MetroLyricsLine(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             else Color.Transparent
         )
+        // Auralis's row spacing: the gap between lines comes from the list, not from the row.
         .padding(
-            start = 24.dp,
-            end = 24.dp,
-            top = if (entry.isBackground) 0.dp else (8 * lyricsLineSpacing).dp,
-            bottom = if (entry.isBackground) 2.dp else (8 * lyricsLineSpacing).dp
+            start = 4.dp,
+            end = 4.dp,
+            top = if (entry.isBackground) 1.dp else (3 * (lyricsLineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp,
+            bottom = if (entry.isBackground) 1.dp else (3 * (lyricsLineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp
         )
 
     val agentAlignment = when {

@@ -414,7 +414,8 @@ private fun SyncedLyricsContent(
         onSeekTo = onSeekTo,
         track = track,
         lyricsStandardBlur = standardLyricsBlur,
-        modifier = modifier
+        modifier = modifier,
+        readingFocusFraction = readingFocusFraction
     )
 }
 
