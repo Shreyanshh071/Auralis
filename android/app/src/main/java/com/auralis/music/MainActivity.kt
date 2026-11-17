@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.media3.common.util.UnstableApi
 import com.auralis.music.data.datastore.AppearanceSettingsDataStore
+import com.auralis.music.ui.theme.effectiveForDrawing
 import com.auralis.music.data.datastore.SettingsDataStore
 import com.auralis.music.data.local.AuralisDatabase
 import com.auralis.music.data.network.InnerTubeClient
@@ -299,8 +300,11 @@ class MainActivity : ComponentActivity() {
             val isSongActive = currentTrack != null && hasActiveSongInSession
             val artworkPaletteForTheme = if (isSongActive) activeArtworkPalette else ArtworkPaletteCache.defaultPalette
 
+            // "Reduce effects" (Settings > Appearance > Performance & battery): what the app draws
+            // with. Saved choices are untouched; settings screens still read the store directly.
+            val drawingAppearance = appearanceSettings.effectiveForDrawing()
             AuralisTheme(
-                appearanceSettings = appearanceSettings,
+                appearanceSettings = drawingAppearance,
                 artworkPalette = artworkPaletteForTheme
             ) {
                 Surface(
@@ -326,7 +330,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                         AuralisApp(
                             viewModelProvider = viewModelProvider,
-                            appearanceSettings = appearanceSettings,
+                            appearanceSettings = drawingAppearance,
                             googleAccountSyncManager = googleAccountSyncManager,
                             initialNavDestination = liveNavDestination.value
                         )
@@ -375,6 +379,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.auralis.music.data.AppVisibility.set(true)
         com.auralis.music.data.connect.AuralisConnect.setForeground(true)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStart")
         // Back from the background: pick up what other devices changed meanwhile.
@@ -437,6 +442,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        com.auralis.music.data.AppVisibility.set(false)
         com.auralis.music.data.connect.AuralisConnect.setForeground(false)
         android.util.Log.d("AuralisPlayback", "[MainActivity] onStop")
     }

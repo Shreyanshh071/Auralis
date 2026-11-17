@@ -2990,6 +2990,31 @@ internal fun ClassicQueueContent(
                         ) { isDragging ->
                             var isHandleHeld by remember { mutableStateOf(false) }
                             var isRowHeld by remember { mutableStateOf(false) }
+                            // This row's position in the real queue (the same song can appear twice).
+                            fun queuePosition(): Int {
+                                val localIndex = localQueue.indexOfFirst { it.instanceId == queueItem.instanceId }
+                                if (localIndex < 0) return -1
+                                val occurrence = localQueue.take(localIndex).count { it.track.id == item.id }
+                                return queueSnapshot.indices.filter { queueSnapshot[it].id == item.id }.getOrNull(occurrence) ?: localIndex
+                            }
+                            val swipeEnabled = !isCurrent && !queueLocked && !reorderableLazyListState.isAnyItemDragging
+                            // Swipe right: play this song next. Swipe left: take it out of the queue.
+                            com.auralis.music.ui.components.SwipeableTrackContainer(
+                                onPlayNext = if (swipeEnabled && onReorderQueue != null) {
+                                    {
+                                        val from = queuePosition()
+                                        val current = activeQueueIndex
+                                        // Moving a song from above the current one shifts the current one up by one.
+                                        val to = if (from < current) current else current + 1
+                                        if (from >= 0 && to in queueSnapshot.indices && from != to) onReorderQueue(from, to)
+                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.playing_next_x, item.title))
+                                    }
+                                } else null,
+                                onRemoveFromPlaylist = if (swipeEnabled && onRemoveQueueItem != null) {
+                                    { queuePosition().takeIf { it >= 0 }?.let { onRemoveQueueItem(it) } }
+                                } else null,
+                                removeOnSwipeLeft = true
+                            ) {
                             // Holding/dragging a row just moves it: no background, border, bold
                             // title or accent-tinted handle.
                             Row(
@@ -3152,6 +3177,7 @@ internal fun ClassicQueueContent(
                                         )
                                     }
                                 }
+                            }
                             }
                         }
                     }

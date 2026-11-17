@@ -224,6 +224,9 @@ fun DiscordIntegrationScreen(
             }
             item(key = "discord_options", contentType = "group") {
                 SettingsGroup(str(R.string.options)) {
+                    SettingsSwitchRow(Icons.Default.MusicNote, str(R.string.discord_show_listen_button), checked = settings.showListenButton, onCheckedChange = { checked ->
+                        scope.launch { dataStore.setShowListenButton(checked) }
+                    })
                     SettingsRow(Icons.Default.Refresh, str(R.string.refresh), str(R.string.manually_refresh_discord_rich_presence), onClick = {
                         DiscordGatewayManager.getInstance(context).pushPresence()
                         Toast.makeText(context, str(R.string.discord_rich_presence_refreshed), Toast.LENGTH_SHORT).show()

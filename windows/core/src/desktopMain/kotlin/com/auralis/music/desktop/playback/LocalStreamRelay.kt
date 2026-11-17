@@ -1,5 +1,9 @@
 package com.auralis.music.desktop.playback
 
+import com.auralis.music.data.network.FailureCategory
+import com.auralis.music.data.network.FailureClassifier
+import com.auralis.music.data.network.PlaybackFailure
+import com.auralis.music.data.network.YouTubeTraffic
 import com.auralis.music.util.Log
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -30,23 +34,33 @@ import java.util.concurrent.TimeUnit
  */
 object LocalStreamRelay {
     private const val TAG = "LocalStreamRelay"
-    private const val CHUNK_BYTES = 32L * 1024L
-    private const val CACHE_BLOCKS = 256 // 8 MiB per retained stream, at most four streams.
-    private const val PREFETCH_BLOCKS = 64 // 2 MiB ahead; foreground seeks never queue behind this.
-    private const val PRELOAD_BLOCKS = 8 // 256 KiB: ~10s of 160 kbps audio
+    // Each request to YouTube costs ~0.4-0.6s of waiting whatever its size, while bandwidth is
+    // ~850 KB/s: 32 KiB pieces made a cold start pay that wait five to eight times before sound
+    // (5-7s). 256 KiB is still well within what YouTube serves per request.
+    private const val CHUNK_BYTES = 256L * 1024L
+    private const val CACHE_BLOCKS = 32 // 8 MiB per retained stream, at most four streams.
+    private const val PREFETCH_BLOCKS = 8 // 2 MiB ahead; foreground seeks never queue behind this.
+    private const val PRELOAD_BLOCKS = 1 // 256 KiB: ~10s of 160 kbps audio
     private const val CHUNK_ATTEMPTS = 2
     private const val MAX_REFRESHES = 3
     private const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
+    /** Why the relay wants a fresh link: the link that failed and how it failed. */
+    data class Refresh(val failedUrl: String, val failure: PlaybackFailure)
+
     private class Stream(
         @Volatile var url: String,
-        /** A fresh URL for the same song, or null when there is none. */
-        val refresh: (() -> String?)?,
+        /** A fresh URL for the same song, or null when there is none (or no allowance is left). */
+        @Volatile var refresh: ((Refresh) -> String?)?,
         @Volatile var length: Long = -1L,
-        @Volatile var contentType: String? = null
+        @Volatile var contentType: String? = null,
+        /** The playback intent its requests are attributed to. */
+        @Volatile var tag: YouTubeTraffic.Tag? = null
     ) {
         @Volatile var refreshes = 0
+        /** The last upstream failure, until a later piece arrives; null while reads succeed. */
+        @Volatile var lastFailure: PlaybackFailure? = null
         val generation = AtomicLong()
         val blocks = object : LinkedHashMap<Long, ByteArray>(CACHE_BLOCKS, .75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ByteArray>?) = size > CACHE_BLOCKS
@@ -101,8 +115,8 @@ object LocalStreamRelay {
      * A local URL for libVLC that serves [upstreamUrl]; [refresh] fetches a new URL for the same
      * song. The song being played: other songs' read-ahead stops so it has the connections.
      */
-    fun register(upstreamUrl: String, refresh: (() -> String?)? = null): String {
-        val token = tokenFor(upstreamUrl, refresh)
+    fun register(upstreamUrl: String, refresh: ((Refresh) -> String?)? = null, tag: YouTubeTraffic.Tag? = null): String {
+        val token = tokenFor(upstreamUrl, refresh, tag)
         streams.forEach { (other, stream) -> if (other != token) stream.generation.incrementAndGet() }
         return "http://127.0.0.1:${server.address.port}/s/$token"
     }
@@ -111,8 +125,8 @@ object LocalStreamRelay {
      * Fetches the start of the next song ahead of time ([PRELOAD_BLOCKS] pieces, several seconds
      * of audio), so skipping to it starts from memory. [register] then reuses the same stream.
      */
-    fun preload(upstreamUrl: String, refresh: (() -> String?)? = null) {
-        val stream = streams[tokenFor(upstreamUrl, refresh)] ?: return
+    fun preload(upstreamUrl: String, refresh: ((Refresh) -> String?)? = null, tag: YouTubeTraffic.Tag? = null) {
+        val stream = streams[tokenFor(upstreamUrl, refresh, tag)] ?: return
         val generation = stream.generation.get()
         prefetcher.execute {
             runCatching {
@@ -128,14 +142,17 @@ object LocalStreamRelay {
     }
 
     /** The stream already registered for [upstreamUrl], or a new one with its first piece warming. */
-    private fun tokenFor(upstreamUrl: String, refresh: (() -> String?)?): String {
+    private fun tokenFor(upstreamUrl: String, refresh: ((Refresh) -> String?)?, tag: YouTubeTraffic.Tag?): String {
         streams.entries.firstOrNull { it.value.url == upstreamUrl }?.let { existing ->
+            // A preloaded stream becoming the playing one takes playback's refresh and attribution.
+            if (refresh != null) existing.value.refresh = refresh
+            if (tag != null) existing.value.tag = tag
             registrationOrder.remove(existing.key)
             registrationOrder.add(existing.key)
             return existing.key
         }
         val token = UUID.randomUUID().toString()
-        val stream = Stream(upstreamUrl, refresh, length = clenOf(upstreamUrl))
+        val stream = Stream(upstreamUrl, refresh, length = clenOf(upstreamUrl), tag = tag)
         synchronized(firstBlocks) { firstBlocks.remove(upstreamUrl) }?.let { synchronized(stream.blocks) { stream.blocks[0L] = it } }
         streams[token] = stream
         registrationOrder.add(token)
@@ -242,20 +259,32 @@ object LocalStreamRelay {
         }
     }
 
-    /** A fresh URL for the song, then the same piece from it; null when that fails too. */
+    /**
+     * A fresh URL for the song, then the same piece from it; null when that fails too. Pieces that
+     * failed together share one refresh: a waiter that finds the link already replaced just reads
+     * from the new one. A replacement must be the same media (format and length), never another
+     * file spliced in mid-song.
+     */
     private fun refreshAndFetch(stream: Stream, from: Long, to: Long): ByteArray? {
+        val failedUrl = stream.url
         synchronized(stream.refreshLock) {
+        if (stream.url != failedUrl) fetchChunk(stream, from, to)?.let { return it }
         val refresh = stream.refresh ?: return null
         while (stream.refreshes < MAX_REFRESHES) {
+            val failure = stream.lastFailure ?: PlaybackFailure(FailureCategory.UNKNOWN, "media")
+            // A rate-limited CDN isn't helped by asking YouTube for another link right away.
+            if (failure.category == FailureCategory.RATE_LIMITED) return null
             stream.refreshes++
-            val fresh = refresh() ?: return null
+            val current = stream.url
+            val fresh = refresh(Refresh(current, failure)) ?: return null
             val freshLength = clenOf(fresh)
             // A different file (another format) would corrupt the stream mid-song.
-            if (freshLength > 0 && stream.length > 0 && freshLength != stream.length) {
-                Log.w(TAG, "Fresh URL is a different file ($freshLength vs ${stream.length} bytes); not switching")
+            if ((freshLength > 0 && stream.length > 0 && freshLength != stream.length) || !PlaybackResource.sameMedia(current, fresh)) {
+                Log.w(TAG, "Fresh URL is different media (itag ${PlaybackResource.itagOf(fresh)} vs ${PlaybackResource.itagOf(current)}, " +
+                    "$freshLength vs ${stream.length} bytes); not switching")
                 return null
             }
-            Log.i(TAG, "Bytes $from-$to refused; switched to a fresh URL (${stream.refreshes}/$MAX_REFRESHES)")
+            Log.i(TAG, "Bytes $from-$to failed (${failure.category}); switched to a fresh URL (${stream.refreshes}/$MAX_REFRESHES)")
             stream.url = fresh
             fetchChunk(stream, from, to)?.let { return it }
         }
@@ -263,12 +292,20 @@ object LocalStreamRelay {
         }
     }
 
-    /** Bytes [from]..[to] of the stream, retrying a refused or failed request. */
-    private fun fetchChunk(stream: Stream, from: Long, to: Long): ByteArray? {
+    /** The upstream failure behind the relay URL [localUrl], if its last read failed. */
+    fun failureFor(localUrl: String): PlaybackFailure? =
+        streams[localUrl.substringAfter("/s/", "")]?.lastFailure
+
+    /** Bytes [from]..[to] of the stream, retrying a failed request once; refusals aren't retried here. */
+    private fun fetchChunk(stream: Stream, from: Long, to: Long): ByteArray? =
+        stream.tag?.let { YouTubeTraffic.withTag(it) { fetchChunkTagged(stream, from, to) } } ?: fetchChunkTagged(stream, from, to)
+
+    private fun fetchChunkTagged(stream: Stream, from: Long, to: Long): ByteArray? {
         repeat(CHUNK_ATTEMPTS) { attempt ->
+            val url = stream.url
             try {
                 val request = Request.Builder()
-                    .url(stream.url)
+                    .url(url)
                     .header("User-Agent", USER_AGENT)
                     .header("Range", "bytes=$from-$to")
                     .header("Accept-Encoding", "identity")
@@ -283,18 +320,27 @@ object LocalStreamRelay {
                         if (validRange) {
                             val expected = (to - from + 1).toInt()
                             val body = response.body?.byteStream()?.readNBytes(expected)
-                            if (body?.size == expected) return body
+                            if (body?.size == expected) {
+                                stream.lastFailure = null
+                                return body
+                            }
                         }
+                        stream.lastFailure = PlaybackFailure(FailureCategory.TRANSIENT, "media", response.code, detail = "short or misaligned range")
                     } else {
-                        Log.w(TAG, "HTTP ${response.code} for bytes $from-$to (attempt ${attempt + 1})")
-                        if (response.code == 403) {
-                            DesktopStreamResolver.markHostFailed(stream.url)
-                            return null
+                        val failure = FailureClassifier.classifyMedia(response.code, url, retryAfter = response.header("Retry-After"))
+                        stream.lastFailure = failure
+                        Log.w(TAG, "Bytes $from-$to: $failure (attempt ${attempt + 1})")
+                        when (failure.category) {
+                            // Only this edge node, only without expiry evidence: never a CDN-wide block.
+                            FailureCategory.MEDIA_FORBIDDEN -> { DesktopStreamResolver.markHostFailed(url); return null }
+                            FailureCategory.URL_EXPIRED, FailureCategory.RATE_LIMITED -> return null
+                            else -> Unit
                         }
                     }
                 }
             } catch (e: IOException) {
-                Log.w(TAG, "Bytes $from-$to failed (attempt ${attempt + 1}): ${e.message}")
+                stream.lastFailure = FailureClassifier.classify(e, "media")
+                Log.w(TAG, "Bytes $from-$to failed (attempt ${attempt + 1}): ${e.javaClass.simpleName}")
             }
             Thread.sleep(250L * (attempt + 1))
         }

@@ -221,15 +221,7 @@ class DiscordGatewayManager private constructor(private val context: Context) {
             "Auralis" -> "Auralis"
             else -> ""
         }
-        val artwork = t.thumbnail.trim().let { thumbnail ->
-            when {
-                thumbnail.startsWith("https://") -> thumbnail
-                thumbnail.startsWith("http://") -> thumbnail.replaceFirst("http://", "https://")
-                thumbnail.startsWith("//") -> "https:$thumbnail"
-                t.id.isNotBlank() -> "https://i.ytimg.com/vi/${t.id}/hqdefault.jpg"
-                else -> ""
-            }
-        }
+        val artwork = discordArtworkUrl(t.thumbnail, t.id)
         val largeImage = when (s.largeImage) {
             "Album artwork" -> artwork
             "App icon" -> AURALIS_LOGO_URL
@@ -260,7 +252,8 @@ class DiscordGatewayManager private constructor(private val context: Context) {
             isPlaying = playing,
             positionMs = positionMs,
             durationMs = songLengthMs(t),
-            showWhenPaused = s.showRpcWhenPaused
+            showWhenPaused = s.showRpcWhenPaused,
+            listenUrl = if (s.showListenButton) discordListenUrl(t) else ""
         )
     }
 

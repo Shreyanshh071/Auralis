@@ -22,7 +22,7 @@ val COMMANDS = listOf(
     music("search", "<song>", "search song"),
     music("pause"),
     music("resume"),
-    music("skip"),
+    music("skip", "[timestamp]", "skip", "skip 1:30"),
     music("stop"),
     music("leave"),
     music("seek", "<1:30>", "seek 1:30"),

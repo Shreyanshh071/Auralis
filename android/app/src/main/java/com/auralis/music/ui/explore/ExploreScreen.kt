@@ -45,6 +45,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -147,6 +149,8 @@ fun ExploreScreen(
     onStartRadio: (Track) -> Unit = {},
     onRemoveRecentQuery: (String) -> Unit = {},
     onClearRecentQueries: () -> Unit = {},
+    /** Newest first; shown on the empty search screen. */
+    recentlyPlayed: List<Track> = emptyList(),
     onOpenRecognition: (RecognitionMode) -> Unit = {},
     onCloseRecognition: () -> Unit = {},
     onModeSelect: (RecognitionMode) -> Unit = {},
@@ -663,6 +667,20 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                                     }
                                 }
 
+                                // 1b. Matching artists, straight to their page
+                                if (uiState.query.isNotBlank() && uiState.liveArtistSuggestions.isNotEmpty()) {
+                                    items(
+                                        items = uiState.liveArtistSuggestions,
+                                        key = { artist -> "sug_artist_${artist.id}" }
+                                    ) { artist ->
+                                        SuggestedArtistRow(
+                                            artist = artist,
+                                            onClick = { handleOpenArtist(artist) },
+                                            modifier = if (animateItems) Modifier.animateItem() else Modifier
+                                        )
+                                    }
+                                }
+
                                 // 2. Direct Live Song Recommendations (Top Songs section right below text suggestions)
                                 if (uiState.query.isNotBlank() && uiState.liveSongRecommendations.isNotEmpty()) {
                                     item(key = "header_top_songs") {
@@ -687,61 +705,90 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                                     }
                                 }
 
-                                // 2. Recent Searches History Items (when input is empty)
+                                // 3. Empty query: recent searches, then what you played lately.
                                 if (uiState.query.isBlank()) {
-                                    if (uiState.recentQueries.isNotEmpty()) {
-                                        item(key = "header_recent") { SearchSectionTitle(str(R.string.search_history)) }
+                                    val recentTracks = recentlyPlayed.distinctBy { it.id }.take(12)
+                                    if (uiState.recentQueries.isEmpty() && recentTracks.isEmpty()) {
+                                        item(key = "search_empty_hint") {
+                                            SearchEmptyHint()
+                                        }
                                     }
-                                    items(
-                                        items = uiState.recentQueries,
-                                        key = { "recent_$it" }
-                                    ) { query ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(if (animateItems) Modifier.animateItem() else Modifier)
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .clickable {
-                                                    focusManager.clearFocus(force = true)
-                                                    keyboardController?.hide()
-                                                    onSearch(query)
-                                                }
-                                                .padding(vertical = 6.dp, horizontal = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            SearchRowIcon(Icons.Default.History, str(R.string.history))
-
-                                            Spacer(modifier = Modifier.width(14.dp))
-
-                                            Text(
-                                                text = query,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onBackground,
-                                                fontSize = 16.sp,
-                                                modifier = Modifier.weight(1f)
+                                    if (uiState.recentQueries.isNotEmpty()) {
+                                        item(key = "header_recent") {
+                                            SearchSectionHeader(
+                                                title = str(R.string.search_recent_searches),
+                                                action = str(R.string.clear_all),
+                                                onAction = onClearRecentQueries
                                             )
-
-                                            // Remove from history
-                                            IconButton(
-                                                onClick = { onRemoveRecentQuery(query) },
-                                                modifier = Modifier.size(32.dp)
+                                        }
+                                        items(
+                                            items = uiState.recentQueries.take(6),
+                                            key = { "recent_$it" }
+                                        ) { query ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .then(if (animateItems) Modifier.animateItem() else Modifier)
+                                                    .clip(RoundedCornerShape(16.dp))
+                                                    .clickable {
+                                                        focusManager.clearFocus(force = true)
+                                                        keyboardController?.hide()
+                                                        onSearch(query)
+                                                    }
+                                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = str(R.string.remove),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp)
+                                                SearchRowIcon(Icons.Default.History, str(R.string.history))
+                                                Spacer(modifier = Modifier.width(14.dp))
+                                                Text(
+                                                    text = query,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onBackground,
+                                                    fontSize = 16.sp,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
                                                 )
+                                                IconButton(
+                                                    onClick = { onRemoveRecentQuery(query) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = str(R.string.remove),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = { onQueryChange(query) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
                                             }
-
-                                            Spacer(modifier = Modifier.width(4.dp))
-
-                                            // Diagonal insert arrow (↖)
-                                            IconButton(
-                                                onClick = { onQueryChange(query) },
-                                                modifier = Modifier.size(32.dp)
+                                        }
+                                    }
+                                    if (recentTracks.isNotEmpty()) {
+                                        item(key = "header_recently_played") {
+                                            SearchSectionHeader(title = str(R.string.search_recently_played))
+                                        }
+                                        item(key = "recently_played_row") {
+                                            androidx.compose.foundation.lazy.LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                DiagonalInsertArrow(tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                items(recentTracks, key = { "rp_${it.id}" }) { track ->
+                                                    RecentlyPlayedCard(
+                                                        track = track,
+                                                        isCurrent = track.id == currentTrackId,
+                                                        isPlaying = isPlaying,
+                                                        onClick = { handleTrackClick(track, recentTracks) },
+                                                        onLongClick = { selectedTrackForMenu = track }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1213,6 +1260,199 @@ private fun SearchSectionTitle(text: String) {
         color = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp)
     )
+}
+
+/** An artist offered while typing: round photo, name, and "Artist", opening their page on tap. */
+@Composable
+private fun SuggestedArtistRow(artist: Artist, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
+            if (!artist.thumbnail.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = artist.thumbnail,
+                    contentDescription = artist.name,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.matchParentSize().clip(CircleShape)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = artist.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            Text(
+                text = str(R.string.artist),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 6.dp).size(22.dp)
+        )
+    }
+}
+
+/** A section title with an optional text action on the right ("Clear all"). */
+@Composable
+private fun SearchSectionHeader(title: String, action: String? = null, onAction: () -> Unit = {}) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 14.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f)
+        )
+        if (action != null) {
+            Text(
+                text = action,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+/** A recently played song: square art, title and artist under it. Tap plays, long-press opens its menu. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecentlyPlayedCard(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(132.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(4.dp)
+    ) {
+        Box {
+            com.auralis.music.ui.components.ArtworkCard(
+                url = track.thumbnail,
+                modifier = Modifier.size(124.dp),
+                cornerRadius = 14.dp,
+                contentDescription = track.title,
+                fallbackTrack = track
+            )
+            if (isCurrent) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    com.auralis.music.ui.components.EqualizerBars(
+                        isPlaying = isPlaying,
+                        modifier = Modifier.size(14.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = track.title,
+            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+        Text(
+            text = track.artist,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** Shown when there is nothing to list yet: no searches, nothing played. */
+@Composable
+private fun SearchEmptyHint() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 72.dp, start = 32.dp, end = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = str(R.string.search_empty_title),
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = str(R.string.search_empty_body),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
 }
 
 /** The round tile that starts a suggestion or history row. */

@@ -431,7 +431,8 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         val listens = pulled.events.filter { it.device != listenDevice && it.startedAt >= pulled.clearedBefore }.map { e ->
             com.auralis.music.desktop.library.DesktopListeningStats.Listen("cloud_${e.startedAt}_${e.trackId}",
                 com.auralis.music.domain.model.Track(id = e.trackId, title = e.title ?: "Unknown Track", artist = e.artist ?: "Unknown Artist",
-                    album = e.album, thumbnail = e.thumbnail.orEmpty(), duration = e.duration), e.startedAt, e.listenedMs)
+                    album = e.album, thumbnail = e.thumbnail.orEmpty(), duration = e.duration,
+                        artists = com.auralis.music.domain.model.TrackArtists.decode(e.artistsJson)), e.startedAt, e.listenedMs)
         }
         if (listens.isEmpty()) return
         stats.importListens(listens)
@@ -492,7 +493,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         val now = System.currentTimeMillis()
         val mine = stats.listens.value.filter { !it.id.startsWith("cloud_") && it.timeMs > 0 }.map { l ->
             com.auralis.music.data.sync.ListenEvent(l.track.id, l.startedAt, l.timeMs, l.track.title, l.track.artist, l.track.album,
-                l.track.thumbnail, l.track.duration, listenDevice)
+                l.track.thumbnail, l.track.duration, listenDevice,
+                com.auralis.music.domain.model.TrackArtists.encode(
+                    com.auralis.music.data.network.OfficialArtistResolver.cached(l.track.id) ?: l.track.artists))
         }
         val ready = listenBatcher.ready(uid, mine, now)
         if (ready.isEmpty()) return@withContext 0
@@ -706,7 +709,9 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 val key = "${l.startedAt}_${l.track.id}"
                 events.put(key, org.json.JSONObject().put("t", l.track.id).put("ts", l.startedAt).put("ms", l.timeMs)
                     .put("ti", l.track.title).put("ar", l.track.artist).put("al", l.track.album ?: org.json.JSONObject.NULL)
-                    .put("th", l.track.thumbnail).put("du", l.track.duration))
+                    .put("th", l.track.thumbnail).put("du", l.track.duration)
+                    .put("as", com.auralis.music.domain.model.TrackArtists.encode(
+                        com.auralis.music.data.network.OfficialArtistResolver.cached(l.track.id) ?: l.track.artists) ?: org.json.JSONObject.NULL))
                 mask += "events.`" + key.replace("\\", "\\\\").replace("`", "\\`") + "`"
             }
             api.write("users/$uid/listening/$date", org.json.JSONObject().put("events", events).put("updatedAt", System.currentTimeMillis()),
@@ -727,7 +732,8 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 com.auralis.music.desktop.library.DesktopListeningStats.Listen("cloud_${ts}_$id",
                     com.auralis.music.domain.model.Track(id = id, title = e.optString("ti").ifBlank { "Unknown Track" },
                         artist = e.optString("ar").ifBlank { "Unknown Artist" }, album = e.optString("al").takeIf { it.isNotBlank() && it != "null" },
-                        thumbnail = e.optString("th").takeIf { it != "null" }.orEmpty(), duration = e.optLong("du")), ts, ms)
+                        thumbnail = e.optString("th").takeIf { it != "null" }.orEmpty(), duration = e.optLong("du"),
+                        artists = com.auralis.music.domain.model.TrackArtists.decode(e.optString("as").takeIf { it.isNotBlank() && it != "null" })), ts, ms)
             }.toList()
         }
 

@@ -85,8 +85,9 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Show animated covers", "Play short video loops in Now Playing sidebar when available", "canvas video")
             row("Animated cover source", "Source for animated album artwork", "canvas")
         }
-        group("Lyrics video loops") {
-            row("Show video loops in Lyrics", "Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art.", "spotify canvas video")
+        group("Canvas") {
+            row("Show Canvas in Lyrics", "Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover.", "spotify canvas video")
+            row("Fetch Canvas with your Spotify account", "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account.", "spotify account canvas sign in")
         }
         group("Lyrics appearance") {
             row("Lyrics animation style", "Timing and visual transition mode")

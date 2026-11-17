@@ -17,5 +17,6 @@ data class DiscordRpcSettings(
     val activityType: String = "Listening", // Listening, Playing, Streaming
     val largeImage: String = "Album artwork",
     val largeText: String = "Album name",
-    val smallImage: String = "App logo"
+    val smallImage: String = "App logo",
+    val showListenButton: Boolean = false
 )

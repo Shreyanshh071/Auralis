@@ -147,7 +147,7 @@ open class InnerTubeClient(
         client.searchBody(alternate, 12_000L)
     }
 
-    /** One foreground playback lookup; a background search cooldown must not reject it locally. */
+    /** Playback matching shares the streaming cooldown and its intent's request allowance. */
     suspend fun searchForPlayback(query: String, params: String = FILTER_SONGS): List<Track> = withContext(Dispatchers.IO) {
         cachedSearch(query.trim(), params)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
         val request = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
@@ -155,7 +155,7 @@ open class InnerTubeClient(
             .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com")
             .build()
         // Matching a public recording must keep working when an optional account expires.
-        val body = UserSearchRequest.run { publicSearchBody(request) }
+        val body = publicSearchBody(request)
         rememberSearch(query.trim(), params, parseYtMusicSearchResults(JSONObject(body))).songs
     }
 
@@ -447,7 +447,8 @@ open class InnerTubeClient(
                         albumId = albumId,
                         duration = durationSec,
                         thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(longRuns, title)
                     )
                 )
             }
@@ -859,7 +860,8 @@ open class InnerTubeClient(
             artist = artistName,
             duration = durationSec,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(bylineRuns, title)
         )
     }
 
@@ -1578,7 +1580,8 @@ open class InnerTubeClient(
             album = albumName,
             duration = 0L,
             thumbnail = thumbUrl,
-            source = TrackSource.YOUTUBE
+            source = TrackSource.YOUTUBE,
+            artists = ArtistRuns.forItem(subtitleRuns, title)
         )
     }
 
@@ -1752,7 +1755,8 @@ open class InnerTubeClient(
                 thumbnail = thumbUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
                 views = viewsStr,
                 isMusicVideo = cardType == "video" || card.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
-                source = TrackSource.YOUTUBE
+                source = TrackSource.YOUTUBE,
+                artists = ArtistRuns.forItem(subtitleRuns, title)
             )
             if (songs.none { it.id == videoId }) {
                 songs.add(0, track)
@@ -2019,7 +2023,8 @@ open class InnerTubeClient(
                         thumbnail = thumbUrl,
                         views = viewsStr,
                         isMusicVideo = itemType == "video" || item.toString().contains("MUSIC_VIDEO_TYPE_OMV"),
-                        source = TrackSource.YOUTUBE
+                        source = TrackSource.YOUTUBE,
+                        artists = ArtistRuns.forItem(col1Runs, title)
                     )
                 )
             }

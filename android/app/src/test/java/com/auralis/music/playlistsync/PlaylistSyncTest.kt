@@ -10,6 +10,8 @@ import java.nio.file.Files
 import kotlin.test.*
 
 class PlaylistSyncTest {
+    @BeforeTest fun showApp() { com.auralis.music.data.AppVisibility.set(true) }
+    @AfterTest fun hideApp() { com.auralis.music.data.AppVisibility.set(false) }
     private class Memory : KeyValueStore {
         val data = mutableMapOf<String, String>()
         override fun getString(key: String, default: String) = data[key] ?: default

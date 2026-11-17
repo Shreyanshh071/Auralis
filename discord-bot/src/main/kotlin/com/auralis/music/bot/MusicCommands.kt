@@ -126,6 +126,10 @@ class MusicCommands(
                 request.say("▶️ Resumed.")
             }
             "skip" -> {
+                if (args.isNotBlank()) {
+                    val position = parseTime(args) ?: return request.say(usage("skip"))
+                    return request.say(if (player.seek(position)) "⏩ Jumped to ${formatTime(position)}." else "🚫 Can't seek in this song.")
+                }
                 val title = player.current?.track?.title.orEmpty()
                 player.skip()
                 request.say("⏭️ Skipped **${title.escapedMarkdown()}**.")

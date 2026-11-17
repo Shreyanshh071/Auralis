@@ -24,6 +24,9 @@ object NetworkClientProvider {
                     .build()
                 chain.proceed(request)
             }
+            // YouTube request accounting and per-intent allowances (other hosts pass straight through).
+            .addInterceptor(YouTubeTraffic.gate)
+            .addNetworkInterceptor(YouTubeTraffic.meter)
             .build()
     }
 

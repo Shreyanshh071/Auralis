@@ -434,6 +434,7 @@ class YouTubePlaylistImporter(
                         item.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")?.trim() ?: "Track"
                     }
 
+                    val rawTitle = title
                     val col1Runs = col1?.optJSONObject("text")?.optJSONArray("runs")
                     var artist = fallbackAuthor ?: "Artist"
                     var album = fallbackAlbum
@@ -546,7 +547,8 @@ class YouTubePlaylistImporter(
                                 album = album,
                                 thumbnail = finalThumbnail,
                                 duration = durationSec,
-                                source = TrackSource.YOUTUBE
+                                source = TrackSource.YOUTUBE,
+                                artists = ArtistRuns.forItem(col1Runs, rawTitle)
                             )
                         )
                     }

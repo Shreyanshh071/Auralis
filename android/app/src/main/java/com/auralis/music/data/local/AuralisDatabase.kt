@@ -25,7 +25,7 @@ import com.auralis.music.data.local.entity.*
         NegativeLyricsEntity::class,
         PlaybackEventEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(AuralisConverters::class)
@@ -74,6 +74,13 @@ abstract class AuralisDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Each credited artist (and its YouTube channel), so Stats credits collabs per artist.
+                db.execSQL("ALTER TABLE tracks ADD COLUMN artistsJson TEXT DEFAULT NULL")
+            }
+        }
+
         @Volatile
         private var instance: AuralisDatabase? = null
 
@@ -84,7 +91,7 @@ abstract class AuralisDatabase : RoomDatabase() {
                     AuralisDatabase::class.java,
                     DATABASE_NAME
                 )
-                .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     // A fresh or wiped database has none of the account's listens; let them restore.

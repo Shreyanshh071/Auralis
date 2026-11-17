@@ -1,6 +1,8 @@
 package com.auralis.music.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -34,6 +36,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,6 +65,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MusicNote
@@ -117,13 +122,10 @@ import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.viewmodel.ListenTogetherUiState
 import com.auralis.music.ui.components.bottomChromePadding
 
-private val LISTEN_LIME = Color(0xFFD4E157)
-private val LISTEN_CARD_BG = Color(0xFF1B1D16)
-private val LISTEN_OLIVE_DARK = Color(0xFF282C1C)
 
 /**
- * Pixel-Perfect Fullscreen Listen Together Sheet.
- * Includes real-time synced playback, participant list, and dynamic song recommendations.
+ * Listen Together: a lobby to join a friend or start a room, and the live room itself.
+ * Both are built around [TogetherOrbit], the shared song in a ring with everyone riding it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,541 +152,599 @@ fun ListenTogetherSheet(
     modifier: Modifier = Modifier,
     isPopup: Boolean = false
 ) {
-    if (uiState.activeRoom == null) {
-        GlassListenTogetherLobby(uiState, currentTrack, isPlaying, queue, playbackPositionMs,
-            onNameChange, onCreateRoom, onJoinRoom, onHostSettingsChange, onDismiss, modifier, isPopup)
-        return
-    }
-    val context = LocalContext.current
-    var joinCodeInput by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Join, 1 = Host
-
-    val primaryColor = MaterialTheme.dynamicPrimary
-    val onBackground = MaterialTheme.dynamicOnBackground
-    val surfaceColor = MaterialTheme.dynamicSurface
-    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val cardBorder = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    val backgroundColor = MaterialTheme.dynamicBackground
-
-    OptionalGlassPage(background = backgroundColor, accent = primaryColor, glowBehindStatusBar = !isPopup,
-        modifier = modifier
-            .fillMaxSize()
-            .background(backgroundColor)
+    val accent = MaterialTheme.dynamicPrimary
+    val foreground = MaterialTheme.dynamicOnBackground
+    OptionalGlassPage(
+        MaterialTheme.dynamicBackground, accent,
+        modifier.fillMaxSize().background(MaterialTheme.dynamicBackground),
+        glowWithoutGlass = true, glowBehindStatusBar = !isPopup
     ) {
+        val backdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+        val palette = TogetherPalette(
+            accent = accent,
+            onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary),
+            foreground = foreground,
+            muted = foreground.copy(alpha = .62f),
+            card = foreground.copy(alpha = .07f)
+        )
         Column(
-            modifier = Modifier
+            Modifier
                 .fillMaxSize()
                 .then(if (isPopup) Modifier else Modifier.statusBarsPadding())
-                .padding(horizontal = 18.dp)
+                .layerBackdrop(backdrop)
                 .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── TOP BAR: TITLE & CLOSE ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(primaryColor.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Groups,
-                            contentDescription = null,
-                            tint = primaryColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Text(
-                        text = str(R.string.listen_together),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = onBackground,
-                        fontSize = 22.sp
-                    )
+            // Header: title centred between the floating back button and the live pill.
+            Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
+                Text(str(R.string.listen_together), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = foreground)
+                if (uiState.activeRoom != null) {
+                    Box(Modifier.align(Alignment.CenterEnd)) { LivePill(str(R.string.lt_live), accent) }
                 }
+            }
+            Spacer(Modifier.height(18.dp))
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = str(R.string.close),
-                        tint = onBackground,
-                        modifier = Modifier.size(24.dp)
+            AnimatedContent(
+                targetState = uiState.activeRoom != null,
+                transitionSpec = {
+                    (fadeIn(tween(320, delayMillis = 80)) + scaleIn(tween(320), initialScale = .96f))
+                        .togetherWith(fadeOut(tween(160)))
+                        .using(SizeTransform(clip = false))
+                },
+                label = "togetherMode"
+            ) { inRoom ->
+                if (inRoom && uiState.activeRoom != null) {
+                    TogetherRoom(
+                        uiState = uiState,
+                        palette = palette,
+                        onLeaveRoom = onLeaveRoom,
+                        onHostSettingsChange = onHostSettingsChange,
+                        onAddRecommendationToQueue = onAddRecommendationToQueue,
+                        onDeclineRecommendation = onDeclineRecommendation
+                    )
+                } else {
+                    TogetherLobby(
+                        state = uiState,
+                        track = currentTrack,
+                        playing = isPlaying,
+                        queue = queue,
+                        position = playbackPositionMs,
+                        palette = palette,
+                        onName = onNameChange,
+                        onCreate = onCreateRoom,
+                        onJoin = onJoinRoom,
+                        onSettings = onHostSettingsChange
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── ACTIVE ROOM VIEW ──
-            if (uiState.activeRoom != null) {
-                val room = uiState.activeRoom
-
-                // Room Status Banner
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, primaryColor.copy(alpha = 0.35f))
-                        .padding(20.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Radio,
-                                contentDescription = null,
-                                tint = primaryColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (uiState.isHost) str(R.string.broadcasting_as_host) else str(R.string.synced_with_host),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryColor,
-                                letterSpacing = 1.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Big Room Code Badge
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(primaryColor.copy(alpha = 0.15f))
-                                .border(1.dp, primaryColor, RoundedCornerShape(16.dp))
-                                .clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Room Code", room.code))
-                                    Toast.makeText(context, str(R.string.room_code_copied_x, room.code), Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(horizontal = 24.dp, vertical = 12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = room.code,
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 4.sp,
-                                    color = primaryColor
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = str(R.string.copy),
-                                    modifier = Modifier.size(20.dp),
-                                    tint = primaryColor
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = str(R.string.tap_code_to_copy_and_invite_friends),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Currently Synced Track Card
-                        val syncedTrack = room.currentTrack
-                        if (syncedTrack != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(primaryColor.copy(alpha = 0.08f))
-                                    .border(1.dp, onBackground.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ArtworkCard(
-                                    url = syncedTrack.thumbnail,
-                                    modifier = Modifier.size(48.dp),
-                                    cornerRadius = 8.dp,
-                                    contentDescription = syncedTrack.title
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = syncedTrack.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = syncedTrack.artist,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                EqualizerBars(
-                                    isPlaying = room.isPlaying,
-                                    modifier = Modifier.size(16.dp),
-                                    color = primaryColor
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (uiState.isHost) {
-                    RoomRulesCard(
-                        settings = uiState.hostSettings,
-                        onChange = onHostSettingsChange,
-                        surfaceColor = surfaceColor,
-                        borderColor = cardBorder,
-                        primaryColor = primaryColor,
-                        textColor = onBackground,
-                        secondaryTextColor = onSurfaceVariant
-                    )
-                    val requests = uiState.recommendations.filter { it.status == "pending" }
-                    if (uiState.hostSettings.requireApproval && requests.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        SongRequestsCard(
-                            requests = requests,
-                            onApprove = onAddRecommendationToQueue,
-                            onDecline = onDeclineRecommendation,
-                            surfaceColor = surfaceColor,
-                            borderColor = cardBorder,
-                            primaryColor = primaryColor,
-                            textColor = onBackground,
-                            secondaryTextColor = onSurfaceVariant
-                        )
-                    }
-                } else {
-                    GuestPermissionsCard(
-                        settings = room.settings,
-                        surfaceColor = surfaceColor,
-                        borderColor = cardBorder,
-                        textColor = onBackground,
-                        secondaryTextColor = onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Connected Participants List
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
-                        .padding(18.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = str(R.string.connected_listeners_x, uiState.members.size),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = onBackground
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 160.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(uiState.members) { member ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(primaryColor.copy(alpha = 0.08f))
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(if (member.isHost) primaryColor else primaryColor.copy(alpha = 0.25f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = member.name.take(1).uppercase(),
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (member.isHost) Color.Black else onBackground
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Text(
-                                        text = member.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = onBackground,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    if (member.isHost) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(primaryColor)
-                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                        ) {
-                                            Text(
-                                                text = "HOST",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.Black
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Leave / End Room Button
-                OutlinedButton(
-                    onClick = onLeaveRoom,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (uiState.isHost) str(R.string.end_broadcast_session) else str(R.string.leave_room), fontWeight = FontWeight.Bold)
-                }
-
-            } else {
-                // ── NOT IN ROOM: NICKNAME & CAPSULE MODE SWITCHER ──
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
-                        .padding(18.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = str(R.string.your_identity),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = onBackground
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = uiState.myDisplayName,
-                            onValueChange = onNameChange,
-                            label = { Text(str(R.string.display_name), color = onSurfaceVariant) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = primaryColor,
-                                unfocusedBorderColor = onBackground.copy(alpha = 0.15f),
-                                focusedTextColor = onBackground,
-                                unfocusedTextColor = onBackground
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = primaryColor) }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Mode Capsule Switcher (Join Room vs Host Room)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pageCardSurface(CircleShape, surfaceColor, cardBorder)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .pageGlassSelection(CircleShape, selectedTab == 0,
-                                if (selectedTab == 0) primaryColor else Color.Transparent, primaryColor)
-                            .clickable { selectedTab = 0 }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = str(R.string.join_room),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 0) pageGlassActionColor() else onBackground
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .pageGlassSelection(CircleShape, selectedTab == 1,
-                                if (selectedTab == 1) primaryColor else Color.Transparent, primaryColor)
-                            .clickable { selectedTab = 1 }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = str(R.string.host_room),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selectedTab == 1) pageGlassActionColor() else onBackground
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // ── TAB 0: JOIN ROOM ──
-                if (selectedTab == 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
-                            .padding(18.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = str(R.string.enter_room_code),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = str(R.string.enter_the_6_character_room_code_provided),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = joinCodeInput,
-                                onValueChange = { if (it.length <= 6) joinCodeInput = it.uppercase() },
-                                placeholder = { Text("AUR921", color = onSurfaceVariant.copy(alpha = 0.5f)) },
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = primaryColor,
-                                    unfocusedBorderColor = onBackground.copy(alpha = 0.15f),
-                                    focusedTextColor = onBackground,
-                                    unfocusedTextColor = onBackground
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                                leadingIcon = { Icon(Icons.Default.Pin, contentDescription = null, tint = primaryColor) }
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Button(
-                                onClick = { onJoinRoom(joinCodeInput) },
-                                modifier = Modifier.fillMaxWidth().pageGlassSelection(RoundedCornerShape(14.dp), true, Color.Transparent, primaryColor,
-                                    enabled = joinCodeInput.length >= 4 && !uiState.isConnecting),
-                                enabled = joinCodeInput.length >= 4 && !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = pageGlassButtonFill(primaryColor)),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                if (uiState.isConnecting) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = pageGlassActionColor(), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, tint = pageGlassActionColor(), modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(str(R.string.connect_sync_now), color = pageGlassActionColor(), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // ── TAB 1: HOST ROOM ──
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pageCardSurface(RoundedCornerShape(20.dp), surfaceColor, cardBorder)
-                            .padding(18.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = str(R.string.start_live_broadcast),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = str(R.string.start_a_room_and_listen_together_everyon),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            RoomRuleRows(
-                                settings = uiState.hostSettings,
-                                onChange = onHostSettingsChange,
-                                primaryColor = primaryColor,
-                                textColor = onBackground,
-                                secondaryTextColor = onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Button(
-                                onClick = { onCreateRoom(currentTrack, queue, isPlaying, playbackPositionMs) },
-                                modifier = Modifier.fillMaxWidth().pageGlassSelection(RoundedCornerShape(14.dp), true, Color.Transparent, primaryColor,
-                                    enabled = !uiState.isConnecting),
-                                enabled = !uiState.isConnecting,
-                                colors = ButtonDefaults.buttonColors(containerColor = pageGlassButtonFill(primaryColor)),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                if (uiState.isConnecting) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = pageGlassActionColor(), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Default.Add, contentDescription = null, tint = pageGlassActionColor(), modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(str(R.string.create_broadcast_room), color = pageGlassActionColor(), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (uiState.errorMessage != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = uiState.errorMessage,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            Spacer(modifier = if (isPopup) Modifier.height(20.dp) else Modifier.padding(bottomChromePadding()))
+            Spacer(if (isPopup) Modifier.height(20.dp) else Modifier.padding(bottomChromePadding()))
         }
+        com.auralis.music.ui.glass.FloatingPageButton(
+            Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), backdrop,
+            Modifier.align(Alignment.TopStart)
+                .then(if (isPopup) Modifier else Modifier.statusBarsPadding())
+                .padding(start = 14.dp, top = 12.dp),
+            onClick = onDismiss
+        )
+    }
+}
+
+/** Colours read once inside the page, where its glass is known. */
+private data class TogetherPalette(
+    val accent: Color,
+    val onAccent: Color,
+    val foreground: Color,
+    val muted: Color,
+    val card: Color
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TogetherLobby(
+    state: ListenTogetherUiState,
+    track: Track?,
+    playing: Boolean,
+    queue: List<Track>,
+    position: Long,
+    palette: TogetherPalette,
+    onName: (String) -> Unit,
+    onCreate: (Track?, List<Track>, Boolean, Long) -> Unit,
+    onJoin: (String) -> Unit,
+    onSettings: (RoomSettings) -> Unit
+) {
+    var code by remember { mutableStateOf("") }
+    // Which button started the current attempt, so only that one spins.
+    var joining by remember { mutableStateOf(false) }
+    // The view model clears isConnecting as soon as the room is written, but the room only shows
+    // once its first update arrives. Keep spinning across that gap instead of flashing the lobby
+    // back as if nothing happened; give up after 20s so a stuck listener can't lock the page.
+    var awaitingRoom by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.isConnecting, state.errorMessage, awaitingRoom) {
+        if (state.errorMessage != null) awaitingRoom = false
+        if (awaitingRoom && !state.isConnecting) {
+            kotlinx.coroutines.delay(20_000)
+            awaitingRoom = false
+        }
+    }
+    val busy = state.isConnecting || (awaitingRoom && state.errorMessage == null)
+    val accent = palette.accent
+    val foreground = palette.foreground
+    val muted = palette.muted
+    val card = palette.card
+    val orbitState = when {
+        busy -> OrbitState.CONNECTING
+        state.errorMessage != null -> OrbitState.ERROR
+        else -> OrbitState.IDLE
+    }
+
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        TogetherOrbit(
+            artworkUrl = track?.thumbnail,
+            contentDescription = track?.title,
+            state = orbitState,
+            isPlaying = playing,
+            accent = accent,
+            trackColor = card,
+            size = 210.dp
+        )
+        Spacer(Modifier.height(18.dp))
+        AnimatedContent(targetState = orbitState, label = "lobbyStatus") { s ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = when (s) {
+                        OrbitState.CONNECTING -> str(R.string.lt_connecting)
+                        OrbitState.ERROR -> state.errorMessage.orEmpty()
+                        else -> if (track != null) str(R.string.lt_ready_to_share) else str(R.string.lt_nothing_playing)
+                    },
+                    color = if (s == OrbitState.ERROR) MaterialTheme.colorScheme.error else foreground,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+                if (s != OrbitState.ERROR && track != null) {
+                    Text(
+                        "${track.title} · ${track.artist}",
+                        color = muted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp, start = 24.dp, end = 24.dp)
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+
+        // Who you are: avatar initial + name, in one pill.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .pageCardSurface(RoundedCornerShape(26.dp), card, Color.Transparent)
+                .padding(start = 14.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(accent.copy(alpha = .18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                val initial = state.myDisplayName.trim().take(1).uppercase()
+                if (initial.isNotEmpty()) Text(initial, color = accent, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                else Icon(Icons.Default.Person, null, tint = accent)
+            }
+            TextField(
+                value = state.myDisplayName,
+                onValueChange = onName,
+                singleLine = true,
+                label = { Text(str(R.string.display_name)) },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                    focusedTextColor = foreground, unfocusedTextColor = foreground
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+
+        // Join a friend
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .pageCardSurface(RoundedCornerShape(28.dp), card, Color.Transparent)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Filled.Login, null, tint = accent, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(str(R.string.lt_join_friend), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = foreground)
+            }
+            RoomCodeBoxes(
+                code = code,
+                accent = accent,
+                foreground = foreground,
+                card = card,
+                onCodeChange = { code = it },
+                onComplete = {
+                    if (!busy) {
+                        joining = true
+                        awaitingRoom = true
+                        onJoin(it)
+                    }
+                },
+                enabled = !busy
+            )
+            Text(str(R.string.lt_code_hint), color = muted, style = MaterialTheme.typography.bodySmall)
+            TogetherButton(
+                label = str(R.string.lt_join),
+                icon = Icons.AutoMirrored.Filled.Login,
+                enabled = !busy && code.length >= 4,
+                busy = busy && joining,
+                palette = palette,
+                onClick = {
+                    joining = true
+                    awaitingRoom = true
+                    onJoin(code)
+                }
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+
+        // Start a room
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .pageCardSurface(RoundedCornerShape(28.dp), card, Color.Transparent)
+                .padding(20.dp)
+                .animateContentSize(spring(dampingRatio = .85f, stiffness = 500f)),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Radio, null, tint = accent, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(str(R.string.lt_start_room), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = foreground)
+                    Text(str(R.string.lt_start_room_hint), color = muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (track != null) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(accent.copy(alpha = .08f)).padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ArtworkCard(url = track.thumbnail, modifier = Modifier.size(44.dp), cornerRadius = 10.dp, contentDescription = track.title)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(track.title, color = foreground, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val more = (queue.size - 1).coerceAtLeast(0)
+                        Text(
+                            if (more > 0) str(R.string.lt_more_from_queue, more) else track.artist,
+                            color = muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    EqualizerBars(isPlaying = playing, modifier = Modifier.size(16.dp), color = accent)
+                }
+            }
+            // The room's rules, as switches, right here (as on the old screen).
+            Text(str(R.string.room_rules), color = foreground, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            RoomRuleRows(state.hostSettings, onSettings, accent, foreground, muted)
+            TogetherButton(
+                label = str(R.string.lt_create_room),
+                icon = Icons.Default.Add,
+                enabled = !busy,
+                busy = busy && !joining,
+                palette = palette,
+                onClick = {
+                    joining = false
+                    awaitingRoom = true
+                    onCreate(track, queue, playing, position)
+                }
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Plain-language summary of a room's rules, for the chips. */
+@Composable
+private fun ruleSummary(settings: RoomSettings): List<String> {
+    val chips = buildList {
+        if (settings.guestsCanAddSongs) add(str(R.string.lt_chip_add_songs))
+        if (settings.guestsCanControlPlayback) add(str(R.string.lt_chip_control))
+        if (settings.guestsCanPlaySongs) add(str(R.string.lt_chip_pick))
+        if (settings.requireApproval) add(str(R.string.lt_chip_approval))
+    }
+    return chips.ifEmpty { listOf(str(R.string.lt_chip_host_only)) }
+}
+
+@Composable
+private fun TogetherButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    busy: Boolean,
+    palette: TogetherPalette,
+    modifier: Modifier = Modifier,
+    filled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val content = when {
+        !enabled -> palette.foreground.copy(alpha = .5f)
+        filled -> palette.onAccent
+        else -> palette.accent
+    }
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth().height(54.dp)
+            .pageGlassSelection(
+                CircleShape, filled,
+                when {
+                    enabled && filled -> palette.accent
+                    filled -> palette.card
+                    else -> palette.accent.copy(alpha = .12f)
+                },
+                palette.accent, enabled
+            ),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = palette.foreground.copy(alpha = .5f)
+        )
+    ) {
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(20.dp), color = content, strokeWidth = 2.dp)
+        } else {
+            Icon(icon, null, tint = content, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(label, color = content, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun TogetherRoom(
+    uiState: ListenTogetherUiState,
+    palette: TogetherPalette,
+    onLeaveRoom: () -> Unit,
+    onHostSettingsChange: (RoomSettings) -> Unit,
+    onAddRecommendationToQueue: (RoomRecommendation) -> Unit,
+    onDeclineRecommendation: (RoomRecommendation) -> Unit
+) {
+    val room = uiState.activeRoom ?: return
+    val context = LocalContext.current
+    val accent = palette.accent
+    val foreground = palette.foreground
+    val muted = palette.muted
+    val card = palette.card
+    val syncedTrack = room.currentTrack
+    val orbitMembers = uiState.members.map {
+        OrbitMember(it.name.trim().take(1).uppercase().ifEmpty { "?" }, parseAvatarColor(it.avatarColorHex, accent), it.isHost)
+    }
+    val guests = uiState.members.filterNot { it.isHost }
+    val slow = uiState.members.any { it.hasSlowConnection }
+    val inSync = syncedTrack == null || guests.all { it.readyForTrackId == null || it.readyForTrackId == syncedTrack.id }
+    val warn = Color(0xFFFFB74D)
+
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        TogetherOrbit(
+            artworkUrl = syncedTrack?.thumbnail,
+            contentDescription = syncedTrack?.title,
+            state = OrbitState.LIVE,
+            isPlaying = room.isPlaying,
+            accent = accent,
+            trackColor = card,
+            members = orbitMembers,
+            size = 236.dp
+        )
+        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 24.dp)) {
+            Text(
+                syncedTrack?.title ?: str(R.string.lt_waiting_for_song),
+                color = foreground,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            if (syncedTrack != null) {
+                Spacer(Modifier.width(8.dp))
+                EqualizerBars(isPlaying = room.isPlaying, modifier = Modifier.size(16.dp), color = accent)
+            }
+        }
+        Text(
+            syncedTrack?.artist ?: str(R.string.lt_hosted_by_x, room.hostName),
+            color = muted,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp, start = 24.dp, end = 24.dp)
+        )
+        Spacer(Modifier.height(20.dp))
+
+        // At a glance
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TogetherStatusTile(
+                label = str(R.string.lt_role),
+                value = str(if (uiState.isHost) R.string.lt_host else R.string.lt_guest),
+                icon = if (uiState.isHost) Icons.Default.Radio else Icons.Default.Person,
+                emphasis = if (uiState.isHost) accent else null,
+                foreground = foreground, card = card,
+                modifier = Modifier.weight(1f)
+            )
+            TogetherStatusTile(
+                label = str(R.string.lt_listening),
+                value = uiState.members.size.toString(),
+                icon = Icons.Default.Groups,
+                emphasis = null,
+                foreground = foreground, card = card,
+                modifier = Modifier.weight(1f)
+            )
+            TogetherStatusTile(
+                label = str(R.string.lt_sync),
+                value = str(
+                    when {
+                        slow -> R.string.lt_slow_link
+                        inSync -> R.string.lt_in_sync
+                        else -> R.string.lt_syncing
+                    }
+                ),
+                icon = Icons.Default.Check,
+                emphasis = if (!slow && inSync) accent else warn,
+                foreground = foreground, card = card,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+
+        // Room code + invite
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .pageCardSurface(RoundedCornerShape(28.dp), card, Color.Transparent)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(str(R.string.lt_room_code), color = muted, fontWeight = FontWeight.SemiBold)
+            RoomCodeBoxes(code = room.code, accent = accent, foreground = foreground, card = card)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TogetherButton(
+                    label = str(R.string.copy),
+                    icon = Icons.Default.ContentCopy,
+                    enabled = true, busy = false, palette = palette, filled = false,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Room Code", room.code))
+                    Toast.makeText(context, str(R.string.room_code_copied_x, room.code), Toast.LENGTH_SHORT).show()
+                }
+                TogetherButton(
+                    label = str(R.string.lt_invite),
+                    icon = Icons.Default.Share,
+                    enabled = true, busy = false, palette = palette,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_TEXT, str(R.string.lt_invite_message, room.code))
+                    }
+                    context.startActivity(
+                        android.content.Intent.createChooser(send, str(R.string.lt_invite))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+
+        val cardBorder = Color.Transparent
+        if (uiState.isHost) {
+            RoomRulesCard(
+                settings = uiState.hostSettings,
+                onChange = onHostSettingsChange,
+                surfaceColor = card,
+                borderColor = cardBorder,
+                primaryColor = accent,
+                textColor = foreground,
+                secondaryTextColor = muted
+            )
+            val requests = uiState.recommendations.filter { it.status == "pending" }
+            if (uiState.hostSettings.requireApproval && requests.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                SongRequestsCard(
+                    requests = requests,
+                    onApprove = onAddRecommendationToQueue,
+                    onDecline = onDeclineRecommendation,
+                    surfaceColor = card,
+                    borderColor = cardBorder,
+                    primaryColor = accent,
+                    textColor = foreground,
+                    secondaryTextColor = muted
+                )
+            }
+        } else {
+            GuestPermissionsCard(
+                settings = room.settings,
+                surfaceColor = card,
+                borderColor = cardBorder,
+                textColor = foreground,
+                secondaryTextColor = muted
+            )
+        }
+        Spacer(Modifier.height(14.dp))
+
+        // Everyone in the room
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .pageCardSurface(RoundedCornerShape(28.dp), card, Color.Transparent)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("${str(R.string.lt_listeners)} · ${uiState.members.size}", fontWeight = FontWeight.Bold, color = foreground, fontSize = 17.sp)
+            uiState.members.sortedByDescending { it.isHost }.forEach { member ->
+                val color = parseAvatarColor(member.avatarColorHex, accent)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(38.dp).clip(CircleShape).background(color),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(member.name.trim().take(1).uppercase().ifEmpty { "?" }, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(member.name, color = foreground, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val ready = syncedTrack != null && member.readyForTrackId == syncedTrack.id
+                        Text(
+                            when {
+                                member.hasSlowConnection -> str(R.string.lt_slow_link)
+                                member.isHost -> str(R.string.lt_host)
+                                ready -> str(R.string.lt_in_sync)
+                                else -> str(R.string.lt_guest)
+                            },
+                            color = if (member.hasSlowConnection) warn else muted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (member.id == uiState.currentUserId) {
+                        Box(
+                            Modifier.clip(CircleShape).background(foreground.copy(alpha = .1f)).padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) { Text(str(R.string.lt_you), color = foreground, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    if (member.isHost) {
+                        Box(
+                            Modifier.clip(CircleShape).background(accent).padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                str(R.string.lt_host).uppercase(),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+
+        OutlinedButton(
+            onClick = onLeaveRoom,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (uiState.isHost) str(R.string.end_broadcast_session) else str(R.string.leave_room), fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -899,114 +959,5 @@ private fun GuestPermissionsCard(
             Text(str(R.string.what_you_can_do), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textColor)
             lines.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = secondaryTextColor) }
         }
-    }
-}
-
-
-/** The lobby on both themes: real glass when it's on, soft tinted cards and the same glow when not. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GlassListenTogetherLobby(
-    state: ListenTogetherUiState, track: Track?, playing: Boolean, queue: List<Track>, position: Long,
-    onName: (String) -> Unit, onCreate: (Track?, List<Track>, Boolean, Long) -> Unit,
-    onJoin: (String) -> Unit, onSettings: (RoomSettings) -> Unit, onClose: () -> Unit,
-    modifier: Modifier, popup: Boolean
-) {
-    var host by remember { mutableStateOf(false) }
-    var code by remember { mutableStateOf("") }
-    val accent = MaterialTheme.dynamicPrimary
-    val foreground = MaterialTheme.dynamicOnBackground
-    val muted = foreground.copy(alpha=.62f)
-    val card = foreground.copy(alpha=.07f)
-    OptionalGlassPage(MaterialTheme.dynamicBackground, accent, modifier.fillMaxSize()
-        .background(MaterialTheme.dynamicBackground),
-        glowWithoutGlass = true, glowBehindStatusBar = !popup) {
-        // Read inside the page, where its glass is known: glass needs light text, a solid button its own.
-        val onAccent = pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
-        val lobbyBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
-        Column(Modifier.fillMaxSize().then(if (popup) Modifier else Modifier.statusBarsPadding())
-            .layerBackdrop(lobbyBackdrop).verticalScroll(rememberScrollState())
-            .padding(start=16.dp,end=16.dp,top=70.dp,bottom=20.dp),
-            verticalArrangement=Arrangement.spacedBy(22.dp)) {
-            Text(str(R.string.listen_together),fontSize=30.sp,fontWeight=FontWeight.ExtraBold,
-                color=foreground,modifier=Modifier.padding(start=6.dp))
-            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(26.dp),card,Color.Transparent)
-                .padding(horizontal=18.dp,vertical=8.dp)) {
-                TextField(value=state.myDisplayName,onValueChange=onName,singleLine=true,
-                    label={ Text(str(R.string.display_name)) },
-                    leadingIcon={ Icon(Icons.Default.Person,null,tint=accent) },
-                    colors=TextFieldDefaults.colors(focusedContainerColor=Color.Transparent,unfocusedContainerColor=Color.Transparent,
-                        focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent,
-                        focusedTextColor=foreground,unfocusedTextColor=foreground),modifier=Modifier.fillMaxWidth())
-            }
-            BoxWithConstraints(Modifier.fillMaxWidth().pageCardSurface(CircleShape,card,Color.Transparent).padding(5.dp)) {
-                val tabWidth=(maxWidth-6.dp)/2
-                val pillOffset by animateDpAsState(if(host) tabWidth+6.dp else 0.dp,
-                    spring(dampingRatio=.82f,stiffness=420f),label="lobbyTabPill")
-                Box(Modifier.offset { IntOffset(pillOffset.roundToPx(),0) }.width(tabWidth).height(48.dp)
-                    .pageGlassSelection(CircleShape,true,accent,accent))
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    listOf(str(R.string.join_room),str(R.string.host_room)).forEachIndexed { index,label ->
-                        val selected=host == (index==1)
-                        val tint by animateColorAsState(if(selected) onAccent else muted,tween(220),label="lobbyTabTint")
-                        Row(Modifier.weight(1f).height(48.dp).clip(CircleShape).clickable { host=index==1 },
-                            horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
-                            Icon(if(index==0) Icons.AutoMirrored.Filled.Login else Icons.Default.Radio,null,
-                                tint=tint,modifier=Modifier.size(17.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(label,fontWeight=FontWeight.SemiBold,color=tint)
-                        }
-                    }
-                }
-            }
-            Column(Modifier.fillMaxWidth().pageCardSurface(RoundedCornerShape(30.dp),card,Color.Transparent)
-                .padding(22.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-                AnimatedContent(
-                    targetState=host,
-                    transitionSpec={
-                        val direction=if(targetState) 1 else -1
-                        (slideInHorizontally(tween(300)) { it/6*direction }+fadeIn(tween(240,delayMillis=60)))
-                            .togetherWith(slideOutHorizontally(tween(300)) { -it/6*direction }+fadeOut(tween(140)))
-                            .using(SizeTransform(clip=false))
-                    },
-                    label="lobbyTabContent"
-                ) { isHost ->
-                    Column(verticalArrangement=Arrangement.spacedBy(18.dp)) {
-                        Text(str(if(isHost) R.string.start_live_broadcast else R.string.enter_room_code),
-                            fontSize=23.sp,fontWeight=FontWeight.Bold,color=foreground)
-                        Text(str(if(isHost) R.string.start_a_room_and_listen_together_everyon else R.string.enter_the_6_character_room_code_provided),
-                            color=muted,style=MaterialTheme.typography.bodyMedium)
-                        if(isHost) RoomRuleRows(state.hostSettings,onSettings,accent,foreground,muted)
-                        else OutlinedTextField(value=code,onValueChange={if(it.length<=6)code=it.uppercase()},
-                            placeholder={Text("AUR921",letterSpacing=6.sp)},singleLine=true,
-                            textStyle=MaterialTheme.typography.headlineMedium.copy(letterSpacing=6.sp,fontWeight=FontWeight.SemiBold),
-                            shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxWidth(),
-                            colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=accent.copy(alpha=.6f),
-                                unfocusedBorderColor=foreground.copy(alpha=.14f),focusedTextColor=foreground,unfocusedTextColor=foreground))
-                        val enabled=!state.isConnecting && (isHost || code.length>=4)
-                        Button(onClick={if(isHost)onCreate(track,queue,playing,position)else onJoin(code)},enabled=enabled,
-                            modifier=Modifier.fillMaxWidth().height(56.dp).pageGlassSelection(CircleShape,true,if(enabled) accent else card,accent,enabled),
-                            shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color.Transparent,
-                                disabledContainerColor=Color.Transparent,disabledContentColor=foreground.copy(alpha=.6f))) {
-                            if(state.isConnecting) CircularProgressIndicator(Modifier.size(20.dp),color=onAccent,strokeWidth=2.dp)
-                            else {
-                                Icon(if(isHost)Icons.Default.Add else Icons.AutoMirrored.Filled.Login,null,tint=if(enabled) onAccent else foreground.copy(alpha=.6f))
-                                Spacer(Modifier.width(10.dp))
-                                Text(str(if(isHost)R.string.create_broadcast_room else R.string.connect_sync_now),
-                                    color=if(enabled) onAccent else foreground.copy(alpha=.6f),fontWeight=FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-            state.errorMessage?.let { Text(it,color=MaterialTheme.colorScheme.error) }
-            Spacer(Modifier.height(24.dp))
-        }
-        com.auralis.music.ui.glass.FloatingPageButton(
-            Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), lobbyBackdrop,
-            Modifier.align(Alignment.TopStart)
-                .then(if (popup) Modifier else Modifier.statusBarsPadding())
-                .padding(start=14.dp,top=12.dp), onClick = onClose
-        )
     }
 }

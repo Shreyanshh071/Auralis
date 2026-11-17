@@ -30,10 +30,13 @@ class SwipeGesturesAndRemovalTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        io.mockk.mockkStatic("com.auralis.music.ui.i18n.AppLanguageKt")
+        io.mockk.every { com.auralis.music.ui.i18n.str(any<Int>()) } returns "Removed from playlist"
     }
 
     @After
     fun tearDown() {
+        io.mockk.unmockkStatic("com.auralis.music.ui.i18n.AppLanguageKt")
         Dispatchers.resetMain()
     }
 
@@ -67,10 +70,10 @@ class SwipeGesturesAndRemovalTest {
     }
 
     @Test
-    fun appearanceSettings_defaultsSwipeGesturesToTrue() {
+    fun appearanceSettings_defaultsToQueueSwipeOnly() {
         val settings = AppearanceSettings()
         assertTrue("swipeLeftQueueRightPlayNext must be true by default", settings.swipeLeftQueueRightPlayNext)
-        assertTrue("swipeToRemoveSongFromPlaylist must be true by default", settings.swipeToRemoveSongFromPlaylist)
+        assertFalse("swipeToRemoveSongFromPlaylist must be off by default", settings.swipeToRemoveSongFromPlaylist)
     }
 
     @Test

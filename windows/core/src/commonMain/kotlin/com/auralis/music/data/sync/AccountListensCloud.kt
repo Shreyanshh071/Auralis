@@ -13,13 +13,17 @@ import java.io.IOException
 data class ListenEvent(
     val trackId: String, val startedAt: Long, val listenedMs: Long,
     val title: String? = null, val artist: String? = null, val album: String? = null,
-    val thumbnail: String? = null, val duration: Long = 0, val device: String? = null
+    val thumbnail: String? = null, val duration: Long = 0, val device: String? = null,
+    val artistsJson: String? = null
 ) {
     val key: String get() = "${startedAt}_$trackId"
 
     fun toJson(): JSONObject = JSONObject().put("t", trackId).put("ts", startedAt).put("ms", listenedMs)
         .put("ti", title ?: JSONObject.NULL).put("ar", artist ?: JSONObject.NULL).put("al", album ?: JSONObject.NULL)
-        .put("th", thumbnail ?: JSONObject.NULL).put("du", duration).apply { if (device != null) put("d", device) }
+        .put("th", thumbnail ?: JSONObject.NULL).put("du", duration).apply {
+            if (device != null) put("d", device)
+            if (artistsJson != null) put("as", artistsJson)
+        }
 
     companion object {
         private fun text(o: JSONObject, k: String) = o.optString(k).takeIf { !o.isNull(k) && it.isNotEmpty() && it != "null" }
@@ -27,7 +31,7 @@ data class ListenEvent(
         fun fromJson(o: JSONObject): ListenEvent? {
             val id = o.optString("t"); val ts = o.optLong("ts"); val ms = o.optLong("ms")
             if (id.isBlank() || ts <= 0 || ms <= 0) return null
-            return ListenEvent(id, ts, ms, text(o, "ti"), text(o, "ar"), text(o, "al"), text(o, "th"), o.optLong("du"), text(o, "d"))
+            return ListenEvent(id, ts, ms, text(o, "ti"), text(o, "ar"), text(o, "al"), text(o, "th"), o.optLong("du"), text(o, "d"), text(o, "as"))
         }
     }
 }

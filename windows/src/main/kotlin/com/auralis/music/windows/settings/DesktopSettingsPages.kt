@@ -84,7 +84,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
             }
         }
         item { AnimatedCoversSettings() }
-        item { LyricsVideoLoopsSettings() }
+        item { CanvasSettingsSection() }
         item { Text(desktopText("Lyrics"), style = MaterialTheme.typography.titleLarge) }
         item {
             val styles = listOf(com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS,
@@ -182,14 +182,20 @@ private fun AnimatedCoversSettings() {
 }
 
 @Composable
-private fun LyricsVideoLoopsSettings() {
+private fun CanvasSettingsSection() {
     val prefs by com.auralis.music.windows.player.CanvasSettings.prefs.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(desktopText("Lyrics video loops"), style = MaterialTheme.typography.titleLarge)
-        Toggle("Show video loops in Lyrics", prefs.spotifyCanvas) {
+        Text(desktopText("Canvas"), style = MaterialTheme.typography.titleLarge)
+        Toggle("Show Canvas in Lyrics", prefs.spotifyCanvas) {
             com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyCanvas = it))
         }
-        Text(desktopText("Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art."),
+        Text(desktopText("Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover."),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+        Toggle("Fetch Canvas with your Spotify account", prefs.spotifyAccount && spotifySignedIn) {
+            if (spotifySignedIn) com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyAccount = it))
+        }
+        Text(desktopText(if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account." else "Sign in to Spotify from your profile to use this."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

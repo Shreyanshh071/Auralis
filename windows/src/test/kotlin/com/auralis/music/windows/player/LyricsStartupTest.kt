@@ -12,7 +12,7 @@ class LyricsStartupTest {
     @Test fun cachedFallbackAppearsWhileSpicyLoadsWithoutWaitingForDecoderDuration() = runBlocking {
         val folder = Files.createTempDirectory("lyrics-startup").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull()), scope,
+        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory())), scope,
             resolveStream = { awaitCancellation() })
         playback.autoLoadMore = false
         playback.preloadNext = false
@@ -50,7 +50,7 @@ class LyricsStartupTest {
     @Test fun uncachedFallbackIsDisplayedBeforeSlowSpicyCompletes() = runBlocking {
         val folder = Files.createTempDirectory("lyrics-parallel").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull()), scope,
+        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory())), scope,
             resolveStream = { awaitCancellation() })
         playback.autoLoadMore = false
         playback.preloadNext = false
@@ -86,7 +86,7 @@ class LyricsStartupTest {
     @Test fun nextSongIsPreparedWithoutChangingVisibleLyricsOrFetchingTheWholeQueue() = runBlocking {
         val folder = Files.createTempDirectory("lyrics-next").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull()), scope,
+        val playback = DesktopPlaybackController(assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory())), scope,
             resolveStream = { awaitCancellation() })
         playback.autoLoadMore = false
         playback.preloadNext = false

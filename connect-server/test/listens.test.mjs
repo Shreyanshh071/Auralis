@@ -77,3 +77,13 @@ test('invalid batches are refused and account deletion removes the history', asy
   assert.equal((await rpc(uid, { t: 'erase', v: 1 })).t, 'erased');
   assert.equal((await rpc(uid, { t: 'listens.pull', full: true })).code, 'authority');
 });
+
+test('artist metadata travels through real history pushes and catch-up', async () => {
+  const uid = account(); const phone = await socket(uid, 'phone');
+  const artists = JSON.stringify([{ n: 'Tyler, The Creator', c: 'UC-one' }, { n: 'Guest', c: 'UC-two' }]);
+  await rpc(uid, { t: 'listens', events: [{ ...ev('collab', T, 30000), as: artists }] });
+  const pushed = await phone.next((f) => f.t === 'changed' && f.topic === 'listens');
+  assert.equal(Object.values(pushed.days[0].events)[0].as, artists);
+  const { days } = await all(uid);
+  assert.equal(Object.values(Object.values(days)[0])[0].as, artists);
+});

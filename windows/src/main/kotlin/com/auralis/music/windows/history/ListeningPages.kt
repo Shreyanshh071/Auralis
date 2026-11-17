@@ -153,16 +153,19 @@ fun ListeningStatsPage(
     val songs = selected.groupBy { DesktopListeningStats.songKey(it.track) }.values
         // Ranked by time listened, like Top Artists; plays only break ties.
         .sortedWith(compareByDescending<List<DesktopListeningStats.Listen>> { list -> list.sumOf { it.timeMs } }.thenByDescending { list -> list.count { it.countsAsPlay } })
-    val artists = selected.groupBy { artistName(it.track) }.entries.sortedByDescending { (_, list) -> list.sumOf { it.timeMs } }
+    // A collab counts in full for each artist on it, not as one artist named after the credit line;
+    // recounted when a label upload's real artists arrive.
+    val artistRevision by com.auralis.music.data.network.OfficialArtistResolver.revision.collectAsState()
+    val artists = remember(selected, events, artistRevision) { DesktopListeningStats.artistGroups(selected, stats.artistLists) }
     val albumCount = selected.mapNotNull { it.track.album?.takeIf(String::isNotBlank)?.let { album -> "${artistName(it.track)}|$album" } }.distinct().size
     fun songTrack(list: List<DesktopListeningStats.Listen>) = list.groupBy { it.track.id }.values.maxBy { it.sumOf { e -> e.timeMs } }.first().track
     val topTracks = songs.map(::songTrack)
 
     // Artist photos, as the phone shows them; looked up once per name.
     val photos = remember { mutableStateMapOf<String, String?>() }
-    LaunchedEffect(artists.take(12).map { it.key }) {
+    LaunchedEffect(artists.take(12).map { it.first }) {
         if (search == null) return@LaunchedEffect
-        artists.take(12).map { it.key }.filter { it !in photos }.forEach { name ->
+        artists.take(12).map { it.first }.filter { it !in photos }.forEach { name ->
             photos[name] = runCatching { search.searchArtists(name).firstOrNull { it.name.equals(name, true) }?.thumbnail }.getOrNull()
         }
     }

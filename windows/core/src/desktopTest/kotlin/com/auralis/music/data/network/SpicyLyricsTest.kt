@@ -202,7 +202,7 @@ class SpicyLyricsTest {
         assertNull(SpicyLyricsSource(client(mutableListOf(), lyrics = "not json"), { key }, { "spotify_token" }).search(query))
     }
 
-    @Test fun knownSpotifyIdentityUsesPublicMetadataAndMissingTokensDoNotSearch() = runBlocking {
+    @Test fun knownSpotifyIdentityUsesPublicMetadataAndMissingTokensAvoidAuthenticatedSearch() = runBlocking {
         val requests = mutableListOf<Request>()
         val source = SpicyLyricsSource(client(requests), { key }, { error("Known recording must not require a session") })
         assertNotNull(source.search(query.copy(spotifyId = "sp_$id")))
@@ -211,7 +211,9 @@ class SpicyLyricsTest {
         assertTrue(requests.none { it.url.host == "api.spotify.com" })
         requests.clear()
         assertNull(SpicyLyricsSource(client(requests), { key }, { null }).search(query))
-        assertTrue(requests.none { it.url.host == "api.spotify.com" })
+        // Public album metadata may still be tried without a Spotify token. No authenticated
+        // Spotify search or lyrics request is allowed without a validated recording.
+        assertTrue(requests.none { it.url.host == "api.spotify.com" || it.url.host == "api.spicylyrics.org" })
     }
 
     @Test fun rateLimitedMetadataIsNotReportedAsMissingAndKnownIdentityCanUsePublicMetadata() = runBlocking {

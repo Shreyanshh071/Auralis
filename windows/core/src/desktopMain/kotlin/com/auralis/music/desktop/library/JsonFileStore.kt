@@ -61,6 +61,7 @@ object TrackJson {
         putOpt("channelTitle", t.channelTitle)
         putOpt("views", t.views)
         putOpt("dominantColor", t.dominantColor)
+        putOpt("artists", com.auralis.music.domain.model.TrackArtists.encode(t.artists))
     }
 
     fun decode(o: JSONObject): Track = Track(
@@ -74,7 +75,8 @@ object TrackJson {
         source = runCatching { TrackSource.valueOf(o.optString("source")) }.getOrDefault(TrackSource.YOUTUBE),
         channelTitle = o.optStringOrNull("channelTitle"),
         views = o.optStringOrNull("views"),
-        dominantColor = if (o.has("dominantColor") && !o.isNull("dominantColor")) o.getInt("dominantColor") else null
+        dominantColor = if (o.has("dominantColor") && !o.isNull("dominantColor")) o.getInt("dominantColor") else null,
+        artists = com.auralis.music.domain.model.TrackArtists.decode(o.optStringOrNull("artists"))
     )
 
     fun encodeList(tracks: List<Track>) = JSONArray().apply { tracks.forEach { put(encode(it)) } }

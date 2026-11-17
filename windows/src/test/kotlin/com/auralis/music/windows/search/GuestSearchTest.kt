@@ -8,8 +8,6 @@ import kotlin.test.*
 
 class GuestSearchTest {
     @Test fun publicSearchCanRecoverFromRejectedMusicRouteDuringBackgroundCooldown() = runBlocking {
-        val pause = YouTubeBackoff::class.java.getDeclaredField("pausedUntil").apply { isAccessible = true }
-        val original = pause.getLong(YouTubeBackoff)
         val hosts = mutableListOf<String>()
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request()
@@ -32,6 +30,6 @@ class GuestSearchTest {
                 client.searchBody(Request.Builder().url("https://music.youtube.com/").build(), 1000)
             }
             assertEquals(2, hosts.size)
-        } finally { pause.setLong(YouTubeBackoff, original) }
+        } finally { YouTubeBackoff.recordSuccess() }
     }
 }

@@ -1,7 +1,6 @@
 package com.auralis.music
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,7 +19,7 @@ class TrackArtistChooserTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
-    fun collaborativeSongWaitsForChoiceThenOpensSelectedArtist() {
+    fun collaborativeSongHandsWholeCreditToArtistOpener() {
         var selected: String? = null
         var dismissals = 0
         compose.setContent {
@@ -35,12 +34,9 @@ class TrackArtistChooserTest {
                 )
             }
         }
+        compose.runOnIdle { assertNull(selected) }
         compose.onNodeWithText("View artist").performScrollTo().performClick()
-        compose.onNodeWithText("Choose artist").assertIsDisplayed()
-        compose.onNodeWithText("benny blanco").assertIsDisplayed()
-        compose.onNodeWithText("Juice WRLD").assertIsDisplayed()
-        compose.runOnIdle { assertNull(selected); assertEquals(0, dismissals) }
-        compose.onNodeWithText("Juice WRLD").performClick()
-        compose.runOnIdle { assertEquals("Juice WRLD", selected); assertEquals(1, dismissals) }
+        // The app-level opener decides between one whole-credit artist and the chooser.
+        compose.runOnIdle { assertEquals("benny blanco, Juice WRLD", selected); assertEquals(1, dismissals) }
     }
 }

@@ -158,6 +158,7 @@ tasks.withType<Test>().configureEach {
     if (osName.contains("mac")) {
         dependsOn(prepareMacNotch, prepareMacVlc, prepareMacSignInBrowser)
         systemProperty("auralis.notch.helper", nativeNotchApp.get().file("Contents/MacOS/AuralisNotch").asFile.absolutePath)
+        systemProperty("auralis.test.vlcDir", nativeNotchResources.get().dir("macos-arm64/vlc").asFile.absolutePath)
     }
 }
 
@@ -437,6 +438,7 @@ tasks.register<JavaExec>("probeStream") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.auralis.music.windows.dev.ProbeStreamKt")
     args = listOfNotNull(findProperty("args")?.toString())
+    findProperty("streamClients")?.let { systemProperty("auralis.streamClients", it.toString()) }
 }
 
 // Development check: ./gradlew :windows:probeStartup -Pargs="vlcDir::videoId::videoId..." (silent; time to sound)

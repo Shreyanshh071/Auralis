@@ -85,7 +85,7 @@ class SpicySourceUpgradeTest {
         val folder = Files.createTempDirectory("auralis-controller-upgrade").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val vlc = assertNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(
-            java.io.File(System.getenv("LOCALAPPDATA"), "Auralis/app/resources/vlc")))
+            testVlcDirectory()))
         val playback = com.auralis.music.desktop.playback.DesktopPlaybackController(vlc, scope,
             offlineFile = { java.io.File(folder, "unused") }, resolveStream = { null })
         try {

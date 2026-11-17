@@ -96,7 +96,8 @@ class AccountListensCloudTest {
             b.account.accountSync.listen(uid, "listens") { frame -> b.account.listensChanged(frame, b.stats); heard.incrementAndGet() }
             delay(800)
             val readsBefore = reads.get()
-            a.stats.record("rec-1", Track("song-done", "Done", "A"), now - 600_000, 180_000)
+            a.stats.record("rec-1", Track("song-done", "Done", "A & B", artists = listOf(
+                com.auralis.music.domain.model.TrackArtist("A", "UC-a"), com.auralis.music.domain.model.TrackArtist("B", "UC-b"))), now - 600_000, 180_000)
             a.stats.record("rec-2", Track("song-playing", "Playing", "A"), now - 20_000, 15_000)
             val sent = a.account.syncListensCloud(a.stats)
             assertEquals(1, sent, "only the finished listen goes up; the one still playing waits")
@@ -106,6 +107,8 @@ class AccountListensCloudTest {
             val mirrored = days.values.flatMap { d -> d.getJSONObject("events").let { e -> e.keys().asSequence().map { e.getJSONObject(it) }.toList() } }
                 .first { it.optString("t") == "song-done" }
             assertEquals(true, mirrored.has("d"), "mirrored to Firestore for old apps, marked with the device")
+            assertEquals(listOf("A", "B"), com.auralis.music.domain.model.TrackArtists.decode(mirrored.optString("as")).map { it.name })
+            assertEquals(listOf("A", "B"), b.stats.listens.value.first { it.track.id == "song-done" }.track.artists.map { it.name })
             assertEquals(0, a.account.syncListensCloud(a.stats), "sent once")
             assertEquals(readsBefore, reads.get(), "steady use reads nothing from Firestore")
 

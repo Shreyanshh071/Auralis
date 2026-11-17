@@ -39,3 +39,14 @@ test('cleared, malformed and over-cap events are dropped', () => {
   assert.equal(mergeListens({ [dayOf(DAY)]: full }, [ev('new', DAY + 999_999, 5)]).size, 0);
   assert.deepEqual(Object.keys(clearBefore({ k1: ev('a', DAY, 1), k2: ev('b', DAY + 10, 1) }, DAY + 5)), ['k2']);
 });
+
+test('artist credits survive history normalization and a longer legacy copy', () => {
+  const artists = JSON.stringify([{ n: 'Tyler, The Creator', c: 'UC-one' }, { n: 'Guest', c: 'UC-two' }]);
+  const original = ev('collab', DAY, 1000, { as: artists });
+  assert.equal(listenEvent(original).as, artists);
+  const first = mergeListens({}, [original]).get(dayOf(DAY)).map;
+  const longer = mergeListens({ [dayOf(DAY)]: first }, [ev('collab', DAY, 2000)]).get(dayOf(DAY)).map;
+  assert.equal(longer[eventKey(original)].as, artists);
+  assert.equal(longer[eventKey(original)].ms, 2000);
+  assert.equal(listenEvent(ev('bad', DAY, 1000, { as: 'x'.repeat(8193) })).as, undefined);
+});

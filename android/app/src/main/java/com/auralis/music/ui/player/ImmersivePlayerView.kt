@@ -44,7 +44,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.zIndex
 import com.auralis.music.data.parser.WordTiming
 import com.auralis.music.domain.model.LyricLine
-import com.auralis.music.ui.lyrics.renderers.MetroLyricsLine
 import com.auralis.music.ui.theme.LocalReducedMotion
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Spring
@@ -1263,40 +1262,9 @@ internal fun LyricPreviewLine(
 
     key(trackId) {
     val reducedMotion = LocalReducedMotion.current
-    val lineTransition = updateTransition(targetState = current, label = "previewWordMorph")
-    val animatedLineIndex by lineTransition.animateFloat(
-        transitionSpec = { if (reducedMotion) snap() else tween(620, easing = FastOutSlowInEasing) },
-        label = "previewLineIndex"
-    ) { state -> (state as? PreviewSlot.Sung)?.index?.toFloat() ?: -1f }
-    val fromLine = lineTransition.currentState as? PreviewSlot.Sung
-    val toLine = lineTransition.targetState as? PreviewSlot.Sung
-    if (!reducedMotion && fromLine != null && toLine != null && fromLine.index != toLine.index) {
-        val morphProgress = ((animatedLineIndex - fromLine.index) / (toLine.index - fromLine.index))
-            .coerceIn(0f, 1f)
-        Row(
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MetroPreviewWordMorph(
-                fromText = fromLine.line.text.trim(),
-                toLine = toLine.line,
-                progress = morphProgress,
-                positionMs = positionState.value + offsetMs,
-                hasWordTiming = syncType == SyncType.RICHSYNC
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = str(R.string.lyrics),
-                tint = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    } else AnimatedContent(
+    // Only the selected lyrics style animates the words; between lines the preview just moves
+    // on as the main lyrics scroll (no separate word morph, which drew words out of line).
+    AnimatedContent(
         targetState = current,
         transitionSpec = {
             val from = (initialState as? PreviewSlot.Sung)?.index ?: (initialState as? PreviewSlot.Break)?.index ?: -1
@@ -1330,7 +1298,8 @@ internal fun LyricPreviewLine(
                     syncType = syncType,
                     positionMs = { positionState.value + offsetMs },
                     isPlaying = isPlaying,
-                    isBuffering = isBuffering
+                    isBuffering = isBuffering,
+                    onClick = onClick
                 )
                 PreviewSlot.Loading -> FillerText(loadingText, withNote = false)
                 PreviewSlot.Unsynced -> FillerText(str(R.string.lyrics), withNote = true)
@@ -1442,14 +1411,18 @@ internal val BasePreviewLyricStyle = TextStyle(
     )
 )
 
-/** One line through the Metro word renderer, sized to its own text so the chevron can follow it. */
+/**
+ * The line being sung, drawn with the lyric style selected for the main lyrics (Spicy Lyrics or
+ * one of the Vivi styles), sized to its own text so the chevron can follow it.
+ */
 @Composable
 private fun MetroPreviewText(
     line: LyricLine,
     syncType: SyncType,
     positionMs: () -> Long,
     isPlaying: Boolean,
-    isBuffering: Boolean
+    isBuffering: Boolean,
+    onClick: () -> Unit = {}
 ) {
     val text = line.text.trim()
     val PreviewLyricStyle = previewLyricStyle()
@@ -1458,130 +1431,18 @@ private fun MetroPreviewText(
     val density = LocalDensity.current
     BoxWithConstraints {
         val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
+        // Measured as the styles draw the sung line (extra bold, a little wider), so a line that fits
+        // stays on one line; only a line too long for the width wraps onto a second.
         val textWidthPx = remember(text, availablePx) {
-            (measurer.measure(text, PreviewLyricStyle, softWrap = false).size.width + 2).coerceAtMost(availablePx)
+            val bold = measurer.measure(text, PreviewLyricStyle.copy(fontWeight = FontWeight.ExtraBold), softWrap = false).size.width
+            (bold * 1.06f + with(density) { 4.dp.toPx() }).toInt().coerceAtMost(availablePx)
         }
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
             // The word renderer wraps freely; a one-line host gets the plain, ellipsized line.
             if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty() && previewMaxLines > 1) {
-                MetroLyricsLine(
-                    line = line,
-                    words = line.words,
-                    isActive = true,
-                    distanceFromCurrent = 0,
-                    effectivePlaybackPosition = positionMs(),
-                    lineColor = Color.White.copy(alpha = 0.5f),
-                    accentColor = Color.White,
-                    textAlign = TextAlign.Left,
-                    alignment = Alignment.Start,
-                    fontSizeSp = PreviewLyricStyle.fontSize.value,
-                    lineSpacingMultiplier = 1.22f,
-                    isPlaying = isPlaying && !isBuffering
-                )
+                PreviewStyledLine(line, positionMs, PreviewLyricStyle, onClick)
             } else {
                 Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-private data class PreviewMorphWord(val text: String, val start: Int)
-
-private fun previewMorphWords(text: String): List<PreviewMorphWord> =
-    Regex("\\S+").findAll(text).map { PreviewMorphWord(it.value, it.range.first) }.toList()
-
-private fun pairedWordIndex(index: Int, sourceCount: Int, targetCount: Int): Int {
-    if (targetCount <= 1 || sourceCount <= 1) return 0
-    return ((index.toFloat() / (sourceCount - 1)) * (targetCount - 1)).roundToInt()
-        .coerceIn(0, targetCount - 1)
-}
-
-/** Moves each outgoing word toward its counterpart while the next line takes its shape. */
-@Composable
-private fun MetroPreviewWordMorph(
-    fromText: String,
-    toLine: LyricLine,
-    progress: Float,
-    positionMs: Long,
-    hasWordTiming: Boolean
-) {
-    val toText = toLine.text.trim()
-    val PreviewLyricStyle = previewLyricStyle()
-    val previewMaxLines = LocalPreviewLyricSpec.current.maxLines
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val fromWords = remember(fromText) { previewMorphWords(fromText) }
-    val toWords = remember(toText) { previewMorphWords(toText) }
-    val timedWords = if (hasWordTiming) toLine.words.orEmpty() else emptyList()
-    if (fromWords.isEmpty() || toWords.isEmpty()) {
-        Text(toText, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
-        return
-    }
-    BoxWithConstraints {
-        val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
-        val widthPx = remember(fromText, toText, availablePx) {
-            maxOf(
-                textMeasurer.measure(fromText, PreviewLyricStyle, softWrap = false).size.width,
-                textMeasurer.measure(toText, PreviewLyricStyle, softWrap = false).size.width
-            ).coerceAtMost(availablePx).coerceAtLeast(1)
-        }
-        val fromLayout = remember(fromText, widthPx) {
-            textMeasurer.measure(fromText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
-        }
-        val toLayout = remember(toText, widthPx) {
-            textMeasurer.measure(toText, PreviewLyricStyle, constraints = Constraints(maxWidth = widthPx))
-        }
-        val fromAnchors = remember(fromLayout, fromWords) {
-            fromWords.map { fromLayout.getBoundingBox(it.start).topLeft }
-        }
-        val toAnchors = remember(toLayout, toWords) {
-            toWords.map { toLayout.getBoundingBox(it.start).topLeft }
-        }
-        val fromGlyphs = remember(fromWords) {
-            fromWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
-        }
-        val toGlyphs = remember(toWords) {
-            toWords.map { textMeasurer.measure(it.text, PreviewLyricStyle, softWrap = false) }
-        }
-        val heightPx = maxOf(fromLayout.size.height, toLayout.size.height)
-            .coerceAtMost(with(density) {
-                minOf(58.dp.roundToPx(), (PreviewLyricStyle.lineHeight * previewMaxLines).roundToPx())
-            })
-        Canvas(Modifier.width(with(density) { widthPx.toDp() }).height(with(density) { heightPx.toDp() })) {
-            val p = progress.coerceIn(0f, 1f)
-            fromWords.indices.forEach { index ->
-                val target = toAnchors[pairedWordIndex(index, fromWords.size, toWords.size)]
-                val source = fromAnchors[index]
-                val x = source.x + (target.x - source.x) * p
-                val y = source.y + (target.y - source.y) * p
-                withTransform({
-                    translate(x, y)
-                    scale(1f - 0.05f * p, 1f - 0.05f * p, pivot = Offset.Zero)
-                }) {
-                    drawText(fromGlyphs[index], color = Color.White.copy(alpha = 1f - p))
-                }
-            }
-            toWords.indices.forEach { index ->
-                val source = fromAnchors[pairedWordIndex(index, toWords.size, fromWords.size)]
-                val target = toAnchors[index]
-                val x = source.x + (target.x - source.x) * p
-                val y = source.y + (target.y - source.y) * p
-                // The Metro renderer starts unsung letters at 35% opacity. Match that
-                // baseline during the morph, then reveal only words their timestamps
-                // have reached so the renderer does not make the new line flash white.
-                val incomingAlpha = if (timedWords.isEmpty()) 1f else {
-                    val word = timedWords[pairedWordIndex(index, toWords.size, timedWords.size)]
-                    val durationMs = (word.duration ?: 200L).coerceAtLeast(100L)
-                    val sungProgress = ((positionMs - word.time).toFloat() / durationMs).coerceIn(0f, 1f)
-                    val highlightReveal = ((p - 0.5f) * 2f).coerceIn(0f, 1f)
-                    0.35f + 0.65f * sungProgress * highlightReveal
-                }
-                withTransform({
-                    translate(x, y)
-                    scale(0.95f + 0.05f * p, 0.95f + 0.05f * p, pivot = Offset.Zero)
-                }) {
-                    drawText(toGlyphs[index], color = Color.White.copy(alpha = p * incomingAlpha))
-                }
             }
         }
     }
@@ -1999,4 +1860,60 @@ private val LyricsBubbleIcon: ImageVector by lazy {
             }
         }
     }.build()
+}
+
+/** The preview's line in the main lyrics' selected style, at the preview's text size. */
+@Composable
+private fun PreviewStyledLine(
+    line: LyricLine,
+    positionMs: () -> Long,
+    style: androidx.compose.ui.text.TextStyle,
+    onClick: () -> Unit
+) {
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    val mode = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
+    val fontSize = style.fontSize.value
+    val lineSpacing = 1.22f
+    if (mode == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS) {
+        val positionState = remember(line) { androidx.compose.runtime.derivedStateOf { positionMs() } }
+        com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
+            line = line,
+            words = line.words,
+            positionMs = positionState,
+            style = style.copy(color = Color.White),
+            isActive = true
+        )
+        return
+    }
+    val entry = remember(line) {
+        com.auralis.music.ui.lyrics.vivi.LyricsEntry(
+            time = line.time,
+            text = line.text,
+            words = com.auralis.music.ui.lyrics.vivi.groupWords(line.words)
+        )
+    }
+    val position = positionMs()
+    when (mode) {
+        com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS -> com.auralis.music.ui.lyrics.vivi.MetroLyricsLine(
+            entry = entry, nextEntryTime = null, effectivePlaybackPosition = position, isSynced = true, isActive = true,
+            distanceFromCurrent = 0, lyricsTextPosition = com.auralis.music.ui.lyrics.vivi.LyricsPosition.LEFT,
+            textColor = Color.White, showRomanized = false, showTranslated = false,
+            onClick = onClick, onLongClick = {}, isSelected = false, isSelectionModeActive = false,
+            isAutoScrollActive = true, expressiveAccent = Color.White, textSize = fontSize
+        )
+        com.auralis.music.domain.model.LyricsAnimationMode.VIVIMUSIC -> com.auralis.music.ui.lyrics.vivi.ViviMusicLyricsLine(
+            entry = entry, nextEntryTime = null, effectivePlaybackPosition = position, isSynced = true, isActive = true,
+            distanceFromCurrent = 0, lyricsTextPosition = com.auralis.music.ui.lyrics.vivi.LyricsPosition.LEFT,
+            textColor = Color.White, showRomanized = false, showTranslated = false, textSize = fontSize,
+            lineSpacing = lineSpacing, onClick = onClick, onLongClick = {}, isSelected = false,
+            isSelectionModeActive = false, isAutoScrollActive = true, expressiveAccent = Color.White
+        )
+        else -> com.auralis.music.ui.lyrics.vivi.ViviWordLine(
+            style = mode, item = entry, index = 0, lines = listOf(entry), isActiveLine = true,
+            effectivePlaybackPosition = position, currentPlaybackPosition = position, currentLineTime = line.time,
+            lineColor = Color.White, lyricsTextSize = fontSize, lyricsLineSpacing = lineSpacing,
+            lyricsGlowEffect = appearance.enableGlowingLyricsEffect, hasActiveTranslations = false,
+            agentAlignment = Alignment.Start, agentTextAlign = TextAlign.Left, expressiveAccent = Color.White
+        )
+    }
 }

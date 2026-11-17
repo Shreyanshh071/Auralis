@@ -279,6 +279,12 @@ object StatsCloudSync {
                                 "ms" to ev.playTimeMs,
                                 "ti" to t?.title,
                                 "ar" to t?.artist,
+                                // Each credited artist, best source first (the official song's for a label upload).
+                                "as" to t?.let { entity ->
+                                    val track = entity.toDomain()
+                                    val artists = com.auralis.music.data.network.OfficialArtistResolver.cached(track.id) ?: track.artists
+                                    com.auralis.music.domain.model.TrackArtists.encode(artists)
+                                },
                                 "al" to t?.album,
                                 "th" to t?.thumbnail,
                                 "du" to t?.duration
@@ -407,7 +413,8 @@ object StatsCloudSync {
         .filter { it.device != device && it.startedAt >= clearedBefore }
         .map { e ->
             CloudListen(com.auralis.music.domain.model.Track(id = e.trackId, title = e.title ?: "Unknown Track", artist = e.artist ?: "Unknown Artist",
-                album = e.album, thumbnail = e.thumbnail.orEmpty(), duration = e.duration), e.startedAt, e.listenedMs)
+                album = e.album, thumbnail = e.thumbnail.orEmpty(), duration = e.duration,
+                artists = com.auralis.music.domain.model.TrackArtists.decode(e.artistsJson)), e.startedAt, e.listenedMs)
         }
 
     /** Another device cleared the account's stats: listens and recent history before [before] go here too. */
@@ -483,7 +490,7 @@ object StatsCloudSync {
             val ts = (e["ts"] as? Number)?.toLong() ?: return@mapNotNull null
             val ms = (e["ms"] as? Number)?.toLong()?.takeIf { it > 0 } ?: return@mapNotNull null
             ListenEvent(id, ts, ms, e["ti"] as? String, e["ar"] as? String, e["al"] as? String, e["th"] as? String,
-                (e["du"] as? Number)?.toLong() ?: 0L, e["d"] as? String)
+                (e["du"] as? Number)?.toLong() ?: 0L, e["d"] as? String, e["as"] as? String)
         }.orEmpty()
     }
 
@@ -503,7 +510,9 @@ object StatsCloudSync {
                 val tracks = HashMap<String, com.auralis.music.data.local.entity.TrackEntity?>()
                 val mine = db.playbackEventDao().getEventsSince(now - 7 * 86_400_000L).filter { it.playTimeMs > 0 }.map { ev ->
                     val t = tracks.getOrPut(ev.trackId) { db.trackDao().getTrackById(ev.trackId) }
-                    ListenEvent(ev.trackId, ev.timestamp, ev.playTimeMs, t?.title, t?.artist, t?.album, t?.thumbnail, t?.duration ?: 0L, device)
+                    ListenEvent(ev.trackId, ev.timestamp, ev.playTimeMs, t?.title, t?.artist, t?.album, t?.thumbnail, t?.duration ?: 0L, device,
+                        t?.toDomain()?.let { track -> com.auralis.music.domain.model.TrackArtists.encode(
+                            com.auralis.music.data.network.OfficialArtistResolver.cached(track.id) ?: track.artists) })
                 }
                 val ready = batcher.ready(uid, mine, now)
                 lastCloudUpload = now
@@ -526,7 +535,7 @@ object StatsCloudSync {
             for ((day, list) in days) {
                 val map = list.associate { e ->
                     e.key to mapOf("t" to e.trackId, "ts" to e.startedAt, "ms" to e.listenedMs, "ti" to e.title, "ar" to e.artist,
-                        "al" to e.album, "th" to e.thumbnail, "du" to e.duration, "d" to e.device)
+                        "al" to e.album, "th" to e.thumbnail, "du" to e.duration, "d" to e.device, "as" to e.artistsJson)
                 }
                 batch.set(collection(uid).document(day), mapOf("events" to map, "updatedAt" to System.currentTimeMillis()), SetOptions.merge())
             }
