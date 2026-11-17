@@ -105,10 +105,12 @@ internal object CanvasLookup {
         com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers.properties"))
     }
 
-    suspend fun find(track: Track, source: CanvasSource): String? = withContext(Dispatchers.IO) {
+    /** [tall]: the lyrics stage wants Apple's vertical motion video before the square one. */
+    suspend fun find(track: Track, source: CanvasSource, tall: Boolean = false): String? = withContext(Dispatchers.IO) {
         if (track.title.isBlank() || track.artist.isBlank()) return@withContext null
         // v3: version tags and the album count (v2 matched "Let Down" to a DJ mix's "Let Down (Mixed)").
-        val key = "v3|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}"
+        val key = "v3|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}" +
+            if (tall) "|tall" else ""
         found[key]?.let { return@withContext it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
@@ -121,7 +123,7 @@ internal object CanvasLookup {
         val url = sources.firstNotNullOfOrNull { s ->
             runCatching {
                 when (s) {
-                    CanvasSource.APPLE -> apple(track)
+                    CanvasSource.APPLE -> apple(track, tall)
                     CanvasSource.TIDAL -> tidal(track)
                     CanvasSource.CURATED -> curated(track)
                     CanvasSource.AUTO -> null
@@ -193,7 +195,7 @@ internal object CanvasLookup {
         return null
     }
 
-    private fun apple(track: Track): String? {
+    private fun apple(track: Track, tall: Boolean = false): String? {
         val token = appleToken() ?: return null
         val auth = mapOf("Authorization" to "Bearer $token", "Origin" to "https://music.apple.com", "Referer" to "https://music.apple.com/")
         val search = get("https://amp-api.music.apple.com/v1/catalog/us/search?term=${enc("${primaryArtist(track)} ${track.title}")}" +
@@ -213,7 +215,9 @@ internal object CanvasLookup {
             // A DJ mix or various-artists compilation's video is that compilation's, not this song's.
             if (albumAttrs.optBoolean("isCompilation") && albumKey(track.album.orEmpty()) != albumKey(albumAttrs.optString("name"))) continue
             val video = albumAttrs.optJSONObject("editorialVideo") ?: continue
-            for (asset in listOf("motionDetailSquare", "motionSquareVideo1x1", "motionDetailTall", "motionTallVideo3x4")) {
+            val square = listOf("motionDetailSquare", "motionSquareVideo1x1")
+            val vertical = listOf("motionDetailTall", "motionTallVideo3x4")
+            for (asset in if (tall) vertical + square else square + vertical) {
                 video.optJSONObject(asset)?.optString("video")?.takeIf { it.startsWith("http") }?.let { return it }
             }
         }
@@ -274,7 +278,7 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             // curated library), 3. nothing: the still artwork() underneath stays.
             val canvas = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
             fromSpotify = canvas != null
-            url = canvas ?: if (prefs.enabled) CanvasLookup.find(track, prefs.source) else null
+            url = canvas ?: if (prefs.enabled) CanvasLookup.find(track, prefs.source, tall = canvasOnly) else null
         }
     }
     Box(modifier) {
