@@ -50,7 +50,7 @@ class DesktopDiscordPresence(
     @Volatile private var pending: Pair<DiscordPresence, Long>? = null
 
     override val note: String =
-        "On Windows, Auralis shows your status through the Discord app on this PC (keep it open). " +
+        "Auralis shows your status through the Discord desktop app (keep it open). " +
             "The Online / Idle / Do Not Disturb choice is on the phone for now."
 
     init {
@@ -86,7 +86,7 @@ class DesktopDiscordPresence(
         scope.launch {
             val ready = ipc.connect()
             if (ready == null) {
-                launchMain { onResult(false, "", "Open the Discord app on this PC, then connect again.") }
+                launchMain { onResult(false, "", "Open the Discord desktop app, then connect again.") }
                 return@launch
             }
             val user = ready.optJSONObject("user")

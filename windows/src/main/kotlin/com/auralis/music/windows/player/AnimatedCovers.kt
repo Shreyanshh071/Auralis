@@ -353,29 +353,33 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     Box(modifier) {
         artwork()
         val video = url
-        if (video != null) key(track?.id, video) {
+        if (video != null && com.auralis.music.ui.player.LocalPlaybackVisualsActive.current) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
             val firstFrame = remember { CompletableDeferred<Boolean>() }
-            DisposableEffect(video, motionAura, canvasOnly, playbackClock) {
+            LaunchedEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
-                    video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
-                ) {
-                    synchronized(active) {
-                        if (active.get()) {
-                            // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
-                            if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
-                                // Also on the cover: the Spotify retry below waits for this first frame.
-                                if (firstFrame.complete(true) || frame != null) {
-                                    frame = it
-                                    motionAura?.offer(it)
+                var stop: (() -> Unit)? = null
+                try {
+                    withContext(Dispatchers.IO) {
+                        stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
+                            video, clock = playbackClock, frameShortSide = if (canvasOnly) 1440 else 960, loop = true
+                        ) {
+                            synchronized(active) {
+                                if (active.get()) {
+                                    // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
+                                    if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
+                                        if (firstFrame.complete(true) || frame != null) {
+                                            frame = it
+                                            motionAura?.offer(it)
+                                        }
+                                    } else firstFrame.complete(false)
                                 }
-                            } else firstFrame.complete(false)
+                            }
                         }
                     }
-                }
-                if (stop == null) firstFrame.complete(false)
-                onDispose {
+                    if (stop == null) firstFrame.complete(false)
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
                     synchronized(active) { active.set(false); motionAura?.offer(null) }
                     stop?.invoke()
                 }

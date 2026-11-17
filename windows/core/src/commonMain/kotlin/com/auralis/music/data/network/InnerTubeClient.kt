@@ -147,7 +147,7 @@ open class InnerTubeClient(
         client.searchBody(alternate, 12_000L)
     }
 
-    /** One foreground playback lookup; a background search cooldown must not reject it locally. */
+    /** Playback matching shares the streaming cooldown and its intent's request allowance. */
     suspend fun searchForPlayback(query: String, params: String = FILTER_SONGS): List<Track> = withContext(Dispatchers.IO) {
         cachedSearch(query.trim(), params)?.songs?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
         val request = Request.Builder().url("$YT_MUSIC_API/search?prettyPrint=false")
@@ -155,7 +155,7 @@ open class InnerTubeClient(
             .header("Referer", "https://music.youtube.com/").header("Origin", "https://music.youtube.com")
             .build()
         // Matching a public recording must keep working when an optional account expires.
-        val body = UserSearchRequest.run { publicSearchBody(request) }
+        val body = publicSearchBody(request)
         rememberSearch(query.trim(), params, parseYtMusicSearchResults(JSONObject(body))).songs
     }
 

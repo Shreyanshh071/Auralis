@@ -5,11 +5,14 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 
 /** Runs the real Worker and Durable Object in workerd on this machine. Nothing leaves it. */
-export async function startServer(port, persistDir = mkdtempSync(join(tmpdir(), 'auralis-connect-'))) {
-  writeFileSync('.dev.vars', 'DEV_AUTH=local-tests-only\nSTAGING_SECRET=local-secret\n');
-  const process_ = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['wrangler', 'dev', '--port', String(port), '--ip', '127.0.0.1',
+export async function startServer(port, persistDir = mkdtempSync(join(tmpdir(), 'auralis-connect-')), vars = {}) {
+  const all = { DEV_AUTH: 'local-tests-only', STAGING_SECRET: 'local-secret', LIBRARY_ADMIN_SECRET: 'local-admin', LIBRARY_PILOT_UIDS: '*', ACCOUNT_SYNC_TOPICS: 'settings,listens', ...vars };
+  writeFileSync('.dev.vars', Object.entries(all).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
+  const process_ = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['wrangler', 'dev', '--port', String(port), '--ip', '127.0.0.1', '--inspector-port', String(port + 1000),
     '--persist-to', persistDir, '--log-level', 'error', '--show-interactive-dev-session=false'],
-    { env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' }, stdio: 'pipe', shell: process.platform === 'win32' });
+    // Its own process group off Windows, so stopping it also stops wrangler and workerd under npx.
+    { env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' }, stdio: 'pipe', shell: process.platform === 'win32',
+      detached: process.platform !== 'win32' });
   let output = '';
   process_.stdout.on('data', (d) => { output += d; });
   process_.stderr.on('data', (d) => { output += d; });
@@ -22,7 +25,14 @@ export async function startServer(port, persistDir = mkdtempSync(join(tmpdir(), 
 
 export async function stopServer(server) {
   if (process.platform === 'win32') spawn('taskkill', ['/pid', String(server.process.pid), '/T', '/F'], { stdio: 'ignore' });
-  else server.process.kill('SIGKILL');
+  else {
+    try { process.kill(-server.process.pid, 'SIGKILL'); } catch { server.process.kill('SIGKILL'); }
+    // Killing only npx left the server answering, so "restart" tests never restarted it.
+    for (let i = 0; i < 50; i++) {
+      try { await fetch(`http://127.0.0.1:${server.port}/healthz`); } catch { break; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
   await new Promise((r) => setTimeout(r, 1200));
 }
 
@@ -60,9 +70,9 @@ export class Client {
   close() { this.ws.terminate(); }
 }
 
-export function connect(port, uid, device, { token = `dev:${uid}`, host = '127.0.0.1', headers = {} } = {}) {
+export function connect(port, uid, device, { token = `dev:${uid}`, host = '127.0.0.1', headers = {}, path = '/v1/connect' } = {}) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://${host}:${port}/v1/connect?device=${device}`, { headers: token === null ? headers : { ...headers, authorization: `Bearer ${token}` } });
+    const ws = new WebSocket(`ws://${host}:${port}${path}?device=${device}`, { headers: token === null ? headers : { ...headers, authorization: `Bearer ${token}` } });
     const client = new Client(ws);
     ws.once('open', () => resolve(client));
     ws.once('unexpected-response', (_, res) => reject(Object.assign(new Error('refused'), { status: res.statusCode })));

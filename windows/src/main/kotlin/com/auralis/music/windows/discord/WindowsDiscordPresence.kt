@@ -1,6 +1,7 @@
 package com.auralis.music.windows.discord
 
 import com.auralis.music.desktop.discord.DiscordIpc
+import com.auralis.music.util.Log
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
 import com.auralis.music.domain.repository.SearchRepository
@@ -46,7 +47,7 @@ internal class WindowsDiscordPresence(private val playback: DesktopPlaybackContr
     private var artistJob: Job? = null
     private var lookingFor: String? = null
     private var artistRetryAt = 0L
-    override val note = "Uses the Discord desktop app on this PC. No account sign-in or token is required."
+    override val note = "Uses the Discord desktop app. No account sign-in or token is required."
 
     init {
         if (legacy != null) scope.launch {
@@ -115,6 +116,7 @@ internal class WindowsDiscordPresence(private val playback: DesktopPlaybackContr
                     retryAt = time + retryDelay; retryDelay = (retryDelay * 2).coerceAtMost(30000)
                 } else {
                     mutableStatus.value = "Connected to Discord desktop"
+                    Log.i("WindowsDiscordPresence", "Discord presence connected to desktop app")
                     retryDelay = 1000; lastKey = ""; sentAt = 0
                 }
             }

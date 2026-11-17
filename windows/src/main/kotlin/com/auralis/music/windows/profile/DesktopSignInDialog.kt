@@ -37,6 +37,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -88,6 +90,7 @@ internal fun DesktopSignInDialog(
         }
     }
 
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     Dialog(onDismissRequest = onDismiss) {
         SignInGlassSurface {
             Column(
@@ -172,6 +175,15 @@ internal fun DesktopSignInDialog(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                    val avatarUrl = accountState.profile?.avatarUrl
+                                    if (!avatarUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = avatarUrl,
+                                            contentDescription = accountState.profile?.displayName,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
                                 }
                                 Column(Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -248,8 +260,9 @@ internal fun DesktopSignInDialog(
                                 }
                                 Column(Modifier.weight(1f)) {
                                     Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                                     Text(
-                                        text = ytLabel.ifBlank { "Active session linked to this PC" },
+                                        text = ytLabel.ifBlank { if (isMac) "Active session linked to this Mac" else "Active session linked to this PC" },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.White.copy(alpha = 0.7f)
                                     )
@@ -296,7 +309,7 @@ internal fun DesktopSignInDialog(
                     }
 
                     // Message alerts
-                    val activeMessage = localMessage ?: accountState.message
+                    val activeMessage = localMessage ?: accountState.syncMessage ?: accountState.message
                     activeMessage?.let { msg ->
                         Surface(
                             shape = MaterialTheme.shapes.small,
@@ -746,7 +759,9 @@ internal fun BrowserYouTubePicker(
 
     LaunchedEffect(Unit) {
         if (previewProfiles == null) {
-            profiles = withContext(Dispatchers.IO) { BrowserYouTubeLogin.profiles() }
+            profiles = withContext(Dispatchers.IO) {
+                runCatching { BrowserYouTubeLogin.profiles() }.getOrElse { emptyList() }
+            }
         }
     }
 
@@ -803,9 +818,10 @@ internal fun BrowserYouTubePicker(
                         Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     }
                     Column(Modifier.weight(1f)) {
+                        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                         Text(desktopText("YouTube Music Connected"), style = MaterialTheme.typography.titleMedium, color = Color.White)
                         Text(
-                            text = label.ifBlank { "Active session linked to this PC" },
+                            text = label.ifBlank { if (isMac) "Active session linked to this Mac" else "Active session linked to this PC" },
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.7f)
                         )
@@ -925,13 +941,15 @@ internal fun BrowserYouTubePicker(
             profiles == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
             profiles!!.isEmpty() -> Text(desktopText("No supported browser profiles found. You can paste a YouTube cookie below."))
             else -> profiles!!.forEach { profile ->
+                val isWin = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+                val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
                 val isCurrentlyActive = signedIn && (workingCandidate?.label == profile.label || profile.label == label)
                 val isCandidate = !signedIn && workingCandidate?.label == profile.label
                 val isChromeOrEdge = profile.browser == "Chrome" || profile.browser == "Edge" || profile.browser == "Brave"
                 val subtitle = when {
-                    isCurrentlyActive -> "Active session connected on this PC"
+                    isCurrentlyActive -> if (isMac) "Active session connected on this Mac" else if (isWin) "Active session connected on this PC" else "Active session connected on this device"
                     isCandidate -> "Same Google account as Auralis • Click to connect"
-                    isChromeOrEdge -> "App-Bound protected by Chrome • Click to paste cookie"
+                    isChromeOrEdge -> if (isWin) "App-Bound protected by Chrome • Click to paste cookie" else "Protected by Chrome • Click to paste cookie"
                     else -> "Click to import session"
                 }
                 val icon = when (profile.browser) {
@@ -965,7 +983,8 @@ internal fun BrowserYouTubePicker(
                         isErrorMessage = false
                     } else if (isChromeOrEdge) {
                         paste = true
-                        message = "Chrome & Edge cookies are protected by Windows App-Bound encryption. Please copy your cookie from Chrome DevTools (F12) and paste it below."
+                        message = if (isWin) "Chrome & Edge cookies are protected by Windows App-Bound encryption. Please copy your cookie from Chrome DevTools (F12) and paste it below."
+                            else "Chrome & Edge cookies are protected by the browser. Please copy your cookie from DevTools and paste it below."
                         isErrorMessage = false
                     } else {
                         import { BrowserYouTubeLogin.read(profile).also { YouTubeSessionSource.remember(profile) } to profile.label }

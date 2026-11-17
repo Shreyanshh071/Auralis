@@ -8,9 +8,11 @@ internal fun desktopDeviceName(host: String?, manufacturer: String?, family: Str
     }
     val model = useful(family) ?: useful(product)?.let { listOfNotNull(useful(manufacturer), it).joinToString(" ") }
     val hostname = useful(host)
+    val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
     return when {
         model != null -> model
         hostname != null -> hostname
+        isMac -> "Mac"
         else -> "Windows computer"
     }
 }

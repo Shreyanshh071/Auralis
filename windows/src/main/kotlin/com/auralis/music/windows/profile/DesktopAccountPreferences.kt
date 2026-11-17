@@ -36,9 +36,18 @@ internal class DesktopPreferencesBackend(private val api: FirestoreRest) : Accou
 
 internal fun startDesktopPreferencesSync(account: DesktopAccount, local: DataStoreAccountPreferences,
     journal: AccountPreferencesJournal, device: String, scope: CoroutineScope) = scope.launch(Dispatchers.IO) {
-    val engine = AccountPreferencesSync(local, DesktopPreferencesBackend(account.firestore), journal, device)
+    val firestore = DesktopPreferencesBackend(account.firestore)
+    // With account sync on, other devices' changes arrive by notification, and the 6-hour check is
+    // only a safety net. Off, today's Firestore sync runs unchanged.
+    val engine = if (account.accountSyncOn) AccountPreferencesSync(local,
+        BridgedPreferencesBackend(CloudPreferencesBackend("windows") { uid, frame -> account.accountSync.call(uid, frame) }, firestore,
+            log = { com.auralis.music.util.Log.i("AccountPreferences", it) }),
+        journal, device, pollMs = 6 * 3_600_000L)
+    else AccountPreferencesSync(local, firestore, journal, device)
     launch { engine.status.collect { com.auralis.music.util.Log.i("AccountPreferences", "PC settings sync: $it") } }
     account.state.map { it.profile?.uid?.takeIf(String::isNotBlank) }.distinctUntilChanged().collectLatest { uid ->
+        // A change from another device, or a reconnect after missing some: pull at the next step.
+        if (uid != null && account.accountSyncOn) account.accountSync.listen(uid, "settings") { engine.refresh() }
         engine.step(uid)
         if (uid != null) while (isActive) { delay(1_000L); engine.step(uid) }
     }

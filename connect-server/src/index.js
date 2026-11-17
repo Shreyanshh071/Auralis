@@ -3,6 +3,9 @@
 // decides anything is in core.js.
 import { DurableObject } from 'cloudflare:workers';
 import { googleKeys, stagingIdentity, verifyToken } from './auth.js';
+import { LibraryAccount, libraryRoute } from './library.js';
+
+export { LibraryAccount };
 import { MAX_DEVICES, MAX_FRAME_BYTES, MAX_SOCKETS, RateLimit, UNSAVED_VERSIONS, decideUpdate, intentAccepted, mustSave,
   recoverSession, validDevice, validDeviceId, validQueue } from './core.js';
 
@@ -19,6 +22,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/healthz') return new Response('ok');
+    // The account library is its own namespace and storage: nothing below this line changes for it.
+    if (url.pathname.startsWith('/v1/library')) {
+      return env.LIBRARY ? libraryRoute(request, env, url, authenticate) : new Response('not found', { status: 404 });
+    }
     if (url.pathname !== '/v1/connect') return new Response('not found', { status: 404 });
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426 });
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';

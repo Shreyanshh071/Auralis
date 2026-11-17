@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --config firebase.json --only firestore --project demo-auralis \"node --test connect.rules.test.mjs\""
+    "test": "firebase emulators:exec --config firebase.json --only firestore --project demo-auralis \"node --test --test-concurrency=1 connect.rules.test.mjs library.rules.test.mjs library.migration.test.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

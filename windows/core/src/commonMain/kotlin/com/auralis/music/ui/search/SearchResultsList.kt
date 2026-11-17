@@ -141,7 +141,6 @@ fun SearchResultsList(
                     } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
-                    onMenuClick = onMenuClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick
                 )
@@ -172,7 +171,6 @@ fun SearchResultsList(
                     } ?: results.albumPlays,
                     currentTrackId = currentTrackId,
                     onTrackClick = onTrackClick,
-                    onMenuClick = onMenuClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick
                 )
@@ -698,7 +696,6 @@ private fun SearchHeroCard(
     albumPlays: Long,
     currentTrackId: String?,
     onTrackClick: (Track, List<Track>) -> Unit,
-    onMenuClick: (Track) -> Unit,
     onArtistClick: (Artist) -> Unit,
     onPlaylistClick: (PlaylistResult) -> Unit
 ) {
@@ -711,8 +708,6 @@ private fun SearchHeroCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    // Right-click opens the song's options, as its ⋮ does.
-                    .secondaryClick { onMenuClick(track) }
                     .clickable { onTrackClick(track, listOf(track)) },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)),
                 shape = RoundedCornerShape(16.dp)
@@ -753,14 +748,6 @@ private fun SearchHeroCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    IconButton(onClick = { onMenuClick(track) }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = strings.options(),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

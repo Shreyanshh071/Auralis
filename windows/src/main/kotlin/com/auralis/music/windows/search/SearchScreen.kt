@@ -1,5 +1,7 @@
 package com.auralis.music.windows.search
 
+import androidx.compose.foundation.layout.fillMaxHeight
+
 import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.ui.draw.clip
@@ -75,6 +77,8 @@ import com.auralis.music.ui.search.SearchResultsList
 import com.auralis.music.ui.search.SearchUiPlatform
 import com.auralis.music.ui.search.SearchUiStrings
 
+private val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+
 /** Width of the results column: a phone-like list stays readable in a wide window. */
 private val ContentMaxWidth = 860.dp
 
@@ -125,12 +129,6 @@ fun FindMusicDropdown(
         if (text.isNotBlank()) { dismiss(); if (bar) focusManager.clearFocus(); onSearch(text) }
     }
     fun open() { mounted = true; expanded = true }
-    // The title bar's drag area belongs to Windows, so a click there is invisible to the popup's
-    // outside-click handling and leaves the field focused. The native frame reports those presses.
-    val captionPresses = com.auralis.music.windows.CaptionPresses.count
-    LaunchedEffect(captionPresses) {
-        if (bar && captionPresses > 0 && (expanded || fieldFocused)) { dismiss(); focusManager.clearFocus() }
-    }
     Box {
         if (bar) {
             val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -142,16 +140,14 @@ fun FindMusicDropdown(
                 .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFFBDB7C5))
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (state.query.isEmpty()) Text(desktopText("What do you want to play?"), fontSize = 14.sp,
-                        color = androidx.compose.ui.graphics.Color(0xFF9E98A6), maxLines = 1)
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                     BasicTextField(
                         value = state.query,
                         onValueChange = { state.onQueryChange(it); if (!expanded) open() },
                         singleLine = true,
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(androidx.compose.ui.graphics.Color(0xFFE8E4EB)),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                        modifier = Modifier.fillMaxSize().focusRequester(focus)
                             .onFocusChanged { f ->
                                 fieldFocused = f.isFocused
                                 if (f.isFocused) { open(); onTypingChange(true) }
@@ -165,7 +161,18 @@ fun FindMusicDropdown(
                                     androidx.compose.ui.input.key.Key.Escape -> { dismiss(); focusManager.clearFocus(); true }
                                     else -> false
                                 }
+                            },
+                        decorationBox = { innerTextField ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                                if (state.query.isEmpty()) Text(
+                                    desktopText("What do you want to play?"),
+                                    fontSize = 14.sp,
+                                    color = androidx.compose.ui.graphics.Color(0xFF9E98A6),
+                                    maxLines = 1
+                                )
+                                innerTextField()
                             }
+                        }
                     )
                 }
                 if (state.query.isNotEmpty()) Icon(Icons.Default.Close, desktopText("Clear search"), Modifier.size(16.dp)
@@ -295,11 +302,11 @@ fun SearchScreen(
     isPlaying: Boolean,
     onPlay: ((com.auralis.music.domain.model.Track, List<com.auralis.music.domain.model.Track>) -> Unit)?,
     onUnavailable: (String) -> Unit,
-    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable("Artist pages on Windows come next") },
-    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable("Album pages on Windows come next") },
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = { onUnavailable(if (isMac) "Artist pages on macOS come next" else "Artist pages on Windows come next") },
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = { onUnavailable(if (isMac) "Album pages on macOS come next" else "Album pages on Windows come next") },
     onPlayNext: (com.auralis.music.domain.model.Track) -> Unit = {},
     onAddToQueue: (com.auralis.music.domain.model.Track) -> Unit = {},
-    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit = { onUnavailable("Song options on Windows come next") },
+    onMenuClick: (com.auralis.music.domain.model.Track) -> Unit = { onUnavailable(if (isMac) "Song options on macOS come next" else "Song options on Windows come next") },
     /** Changes each time Ctrl+F asks for the search field. */
     focusRequests: Int = 0,
     onTypingChange: (Boolean) -> Unit = {}

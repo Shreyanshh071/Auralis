@@ -1,7 +1,5 @@
 package com.auralis.music.windows
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import com.auralis.music.util.Log
 import com.sun.jna.CallbackReference
@@ -19,16 +17,6 @@ import java.awt.Window
  * Moving a borderless AWT window with setLocation bypasses Windows Snap and DWM animations.
  * Native caption hit testing lets Windows own the move/resize/maximize loop instead.
  */
-/**
- * Presses on the title bar's drag area (HTCAPTION). Windows takes those clicks for its move loop, so
- * Compose never sees them: popups such as the title bar search can't tell the user clicked outside.
- */
-internal object CaptionPresses {
-    var count by androidx.compose.runtime.mutableIntStateOf(0)
-        private set
-    fun press() = java.awt.EventQueue.invokeLater { count++ }
-}
-
 /** Which caption button (HTMINBUTTON 8, HTMAXBUTTON 9, HTCLOSE 20; 0 = none) the pointer is over. */
 data class CaptionHover(val button: Int = 0, val pressed: Boolean = false)
 
@@ -177,10 +165,6 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         hoverCaption(pressedButton)
                         nativeUser.getFunction("SetCapture").invokePointer(arrayOf(hwnd))
                         LRESULT(0)
-                    }
-                    root && (message == 0x00A1 || message == 0x00A4) && w.toInt() == 2 -> { // NC press on HTCAPTION
-                        CaptionPresses.press()
-                        user.CallWindowProc(previous, current, message, w, l)
                     }
                     root && message == 0x00A2 && pressedButton != 0 -> {
                         val x = (l.toLong() and 0xffff).toShort().toInt()

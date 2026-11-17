@@ -78,3 +78,42 @@ upgrades return HTTP 429. See [Cloudflare rate limiting](https://developers.clou
 
 `npm install`, then `npm test`. Everything runs in `workerd` on this machine and needs no Cloudflare
 account. `.dev.vars` turns on a test-only login, which works only on localhost.
+
+## Account library (`/v1/library`)
+
+A separate Durable Object namespace (`LibraryAccount`) with its own storage. Design, limits and
+the migration are in `docs/library-sync/spec.md`; this is the wire reference. Unlike Connect,
+every accepted edit is in storage before it is acknowledged or pushed.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /v1/library/authority` | `{ state: "legacy" \| "migrating" \| "cloudflare", epoch, v }` for the token's account |
+| `GET /v1/library?device=` (WebSocket) | The frames below, plus server pushes. Text `ping` is answered `pong` without waking the object. |
+| `POST /v1/library/rpc?device=` | One frame in the body, one frame back |
+| `POST /v1/library/admin/{uid}/{action}` | Migration and recovery; 404 unless `x-library-admin` matches `LIBRARY_ADMIN_SECRET` |
+
+All but the admin routes need `Authorization: Bearer <Firebase ID token>`; anonymous sign-ins are
+refused. The account is always the token's, never a value from the request.
+
+Client frames (`r` is echoed back on the socket):
+
+| Frame | Answer |
+| --- | --- |
+| `{ t: "hello", v: 1 }` | `{ t: "ready", state, epoch, rev, floor }` |
+| `{ t: "pull", cursor }` | `{ t: "delta", rev, playlists, items, pins?, more? }`, or `{ t: "reset" }` when the cursor is older than the removal records kept |
+| `{ t: "pull", full: true, page? }` | The whole library in pages; pass `more` back as `page` |
+| `{ t: "push", v: 1, epoch, ops }` | `{ t: "ack", rev, results: [{ id, s: "ok" \| "dup" \| "stale" \| "bad" \| "limit", rev }] }` |
+
+Server pushes: `{ t: "changed", from, rev, by, delta? }` to every other device after a push, and
+`{ t: "authority", state, epoch }` when the account's state changes.
+
+Errors: `{ t: "err", code }` with `authority` or `epoch` (carrying the current `state` and
+`epoch`), `version`, `invalid`, `slow`, `bad-frame`, `unknown`.
+
+Operations: `fav.put`/`alb.put`/`art.put` `{ id, v }`, `fav.del`/`alb.del`/`art.del` `{ id, key }`,
+`pl.put` `{ id, ifRev, v, tracks? }`, `pl.del` `{ id, key, ifRev, at }`, `pins.set` `{ id, pins, at }`.
+`id` is the operation's own id; sending it again returns `dup`.
+
+Admin actions: `status`, `verify`, `export`, `begin`, `import`, `commit`, `abort`,
+`rollback-begin`, `rollback-abort`, `rollback-commit`. Use `tools/library-migrate.mjs`, which runs
+them in the right order with the Firestore fence.

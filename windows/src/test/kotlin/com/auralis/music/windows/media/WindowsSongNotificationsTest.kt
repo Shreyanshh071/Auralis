@@ -18,6 +18,8 @@ class WindowsSongNotificationsTest {
     }
 
     @Test fun windowsReceivesTheToastInNotificationHistory() {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        if (!isWindows) return
         val id = "Auralis.IntegrationTest.${UUID.randomUUID()}"
         val key = "Software\\Classes\\AppUserModelId\\$id"
         try {

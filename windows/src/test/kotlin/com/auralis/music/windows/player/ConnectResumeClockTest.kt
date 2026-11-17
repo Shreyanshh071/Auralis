@@ -10,7 +10,7 @@ import kotlin.test.*
 class ConnectResumeClockTest {
     @Test fun handoffClockHoldsBookmarkWhileResolvingAndAcceptsSeeks() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val native = File(System.getProperty("user.home"), "AppData/Local/Auralis/app/resources/vlc")
+        val native = testVlcDirectory()
         val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
         val playback = DesktopPlaybackController(audio, scope, resolveStream = { awaitCancellation() })
         playback.autoLoadMore = false

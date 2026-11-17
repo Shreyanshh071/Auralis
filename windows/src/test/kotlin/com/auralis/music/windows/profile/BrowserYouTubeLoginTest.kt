@@ -53,4 +53,20 @@ class BrowserYouTubeLoginTest {
             com.auralis.music.data.network.YouTubeSession.signOut()
         }
     }
+
+    @Test fun profilesDoesNotThrowOnCurrentPlatform() {
+        // Must never throw NullPointerException or SecurityException on any OS (macOS, Windows, Linux)
+        val profiles = BrowserYouTubeLogin.profiles()
+        assertNotNull(profiles)
+    }
+
+    @Test fun browserSignInDetectsInstalledBrowserOrGracefullyNull() {
+        val browser = YouTubeBrowserSignIn.browser()
+        // On macOS with Chrome/Brave installed, browser should be detected and executable
+        if (browser != null) {
+            assertTrue(browser.exe.isFile, "Detected browser binary must exist: ${browser.exe}")
+            assertTrue(browser.exe.canExecute(), "Detected browser binary must be executable: ${browser.exe}")
+            assertTrue(browser.name.isNotBlank())
+        }
+    }
 }

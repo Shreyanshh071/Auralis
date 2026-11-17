@@ -29,3 +29,40 @@ internal fun WindowState.enterBorderlessFullscreen(bounds: Rectangle): WindowGeo
     size = DpSize(bounds.width.dp, bounds.height.dp)
     return previous
 }
+
+/**
+ * Handles macOS window placement transitions for player and immersive fullscreen.
+ *
+ * On macOS, decorated windows (`undecorated = false`) with traffic lights must not be
+ * forced into [WindowPlacement.Floating] when entering player fullscreen, because setting
+ * [WindowPlacement.Floating] on an already maximized window unmaximizes it and causes it
+ * to shrink down to its restored floating bounds.
+ *
+ * - When entering player fullscreen:
+ *   - If currently [WindowPlacement.Maximized] or [WindowPlacement.Fullscreen], retain it and record it.
+ *   - If currently [WindowPlacement.Floating], record [WindowPlacement.Floating] and expand to [WindowPlacement.Maximized].
+ * - When exiting player fullscreen:
+ *   - Restore to [WindowPlacement.Floating] if the window was previously floating.
+ *   - Keep [WindowPlacement.Maximized] or [WindowPlacement.Fullscreen] if the window was already in that state.
+ */
+internal fun applyMacPlayerFullscreen(
+    enabled: Boolean,
+    currentPlacement: WindowPlacement,
+    savedPlacement: WindowPlacement?,
+    onSetPlacement: (WindowPlacement) -> Unit
+): WindowPlacement? {
+    return if (enabled) {
+        val prev = currentPlacement
+        if (currentPlacement != WindowPlacement.Maximized && currentPlacement != WindowPlacement.Fullscreen) {
+            onSetPlacement(WindowPlacement.Maximized)
+        }
+        prev
+    } else {
+        savedPlacement?.let { prev ->
+            if (prev != WindowPlacement.Maximized && prev != WindowPlacement.Fullscreen) {
+                onSetPlacement(prev)
+            }
+        }
+        null
+    }
+}

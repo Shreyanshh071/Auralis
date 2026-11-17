@@ -22,20 +22,24 @@ class WindowsAudioOutputsTest {
     }
 
     @Test fun menuRefreshTracksWindowsDefaultAndHotPluggedOutputsByTheirRealIds() {
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        val defaultPrefix = if (isMac) "System default" else "Windows default"
         val speakers = WindowsAudioOutput("speaker-endpoint", "Speakers (Realtek Audio)", true)
         val headset = WindowsAudioOutput("headset-endpoint", "Headphones (Bluetooth)", false)
         val initial = WindowsAudioOutputs.menu(listOf(speakers, headset), emptyList())
-        assertEquals("" to "Windows default — Speakers (Realtek Audio)", initial.first())
+        assertEquals("" to "$defaultPrefix — Speakers (Realtek Audio)", initial.first())
         val changed = WindowsAudioOutputs.menu(listOf(headset.copy(isDefault = true)), emptyList())
-        assertEquals("" to "Windows default — Headphones (Bluetooth)", changed.first())
+        assertEquals("" to "$defaultPrefix — Headphones (Bluetooth)", changed.first())
         assertFalse(changed.any { it.first == speakers.id })
         assertEquals(1, changed.size, "A single default endpoint needs a single menu row")
         assertEquals(headset.id, initial.last().first, "Other selections use the actual endpoint identifier")
     }
 
     @Test fun enumerationFailureKeepsTheActualDefaultRoutingOptionAndUsesVlcFallbackNames() {
-        assertEquals(listOf("" to "Windows default"), WindowsAudioOutputs.menu(emptyList(), emptyList()))
-        assertEquals(listOf("" to "Windows default", "vlc-id" to "USB DAC"),
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+        val defaultPrefix = if (isMac) "System default" else "Windows default"
+        assertEquals(listOf("" to defaultPrefix), WindowsAudioOutputs.menu(emptyList(), emptyList()))
+        assertEquals(listOf("" to defaultPrefix, "vlc-id" to "USB DAC"),
             WindowsAudioOutputs.menu(emptyList(), listOf("" to "Default", "vlc-id" to "USB DAC", "vlc-id" to "USB DAC")))
     }
 }

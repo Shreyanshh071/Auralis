@@ -11,32 +11,42 @@ import androidx.compose.ui.layout.ContentScale
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.desktop.playback.*
 import com.auralis.music.domain.model.Track
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
-/** Optional silent video follows the audio clock; unavailable streams retain the animated cover. */
-@Composable internal fun SidebarMusicVideo(track: Track, clock: PlaybackClockSource?, modifier: Modifier, aura: MotionAura?, fallback: @Composable () -> Unit) {
+/**
+ * Optional silent video follows the audio clock; unavailable streams retain the animated cover.
+ * Its lookup runs only when videos are on, this cover is on screen (it isn't composed otherwise),
+ * and this PC is actually sounding [track] ([established]): never for a restored idle song, a song
+ * still resolving, or a song another device plays. Usually the song's audio lookup already brought
+ * the video link, so no extra YouTube request is made.
+ */
+@Composable internal fun SidebarMusicVideo(track: Track, clock: PlaybackClockSource?, modifier: Modifier, aura: MotionAura?,
+    established: Boolean = false, fallback: @Composable () -> Unit) {
     val prefs = com.auralis.music.windows.settings.DesktopPreferences.store
     val revision by prefs.changes.collectAsState()
     var url by remember(track.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(track.id, prefs.bool("musicVideos")) {
-        url = null
-        if (clock != null && prefs.bool("musicVideos")) url = withContext(Dispatchers.IO) {
-            runCatching {
-                val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id) ?: track.id
-                if (!DesktopPlaybackMatch.isVideoId(id)) return@runCatching null
-                DesktopStreamResolver.resolveVideo(id)
-            }.getOrNull()
-        }
+    val enabled = clock != null && prefs.bool("musicVideos")
+    LaunchedEffect(track.id, enabled, established) {
+        if (!enabled || !established) { if (!enabled) url = null; return@LaunchedEffect }
+        if (url != null) return@LaunchedEffect
+        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id) ?: track.id
+        if (!DesktopPlaybackMatch.isVideoId(id)) return@LaunchedEffect
+        // Leaving composition (or the song changing) cancels the lookup; shared work is canceled
+        // only when nothing else still wants it.
+        url = runCatching { DesktopStreamResolver.resolveVideo(id) }.getOrNull()
     }
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
+    var videoFrameVisible by remember(url, visualsActive) { mutableStateOf(false) }
     Box(modifier) {
-        fallback()
-        url?.let { video ->
+        CompositionLocalProvider(com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+            (visualsActive && !videoFrameVisible)) {
+            fallback()
+        }
+        url?.takeIf { com.auralis.music.ui.player.LocalPlaybackVisualsActive.current }?.let { video ->
             var frame by remember(video) { mutableStateOf<ImageBitmap?>(null) }
             val ambient = rememberUpdatedState(prefs.bool("ambientVideo",true))
             DisposableEffect(video,clock) {
                 val active=java.util.concurrent.atomic.AtomicBoolean(true)
-                val stop=CanvasVideoEngine.play(video,clock) { image -> if(active.get()) {frame=image;if(ambient.value) aura?.offer(image)} }
+                val stop=CanvasVideoEngine.play(video,clock) { image -> if(active.get()) {frame=image;videoFrameVisible=true;if(ambient.value) aura?.offer(image)} }
                 onDispose { active.set(false);stop?.invoke();aura?.offer(null) }
             }
             // Over a dark backing and faded in, so the cover never shows around a letterboxed video.

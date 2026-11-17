@@ -23,6 +23,7 @@ import java.awt.MouseInfo
 /** A focusable, scrollable desktop menu at the initiating click, constrained to the window. */
 @Composable
 internal fun DesktopSongContextMenu(items: List<GlassMenuItem>, onDismiss: () -> Unit, background: @Composable () -> Unit) {
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val invocation = LocalMenuInvocationAnchor.current
     val point = remember {
         invocation?.point ?: runCatching {

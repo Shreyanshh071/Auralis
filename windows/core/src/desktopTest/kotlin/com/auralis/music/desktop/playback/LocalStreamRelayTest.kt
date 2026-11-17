@@ -78,6 +78,39 @@ class LocalStreamRelayTest {
     }
 
     @Test
+    fun concurrentRefusedPiecesShareOneRefresh() {
+        val refreshes = java.util.concurrent.atomic.AtomicInteger()
+        val local = LocalStreamRelay.register("$base/limited?clen=$size&n=coalesce", refresh = {
+            refreshes.incrementAndGet()
+            Thread.sleep(150) // the other reader's piece fails meanwhile
+            "$base/full?clen=$size&n=coalesce"
+        })
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val a = pool.submit<Pair<Int, ByteArray>> { read(local, "bytes=1100000-1200000") }
+            val b = pool.submit<Pair<Int, ByteArray>> { read(local, "bytes=2100000-2200000") }
+            assertContentEquals(data.copyOfRange(1_100_000, 1_200_001), a.get().second)
+            assertContentEquals(data.copyOfRange(2_100_000, 2_200_001), b.get().second)
+        } finally { pool.shutdown() }
+        assertEquals(1, refreshes.get(), "pieces that failed together must share one fresh link")
+    }
+
+    @Test
+    fun sameLengthButAnotherFormatIsNotSplicedIn() {
+        val local = LocalStreamRelay.register("$base/limited?itag=251&clen=$size&n=itag", refresh = { "$base/full?itag=140&clen=$size&n=itag" })
+        val (_, body) = read(local, "bytes=0-")
+        assertTrue(body.size < size, "equal length alone must not let another format continue the stream")
+        assertContentEquals(data.copyOfRange(0, body.size), body)
+    }
+
+    @Test
+    fun aRefusalIsReportedWithItsCategory() {
+        val local = LocalStreamRelay.register("$base/limited?clen=$size&n=report")
+        read(local, "bytes=1100000-1100100")
+        assertEquals(com.auralis.music.data.network.FailureCategory.MEDIA_FORBIDDEN, LocalStreamRelay.failureFor(local)?.category)
+    }
+
+    @Test
     fun neverSplicesInADifferentFile() {
         val local = LocalStreamRelay.register("$base/limited?clen=$size", refresh = { "$base/full?clen=999" })
         val (_, body) = read(local, "bytes=0-")

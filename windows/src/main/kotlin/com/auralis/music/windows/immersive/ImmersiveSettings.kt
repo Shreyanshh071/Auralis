@@ -16,6 +16,24 @@ private fun idleLabel(minutes: Int) = if (minutes == 0) "Never" else "After $min
 internal fun ImmersiveSettings() {
     val revision by DesktopPreferences.store.changes.collectAsState()
     val preferences = remember(revision) { ImmersivePreferences() }
+    val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
+    if (isMac) {
+        val notch = remember(revision) { com.auralis.music.windows.notch.NotchPreferences() }
+        val notchStatus by com.auralis.music.windows.notch.NotchStatus.message.collectAsState()
+        com.auralis.music.windows.settings.SettingToggle(
+            title = "Auralis notch",
+            description = "An Auralis-only player at the top of your screen. Hover to expand. Hides after 10 seconds paused." +
+                if (notchStatus.isNotEmpty()) "\n$notchStatus" else "",
+            checked = notch.enabled,
+            onChecked = { notch.enabled = it }
+        )
+        com.auralis.music.windows.settings.SettingToggle(
+            title = "Show on Lock Screen",
+            description = "Show live lyrics and playback controls on the macOS Lock Screen while music plays. Press ⌘⇧L to preview and record while unlocked.",
+            checked = preferences.macLockScreenOverlay,
+            onChecked = { preferences.macLockScreenOverlay = it }
+        )
+    }
     SettingChoice(
         title = "Start when idle",
         description = "While music plays and nothing is fullscreen. Any input leaves. Press I to start it yourself.",

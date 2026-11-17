@@ -25,20 +25,24 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
     fun signInEmail(email: String, password: String, create: Boolean = false): JSONObject {
         val result = request("https://identitytoolkit.googleapis.com/v1/accounts:${if (create) "signUp" else "signInWithPassword"}?key=$apiKey", "POST",
             JSONObject().put("email", email.trim()).put("password", password).put("returnSecureToken", true), false)
-        token = result.getString("idToken"); refresh = result.getString("refreshToken"); uid = result.getString("localId")
-        expiresAt = System.currentTimeMillis() + result.getString("expiresIn").toLong() * 1000 - 60_000
-        anonymous = false
+        synchronized(this) {
+            token = result.getString("idToken"); refresh = result.getString("refreshToken"); uid = result.getString("localId")
+            expiresAt = System.currentTimeMillis() + result.getString("expiresIn").toLong() * 1000 - 60_000
+            anonymous = false
+        }
         return result
     }
     fun signInGoogle(idToken: String) {
         val body = "id_token=${java.net.URLEncoder.encode(idToken, Charsets.UTF_8)}&providerId=google.com"
         val result = request("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=$apiKey", "POST",
             JSONObject().put("postBody", body).put("requestUri", "http://localhost").put("returnSecureToken", true), false)
-        token = result.getString("idToken"); refresh = result.getString("refreshToken"); uid = result.getString("localId")
-        expiresAt = System.currentTimeMillis() + result.getString("expiresIn").toLong() * 1000 - 60_000
-        anonymous = false
+        synchronized(this) {
+            token = result.getString("idToken"); refresh = result.getString("refreshToken"); uid = result.getString("localId")
+            expiresAt = System.currentTimeMillis() + result.getString("expiresIn").toLong() * 1000 - 60_000
+            anonymous = false
+        }
     }
-    fun restoreAccount(refreshToken: String) { refresh = refreshToken; expiresAt = 0; anonymous = false; authenticate() }
+    @Synchronized fun restoreAccount(refreshToken: String) { refresh = refreshToken; expiresAt = 0; anonymous = false; authenticate() }
     fun accountRefreshToken(): String = refresh
 
     internal class ListenCredentials(val database: String, val bearer: String)
@@ -56,7 +60,7 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
     fun resetPassword(email: String) {
         request("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=$apiKey", "POST", JSONObject().put("requestType", "PASSWORD_RESET").put("email", email.trim()), false)
     }
-    fun forgetAccount() { uid = ""; token = ""; refresh = ""; expiresAt = 0 }
+    @Synchronized fun forgetAccount() { uid = ""; token = ""; refresh = ""; expiresAt = 0 }
 
     private fun request(url: String, method: String, body: JSONObject? = null, bearer: Boolean = true): JSONObject {
         transport?.let { return it(url, method, body, if (bearer) token else null) }
@@ -103,6 +107,14 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
     /** The signed-in account's ID token, refreshed when asked; null with no account, never an anonymous one. */
+    /** [expectedUid]'s ID token, or null when another account (or none) is signed in, checked atomically. */
+    @Synchronized fun accountIdTokenFor(expectedUid: String, forceRefresh: Boolean): String? {
+        if (anonymous || refresh.isEmpty() || uid != expectedUid) return null
+        if (forceRefresh) expiresAt = 0
+        authenticate()
+        return token.takeIf { it.isNotEmpty() && uid == expectedUid }
+    }
+
     @Synchronized fun accountIdToken(forceRefresh: Boolean): String? {
         if (anonymous || refresh.isEmpty()) return null
         if (forceRefresh) expiresAt = 0

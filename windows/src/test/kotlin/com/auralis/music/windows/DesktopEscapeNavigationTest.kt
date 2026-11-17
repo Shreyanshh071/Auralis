@@ -13,6 +13,7 @@ import kotlin.test.*
 
 @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
 class DesktopEscapeNavigationTest {
+    @BeforeTest fun setUp() = com.auralis.music.ui.components.DesktopBackDispatcher.clear()
     @Test fun escapeCollapsesPlayerThenReturnsSettingsLibraryHomeEvenWhileTyping() {
         val navigation = DesktopNavigation()
         val home = DesktopRoute(DesktopDestination.HOME, emptyList())

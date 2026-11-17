@@ -33,6 +33,7 @@ internal fun GlassDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, 
     aboveAnchor: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
     if (!expanded) return
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val density = LocalDensity.current
     val window = LocalWindowInfo.current.containerSize
     val margin = with(density) { 8.dp.roundToPx() }

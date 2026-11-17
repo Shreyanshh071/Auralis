@@ -55,6 +55,41 @@ class GoogleAccountSyncManager(
     private val prefs: SharedPreferences =
         context.getSharedPreferences("auralis_account_prefs", Context.MODE_PRIVATE)
 
+    // ---- Account library on Cloudflare (docs/library-sync/spec.md) -------------------------------
+    // With a blank BuildConfig.LIBRARY_SYNC_URL (rollout off) none of this contacts anything and
+    // the library keeps syncing through Firestore exactly as before.
+    private val libraryScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    /** The phone's one account sync client, shared with settings sync (AccountSyncHub). */
+    private val libraryCloud get() = com.auralis.music.data.sync.AccountSyncHub.client(context)
+
+    /** Whether an activity is showing: the notification socket is only held open then. */
+    @Volatile private var inForeground = true
+    private var startedActivities = 0
+
+    private fun followForeground() {
+        val app = context.applicationContext as? android.app.Application ?: return
+        app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) {
+                startedActivities++
+                if (inForeground) return
+                inForeground = true
+                com.auralis.music.data.sync.AccountSyncHub.inForeground = true
+                com.auralis.music.data.sync.AccountSyncHub.foregroundCount++
+                // Back in the foreground: other devices may have changed the library meanwhile.
+                if (libraryCloud.enabled) libraryScope.launch { backupLibraryToCloud() }
+            }
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                if (startedActivities == 0) { inForeground = false; com.auralis.music.data.sync.AccountSyncHub.inForeground = false; libraryCloud.stopAll() }
+            }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+    }
+
     private val _userProfile = MutableStateFlow(loadPersistedProfile())
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
@@ -427,36 +462,56 @@ class GoogleAccountSyncManager(
         val baselineKey = "library_baseline_$uid"
         val baseline = com.auralis.music.data.sync.SyncBaseline.decode(prefs.getString(baselineKey, null))
         val protected = com.auralis.music.data.playlistsync.AndroidPlaylistSync.protectedPlaylistIds(context)
-        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-        val doc = db.collection("users").document(uid)
-        fun mergeWith(snapshot: com.google.firebase.firestore.DocumentSnapshot, now: Long) =
-            com.auralis.music.data.sync.AccountLibraryMerge.merge(
-                local, com.auralis.music.data.sync.CloudLibrary.parse(snapshot.data.orEmpty()).toSyncedLibrary(), baseline, now, protected)
         // Whether the account now holds the merged library. When it doesn't, the baseline must stay:
         // recording a library the account never got would read its missing items as deletions.
         var accountSaved = true
-        val plan = try {
-            db.runTransaction { tx ->
-                val snapshot = tx.get(doc)
-                val now = System.currentTimeMillis()
-                val merged = mergeWith(snapshot, now)
-                // Signed out or switched while merging: never send this library to the account.
+        val plan = when (val route = libraryCloud.route(uid)) {
+            is com.auralis.music.data.sync.LibraryRoute.Wait -> throw java.io.IOException(
+                if (route.migrating) "Your library is being moved to a new sync service. Changes are saved on this phone and will sync when it finishes."
+                else "Couldn't check where your library syncs. Your changes are saved on this phone and will sync later.")
+            is com.auralis.music.data.sync.LibraryRoute.Cloudflare -> {
+                val result = libraryCloud.sync(uid, route.epoch, baseline, protected, { local })
+                // Signed out or switched while syncing: never apply this account's library to another's phone.
                 check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
-                if (merged.accountChanged || !snapshot.exists()) {
-                    tx.set(doc, cloudDocument(merged.account, now), com.google.firebase.firestore.SetOptions.merge())
+                accountSaved = result.saved
+                if (result.refused > 0) android.util.Log.w("CloudSync", "[CloudSync] The library server refused ${result.refused} changes")
+                // Other devices' edits arrive by notification while the app is showing; nothing is polled.
+                if (inForeground) libraryCloud.watch(uid) { backupLibraryToCloud() }
+                result.plan
+            }
+            com.auralis.music.data.sync.LibraryRoute.Firestore -> {
+                libraryCloud.stopWatching()
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val doc = db.collection("users").document(uid)
+                fun mergeWith(snapshot: com.google.firebase.firestore.DocumentSnapshot, now: Long) =
+                    com.auralis.music.data.sync.AccountLibraryMerge.merge(
+                        local, com.auralis.music.data.sync.CloudLibrary.parse(snapshot.data.orEmpty()).toSyncedLibrary(), baseline, now, protected)
+                try {
+                    db.runTransaction { tx ->
+                        val snapshot = tx.get(doc)
+                        val now = System.currentTimeMillis()
+                        val merged = mergeWith(snapshot, now)
+                        // Signed out or switched while merging: never send this library to the account.
+                        check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
+                        if (merged.accountChanged || !snapshot.exists()) {
+                            tx.set(doc, cloudDocument(merged.account, now), com.google.firebase.firestore.SetOptions.merge())
+                        }
+                        merged
+                    }.await()
+                } catch (e: com.google.firebase.firestore.FirebaseFirestoreException) {
+                    // Refused by the rules: the account's library may have moved. Ask discovery before the next try.
+                    if (e.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) libraryCloud.authorityChanged(uid)
+                    // The daily write quota is used up, but reads still work: bring the account's library
+                    // onto this phone anyway, and send this phone's changes on a later sync.
+                    if (e.code != com.google.firebase.firestore.FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) throw e
+                    val snapshot = doc.get().await()
+                    if (!snapshot.exists()) throw e
+                    check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
+                    accountSaved = false
+                    android.util.Log.w("CloudSync", "[CloudSync] Write quota used up: applying the account's library here without saving")
+                    mergeWith(snapshot, System.currentTimeMillis())
                 }
-                merged
-            }.await()
-        } catch (e: com.google.firebase.firestore.FirebaseFirestoreException) {
-            // The daily write quota is used up, but reads still work: bring the account's library
-            // onto this phone anyway, and send this phone's changes on a later sync.
-            if (e.code != com.google.firebase.firestore.FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) throw e
-            val snapshot = doc.get().await()
-            if (!snapshot.exists()) throw e
-            check(FirebaseAuth.getInstance().currentUser?.uid == uid) { "Account changed during sync" }
-            accountSaved = false
-            android.util.Log.w("CloudSync", "[CloudSync] Write quota used up: applying the account's library here without saving")
-            mergeWith(snapshot, System.currentTimeMillis())
+            }
         }
 
         inTransaction {
@@ -513,6 +568,7 @@ class GoogleAccountSyncManager(
      */
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     fun startContinuousCloudSync(scope: CoroutineScope) {
+        followForeground()
         scope.launch(Dispatchers.IO) {
             val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
             if (user != null && !user.isAnonymous) {
@@ -691,6 +747,9 @@ class GoogleAccountSyncManager(
                 connectBatch.delete(userDoc.collection("connect").document("intent"))
                 connectBatch.commit().await()
             }
+            // The library may live on the library service instead of this document: delete it there
+            // too, while the sign-in still exists. A failure stops here, so the user can try again.
+            libraryCloud.erase(uid)
             userDoc.delete().await()
             user.delete().await()
 
@@ -769,6 +828,7 @@ class GoogleAccountSyncManager(
         persistProfile(reset)
         prefs.edit().putBoolean("has_completed_onboarding", false).apply()
         try {
+            libraryCloud.stopAll()
             FirebaseAuth.getInstance().signOut()
         } catch (_: Exception) {}
         _syncMessage.value = "Disconnected account."

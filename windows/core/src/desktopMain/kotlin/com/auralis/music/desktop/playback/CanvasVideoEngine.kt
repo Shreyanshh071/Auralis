@@ -34,6 +34,7 @@ object CanvasVideoEngine {
         onFrame: (ImageBitmap) -> Unit
     ): (() -> Unit)? {
         require(frameShortSide in 1..2160)
+        val started = System.nanoTime()
         val factory = factory ?: return null
         val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
         var width = 0; var height = 0; var lastFrame = 0L
@@ -62,14 +63,17 @@ object CanvasVideoEngine {
                         org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.OPAQUE),
                         bytes, width * 4)
                     onFrame(image.toComposeImageBitmap())
-                    firstFrameShown.set(true)
+                    if (firstFrameShown.compareAndSet(false, true))
+                        Log.i("AnimatedCovers", "First video frame in ${(System.nanoTime() - started) / 1_000_000L}ms (local=${java.io.File(url).isFile})")
                 }
             },
             true)
         player.videoSurface().set(surface)
         val active = java.util.concurrent.atomic.AtomicBoolean(true)
         player.controls().setRepeat(loop)
-        player.media().play(url, ":no-audio")
+        // A completed local canvas needs little read-ahead. Keep network buffering at VLC's
+        // normal value for streamed covers; this option only shortens local-file startup.
+        player.media().play(url, ":no-audio", ":file-caching=100")
         if (clock != null) Thread({
             while (active.get()) {
                 runCatching {

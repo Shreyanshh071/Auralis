@@ -129,6 +129,11 @@ class AccountPreferencesSync(private val local: AccountPreferencesLocal, private
     private var lastPull = Long.MIN_VALUE
     private var lastEdit = 0L
     private var retryAt = 0L
+    /** Set when another device's change was announced or the connection came back: pull at the next step. */
+    @Volatile private var forced = false
+
+    /** Pull at the next step instead of waiting for the poll interval. */
+    fun refresh() { forced = true; retryAt = 0L }
     private val lock = Mutex()
     private suspend fun save() { storage.write(json.encodeToString(Journal.serializer(), journal!!)) }
     private fun snapshot(values: Map<String, String>) = values.filter { AccountPreferenceSchema.valid(it.key, it.value) }
@@ -164,7 +169,8 @@ class AccountPreferencesSync(private val local: AccountPreferencesLocal, private
             if (before != journal) save()
             if (now() < retryAt) return@withLock
             val initial = lastPull == Long.MIN_VALUE
-            if (!initial && !(state.pending.isNotEmpty() && now() - lastEdit >= 800L) && now() - lastPull < pollMs) return@withLock
+            if (!initial && !forced && !(state.pending.isNotEmpty() && now() - lastEdit >= 800L) && now() - lastPull < pollMs) return@withLock
+            forced = false
             mutableStatus.value = Status.SYNCING
             val remote = backend.exchange(uid, state.pending, values).filter {
                 AccountPreferenceSchema.valid(it.key, it.value.value) && it.value.revision in 0..1_000_000_000L

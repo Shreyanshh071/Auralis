@@ -114,9 +114,9 @@ class DesktopHomePlatform(private val dir: File, private val stats: com.auralis.
     override fun artworkRepairDone(unresolved: Int) {}
     override suspend fun onTrackMetadataVerified(track: Track) {}
 
-    override suspend fun prewarmStream(track: Track) {
-        DesktopStreamResolver.resolve(track.id)
-    }
+    // Home used to resolve its first two Speed Dial songs on every load: two YouTube extractions
+    // per launch for songs that usually weren't played. Streams are looked up on a play intent.
+    override suspend fun prewarmStream(track: Track) = Unit
 
     private companion object {
         const val TAG = "DesktopHomePlatform"

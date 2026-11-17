@@ -31,13 +31,7 @@ class AndroidAccountPreferences(private val context: Context) {
         val device = prefs.getString("id", null) ?: java.util.UUID.randomUUID().toString().also {
             prefs.edit().putString("id", it).commit()
         }
-        val engine = AccountPreferencesSync(
-            DataStoreAccountPreferences(context.appearanceSettingsDataStore, context.settingsDataStore) {
-                AccountPreferenceSchema.values(
-                    com.auralis.music.data.datastore.AppearanceSettingsDataStore(context).settingsFlow.first(),
-                    com.auralis.music.data.datastore.SettingsDataStore(context).settingsFlow.first())
-            },
-            AccountPreferencesBackend { uid, edits, seed ->
+        val firestore = AccountPreferencesBackend { uid, edits, seed ->
                 check(auth.currentUser?.uid == uid && auth.currentUser?.isAnonymous == false)
                 val doc = FirebaseFirestore.getInstance().collection("users").document(uid)
                 FirebaseFirestore.getInstance().runTransaction { tx ->
@@ -51,18 +45,36 @@ class AndroidAccountPreferences(private val context: Context) {
                             AccountPreferencesMerge.encode(merged)))), SetOptions.mergeFields("preferences.android"))
                     merged
                 }.await()
-            }, DataStorePreferencesJournal(context.accountPreferencesJournal), device)
+            }
+        val hub = AccountSyncHub
+        // With account sync on, other devices' changes arrive by notification while the app is
+        // showing, and returning to the foreground catches up; the 6-hour check is only a safety net.
+        val backend = if (hub.accountSyncOn) BridgedPreferencesBackend(
+            CloudPreferencesBackend("android") { uid, frame -> hub.client(context).call(uid, frame) }, firestore,
+            log = { android.util.Log.i("AccountPreferences", it) }) else firestore
+        val engine = AccountPreferencesSync(
+            DataStoreAccountPreferences(context.appearanceSettingsDataStore, context.settingsDataStore) {
+                AccountPreferenceSchema.values(
+                    com.auralis.music.data.datastore.AppearanceSettingsDataStore(context).settingsFlow.first(),
+                    com.auralis.music.data.datastore.SettingsDataStore(context).settingsFlow.first())
+            },
+            backend, DataStorePreferencesJournal(context.accountPreferencesJournal), device,
+            pollMs = if (hub.accountSyncOn) 6 * 3_600_000L else 30_000L)
         launch { engine.status.collect { android.util.Log.i("AccountPreferences", "Phone settings sync: $it") } }
         callbackFlow {
             val listener = FirebaseAuth.AuthStateListener { trySend(it.currentUser?.takeIf { u -> !u.isAnonymous }?.uid) }
             auth.addAuthStateListener(listener)
             awaitClose { auth.removeAuthStateListener(listener) }
         }.distinctUntilChanged().collectLatest { uid ->
+            var seenForeground = hub.foregroundCount
             engine.step(uid)
-            // Every second while the app is open; every minute while it's hidden (battery), and at
-            // once when it comes back.
             if (uid != null) while (isActive) {
-                com.auralis.music.data.AppVisibility.pause(1_000L, 60_000L)
+                delay(1_000L)
+                if (hub.accountSyncOn) {
+                    // Back in the foreground: pull what changed while the socket was closed.
+                    if (hub.foregroundCount != seenForeground) { seenForeground = hub.foregroundCount; engine.refresh() }
+                    if (hub.inForeground) hub.client(context).listen(uid, "settings") { engine.refresh() }
+                }
                 engine.step(uid)
             }
         }

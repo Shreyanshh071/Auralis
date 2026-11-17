@@ -2,6 +2,7 @@ package com.auralis.music.desktop.playback
 
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -12,6 +13,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import com.auralis.music.data.network.YouTubeBackoff
+import com.auralis.music.data.network.YouTubeCooldown
 
 /**
  * The desktop queue: what is playing, what comes next, and the controls. Like the phone, tapping
@@ -22,8 +27,15 @@ class DesktopPlaybackController(
     private val scope: CoroutineScope,
     private val offlineFile: (String) -> java.io.File? = { com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(it) },
     volumeStore: com.auralis.music.util.KeyValueStore? = null,
-    private val resolveStream: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
+    private val resolveStream: suspend (String) -> String? = DEFAULT_RESOLVE
 ) {
+    /** Stream lookups with their reasons; tests' plain resolvers are wrapped (null = unknown failure). */
+    private val resolveDetailed: suspend (String, RequestPriority) -> ResolutionResult =
+        if (resolveStream === DEFAULT_RESOLVE) { id, priority -> DesktopStreamResolver.resolveResult(id, priority) }
+        else { id, _ ->
+            resolveStream(id)?.let { ResolutionResult.Resolved(PlaybackResource.fromUrl(id, it)) }
+                ?: ResolutionResult.Failed(com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.UNKNOWN, "resolve"))
+        }
     enum class RepeatMode { OFF, ALL, ONE }
     data class Queue(val tracks: List<Track> = emptyList(), val index: Int = -1, val listenedIndices: Set<Int> = emptySet()) {
         val history: List<IndexedValue<Track>> get() = tracks.withIndex().take(index.coerceAtLeast(0)).filter { it.index in listenedIndices }
@@ -159,7 +171,7 @@ class DesktopPlaybackController(
             pendingResumeMs = null
             load(Queue(tracks, index), resumeAtMs = positionMs.coerceAtLeast(0L))
         } else {
-            loadJob?.cancel(); preloadJob?.cancel(); stallJob?.cancel()
+            loadJob?.cancel(); preloadJob?.cancel(); stallJob?.cancel(); progressJob?.cancel()
             _resolving.value = false
             player.stop()
             lengthTrackId.value = null
@@ -221,17 +233,9 @@ class DesktopPlaybackController(
     fun restoreQueue(tracks: List<Track>, index: Int = 0) {
         if (tracks.isEmpty() || index !in tracks.indices) return
         if (_queue.value.current == null && player.state.value == VlcAudioPlayer.State.IDLE) {
+            // Idle: no stream lookup, no media request and no video lookup until play is pressed.
+            // Every launch used to ask YouTube for the restored song whether or not it was played.
             _queue.value = Queue(tracks = tracks, index = index)
-            // The first lookup after launch is the slowest (~2.5s, NewPipe warming up); do it for the
-            // restored song shortly after launch, so pressing play starts it almost at once.
-            val track = tracks[index]
-            if (offlineFile(track.id) == null) preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                kotlinx.coroutines.delay(RESTORED_PRELOAD_DELAY_MS)
-                if (_queue.value.current?.id != track.id || player.state.value != VlcAudioPlayer.State.IDLE) return@launch
-                val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id)
-                    ?: track.id.takeIf(DesktopPlaybackMatch::isVideoId) ?: return@launch
-                resolveStream(id)?.let { LocalStreamRelay.preload(it, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }) }
-            }
         }
     }
 
@@ -304,8 +308,22 @@ class DesktopPlaybackController(
     /** The song being started and when it was asked for, until it sounds (for the log). */
     @Volatile private var startRequested: Pair<String, Long>? = null
 
-    /** The stream URL handed to libVLC for the current song. */
-    @Volatile private var currentUrl: String? = null
+    /** The address handed to libVLC for the current song (the relay's, or a downloaded file). */
+    @Volatile private var currentLocalUrl: String? = null
+
+    /** The current play intent's allowance, shared by its lookup, relay refreshes and recoveries. */
+    @Volatile private var budget: com.auralis.music.data.network.RequestBudget? = null
+    /** The song whose player failure was already repaired once by reopening the same source. */
+    private var playerRepairTrackId: String? = null
+    private var progressJob: Job? = null
+
+    private val _establishedTrackId = MutableStateFlow<String?>(null)
+    /**
+     * The song whose audio is actually sounding on this PC, or null. Optional work (the sidebar's
+     * companion video) waits for this: never for a restored idle song, a song still resolving, or
+     * a song another device plays through Connect.
+     */
+    val establishedTrackId: StateFlow<String?> = _establishedTrackId.asStateFlow()
 
     init {
         // Only sound counts as success: a failure streak ends when audio actually plays, not when
@@ -314,11 +332,19 @@ class DesktopPlaybackController(
             player.state.collect { if (it == VlcAudioPlayer.State.PLAYING) {
                 startRequested?.let { (id, nanos) ->
                     startRequested = null
-                    com.auralis.music.util.Log.i("DesktopPlayback", "Started $id in ${(System.nanoTime() - nanos) / 1_000_000}ms")
+                    com.auralis.music.util.Log.i("DesktopPlayback", "Started $id in ${(System.nanoTime() - nanos) / 1_000_000}ms ${budget ?: ""}")
                 }
                 consecutiveFailures = 0
                 _queue.update { q -> q.current?.let { q.copy(listenedIndices = q.listenedIndices + q.index) } ?: q }
             } }
+        }
+        // Crossfades keep the state PLAYING across songs, so the song's own stream identity decides.
+        scope.launch {
+            kotlinx.coroutines.flow.combine(player.state, lengthTrackId, _connectRemote) { s, id, remote -> Triple(s, id, remote) }
+                .collect { (s, id, remote) ->
+                    if (remote != null) _establishedTrackId.value = null
+                    else if (s == VlcAudioPlayer.State.PLAYING && id != null && id == _queue.value.current?.id) _establishedTrackId.value = id
+                }
         }
         player.onFinished = { scope.launch {
             if (_resolving.value && crossfadeSeconds > 0) return@launch
@@ -342,15 +368,33 @@ class DesktopPlaybackController(
             scope.launch {
                 if (_resolving.value && crossfadeSeconds > 0) return@launch
                 val track = _queue.value.current ?: return@launch
-                // A stream URL can expire or be refused (YouTube answers 403). Like the phone,
-                // avoid that server for a while and look the song up once more before giving up.
-                currentUrl?.let(DesktopStreamResolver::markHostFailed)
-                DesktopStreamResolver.invalidate(track.id)
-                if (retriedTrackId != track.id) {
+                val local = currentLocalUrl
+                val position = player.positionMs.value
+                val upstream = local?.let(LocalStreamRelay::failureFor)
+                if (upstream == null) {
+                    // libVLC/decoder/output failed while the source was fine: reopen the same
+                    // source once. Asking YouTube for a new link wouldn't fix a player problem.
+                    if (local != null && playerRepairTrackId != track.id) {
+                        playerRepairTrackId = track.id
+                        com.auralis.music.util.Log.w("DesktopPlayback", "Player failed on ${track.id} with a healthy source; reopening it at ${position}ms")
+                        player.stop()
+                        player.play(local, position, track.id)
+                        lengthTrackId.value = track.id
+                    } else {
+                        failed(track, com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.PLAYER, "playback"))
+                    }
+                    return@launch
+                }
+                // The relay couldn't repair its upstream: a network-wide refusal waits, anything
+                // else gets one fresh lookup if the intent still has recovery allowance.
+                if (upstream.category.networkWide) {
+                    unavailable(track, ResolutionResult.Failed(upstream), position)
+                } else if (retriedTrackId != track.id && budget?.tryTransition("re-resolve ${track.id} after ${upstream.category}") != false) {
                     retriedTrackId = track.id
-                    load(_queue.value, resumeAtMs = player.positionMs.value, isRetry = true)
+                    DesktopStreamResolver.invalidate(track.id)
+                    load(_queue.value, resumeAtMs = position, isRetry = true)
                 } else {
-                    failed(track)
+                    failed(track, upstream)
                 }
             }
         }
@@ -518,6 +562,7 @@ class DesktopPlaybackController(
         preloadJob?.cancel()
         loadJob?.cancel()
         stallJob?.cancel()
+        progressJob?.cancel()
         player.release()
     }
 
@@ -529,6 +574,11 @@ class DesktopPlaybackController(
         if (!isRetry) startRequested = track.id to System.nanoTime()
         if (!isRetry) _session.value++
         if (!isRetry) retriedTrackId = null
+        if (!isRetry) playerRepairTrackId = null
+        // A new intent gets its own allowance; a retry spends the one it already has.
+        val intentBudget = budget.takeIf { isRetry } ?: com.auralis.music.data.network.RequestBudget(
+            com.auralis.music.data.network.RequestBudget.newId(), "play").also { budget = it }
+        if (_establishedTrackId.value != track.id) _establishedTrackId.value = null
         lengthTrackId.value = null
         _queue.value = q
         resumeAnchor = resumeAtMs.takeIf { it > 0L }?.let { ResumeAnchor(track.id, it, System.nanoTime()) }
@@ -536,6 +586,7 @@ class DesktopPlaybackController(
         loadJob?.cancel()
         preloadJob?.cancel()
         stallJob?.cancel()
+        progressJob?.cancel()
         val fade = crossfadeSeconds > 0 && roomControl == null && !isRetry && resumeAtMs == 0L &&
             current.current != null && current.current?.id != track.id && player.state.value == VlcAudioPlayer.State.PLAYING
         if (!fade) player.stop()
@@ -544,25 +595,22 @@ class DesktopPlaybackController(
         loadJob = scope.launch {
             _resolving.value = true
             val localAudio = offlineFile(track.id)
-            val url = try {
-                localAudio?.absolutePath
-                    ?: run {
-                        val videoId = DesktopPlaybackMatch.videoId(track)
-                        // An age-restricted or unplayable upload: play another upload of the same recording.
-                        if (videoId == null) null else resolveStream(videoId)
-                            ?: DesktopPlaybackMatch.alternative(track, videoId, resolveStream)?.second
-                    }
+            val result: ResolutionResult = try {
+                if (localAudio != null) ResolutionResult.Resolved(PlaybackResource(track.id, localAudio.absolutePath, Long.MAX_VALUE))
+                else kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(intentBudget)) { lookUp(track, intentBudget) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 com.auralis.music.util.Log.w("DesktopPlayback", "Playback lookup failed for ${track.id}: ${e.javaClass.simpleName}")
-                null
+                ResolutionResult.Failed(com.auralis.music.data.network.FailureClassifier.classify(e, "resolve"))
             } finally {
                 _resolving.value = false
             }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (_queue.value.current?.id != track.id) return@launch
+            val url = result.url
             if (url == null) {
-                failed(track)
+                unavailable(track, result, resumeAnchor?.takeIf { it.trackId == track.id }?.positionMs ?: resumeAtMs)
             } else {
                 // A sleeping device (Bluetooth earbuds) misses the first second or two of whatever
                 // plays as it wakes; give a cold one that long on silence first.
@@ -572,39 +620,126 @@ class DesktopPlaybackController(
                     if (_queue.value.current?.id != track.id) return@launch
                 }
                 player.setVolume(_volume.value)
-                currentUrl = url
                 // Through the local relay, which fetches the stream in pieces YouTube accepts.
                 val startAt = resumeAnchor?.takeIf { it.trackId == track.id }?.positionMs ?: resumeAtMs
-                player.play(if (localAudio != null) url else LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(track.id) }), startAt, track.id)
+                val local = if (localAudio != null) url else LocalStreamRelay.register(url, refresh = relayRefresh(track, intentBudget),
+                    tag = com.auralis.music.data.network.YouTubeTraffic.Tag(intentBudget.correlationId, "play", intentBudget))
+                currentLocalUrl = local
+                player.play(local, startAt, track.id)
                 lengthTrackId.value = track.id
                 if (localAudio == null) watchForStall(track)
-                if (preloadNext && q.hasNext) {
-                    preloadJob?.cancel()
-                    preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val next = q.tracks[q.index + 1]
-                        if (offlineFile(next.id) != null) return@launch
-                        val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id)
-                            ?: (if (DesktopPlaybackMatch.isVideoId(next.id)) next.id else DesktopPlaybackMatch.videoId(next))
-                        // The next song's address and its first seconds of audio, so skipping starts at once.
-                        if (id != null && DesktopPlaybackMatch.isVideoId(id)) resolveStream(id)?.let { nextUrl ->
-                            LocalStreamRelay.preload(nextUrl, refresh = { DesktopStreamResolver.refreshBlocking(next.id) })
-                        }
-                    }
+                watchProgress(track)
+            }
+        }
+    }
+
+    /** The song's stream: its matched upload, or another upload of the recording when that one can't play. */
+    private suspend fun lookUp(track: Track, intentBudget: com.auralis.music.data.network.RequestBudget): ResolutionResult {
+        val videoId = DesktopPlaybackMatch.videoId(track)
+            ?: return YouTubeBackoff.retryInMs().takeIf { it > 0L }?.let {
+                ResolutionResult.Deferred(it, com.auralis.music.data.network.PlaybackFailure(
+                    YouTubeBackoff.cooldown.snapshot()?.cause.toCategory(), "match", detail = "cooldown"))
+            } ?: ResolutionResult.Failed(com.auralis.music.data.network.PlaybackFailure(
+                com.auralis.music.data.network.FailureCategory.CONTENT_UNAVAILABLE, "match", detail = "no matching upload"))
+        val primary = resolveDetailed(videoId, RequestPriority.FOREGROUND)
+        // Another upload only helps when this one is restricted or missing, not when YouTube
+        // is refusing this network (every upload would fail alike), and only within the allowance.
+        if (primary !is ResolutionResult.Failed || !primary.failure.category.alternateMayHelp ||
+            !intentBudget.tryTransition("alternate upload for ${track.id} after ${primary.failure.category}")) return primary
+        val alternate = DesktopPlaybackMatch.alternative(track, videoId) { resolveDetailed(it, RequestPriority.FOREGROUND).url }
+        return alternate?.let { ResolutionResult.Resolved(PlaybackResource.fromUrl(it.first, it.second)) } ?: primary
+    }
+
+    private fun YouTubeCooldown.Cause?.toCategory() = when (this) {
+        YouTubeCooldown.Cause.RATE_LIMITED -> com.auralis.music.data.network.FailureCategory.RATE_LIMITED
+        YouTubeCooldown.Cause.VERIFICATION -> com.auralis.music.data.network.FailureCategory.VERIFICATION_CHALLENGE
+        else -> com.auralis.music.data.network.FailureCategory.TRANSIENT
+    }
+
+    /**
+     * How the relay gets a new link for [track] when YouTube stops serving the current one: only
+     * while [track] is still the song playing, and only with the intent's recovery allowance.
+     */
+    private fun relayRefresh(track: Track, intentBudget: com.auralis.music.data.network.RequestBudget): (LocalStreamRelay.Refresh) -> String? = { refresh ->
+        if (_queue.value.current?.id != track.id) null
+        else if (!intentBudget.tryTransition("fresh link for ${track.id} after ${refresh.failure.category}")) null
+        else DesktopStreamResolver.refreshBlocking(track.id, refresh.failedUrl, refresh.failure, intentBudget)
+    }
+
+    /**
+     * Meaningful progress (time actually played, not a URL handed over) renews the intent's
+     * allowance and lets the next song's stream be prepared: never before, so preloading can't
+     * compete with a song that is still starting or recovering.
+     */
+    private fun watchProgress(track: Track) {
+        progressJob?.cancel()
+        progressJob = scope.launch {
+            var prefetched = false
+            var played = 0L
+            var last = -1L
+            while (_queue.value.current?.id == track.id) {
+                kotlinx.coroutines.delay(1000)
+                if (player.state.value == VlcAudioPlayer.State.PLAYING && lengthTrackId.value == track.id) {
+                    val position = player.positionMs.value
+                    if (last >= 0 && position > last) played += minOf(position - last, 2_000L)
+                    last = position
+                } else last = -1L
+                if (played >= PROGRESS_RENEW_MS) {
+                    played = 0L
+                    retriedTrackId = null
+                    stallRetries = 0
+                    budget?.renewAfterProgress()
+                }
+                if (!prefetched && played >= PREFETCH_AFTER_MS) {
+                    prefetched = true
+                    prefetchNext(track)
                 }
             }
         }
     }
 
+    private fun nextIdOf(q: Queue): String? = q.tracks.getOrNull(q.index + 1)?.takeIf { q.hasNext }?.id
+
+    /** One song ahead, at background priority, abandoned the moment it stops being next. */
+    private fun prefetchNext(track: Track) {
+        val q = _queue.value
+        if (!preloadNext || q.current?.id != track.id || !q.hasNext || roomControl != null || _connectRemote.value != null) return
+        val next = q.tracks[q.index + 1]
+        if (offlineFile(next.id) != null || YouTubeBackoff.active) return
+        preloadJob?.cancel()
+        preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val prefetchBudget = com.auralis.music.data.network.RequestBudget(com.auralis.music.data.network.RequestBudget.newId("n"), "prefetch",
+                deadlineMs = com.auralis.music.data.network.RequestBudget.BACKGROUND_DEADLINE_MS, recoveryTransitions = 0)
+            val work = async {
+                kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(prefetchBudget)) {
+                    val id = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(next.id)
+                        ?: (if (DesktopPlaybackMatch.isVideoId(next.id)) next.id else DesktopPlaybackMatch.videoId(next))
+                    if (id == null || !DesktopPlaybackMatch.isVideoId(id)) null else resolveDetailed(id, RequestPriority.BACKGROUND).url
+                }
+            }
+            val watcher = launch { _queue.first { nextIdOf(it) != next.id }; work.cancel() }
+            try {
+                val nextUrl = runCatching { work.await() }.getOrNull() ?: return@launch
+                if (nextIdOf(_queue.value) != next.id) return@launch
+                // The next song's first seconds of audio, so skipping starts at once.
+                LocalStreamRelay.preload(nextUrl, refresh = null,
+                    tag = com.auralis.music.data.network.YouTubeTraffic.Tag(prefetchBudget.correlationId, "prefetch", prefetchBudget))
+            } finally {
+                watcher.cancel()
+            }
+        }
+    }
+
     private var stallJob: Job? = null
-    /** Fresh streams fetched for a song that stalled; reset when another song is picked. */
+    /** Recoveries for a song that stalled; reset when another song is picked or it plays on. */
     private var stallRetries = 0
     private var stallTrackId: String? = null
 
     /**
-     * A stream can open but never deliver (or stop mid-song) without libVLC reporting an error, so
-     * the song sat buffering until it was picked again, which fetched a fresh stream. Do that on
-     * its own: no sound within [START_STALL_MS] of starting, or no progress for [PLAY_STALL_MS] while
-     * playing, gets a fresh stream at the same position (twice, then the song counts as failed).
+     * A stream can open but never deliver (or stop mid-song) without libVLC reporting an error.
+     * No sound within [START_STALL_MS] of starting, or no progress for [PLAY_STALL_MS] while
+     * playing: first the same source is reopened (no YouTube request) unless the relay saw its
+     * upstream fail, then a fresh link is fetched if the intent has recovery allowance left.
      */
     private fun watchForStall(track: Track) {
         if (stallTrackId != track.id) { stallTrackId = track.id; stallRetries = 0 }
@@ -625,16 +760,37 @@ class DesktopPlaybackController(
                 }
                 val limit = if (lastPosition < 0) START_STALL_MS else PLAY_STALL_MS
                 if ((System.nanoTime() - since) / 1_000_000 < limit) continue
+                val resumeAt = if (lastPosition < 0) 0L else position
+                val local = currentLocalUrl
+                val upstream = local?.let(LocalStreamRelay::failureFor)
+                if (upstream != null && upstream.category.networkWide) {
+                    com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} stalled: $upstream")
+                    player.stop()
+                    unavailable(track, ResolutionResult.Failed(upstream), resumeAt)
+                    return@launch
+                }
                 if (stallRetries >= 2) {
-                    com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} still stalled after fresh streams")
-                    failed(track)
+                    com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} still stalled after recovery ${upstream ?: ""}")
+                    failed(track, upstream ?: com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.TRANSIENT, "playback", detail = "stalled"))
                     return@launch
                 }
                 stallRetries++
-                com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} stalled ${if (lastPosition < 0) "before starting" else "at ${position}ms"}; fetching a fresh stream ($stallRetries/2)")
-                currentUrl?.let(DesktopStreamResolver::markHostFailed)
+                if (upstream == null && local != null && stallRetries == 1) {
+                    com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} stalled ${if (lastPosition < 0) "before starting" else "at ${position}ms"}; reopening the same source")
+                    player.stop()
+                    player.play(local, resumeAt, track.id)
+                    lengthTrackId.value = track.id
+                    lastPosition = -1L
+                    since = System.nanoTime()
+                    continue
+                }
+                if (budget?.tryTransition("fresh link for stalled ${track.id}${upstream?.let { " after ${it.category}" } ?: ""}") == false) {
+                    failed(track, upstream ?: com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.BUDGET_EXHAUSTED, "playback", detail = "stalled"))
+                    return@launch
+                }
+                com.auralis.music.util.Log.w("DesktopPlayback", "${track.id} stalled; fetching a fresh stream ($stallRetries/2)")
                 DesktopStreamResolver.invalidate(track.id)
-                load(_queue.value, resumeAtMs = if (lastPosition < 0) 0L else position, isRetry = true)
+                load(_queue.value, resumeAtMs = resumeAt, isRetry = true)
                 return@launch
             }
         }
@@ -643,26 +799,84 @@ class DesktopPlaybackController(
     private companion object {
         const val OUTPUT_WAKE_MS = 1000L
         const val START_STALL_MS = 6000L
-        const val RESTORED_PRELOAD_DELAY_MS = 4000L
         const val PLAY_STALL_MS = 10_000L
+        /** Played time that counts as meaningful progress (renews the recovery allowance). */
+        const val PROGRESS_RENEW_MS = 20_000L
+        /** Played time before the next song's stream is prepared. */
+        const val PREFETCH_AFTER_MS = 15_000L
+        val DEFAULT_RESOLVE: suspend (String) -> String? = { DesktopStreamResolver.resolve(it) }
     }
 
-    private fun failed(track: Track) {
+    /**
+     * The song couldn't start. When YouTube is refusing this network (rate limit, verification,
+     * offline) or the attempt ran out of time or allowance, every song would fail alike: keep the
+     * queue, the song and its position, say why, and send nothing more until play is pressed.
+     * A failure specific to this song moves on as before (at most three in a row).
+     */
+    private fun unavailable(track: Track, result: ResolutionResult, positionMs: Long) {
+        val failure = when (result) {
+            is ResolutionResult.Failed -> result.failure
+            is ResolutionResult.Deferred -> result.failure
+            else -> return
+        }
+        val category = failure.category
+        val keep = result is ResolutionResult.Deferred || category.networkWide ||
+            category == com.auralis.music.data.network.FailureCategory.TRANSIENT ||
+            category == com.auralis.music.data.network.FailureCategory.BUDGET_EXHAUSTED
+        if (!keep) return failed(track, failure)
+        // A failed crossfade lookup can leave the outgoing song alive. Stop it so its
+        // eventual end event cannot advance the queue past the song we are holding.
+        player.stop()
+        val wait = (result as? ResolutionResult.Deferred)?.retryInMs ?: YouTubeBackoff.retryInMs()
+        com.auralis.music.util.Log.w("DesktopPlayback", "Holding ${track.id} at ${positionMs}ms: $failure ${budget ?: ""}")
+        pendingResumeMs = positionMs.coerceAtLeast(0L).takeIf { it > 0L }
+        resumeAnchor = null
+        _errors.tryEmit(messageFor(track, failure, wait))
+    }
+
+    private fun failed(track: Track, failure: com.auralis.music.data.network.PlaybackFailure? = null) {
         consecutiveFailures++
-        // A YouTube bot check fails every song alike: say so, and don't skip through the queue.
-        if (DesktopPlaybackMatch.isVideoId(track.id) && DesktopStreamResolver.botCheckActive) {
-            com.auralis.music.util.Log.w("DesktopPlayback", "Not skipping: YouTube's bot check is blocking every song")
-            _errors.tryEmit("YouTube is asking this network to confirm it isn't a bot. Playback should work again in a few minutes.")
+        // A refusal of this network fails every song alike: skipping on would only burn through the queue.
+        val blocked = failure?.category?.networkWide == true || (DesktopPlaybackMatch.isVideoId(track.id) && YouTubeBackoff.active)
+        if (blocked) {
+            com.auralis.music.util.Log.w("DesktopPlayback", "Not skipping past ${track.id}: YouTube is refusing this network")
+            unavailable(track, ResolutionResult.Failed(failure?.takeIf { it.category.networkWide }
+                ?: com.auralis.music.data.network.PlaybackFailure(YouTubeBackoff.cooldown.snapshot()?.cause.toCategory())),
+                resumeAnchor?.positionMs ?: 0L)
             return
         }
-        _errors.tryEmit("Couldn't play “${track.title}”")
+        _errors.tryEmit(failure?.let { messageFor(track, it, 0L) } ?: "Couldn't play “${track.title}”")
         if (consecutiveFailures < 3 && _queue.value.current?.id == track.id && _queue.value.hasNext) {
             next()
         } else if (consecutiveFailures >= 3) {
             com.auralis.music.util.Log.w("DesktopPlayback", "Stopped skipping after $consecutiveFailures songs in a row failed")
-            _errors.tryEmit(if (DesktopPlaybackMatch.isVideoId(track.id) && com.auralis.music.data.network.YouTubeBackoff.active)
-                "YouTube is temporarily blocking requests from this network. Try again in a few minutes or switch networks."
-                else "Playback isn't working right now. Check your connection and try again.")
+            _errors.tryEmit("Playback isn't working right now. Check your connection and try again.")
+        }
+    }
+
+    /** What the listener is told; any time given is when Auralis may try again, not when YouTube relents. */
+    private fun messageFor(track: Track, failure: com.auralis.music.data.network.PlaybackFailure, waitMs: Long): String {
+        val retry = when {
+            waitMs <= 0L -> ""
+            waitMs < 90_000L -> " Auralis can try again in about ${(waitMs + 999) / 1000}s."
+            else -> " Auralis can try again in about ${(waitMs + 59_999) / 60_000} min."
+        }
+        return when (failure.category) {
+            com.auralis.music.data.network.FailureCategory.RATE_LIMITED ->
+                "YouTube is rate limiting requests from this network, so streaming is paused.$retry Your queue and position are kept."
+            com.auralis.music.data.network.FailureCategory.VERIFICATION_CHALLENGE ->
+                "YouTube is asking this network to confirm it isn't a bot, so streaming is paused.$retry Downloaded songs still play."
+            com.auralis.music.data.network.FailureCategory.NETWORK_UNAVAILABLE ->
+                "Can't reach YouTube. Check your connection; your queue and position are kept."
+            com.auralis.music.data.network.FailureCategory.TRANSIENT ->
+                "YouTube didn't answer in time for “${track.title}”. Press play to try again; your place is kept."
+            com.auralis.music.data.network.FailureCategory.BUDGET_EXHAUSTED ->
+                "Couldn't start “${track.title}” after a few tries. Press play to try again; your place is kept."
+            com.auralis.music.data.network.FailureCategory.RESTRICTED ->
+                "“${track.title}” is restricted (age, account or region) and can't be played here."
+            com.auralis.music.data.network.FailureCategory.CONTENT_UNAVAILABLE -> "“${track.title}” isn't available to stream."
+            com.auralis.music.data.network.FailureCategory.LOGIN_REQUIRED -> "YouTube wants a sign-in to play “${track.title}”."
+            else -> "Couldn't play “${track.title}”"
         }
     }
 }

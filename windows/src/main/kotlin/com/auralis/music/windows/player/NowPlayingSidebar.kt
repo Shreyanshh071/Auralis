@@ -88,6 +88,8 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     if (lyricsWindow && !mainPlayerOpen) LyricsMiniPopup(track, palette, { lyricsWindow = false }, expandPlayer, playback, lyricContent)
     val coverSize = (maxWidth - 32.dp).coerceAtLeast(1.dp)
     val motionAura = rememberMotionAura(track.id)
+    val establishedFlow = remember(playback) { playback?.establishedTrackId ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val establishedId by establishedFlow.collectAsState()
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp))) {
     if (com.auralis.music.ui.theme.LocalAppearanceSettings.current.dynamicTheme) {
         ArtworkAura(palette, Modifier.fillMaxSize().then(com.auralis.music.windows.dev.perfSkip("aura")), track.thumbnail, motionAura = motionAura)
@@ -107,8 +109,9 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         if (mainPlayerOpen) {
             // The fullscreen cover owns animation playback while it covers this sidebar.
             DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title, highRes = true)
-        } else SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura) {
-        AnimatedCover(track, Modifier.fillMaxSize(), motionAura) {
+        } else SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura,
+            established = establishedId == track.id) {
+        AnimatedCover(track, Modifier.fillMaxSize(), motionAura, playbackClock = clock) {
             DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
         }
         }

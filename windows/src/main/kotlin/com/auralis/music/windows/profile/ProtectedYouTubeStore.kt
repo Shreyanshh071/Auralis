@@ -9,14 +9,19 @@ import java.util.Base64
 /** Existing sessions remain readable; newly saved cookies are protected by the Windows user. */
 internal class ProtectedYouTubeStore(file: File) : KeyValueStore {
     private val store = PropertiesFileKeyValueStore(file, synchronous = true)
+    private val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
     override fun getString(key: String, default: String): String? {
         val value = store.getString(key, default) ?: return null
-        return if (key == "cookie" && value.startsWith("dpapi:")) runCatching {
+        return if (isWindows && key == "cookie" && value.startsWith("dpapi:")) runCatching {
             String(Crypt32Util.cryptUnprotectData(Base64.getDecoder().decode(value.removePrefix("dpapi:"))), Charsets.UTF_8)
         }.getOrDefault(default) else value
     }
     override fun putStrings(values: Map<String, String>) = store.putStrings(values.mapValues { (key, value) ->
-        if (key == "cookie" && value.isNotEmpty()) "dpapi:" + Base64.getEncoder().encodeToString(Crypt32Util.cryptProtectData(value.toByteArray(Charsets.UTF_8))) else value
+        if (key == "cookie" && value.isNotEmpty()) {
+            if (isWindows) runCatching {
+                "dpapi:" + Base64.getEncoder().encodeToString(Crypt32Util.cryptProtectData(value.toByteArray(Charsets.UTF_8)))
+            }.getOrDefault(value) else value
+        } else value
     })
     override fun clear() = store.clear()
 }

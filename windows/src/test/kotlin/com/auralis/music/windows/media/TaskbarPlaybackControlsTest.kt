@@ -12,6 +12,8 @@ import kotlin.test.*
 
 class TaskbarPlaybackControlsTest {
     @Test fun nativeToolbarRegistersUpdatesAndDispatchesOnlyItsCommands() {
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        if (!isWindows) return
         lateinit var window: JFrame
         lateinit var frame: NativeWindowFrame
         lateinit var controls: TaskbarPlaybackControls

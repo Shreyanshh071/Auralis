@@ -48,6 +48,7 @@ import com.auralis.music.windows.home.HomeArtwork
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun DiscordSettingsPopup(controller: WindowsDiscordPresence?, onDismiss: () -> Unit) {
+    com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val settings by DiscordCardPreferences.store.settings.collectAsState()
     val now = controller?.now?.collectAsState()?.value ?: DiscordNow()
     val status = controller?.status?.collectAsState()?.value ?: "Connected to Discord desktop"

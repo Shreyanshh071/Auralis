@@ -92,6 +92,8 @@ import com.auralis.music.ui.components.ArtworkCard
 import com.auralis.music.ui.components.tactileBounce
 import com.auralis.music.ui.viewmodel.AuthUiState
 import com.auralis.music.ui.components.bottomChromePadding
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 
 val PROFILE_LIME: Color
     @Composable get() = MaterialTheme.colorScheme.primary
@@ -228,16 +230,28 @@ fun DesktopProfileSheet(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (profile.avatarUrl != null) {
-                        ArtworkCard(
-                            url = profile.avatarUrl,
+                    val avatarUrl = profile.avatarUrl
+                    if (!avatarUrl.isNullOrBlank()) {
+                        Box(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(CircleShape)
                                 .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                            cornerRadius = 23.dp,
-                            contentDescription = profile.displayName
-                        )
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(30.dp)
+                            )
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = profile.displayName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                     } else {
                         Box(
                             modifier = Modifier
