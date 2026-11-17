@@ -111,7 +111,7 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
             DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title, highRes = true)
         } else SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura,
             established = establishedId == track.id) {
-        AnimatedCover(track, Modifier.fillMaxSize(), motionAura) {
+        AnimatedCover(track, Modifier.fillMaxSize(), motionAura, playbackClock = clock) {
             DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
         }
         }

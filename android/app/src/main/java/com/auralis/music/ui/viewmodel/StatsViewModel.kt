@@ -219,10 +219,13 @@ class StatsViewModel(
         selectedChipIndex.value = index
     }
 
-    fun clearListeningStats(onComplete: (Boolean) -> Unit) {
+    /** [allDevices] only when the person explicitly chose to clear every device of the account. */
+    fun clearListeningStats(allDevices: Boolean = false, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
             val succeeded = try {
-                statsRepository.clearListeningStats()
+                com.auralis.music.data.sync.ListeningStatsClear.run(allDevices,
+                    clearAccount = { com.auralis.music.data.sync.StatsCloudSync.clearAllDevices() },
+                    clearLocal = { statsRepository.clearListeningStats() })
                 true
             } catch (e: CancellationException) {
                 throw e

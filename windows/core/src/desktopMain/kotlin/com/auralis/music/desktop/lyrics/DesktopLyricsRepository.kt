@@ -5,6 +5,8 @@ import com.auralis.music.domain.lyrics.LyricsAlignmentEngine
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.LyricsProvider
 import com.auralis.music.data.network.provider.LyricsSearchQuery
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import com.auralis.music.util.Log
@@ -29,6 +31,11 @@ class DesktopLyricsRepository(
             q.videoId, q.album, q.channelTitle, q.durationMs, q.audioLeadingSilenceMs, q.spotifyId,
             reportFailures = true)
     },
+    private val fallbackLookup: suspend (LyricsSearchQuery, Boolean, (LyricsData) -> Unit) -> LyricsData? = { q, skipSpicy, interim ->
+        client.getLyrics(q.title, q.artist, q.durationSec, q.videoId, q.album, q.channelTitle,
+            durationMs = q.durationMs, audioLeadingSilenceMs = q.audioLeadingSilenceMs,
+            skipSpicyProvider = skipSpicy, onInterim = interim)
+    },
     private val knownTracks: () -> Sequence<com.auralis.music.domain.model.Track> = { emptySequence() }
 ) {
     companion object {
@@ -48,6 +55,7 @@ class DesktopLyricsRepository(
     }
     private val memory = com.auralis.music.data.network.LyricsResponseCache()
     private val spicyAttempts = mutableMapOf<String, Long>()
+    private val spicyLocks = Array(32) { kotlinx.coroutines.sync.Mutex() }
     private val storageLock = Any()
 
     fun selectableProviders(): List<LyricsProvider> = client.selectableProviders()
@@ -103,12 +111,23 @@ class DesktopLyricsRepository(
 
     /** Independent of the provider race and of its word-cache early exit. */
     suspend fun upgradeSpicy(query: LyricsSearchQuery): LyricsData? {
+        val key = query.videoId ?: return null
+        // A foreground request waits for (or takes over from) next-song preparation,
+        // rather than mistaking an in-flight request for a recent provider failure.
+        return spicyLocks[(key.hashCode() and Int.MAX_VALUE) % spicyLocks.size].withLock { upgradeSpicyOnce(query) }
+    }
+
+    private suspend fun upgradeSpicyOnce(query: LyricsSearchQuery): LyricsData? {
         if (!spicyEnabled()) return null
         val key = query.videoId?.lowercase() ?: return null
-        val existing = synchronized(storageLock) { memory[key] ?: disk?.read(key) }
-        if (existing?.provider == LyricsProvider.SPICY_LYRICS && existing.fetchedAtMs?.let {
-                clock() - it in 0 until 24 * 60 * 60_000L
-            } == true) return align(existing, query.durationMs ?: 0L)
+        val existing = synchronized(storageLock) {
+            val providerKey = "$key-provider-${LyricsProvider.SPICY_LYRICS.name}"
+            val best = memory[key] ?: disk?.read(key)
+            best?.takeIf { it.provider == LyricsProvider.SPICY_LYRICS }
+                ?: memory[providerKey] ?: disk?.read(providerKey)
+        }
+        if (existing != null && !com.auralis.music.data.network.LyricsCachePolicy.isExpired(existing, clock()))
+            return align(existing, query.durationMs ?: 0L)
         val attemptKey = listOf(key, query.spotifyId, query.title, query.artist, query.durationMs).joinToString("|")
         synchronized(spicyAttempts) {
             val last = spicyAttempts[attemptKey]
@@ -179,18 +198,10 @@ class DesktopLyricsRepository(
             preferred = client.searchProvider(provider,title,artist,durationSec,videoId,album,channelTitle,durationMs)
             if (preferred != null && preferred.lines.isNotEmpty()) break
         }
-        val result = preferred ?: client.getLyrics(
-            title = title,
-            artist = artist,
-            durationSec = durationSec,
-            videoId = videoId,
-            album = album,
-            channelTitle = channelTitle,
-            durationMs = durationMs,
-            audioLeadingSilenceMs = null,
-            skipSpicyProvider = preferSpicy,
-            onInterim = { interim -> onInterim(align(interim, durationMs)) }
-        )
+        val result = preferred ?: fallbackLookup(
+            LyricsSearchQuery(title, artist, durationSec = durationSec, videoId = videoId,
+                album = album, channelTitle = channelTitle, durationMs = durationMs),
+            preferSpicy, { interim -> onInterim(align(interim, durationMs)) })
         val existing = memory[key] ?: disk?.read(key)
         if (result == null || result.lines.isEmpty()) {
             Log.w(TAG, "No lyrics from the network for '$title' by '$artist' (${System.currentTimeMillis() - started}ms)")
@@ -199,6 +210,22 @@ class DesktopLyricsRepository(
         val aligned = align(storeBest(key, result, preferSpicy), durationMs)
         Log.i(TAG, "Lyrics for '$title': ${aligned.provider} ${aligned.syncType}, ${aligned.lines.size} lines in ${System.currentTimeMillis() - started}ms")
         return aligned
+    }
+
+    /** Prepare only the next queued recording; no decoder, UI updates or unbounded queue crawl. */
+    suspend fun prefetch(track: com.auralis.music.domain.model.Track, preferSpicy: Boolean) = kotlinx.coroutines.coroutineScope {
+        val videoId = com.auralis.music.data.network.RecordingMatches.getMatchedVideoId(track.id) ?: track.id
+        val durationSec = com.auralis.music.data.network.RecordingMatches.getEffectiveDurationSec(videoId, track.duration)
+        val query = LyricsSearchQuery(track.title, track.artist, durationSec = durationSec, videoId = videoId,
+            album = track.album, channelTitle = track.channelTitle, durationMs = durationSec * 1000L,
+            spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id))
+        if (preferSpicy) launch { upgradeSpicy(query) }
+        val existing = cached(videoId, durationSec * 1000L)
+        if (existing == null || LyricsClient.tierOf(existing) < LyricsClient.TIER_WORD) {
+            fetch(videoId, track.title, track.artist, track.album, track.channelTitle,
+                durationSec, durationSec * 1000L, onInterim = {}, preferSpicy = preferSpicy)
+        }
+        Unit
     }
 
     private fun align(lyrics: LyricsData, durationMs: Long): LyricsData =

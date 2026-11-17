@@ -12,7 +12,7 @@ class LyricsProviderChoiceTest {
     @Test fun explicitChoiceCanReplaceWordSyncAndFailureKeepsTheCurrentLyrics() = runBlocking {
         val folder = Files.createTempDirectory("auralis-provider-choice").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val vlc = assertNotNull(VlcAudioPlayer.createOrNull(java.io.File(System.getenv("LOCALAPPDATA"), "Auralis/app/resources/vlc")))
+        val vlc = assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory()))
         val playback = DesktopPlaybackController(vlc, scope, offlineFile = { java.io.File(folder, "unused") }, resolveStream = { null })
         val cached = LyricsData(SyncType.RICHSYNC, listOf(LyricLine(1000, "Original")), provider = LyricsProvider.BETTER_LYRICS)
         val chosen = LyricsData(SyncType.PLAIN, listOf(LyricLine(0, "User choice")), provider = LyricsProvider.QQMUSIC)

@@ -89,6 +89,36 @@ class ImmersiveModeTest {
         assertEquals("Monday, 2 November", dateText(evening, Locale.UK))
     }
 
+    @Test fun clockFormatParsesSystemPatternsAndFormats24HourWithLeadingZero() {
+        val morning = LocalDateTime.of(2026, 11, 2, 9, 5)
+        val midnight = LocalDateTime.of(2026, 11, 2, 0, 7)
+        val afternoon = LocalDateTime.of(2026, 11, 2, 14, 35)
+
+        assertEquals(TimeFormatSpec(use24Hour = true, zeroPadHour = true), parseTimePatternFormat("HH:mm"))
+        assertEquals(TimeFormatSpec(use24Hour = true, zeroPadHour = true), parseTimePatternFormat("EEE HH:mm"))
+        assertEquals(TimeFormatSpec(use24Hour = true, zeroPadHour = true), parseTimePatternFormat("HH 'h' mm"))
+        assertEquals(TimeFormatSpec(use24Hour = true, zeroPadHour = false), parseTimePatternFormat("H:mm"))
+        assertEquals(TimeFormatSpec(use24Hour = false, zeroPadHour = false), parseTimePatternFormat("EEE h:mm\u202fa"))
+        assertEquals(TimeFormatSpec(use24Hour = false, zeroPadHour = false), parseTimePatternFormat("hh:mm tt"))
+
+        val spec24Padded = TimeFormatSpec(use24Hour = true, zeroPadHour = true)
+        assertEquals("09:05", clockText(morning, spec24Padded))
+        assertEquals("00:07", clockText(midnight, spec24Padded))
+        assertEquals("14:35", clockText(afternoon, spec24Padded))
+
+        val spec24Unpadded = TimeFormatSpec(use24Hour = true, zeroPadHour = false)
+        assertEquals("9:05", clockText(morning, spec24Unpadded))
+        assertEquals("0:07", clockText(midnight, spec24Unpadded))
+
+        val spec12 = TimeFormatSpec(use24Hour = false, zeroPadHour = false)
+        assertEquals("9:05", clockText(morning, spec12))
+        assertEquals("12:07", clockText(midnight, spec12))
+        assertEquals("2:35", clockText(afternoon, spec12))
+
+        // Verify live OS detection executes cleanly on host.
+        assertNotNull(SystemClockFormat.current())
+    }
+
     @Test fun currentLineFollowsTimingAndStaysEmptyBetweenLines() {
         val lines = listOf(LyricLine(1_000, "One", endTime = 2_000), LyricLine(1_200, "(echo)", isBackground = true),
             LyricLine(3_000, "Two"), LyricLine(5_000, "♪", isInstrumental = true))

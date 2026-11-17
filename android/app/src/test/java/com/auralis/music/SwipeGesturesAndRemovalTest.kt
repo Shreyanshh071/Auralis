@@ -30,10 +30,13 @@ class SwipeGesturesAndRemovalTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        io.mockk.mockkStatic("com.auralis.music.ui.i18n.AppLanguageKt")
+        io.mockk.every { com.auralis.music.ui.i18n.str(any<Int>()) } returns "Removed from playlist"
     }
 
     @After
     fun tearDown() {
+        io.mockk.unmockkStatic("com.auralis.music.ui.i18n.AppLanguageKt")
         Dispatchers.resetMain()
     }
 

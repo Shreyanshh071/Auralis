@@ -5,10 +5,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import com.auralis.music.ui.components.handCursorRoot
 import androidx.compose.foundation.layout.offset
@@ -94,9 +91,7 @@ internal fun isShortcutTypingActive(
     playerOpen: Boolean,
     trackedInputActive: Boolean,
     windowTextInputActive: Boolean,
-    /** A modal dialog (create playlist, sign in, settings…) owns the keyboard: single keys belong to it. */
-    dialogOpen: Boolean = false,
-): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive || dialogOpen
+): Boolean = (searchTyping && !playerOpen) || trackedInputActive || windowTextInputActive
 
 @Composable
 fun AuralisDesktopApp(
@@ -109,8 +104,7 @@ fun AuralisDesktopApp(
     playback: com.auralis.music.desktop.playback.DesktopPlaybackController?,
     lyrics: com.auralis.music.desktop.lyrics.DesktopLyricsController?,
     /** Main points the window's key handler here. */
-    /** The handler gets each key twice: before the focused element (true) and after it, if unused (false). */
-    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)?) -> Unit = {},
+    onShortcutHandler: (((androidx.compose.ui.input.key.KeyEvent) -> Boolean)?) -> Unit = {},
     /** Live check for whether an editable text field holds input-method focus in the window. */
     isTextInputActive: () -> Boolean = { false },
     selfTest: SelfTest? = null,
@@ -123,7 +117,11 @@ fun AuralisDesktopApp(
     titleBar: @Composable (TitleBarActions) -> Unit = {},
     playerFullscreen: Boolean = false,
     onPlayerFullscreen: (Boolean) -> Unit = {},
+    onCloseWindow: () -> Unit = {},
+    onMinimizeWindow: () -> Unit = {},
+    openSettingsTrigger: Int = 0,
     onOpenImmersive: () -> Unit = {},
+    onToggleLockScreenPreview: () -> Unit = {},
     /** Bumped when immersive mode steps back to the player. */
     playerRequests: Int = 0,
 ) {
@@ -132,17 +130,14 @@ fun AuralisDesktopApp(
         if (playerRequests > 0 && playback?.queue?.value?.current != null) showPlayer = true
     }
     var playerCoversHome by remember { mutableStateOf(false) }
-    // The right sidebar's bounds in window coordinates, kept live so the player can grow out of
-    // (and shrink back into) it. Read only inside draw/layer blocks: updates never recompose.
-    val rightSidebarBounds = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // True while the player is open because the sidebar's expand button opened it.
-    var playerFromSidebar by remember { mutableStateOf(false) }
-    // While the player is up (and while it opens and closes), Home is measured with its last
-    // windowed constraints so going borderless fullscreen doesn't move it.
-    var homeFrozen by remember { mutableStateOf(false) }
-    // True while the player covers the right sidebar (from its first animation frame until a close).
-    var playerOverSidebar by remember { mutableStateOf(false) }
-    val frozenHomeConstraints = remember { arrayOfNulls<androidx.compose.ui.unit.Constraints>(1) }
+    androidx.compose.runtime.LaunchedEffect(showPlayer) {
+        playerCoversHome = false
+        if (showPlayer) {
+            kotlinx.coroutines.delay(180L)
+            playerCoversHome = true
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(showPlayer) { onPlayerFullscreen(showPlayer) }
     androidx.compose.runtime.LaunchedEffect(playback) {
         val pb = playback ?: return@LaunchedEffect
         var last = pb.session.value
@@ -236,6 +231,7 @@ fun AuralisDesktopApp(
     var showDiscord by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openSettingsTrigger) { if (openSettingsTrigger > 0) showSettings = true }
     var showYouTubeAccounts by remember { mutableStateOf(false) }
     // Bumped by the title bar's refresh: the current page is rebuilt, re-running all its loads.
     var refreshTick by remember { mutableStateOf(0) }
@@ -383,19 +379,19 @@ fun AuralisDesktopApp(
     // the title bar's refresh pulls again.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid, refreshTick) {
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
-        try {
-            // Normal startup sync is silent; actionable failures are logged below.
-            account.pullCloudBackup(library, listeningStats, history)
-            libraryViewModel.refresh()
-            // Then send this PC's side: the merged library, and listens measured here.
-            account.pushLibrary(library)
-            account.pushListens(listeningStats)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Couldn't sync with the account: ${e.message}") }
+        account.syncCloudLibrary(library, listeningStats, history)
+        libraryViewModel.refresh()
+        if (account.listensOnCloud()) runCatching { account.syncListensCloud(listeningStats, history) }
+            .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+        else runCatching { account.pushListens(listeningStats) }
+            .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
     }
+
     // Signing out removes what the account brought here (its playlists and liked songs); what
     // was imported on this PC stays. The previous account is remembered to know whose to remove.
     var syncedUid by remember { mutableStateOf(accountState.profile?.uid) }
+    // Whether this account's listening history uses the account sync service (offers the all-devices clear).
+    var listensCloudActive by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
         val uid = accountState.profile?.uid?.takeIf { it.isNotBlank() }
         val previous = syncedUid
@@ -408,39 +404,65 @@ fun AuralisDesktopApp(
         }
     }
     // While signed in, keep the account current: library edits a few seconds after they happen,
-    // listening within about 20 seconds, and the phone's new listening each minute.
+    // listening within about 20 seconds, remote listening each minute. Remote library edits arrive
+    // by notification once the account is on the Cloudflare library; on Firestore they are checked
+    // every 15 minutes, because every check there is a billed read for every running desktop.
     androidx.compose.runtime.LaunchedEffect(accountState.profile?.uid) {
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
+        account.onLibraryChanged = {
+            if (account.syncCloudLibrary(library, listeningStats, history)) libraryViewModel.refresh()
+        }
         launch {
             kotlinx.coroutines.flow.combine(library.getPlaylists(), library.getFavoriteTracks(),
                 library.getSavedAlbums(), library.getSavedArtists()) { a, b, c, d -> listOf<Any>(a, b, c, d) }
                 .distinctUntilChanged()
-                .collectLatest {
+                .collect {
+                    // Applying remote edits emits this flow too; finish the merge and baseline
+                    // before handling its next value instead of cancelling our own sync.
                     kotlinx.coroutines.delay(5_000)
-                    runCatching { account.pushLibrary(library) }
+                    runCatching { account.syncCloudLibrary(library, listeningStats, history) }
                         .onFailure { com.auralis.music.util.Log.w("AccountSync", "Library upload failed: ${it.message}") }
                 }
+        }
+        val listensOnCloud = account.listensOnCloud()
+        listensCloudActive = listensOnCloud
+        if (listensOnCloud) {
+            // Other devices' listens arrive by notification (or are pulled after a reconnect), and
+            // this PC's finished listens go up in batches at most every 5 minutes. Nothing is polled.
+            account.accountSync.listen(accountState.profile!!.uid, "listens") { frame ->
+                runCatching { account.listensChanged(frame, listeningStats, history) }
+                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening update failed: ${it.message}") }
+            }
         }
         launch {
             // The recorder saves every 5 s while playing, so sample rather than debounce.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            listeningStats.listens.sample(20_000).collect {
-                runCatching { account.pushListens(listeningStats) }
+            listeningStats.listens.sample(if (listensOnCloud) 5 * 60_000L else 20_000L).collect {
+                if (listensOnCloud) runCatching { account.syncListensCloud(listeningStats, history) }
+                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+                else runCatching { account.pushListens(listeningStats) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
             }
         }
+        val libraryChecks = com.auralis.music.windows.profile.LibraryCheckSchedule()
         while (true) {
             kotlinx.coroutines.delay(60_000)
-            runCatching { account.pullNewListens(listeningStats, history) }
+            if (libraryChecks.due(System.currentTimeMillis(), account.libraryNotifies)) {
+                libraryChecks.done(System.currentTimeMillis(), account.syncCloudLibrary(library, listeningStats, history))
+            }
+            // The interim 15-minute listening check is kept apart in patches/interim-polling-reduction.patch.
+            if (!listensOnCloud) runCatching { account.pullNewListens(listeningStats, history) }
                 .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening check failed: ${it.message}") }
         }
     }
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
+    com.auralis.music.windows.player.PrepareQueuedAnimatedMedia(playback, lyrics)
     val playerState = playback?.state?.collectAsState()?.value
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
 
+    val currentToggleLockScreenPreview = androidx.compose.runtime.rememberUpdatedState(onToggleLockScreenPreview)
     val actions = remember(playback) {
         object : ShortcutActions {
             override fun togglePlayPause() { playback?.togglePlayPause() }
@@ -456,6 +478,9 @@ fun AuralisDesktopApp(
             override fun togglePlayer() { showPlayer = !showPlayer && playback?.queue?.value?.current != null }
             override fun showLyrics() = openPanel(com.auralis.music.windows.player.PlayerPanel.LYRICS)
             override fun showQueue() = openPanel(com.auralis.music.windows.player.PlayerPanel.QUEUE)
+            override fun openSettings() { showSettings = true }
+            override fun closeWindow() { onCloseWindow() }
+            override fun minimizeWindow() { onMinimizeWindow() }
             private fun openPanel(panel: com.auralis.music.windows.player.PlayerPanel) {
                 if (playback?.queue?.value?.current == null) return
                 playerPanel = panel
@@ -464,12 +489,8 @@ fun AuralisDesktopApp(
             override fun closePlayer(): Boolean {
                 return handleEscapeBack(showPlayer) { showPlayer = false }
             }
-            override fun hidePlayer(): Boolean {
-                if (!showPlayer) return false
-                showPlayer = false
-                return true
-            }
             override fun openImmersive() = onOpenImmersive()
+            override fun toggleLockScreenPreview() = currentToggleLockScreenPreview.value()
         }
     }
     if (selfTest != null) {
@@ -484,21 +505,15 @@ fun AuralisDesktopApp(
     val currentTyping = androidx.compose.runtime.rememberUpdatedState(typing)
     val currentShowPlayer = androidx.compose.runtime.rememberUpdatedState(showPlayer)
     val currentIsTextInputActive = androidx.compose.runtime.rememberUpdatedState(isTextInputActive)
-    val currentDialogOpen = androidx.compose.runtime.rememberUpdatedState(showSignIn || showCreatePlaylist ||
-        showTogether || showDiscord || showImport || showSettings || showYouTubeAccounts)
     androidx.compose.runtime.DisposableEffect(actions) {
-        onShortcutHandler { event, beforeFocused ->
+        onShortcutHandler { event ->
             val typingNow = isShortcutTypingActive(
                 searchTyping = currentTyping.value,
                 playerOpen = currentShowPlayer.value,
                 trackedInputActive = activeTextInputs.isNotEmpty(),
                 windowTextInputActive = currentIsTextInputActive.value(),
-                dialogOpen = currentDialogOpen.value,
             )
-            // Ctrl shortcuts and Esc run before the focused element; single keys only after it,
-            // and only when no text input is active.
-            if (beforeFocused) handleControlShortcut(event, actions)
-            else !typingNow && handlePlainShortcut(event, actions)
+            handleShortcut(event, typingNow, actions)
         }
         onDispose { onShortcutHandler(null) }
     }
@@ -678,22 +693,17 @@ fun AuralisDesktopApp(
         Surface(modifier = Modifier.fillMaxSize().handCursorRoot().then(
             if (showSignIn) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().layout { measurable, constraints ->
-                // While the player opens, is open and closes, Home keeps the size it had before the
-                // window went borderless fullscreen: the window resize then moves nothing on screen,
-                // so the player's growth is one motion at the final window size.
-                val use = if (homeFrozen) frozenHomeConstraints[0] ?: constraints
-                    else constraints.also { frozenHomeConstraints[0] = it }
-                val placeable = measurable.measure(use)
-                layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
-            }.drawWithContent {
+            CompositionLocalProvider(
+                com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+                    (com.auralis.music.ui.player.LocalPlaybackVisualsActive.current && !playerCoversHome)
+            ) {
+            Column(Modifier.fillMaxSize().drawWithContent {
                 // Preserve Home's state/scroll position, but don't redraw its
                 // artwork, aura and second lyric renderer behind an opaque player.
                 if (!playerCoversHome) drawContent()
             }) {
                 Box(com.auralis.music.windows.dev.perfSkip("titlebar")) {
-                // Hidden in fullscreen, except while Home is held at its windowed size.
-                if (!playerFullscreen || homeFrozen) titleBar(TitleBarActions(
+                titleBar(TitleBarActions(
                     canGoBack = showPlayer || navigation.canGoBack,
                     canGoForward = navigation.canGoForward,
                     back = { if (showPlayer) showPlayer = false else restoreRoute(navigation.back()) },
@@ -716,7 +726,8 @@ fun AuralisDesktopApp(
                         }
                     },
                     accountLabel = if (youtubeSignedIn) youtubeState.identity?.name ?: "YouTube Music" else accountState.profile?.displayName?.takeIf { it.isNotBlank() } ?: "Sign in",
-                    accountAvatar = if (youtubeSignedIn) youtubeState.identity?.avatar else null,
+                    accountAvatar = (if (youtubeSignedIn) youtubeState.identity?.avatar?.takeIf { it.isNotBlank() } else null)
+                        ?: accountState.profile?.avatarUrl?.takeIf { it.isNotBlank() },
                     accountMenu = {
                         com.auralis.music.windows.profile.YouTubeAccountMenu(expanded = showYouTubeAccounts, state = youtubeState,
                             onSelect = { youtubeLibrary.switchAccount(it); showYouTubeAccounts = false },
@@ -807,12 +818,7 @@ fun AuralisDesktopApp(
                     }
                     val notchWidth = notchW.value
                     val notchHeight = notchH.value
-                    // The page panel's bounds: wheel scrolling the sidebar doesn't use goes to the page.
-                    val pageBounds = remember { arrayOf(androidx.compose.ui.geometry.Rect.Zero) }
-                    val sidebarDensity = androidx.compose.ui.platform.LocalDensity.current.density
-                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight))
-                        .forwardUnusedScrollTo({ pageBounds[0] }, { sidebarDensity })
-                        .then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
+                    Box(Modifier.width(leftDisplay).fillMaxHeight().clip(SidebarNotchShape(12.dp, notchWidth, notchHeight)).then(com.auralis.music.windows.dev.timedLayout("left")).then(com.auralis.music.windows.dev.perfSkip("left"))) {
                         playlistMenu?.let { p ->
                             com.auralis.music.ui.library.PlaylistOptionsBottomSheet(
                                 playlist = p,
@@ -858,9 +864,7 @@ fun AuralisDesktopApp(
                         onDrag = { leftSidebarWidth = sidebarWidth(leftSidebarWidth + it, 180f, leftLimit) },
                         onDragging = { resizingLeft = it })
                     else Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f).fillMaxHeight()
-                        .onGloballyPositioned { pageBounds[0] = it.boundsInWindow() }
-                        .clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(panelShape).background(MaterialTheme.colorScheme.surface).then(com.auralis.music.windows.dev.timedLayout("page")).then(com.auralis.music.windows.dev.perfSkip("page"))) {
                         DesktopPageSurface(Modifier.fillMaxSize()) {
                         androidx.compose.runtime.key(refreshTick) {
                         // Pages fade up into place (and the old one fades out) instead of swapping on one frame.
@@ -946,7 +950,8 @@ fun AuralisDesktopApp(
                                 onOpenWrapped = { destination = DesktopDestination.WRAPPED },
                                 search = backgroundSearch,
                                 onOpenArtist = browse::openArtist,
-                                onTrackMenu = { menuTrack = it }
+                                onTrackMenu = { menuTrack = it },
+                                onClearAllDevices = if (listensCloudActive && accountState.profile != null) ({ account.clearListensCloud() }) else null
                             )
                             DesktopDestination.PROFILE -> com.auralis.music.windows.profile.DesktopProfile(
                                 account = account,
@@ -1002,10 +1007,7 @@ fun AuralisDesktopApp(
                           onDrag = { rightSidebarWidth = sidebarWidth(rightSidebarWidth - it, 280f, rightLimit) },
                           onDragging = { resizingRight = it })
                       else Spacer(Modifier.width(8.dp))
-                      androidx.compose.runtime.DisposableEffect(Unit) { onDispose { rightSidebarBounds.value = null } }
-                      Box(Modifier.width(rightDisplay).fillMaxHeight()
-                          .onGloballyPositioned { rightSidebarBounds.value = it.boundsInRoot() }
-                          .clip(panelShape).then(com.auralis.music.windows.dev.timedLayout("right")).then(com.auralis.music.windows.dev.perfSkip("right"))
+                      Box(Modifier.width(rightDisplay).fillMaxHeight().clip(panelShape).then(com.auralis.music.windows.dev.timedLayout("right")).then(com.auralis.music.windows.dev.perfSkip("right"))
                           .then(if (rightIsCollapsed) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)) {
                         SidebarCollapseContent(rightIsCollapsed, sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp, compactWidth = 40.dp) { compact ->
                         if (compact) {
@@ -1033,20 +1035,12 @@ fun AuralisDesktopApp(
                                 }
                             com.auralis.music.windows.player.SidePanel.NOW_PLAYING ->
                                 com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
-                                    onExpand = {
-                                        playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS
-                                        if (!showPlayer) playerFromSidebar = true
-                                        showPlayer = true
-                                    },
+                                    onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
                                     modifier = panelModifier, palette = artworkPalette,
                                     onCollapse = { rightCollapsed = true },
                                     library = library,
                                     onOpenQueue = { sidePanel = com.auralis.music.windows.player.SidePanel.QUEUE },
-                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) },
-                                    // Its video cover gives way to a still only once the player
-                                    // hides it: swapped at the click, the change showed before the
-                                    // growth began.
-                                    mainPlayerOpen = playerOverSidebar)
+                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) }, mainPlayerOpen = showPlayer)
                         }
                         }
                         }
@@ -1076,28 +1070,19 @@ fun AuralisDesktopApp(
                 )
                 }
             }
+            }
             if (destination == DesktopDestination.WRAPPED) {
                 Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)) {
                     com.auralis.music.windows.wrapped.DesktopWrappedPage(listeningStats, library, backgroundSearch,
                         onClose = ::previousPage)
                 }
             }
-            // The full player grows out of the right sidebar when its expand button opens it, and fades otherwise.
-            com.auralis.music.windows.player.PlayerExpandOverlay(
+            // The full player slides up over everything, like the phone's player sheet.
+            androidx.compose.animation.AnimatedVisibility(
+                modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT),
                 visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
-                fromSidebar = playerFromSidebar,
-                sidebarBounds = rightSidebarBounds,
-                palette = artworkPalette,
-                fullscreen = playerFullscreen,
-                onFullscreen = onPlayerFullscreen,
-                // Home is held at its windowed size from before the window goes borderless until
-                // after it has shrunk back, so neither resize moves it.
-                onHoldPage = { homeFrozen = it },
-                onCovering = { playerOverSidebar = it },
-                // Home stops drawing only while the player hides it completely.
-                onCovered = { covered -> playerCoversHome = covered },
-                onHidden = { playerFromSidebar = false },
-                modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT)
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
             ) {
                 if (playback != null && lyrics != null) {
                     com.auralis.music.windows.player.PlayerScreen(

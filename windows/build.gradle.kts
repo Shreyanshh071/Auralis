@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 // The Windows app: a Compose Desktop app over its own core (windows/core). The Android app and
 // :shared are never changed for Windows.
@@ -27,6 +28,18 @@ java {
 // incompatible duplicate well-known types (e.g. Timestamp) when Firestore starts its stream.
 configurations.configureEach { exclude(group = "com.google.protobuf", module = "protobuf-javalite") }
 
+// Keep Compose's compile API, but use the matching patched JVM/native renderer at runtime.
+// Both artifacts must move together; mixing the DLL with another Skiko JAR is unsafe.
+val osName = System.getProperty("os.name").lowercase()
+val osArch = System.getProperty("os.arch").lowercase()
+val skikoRuntime = when {
+    osName.contains("win") -> "org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.8.25"
+    osName.contains("mac") -> if (osArch == "aarch64") "org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.8.25" else "org.jetbrains.skiko:skiko-awt-runtime-macos-x64:0.8.25"
+    else -> "org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.8.25"
+}
+configurations.matching { it.name in setOf("runtimeClasspath", "testRuntimeClasspath") }.configureEach {
+    resolutionStrategy.force("org.jetbrains.skiko:skiko-awt:0.8.25", skikoRuntime)
+}
 dependencies {
     // NewPipe needs protobuf at runtime. The old Firestore transport supplied it transitively.
     implementation("com.google.protobuf:protobuf-java:3.25.8")
@@ -71,7 +84,8 @@ tasks.register<JavaExec>("verifyRoomService") {
 // its COPYING.txt and README.txt go with it. No plugins.dat here: VLC's plugin cache stores file
 // times, which packaging and installing change. VlcAudioPlayer writes it on the installed copy
 // instead (scanning every plugin at each start took 5-20s inside the app).
-val vlcSourceDir = providers.environmentVariable("AURALIS_VLC_DIR").orElse("C:/Program Files/VideoLAN/VLC")
+val vlcSourceDir = providers.environmentVariable("AURALIS_VLC_DIR")
+    .orElse(if (osName.contains("win")) "C:/Program Files/VideoLAN/VLC" else "/Applications/VLC.app")
 val bundledVlcRoot = layout.buildDirectory.dir("vlc-resources")
 val prepareVlc by tasks.registering(Sync::class) {
     val source = file(vlcSourceDir.get())
@@ -98,9 +112,53 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
     into(bundledVlcRoot.map { it.dir("windows-x64/vlc") })
     doFirst {
-        if (!File(source, "libvlc.dll").isFile) {
+        if (osName.contains("win") && !File(source, "libvlc.dll").isFile) {
             throw GradleException("64-bit VLC 3 not found at $source. Install VLC or set AURALIS_VLC_DIR to its folder.")
         }
+    }
+}
+
+// Native Boring Notch music UI, built locally from the pinned GPL sources. No Xcode project,
+// package downloads, or separate user installation is needed. This feature targets Apple Silicon.
+val nativeNotchResources = layout.buildDirectory.dir("notch-resources")
+val prepareMacVlc by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir(vlcSourceDir)
+    inputs.dir("macos-vlc")
+    inputs.file(rootProject.file("scripts/bundle-macos-vlc.py"))
+    outputs.dir(nativeNotchResources.map { it.dir("macos-arm64/vlc") })
+    commandLine("python3", rootProject.file("scripts/bundle-macos-vlc.py").absolutePath,
+        "--source", vlcSourceDir.get(), "--destination", nativeNotchResources.get().dir("macos-arm64/vlc").asFile.absolutePath,
+        "--notices", project.file("macos-vlc").absolutePath)
+}
+val macSignInBrowser = layout.buildDirectory.dir("signin-browser")
+val prepareMacSignInBrowser by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir("macos-browser")
+    inputs.file(rootProject.file("scripts/bundle-macos-browser.py"))
+    outputs.dir(macSignInBrowser)
+    commandLine("python3", rootProject.file("scripts/bundle-macos-browser.py").absolutePath,
+        "--manifest", project.file("macos-browser/chromium.json").absolutePath,
+        "--cache", layout.buildDirectory.dir("dependency-cache").get().asFile.absolutePath,
+        "--output", macSignInBrowser.get().asFile.absolutePath)
+}
+val nativeNotchApp = nativeNotchResources.map { it.dir("macos-arm64/auralis-notch/Auralis Notch.app") }
+val prepareMacNotch by tasks.registering(Exec::class) {
+    onlyIf { osName.contains("mac") }
+    inputs.dir("macos-notch")
+    inputs.file("icons/auralis.icns")
+    outputs.dir(nativeNotchApp)
+    commandLine("bash", project.file("macos-notch/build.sh").absolutePath, nativeNotchApp.get().asFile.absolutePath)
+    doFirst {
+        require(osArch in setOf("aarch64", "arm64")) { "Auralis Notch builds target Apple Silicon Macs." }
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacNotch, prepareMacVlc, prepareMacSignInBrowser)
+        systemProperty("auralis.notch.helper", nativeNotchApp.get().file("Contents/MacOS/AuralisNotch").asFile.absolutePath)
+        systemProperty("auralis.test.vlcDir", nativeNotchResources.get().dir("macos-arm64/vlc").asFile.absolutePath)
     }
 }
 
@@ -108,30 +166,91 @@ val prepareVlc by tasks.registering(Sync::class) {
 // One class-data archive per build (see the jvmArgs below).
 val cdsArchive = "auralis-cds-${System.currentTimeMillis().toString(36)}.jsa"
 
+fun macBinaryHasExternalDeps(binary: File): Boolean {
+    if (!binary.isFile) return false
+    val idOut = ProcessBuilder("otool", "-D", binary.absolutePath).start().run {
+        val text = inputStream.bufferedReader().readText()
+        waitFor()
+        text.lines().drop(1).firstOrNull { it.isNotBlank() }?.trim()
+    }
+    val depsOut = ProcessBuilder("otool", "-L", binary.absolutePath).start().run {
+        val text = inputStream.bufferedReader().readText()
+        check(waitFor() == 0) { "otool -L failed for ${binary.absolutePath}" }
+        text.lines().drop(1)
+    }
+    return depsOut.withIndex().any { (idx, line) ->
+        val dep = line.trim().substringBefore(" (")
+        dep.isNotBlank() && !(idx == 0 && dep == idOut) &&
+            !dep.startsWith("/System/") && !dep.startsWith("/usr/lib/") && !dep.startsWith("@")
+    }
+}
+
+fun findStandaloneMacJdk21(): File? {
+    val roots = listOf(
+        File("/Library/Java/JavaVirtualMachines"),
+        File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines")
+    )
+    return roots.flatMap { it.listFiles()?.toList().orEmpty() }
+        .map { File(it, "Contents/Home") }
+        .firstOrNull { home ->
+            val release = File(home, "release").takeIf { it.isFile }?.readText().orEmpty()
+            val fontmanager = File(home, "lib/libfontmanager.dylib")
+            release.contains("JAVA_VERSION=\"21.") && fontmanager.isFile && !macBinaryHasExternalDeps(fontmanager)
+        }
+}
+
 compose.desktop {
     application {
         mainClass = "com.auralis.music.windows.MainKt"
-        jvmArgs(
-            // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
-            // only cost ~0.7s of the first frame (measured with the startup sampler).
-            "-Dsun.java2d.d3d=false",
-            // Keep hardware acceleration and current-frame Windows screenshots.
-            "-Dskiko.renderApi=DIRECT3D",
-            // Class data sharing: the first frame spent ~1.2s loading classes from the jars. Each
-            // start records the classes it loads; when this build's archive is missing, the app
-            // builds it from that list in a background process (DesktopClassArchive), and later
-            // starts map it. Each build names its own: JDK 21 ignores, never rebuilds, a stale one.
-            // (Its own record-at-exit mode made that one launch take 20-27s, so it isn't used.)
-            "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
-            "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
-            "-Dauralis.cdsArchive=$cdsArchive"
-        )
+        if (osName.contains("mac")) {
+            val currentJdk = File(javaHome)
+            val fontmanager = File(currentJdk, "lib/libfontmanager.dylib")
+            if (fontmanager.isFile && macBinaryHasExternalDeps(fontmanager)) {
+                findStandaloneMacJdk21()?.let { javaHome = it.absolutePath }
+            }
+        }
+        if (osName.contains("win")) {
+            jvmArgs(
+                // Skia draws through its own Direct3D device; Java2D's separate Direct3D pipeline
+                // only cost ~0.7s of the first frame (measured with the startup sampler).
+                "-Dsun.java2d.d3d=false",
+                // Keep hardware acceleration and current-frame Windows screenshots.
+                "-Dskiko.renderApi=DIRECT3D",
+                "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
+                "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
+                "-Dauralis.cdsArchive=$cdsArchive"
+            )
+        } else if (osName.contains("mac")) {
+            jvmArgs(
+                "-Dapple.awt.enableTemplateImages=true",
+                "-Dskiko.renderApi=METAL",
+                "-Dio.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl=true",
+                "-Dio.netty.handler.ssl.noOpenSsl=true",
+                "-Dio.grpc.netty.shaded.io.netty.transport.noNative=true",
+                "-Dio.netty.transport.noNative=true"
+            )
+        }
         val realtimeUrl = providers.gradleProperty("connect.realtime.url").orElse("").get()
         require(realtimeUrl.startsWith("wss://") && realtimeUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
             !realtimeUrl.contains("staging", ignoreCase = true)) {
             "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         jvmArgs("-Dauralis.connectRealtimeUrl=$realtimeUrl")
+        // Blank while the Cloudflare library rollout is off (docs/library-sync/spec.md, D2): the app
+        // then never contacts the library service and keeps syncing the library through Firestore.
+        val libraryUrl = providers.gradleProperty("library.sync.url").orElse("").get().trim()
+        require(libraryUrl.isEmpty() || (libraryUrl.startsWith("https://") && libraryUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !libraryUrl.contains("staging", ignoreCase = true))) {
+            "library.sync.url must be blank or a production HTTPS endpoint."
+        }
+        if (libraryUrl.isNotEmpty()) jvmArgs("-Dauralis.librarySyncUrl=$libraryUrl")
+        // Account sync for settings (and later listening history): blank keeps them on Firestore.
+        val accountSyncUrl = providers.gradleProperty("account.sync.url").orElse("").get().trim()
+        require(accountSyncUrl.isEmpty() || (accountSyncUrl.startsWith("https://") && accountSyncUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !accountSyncUrl.contains("staging", ignoreCase = true))) {
+            "account.sync.url must be blank or a production HTTPS endpoint."
+        }
+        if (accountSyncUrl.isNotEmpty()) jvmArgs("-Dauralis.accountSyncUrl=$accountSyncUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 
@@ -145,8 +264,18 @@ compose.desktop {
         }
 
         nativeDistributions {
-            appResourcesRootDir.set(bundledVlcRoot)
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            if (osName.contains("win")) {
+                appResourcesRootDir.set(bundledVlcRoot)
+                targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            } else if (osName.contains("mac")) {
+                appResourcesRootDir.set(nativeNotchResources)
+                targetFormats(TargetFormat.Dmg, TargetFormat.Pkg)
+                macOS {
+                    bundleID = "com.auralis.music"
+                    minimumSystemVersion = "14.0"
+                    iconFile.set(project.file("icons/auralis.icns"))
+                }
+            }
             // From suggestRuntimeModules, plus jdk.crypto.ec (TLS with elliptic-curve ciphers, which
             // jdeps can't see) and java.naming.
             // jdk.httpserver: the local stream relay (LocalStreamRelay).
@@ -168,16 +297,74 @@ compose.desktop {
     }
 }
 
-tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(prepareVlc) }
+tasks.matching { it.name == "prepareAppResources" }.configureEach {
+    if (osName.contains("win")) dependsOn(prepareVlc)
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacNotch, prepareMacVlc)
+        // Gradle's resource Sync normalizes regular files to 0644 unless told otherwise.
+        // A signed Mach-O copied as a resource must remain executable after packaging.
+        if (this is AbstractCopyTask) filesMatching("**/Contents/MacOS/AuralisNotch") {
+            permissions { unix("rwxr-xr-x") }
+        }
+    }
+}
+
+tasks.matching { it.name == "run" }.configureEach {
+    if (osName.contains("mac")) dependsOn(prepareMacNotch, prepareMacVlc, prepareMacSignInBrowser)
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    if (osName.contains("mac")) {
+        dependsOn(prepareMacSignInBrowser)
+        inputs.dir(macSignInBrowser)
+        doLast {
+            val app = layout.buildDirectory.dir("compose/binaries/main/app/Auralis.app").get().asFile
+            val resources = File(app, "Contents/app/resources")
+            // Gradle/jpackage resource copies dereference framework symlinks and strip executables.
+            // Copy Chromium as an intact app, then seal the completed outer app again.
+            val browserCopy = ProcessBuilder("ditto", macSignInBrowser.get().asFile.absolutePath,
+                File(resources, "signin-browser").absolutePath).inheritIO().start()
+            check(browserCopy.waitFor() == 0) { "Could not bundle the private sign-in browser." }
+            val executable = layout.buildDirectory.file(
+                "compose/binaries/main/app/Auralis.app/Contents/app/resources/auralis-notch/Auralis Notch.app/Contents/MacOS/AuralisNotch"
+            ).get().asFile
+            check(executable.isFile) { "Packaged Auralis Notch is missing." }
+            // Compose/jpackage's second resource copy also drops the mode even when Sync preserves
+            // it. Repair the completed app image before DMG creation; this does not change signed bytes.
+            check(executable.setExecutable(true, false) && executable.canExecute()) { "Could not make packaged Auralis Notch executable." }
+            val nativeSmoke = ProcessBuilder(executable.absolutePath, "--self-test").inheritIO().start()
+            check(nativeSmoke.waitFor(10, TimeUnit.SECONDS) && nativeSmoke.exitValue() == 0) {
+                nativeSmoke.destroyForcibly()
+                "Packaged Auralis Notch failed its native smoke test."
+            }
+            val seal = ProcessBuilder("codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime",
+                app.absolutePath).inheritIO().start()
+            check(seal.waitFor() == 0) { "Could not sign the completed Auralis app." }
+            val runtimeSmoke = ProcessBuilder(File(app, "Contents/MacOS/Auralis").absolutePath,
+                "--verify-bundled-runtime").inheritIO().start()
+            check(runtimeSmoke.waitFor(60, TimeUnit.SECONDS) && runtimeSmoke.exitValue() == 0) {
+                runtimeSmoke.destroyForcibly()
+                "Packaged audio/browser runtime verification failed."
+            }
+            val verify = ProcessBuilder("codesign", "--verify", "--deep", "--strict", app.absolutePath).inheritIO().start()
+            check(verify.waitFor() == 0) { "The runtime check changed the signed app bundle." }
+            val verifyBundleDeps = ProcessBuilder("python3", rootProject.file("scripts/verify-macos-bundle.py").absolutePath,
+                "--app", app.absolutePath).inheritIO().start()
+            check(verifyBundleDeps.waitFor() == 0) { "Packaged app bundle contains external non-system dependencies." }
+        }
+    }
+}
 
 // The installers keep gaming overlays (NVIDIA, RivaTuner) off Auralis (see scripts/add-msi-overlay-step.ps1).
 tasks.matching { it.name == "packageMsi" || it.name == "packageReleaseMsi" }.configureEach {
-    val script = rootProject.file("scripts/add-msi-overlay-step.ps1")
-    doLast {
-        outputs.files.asFileTree.matching { include("**/*.msi") }.forEach { msi ->
-            val process = ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.path, "-Msi", msi.path)
-                .inheritIO().start()
-            check(process.waitFor() == 0) { "Adding the gaming-overlay step to ${msi.name} failed" }
+    if (osName.contains("win")) {
+        val script = rootProject.file("scripts/add-msi-overlay-step.ps1")
+        doLast {
+            outputs.files.asFileTree.matching { include("**/*.msi") }.forEach { msi ->
+                val process = ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.path, "-Msi", msi.path)
+                    .inheritIO().start()
+                check(process.waitFor() == 0) { "Adding the gaming-overlay step to ${msi.name} failed" }
+            }
         }
     }
 }
@@ -305,14 +492,25 @@ tasks.register<JavaExec>("probeCanvas") {
 // The app builds its class-data archive with java.exe (see the jvmArgs above); jlink strips the
 // launcher from the runtime image, so the same JDK's one is put back.
 tasks.matching { it.name == "createRuntimeImage" }.configureEach {
-    doLast {
-        val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
-        val jdk = File(compose.desktop.application.javaHome ?: System.getProperty("java.home"))
-        fun version(home: File) = File(home, "release").takeIf { it.isFile }?.readLines()
-            ?.firstOrNull { it.startsWith("JAVA_VERSION=") }
-        check(version(image) != null && version(image) == version(jdk)) {
-            "Runtime ${version(image)} and JDK ${version(jdk)} differ; java.exe must match its jvm.dll"
+    if (osName.contains("mac")) {
+        doFirst {
+            val jdk = File(compose.desktop.application.javaHome)
+            val fontmanager = File(jdk, "lib/libfontmanager.dylib")
+            check(!macBinaryHasExternalDeps(fontmanager)) {
+                "Refusing to bundle macOS JDK at ${jdk.absolutePath} because libfontmanager.dylib links external libraries " +
+                    "(e.g. Homebrew). Install a standalone arm64 JDK 21 (Eclipse Temurin or Microsoft OpenJDK)."
+            }
         }
-        File(jdk, "bin/java.exe").copyTo(File(image, "bin/java.exe"), overwrite = true)
+    } else if (osName.contains("win")) {
+        doLast {
+            val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
+            val jdk = File(compose.desktop.application.javaHome ?: System.getProperty("java.home"))
+            fun version(home: File) = File(home, "release").takeIf { it.isFile }?.readLines()
+                ?.firstOrNull { it.startsWith("JAVA_VERSION=") }
+            check(version(image) != null && version(image) == version(jdk)) {
+                "Runtime ${version(image)} and JDK ${version(jdk)} differ; java.exe must match its jvm.dll"
+            }
+            File(jdk, "bin/java.exe").copyTo(File(image, "bin/java.exe"), overwrite = true)
+        }
     }
 }

@@ -3,3 +3,4 @@ node_modules
 .dev.vars
 measure-results.jsonl
 .measure.env
+.library-admin-production

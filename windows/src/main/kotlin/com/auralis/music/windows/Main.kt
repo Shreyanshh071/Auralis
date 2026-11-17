@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.auralis.music.data.network.AlbumMetadataResolver
@@ -42,6 +43,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private const val TAG = "AuralisWindows"
+private val isMacPlatform = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
 
 private data class ReadyComponents(
     val searchRepository: SearchRepositoryImpl,
@@ -63,6 +65,32 @@ private data class ReadyComponents(
 
 fun main(args: Array<String>) {
     awaitRestartParent(args)
+    val syncPilot = System.getProperty("auralis.syncPilot") == "true"
+    if (syncPilot) {
+        require(System.getProperty("auralis.accountSyncUrl") == "https://auralis-connect-staging.auralis018.workers.dev") {
+            "The internal sync pilot must use the staging account service."
+        }
+        require(System.getProperty("auralis.librarySyncUrl").orEmpty().isBlank()) { "Library migration is outside this pilot." }
+        val profile = System.getProperty("auralis.dataDir")?.let { java.io.File(it).canonicalFile }
+        require(profile != null && profile.parentFile?.name == "sync-pilot") {
+            "The sync pilot requires an isolated profile inside a sync-pilot directory."
+        }
+        System.setProperty("auralis.connectRealtimeUrl", "wss://auralis-connect-staging.auralis018.workers.dev/v1/connect")
+    }
+    if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
+        if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
+            System.setProperty("skiko.renderApi", "METAL")
+        }
+        System.setProperty("apple.awt.enableTemplateImages", "true")
+        System.setProperty("apple.laf.useScreenMenuBar", "true")
+        System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.noOpenSsl", "true")
+        System.setProperty("io.netty.handler.ssl.noOpenSsl", "true")
+        System.setProperty("io.grpc.netty.shaded.io.netty.transport.noNative", "true")
+        System.setProperty("io.netty.transport.noNative", "true")
+    }
+    if ("--verify-bundled-runtime" in args) {
+        kotlin.system.exitProcess(com.auralis.music.windows.dev.verifyBundledRuntime())
+    }
     val dev = System.getProperty("jpackage.app-version") == null
     if (System.getProperty("auralis.dataDir").isNullOrBlank() && (dev || args.contains("--self-test"))) {
         System.setProperty("auralis.dataDir", java.io.File(desktopAppDataDir().parentFile, if (dev) "Auralis Dev" else "Auralis Self Test").absolutePath)
@@ -70,10 +98,9 @@ fun main(args: Array<String>) {
     val dataDir = desktopAppDataDir()
     val newProfile = dataDir.listFiles()?.isNotEmpty() != true
     kotlinx.coroutines.runBlocking { com.auralis.music.windows.settings.InstallerDefaults.install(dataDir) }
-    val windowTitle = if (dev) "Auralis Dev" else "Auralis"
+    val windowTitle = if (syncPilot) "Auralis Sync Pilot" else if (dev) "Auralis Dev" else "Auralis"
     // The installed app has no console: its log goes to %APPDATA%\Auralis\auralis.log.
     Log.logToFile(java.io.File(dataDir, "auralis.log"), append = true)
-    // A YouTube pause survives restarts (bounded), and request counts go to dated, redacted logs.
     com.auralis.music.data.network.YouTubeBackoff.stateFile = java.io.File(dataDir, "youtube-cooldown.properties")
     com.auralis.music.data.network.YouTubeTraffic.diagnosticsDir = java.io.File(dataDir, "diagnostics")
     // The installer's step keeping gaming overlays off Auralis, and the elevated copy it starts.
@@ -112,7 +139,7 @@ fun main(args: Array<String>) {
     val launchStarted = System.currentTimeMillis()
     com.auralis.music.windows.dev.StartupSampler.startIfRequested(dataDir)
     com.auralis.music.windows.dev.ClassArchive.maintainIfPackaged()
-    Log.i(TAG, "Starting Auralis for Windows ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
+    Log.i(TAG, "Starting Auralis for ${if (isMacPlatform) "macOS" else "Windows"} ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
 
     // Load icon immediately (<2ms) so window can display with icon without waiting for repositories
     val icon = runCatching {
@@ -154,7 +181,6 @@ fun main(args: Array<String>) {
             store
         }
 
-        // Stats: names YouTube linked as one artist ("Tyler, The Creator") and label uploads' real artists.
         val artistCredits = PropertiesFileKeyValueStore(java.io.File(dataDir, "artist-credits.properties"))
         com.auralis.music.domain.stats.ArtistCredits.persistTo(artistCredits)
         com.auralis.music.data.network.OfficialArtistResolver.persistTo(artistCredits)
@@ -311,21 +337,61 @@ fun main(args: Array<String>) {
     }
 
     val selfTest = SelfTest.fromArgs(args, dataDir)
-    var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent, Boolean) -> Boolean)? = null
+    var shortcutHandler: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
 
     CaptureFrameEcho.installForAllWindows()
     application {
+        val isMac = remember { System.getProperty("os.name").orEmpty().lowercase().contains("mac") }
+        val macChromeInstalled = remember(isMac) { if (isMac) MacWindowChrome.installIfMac() else false }
         val systemSettings by com.auralis.music.windows.settings.DesktopSystemPreferences.store.settings.collectAsState()
         val nativeTitlebar = com.auralis.music.windows.settings.DesktopPreferences.store.bool("systemTitlebar")
         val launchMinimized = remember { "--autostart" in args && com.auralis.music.windows.settings.DesktopPreferences.store.bool("startMinimized") }
         var windowVisible by remember { mutableStateOf(true) }
+        var settingsRequestTrigger by remember { mutableStateOf(0) }
         var systemTray by remember { mutableStateOf<com.auralis.music.windows.media.DesktopSystemTray?>(null) }
-        val windowState = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        val initialRawWindowState = remember { WindowStatePreferences.loadRaw() }
+        val savedWindowState = remember {
+            resolveRestoredWindowState(
+                initialRawWindowState,
+                currentUsableScreenBounds(),
+                minWidth = minWindowWidth(isMac),
+                minHeight = minWindowHeight(isMac),
+            )
+        }
+        val windowState = rememberWindowState(
+            placement = if (isMac && savedWindowState.placement == WindowPlacement.Fullscreen) {
+                WindowPlacement.Floating
+            } else {
+                savedWindowState.placement
+            },
+            size = savedWindowState.size,
+            position = savedWindowState.position
+        )
+        var persistedWindowState by remember {
+            mutableStateOf(
+                initialRawWindowState.copy(
+                    width = savedWindowState.size.width.value,
+                    height = savedWindowState.size.height.value,
+                    x = (savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute)?.x?.value
+                        ?: initialRawWindowState.x,
+                    y = (savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute)?.y?.value
+                        ?: initialRawWindowState.y
+                )
+            )
+        }
+        var restoringInitialFullscreen by remember {
+            mutableStateOf(isMac && savedWindowState.placement == WindowPlacement.Fullscreen && !launchMinimized)
+        }
         var playerFullscreen by remember { mutableStateOf(false) }
         var nativeFrame by remember { mutableStateOf<NativeWindowFrame?>(null) }
         var previousGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
+        var macPreviousPlacement by remember { mutableStateOf<WindowPlacement?>(null) }
+        var macImmersivePreviousPlacement by remember { mutableStateOf<WindowPlacement?>(null) }
         var composeWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         val immersive = remember { com.auralis.music.windows.immersive.ImmersiveSession() }
+        var lockScreenPreview by remember {
+            mutableStateOf(isMac && com.auralis.music.windows.immersive.isLockScreenPreviewRequested(args))
+        }
         val embeddedDisplay = remember(immersive.trigger) {
             com.auralis.music.windows.immersive.connectedDisplays(null).singleOrNull()
         }
@@ -335,10 +401,87 @@ fun main(args: Array<String>) {
         val retainedAppConstraints = remember { java.util.concurrent.atomic.AtomicReference<androidx.compose.ui.unit.Constraints>() }
         val mainWindowShown = windowVisible && immersive.trigger == null
         var playerRequests by remember { mutableStateOf(0) }
+        val computeLiveWindowState: (Boolean) -> PersistedWindowState = { commitFloatingBounds ->
+            val awtWindow = composeWindow
+            val livePlacement = (awtWindow as? androidx.compose.ui.awt.ComposeWindow)?.placement ?: windowState.placement
+            val liveFloating = awtWindow != null && awtWindow.isVisible && livePlacement == WindowPlacement.Floating
+            nextPersistedWindowState(
+                current = persistedWindowState,
+                placement = livePlacement,
+                size = if (liveFloating) DpSize(awtWindow.width.dp, awtWindow.height.dp) else windowState.size,
+                position = if (liveFloating) {
+                    androidx.compose.ui.window.WindowPosition.Absolute(awtWindow.x.dp, awtWindow.y.dp)
+                } else {
+                    windowState.position
+                },
+                isMinimized = windowState.isMinimized,
+                visible = windowVisible,
+                playerFullscreen = playerFullscreen,
+                embeddedImmersive = embeddedImmersive,
+                isMac = isMac,
+                macPrePlayerPlacement = macPreviousPlacement ?: macImmersivePreviousPlacement,
+                restoringInitialFullscreen = restoringInitialFullscreen,
+                commitFloatingBounds = commitFloatingBounds
+            )
+        }
+        val flushWindowState: () -> Unit = {
+            val latest = computeLiveWindowState(true)
+            persistedWindowState = latest
+            runCatching { WindowStatePreferences.save(latest) }
+        }
+        LaunchedEffect(
+            windowState.placement,
+            windowState.size,
+            windowState.position,
+            windowState.isMinimized,
+            windowVisible,
+            playerFullscreen,
+            embeddedImmersive,
+            restoringInitialFullscreen
+        ) {
+            if (!windowVisible || windowState.isMinimized || restoringInitialFullscreen) return@LaunchedEffect
+            val placementChanged = windowState.placement != persistedWindowState.placement
+            if (windowState.placement != WindowPlacement.Floating) {
+                val immediate = computeLiveWindowState(false)
+                if (immediate != persistedWindowState) {
+                    persistedWindowState = immediate
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { WindowStatePreferences.save(immediate) }
+                    }
+                }
+                return@LaunchedEffect
+            }
+            if (placementChanged) {
+                val quick = computeLiveWindowState(false)
+                if (quick != persistedWindowState) {
+                    persistedWindowState = quick
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { WindowStatePreferences.save(quick) }
+                    }
+                }
+            }
+            kotlinx.coroutines.delay(450)
+            val settled = computeLiveWindowState(true)
+            if (settled != persistedWindowState) {
+                persistedWindowState = settled
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { WindowStatePreferences.save(settled) }
+                }
+            }
+        }
         fun setPlayerFullscreen(enabled: Boolean) {
             if (playerFullscreen == enabled) return
             nativeFrame?.fullscreen = enabled
             playerFullscreen = enabled
+            if (isMac) {
+                macPreviousPlacement = applyMacPlayerFullscreen(
+                    enabled = enabled,
+                    currentPlacement = windowState.placement,
+                    savedPlacement = macPreviousPlacement,
+                    onSetPlacement = { windowState.placement = it }
+                )
+                return
+            }
             if (enabled) {
                 val bounds = composeWindow?.graphicsConfiguration?.bounds
                     ?: java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration.bounds
@@ -363,7 +506,18 @@ fun main(args: Array<String>) {
 
         val openWindow: () -> Unit = {
             immersive.close()
+            if (isMac && java.awt.Desktop.isDesktopSupported()) {
+                val desktop = java.awt.Desktop.getDesktop()
+                if (desktop.isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
+                    runCatching { desktop.requestForeground(true) }
+                }
+            }
             windowState.isMinimized = false
+            (composeWindow as? java.awt.Frame)?.let { frame ->
+                if (frame.extendedState and java.awt.Frame.ICONIFIED != 0) {
+                    frame.extendedState = frame.extendedState and java.awt.Frame.ICONIFIED.inv()
+                }
+            }
             (composeWindow as? androidx.compose.ui.awt.ComposeWindow)?.takeIf { !it.isVisible }?.let { win ->
                 val handle = win.windowHandle
                 if (setWindowCloaked(handle, true)) {
@@ -400,6 +554,7 @@ fun main(args: Array<String>) {
         }
 
         val closeApp: () -> Unit = {
+            runCatching { flushWindowState() }
             runCatching { systemTray?.close() }
             runCatching { composeWindow?.isVisible = false }
             runCatching { singleInstanceLock?.close() }
@@ -432,6 +587,7 @@ fun main(args: Array<String>) {
                         }
                     }
                     finally {
+                        runCatching { if (isMac) com.auralis.music.windows.media.MacPlaybackActivity.stopPlaybackActivity() }
                         runCatching { comp.listenRecorder?.close() }
                         runCatching { comp.playback?.release() }
                         runCatching { comp.discord.close() }
@@ -445,7 +601,8 @@ fun main(args: Array<String>) {
             }
         }
         val requestClose: () -> Unit = {
-            if (com.auralis.music.windows.media.shouldCloseToTray(systemSettings.closeToTray, systemTray?.available == true)) {
+            if (isMac || com.auralis.music.windows.media.shouldCloseToTray(systemSettings.closeToTray, systemTray?.available == true)) {
+                runCatching { flushWindowState() }
                 windowVisible = false
             } else closeApp()
         }
@@ -458,6 +615,51 @@ fun main(args: Array<String>) {
                         "Auralis could not restart. Please try again or reopen the app.",
                         "Restart Auralis", javax.swing.JOptionPane.ERROR_MESSAGE)
                 }
+        }
+
+        // macOS Dock click (reopen) and Application Menu (Preferences, About, Quit) handling
+        DisposableEffect(Unit) {
+            val desktop = if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop() else null
+            val reopenListener = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_EVENT_REOPENED)) {
+                java.awt.desktop.AppReopenedListener {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                    }
+                }.also { desktop.addAppEventListener(it) }
+            } else null
+
+            val prefHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_PREFERENCES)) {
+                java.awt.desktop.PreferencesHandler {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                        settingsRequestTrigger++
+                    }
+                }.also { desktop.setPreferencesHandler(it) }
+            } else null
+
+            val aboutHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_ABOUT)) {
+                java.awt.desktop.AboutHandler {
+                    java.awt.EventQueue.invokeLater {
+                        openWindow()
+                        settingsRequestTrigger++
+                    }
+                }.also { desktop.setAboutHandler(it) }
+            } else null
+
+            val quitHandler = if (isMac && desktop != null && desktop.isSupported(java.awt.Desktop.Action.APP_QUIT_HANDLER)) {
+                java.awt.desktop.QuitHandler { _, _ ->
+                    java.awt.EventQueue.invokeLater {
+                        closeApp()
+                    }
+                }.also { desktop.setQuitHandler(it) }
+            } else null
+
+            onDispose {
+                reopenListener?.let { runCatching { desktop?.removeAppEventListener(it) } }
+                prefHandler?.let { runCatching { desktop?.setPreferencesHandler(null) } }
+                aboutHandler?.let { runCatching { desktop?.setAboutHandler(null) } }
+                quitHandler?.let { runCatching { desktop?.setQuitHandler(null) } }
+            }
         }
 
         // Install system tray at application scope so it stays present even when the window is hidden/minimized to tray
@@ -494,7 +696,7 @@ fun main(args: Array<String>) {
                         pb.queue.value.current?.id == track?.id
                     val isHidden = com.auralis.music.windows.media.isApplicationInBackground(composeWindow) || windowState.isMinimized || !windowVisible
                     tracker.started(track, actuallyPlaying, notificationSettings.value.songNotifications, isHidden)?.let {
-                        com.auralis.music.windows.media.WindowsSongNotifications.show(it)
+                        com.auralis.music.windows.media.DesktopSongNotifications.show(it)
                     }
                 }
             }
@@ -505,14 +707,12 @@ fun main(args: Array<String>) {
                 if (embeddedImmersive) false
                 else if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
                     setPlayerFullscreen(!playerFullscreen); true
-                } else shortcutHandler?.invoke(it, true) ?: false
+                } else shortcutHandler?.invoke(it) ?: false
             },
-            // Single-key shortcuts run only when the focused element (a text field typing them) didn't use the key.
-            onKeyEvent = { if (embeddedImmersive) false else shortcutHandler?.invoke(it, false) ?: false },
             onCloseRequest = requestClose,
             visible = windowVisible,
-            undecorated = true,
-            title = if (dev) "Auralis Dev" else "Auralis",
+            undecorated = !isMac,
+            title = windowTitle,
             icon = icon,
             state = windowState
         ) {
@@ -523,34 +723,148 @@ fun main(args: Array<String>) {
             LaunchedEffect(embeddedImmersive) {
                 if (embeddedImmersive) {
                     nativeFrame?.fullscreen = true
-                    immersiveGeometry = windowState.enterBorderlessFullscreen(window.graphicsConfiguration.bounds)
-                } else immersiveGeometry?.let {
+                    if (isMac) {
+                        macImmersivePreviousPlacement = applyMacPlayerFullscreen(
+                            enabled = true,
+                            currentPlacement = windowState.placement,
+                            savedPlacement = macImmersivePreviousPlacement,
+                            onSetPlacement = { windowState.placement = it }
+                        )
+                    } else {
+                        immersiveGeometry = windowState.enterBorderlessFullscreen(window.graphicsConfiguration.bounds)
+                    }
+                } else {
                     nativeFrame?.fullscreen = playerFullscreen
-                    it.restore(windowState)
-                    // Keep the screensaver over the resize until the restored viewport is presented.
-                    repeat(2) { withFrameNanos { } }
-                    immersiveGeometry = null
-                    window.toFront()
-                    window.requestFocus()
+                    if (isMac) {
+                        if (!playerFullscreen) {
+                            macImmersivePreviousPlacement = applyMacPlayerFullscreen(
+                                enabled = false,
+                                currentPlacement = windowState.placement,
+                                savedPlacement = macImmersivePreviousPlacement,
+                                onSetPlacement = { windowState.placement = it }
+                            )
+                        } else {
+                            macImmersivePreviousPlacement = null
+                        }
+                    } else immersiveGeometry?.let {
+                        it.restore(windowState)
+                        // Keep the screensaver over the resize until the restored viewport is presented.
+                        repeat(2) { withFrameNanos { } }
+                        immersiveGeometry = null
+                        window.toFront()
+                        window.requestFocus()
+                    }
                 }
             }
-            LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive) {
-                nativeFrame?.fullscreen = playerFullscreen || embeddedImmersive
+            LaunchedEffect(playerFullscreen, nativeFrame, embeddedImmersive, windowState.placement) {
+                nativeFrame?.fullscreen = playerFullscreen ||
+                    embeddedImmersive ||
+                    windowState.placement == WindowPlacement.Fullscreen
+            }
+            LaunchedEffect(window) {
+                if (restoringInitialFullscreen) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    androidx.compose.runtime.withFrameNanos { }
+                    if (restoringInitialFullscreen) {
+                        windowState.placement = WindowPlacement.Fullscreen
+                    }
+                    kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                        androidx.compose.runtime.snapshotFlow { windowState.placement }
+                            .first { it == WindowPlacement.Fullscreen }
+                    }
+                    restoringInitialFullscreen = false
+                }
             }
             var taskbarControls by remember { mutableStateOf<com.auralis.music.windows.media.TaskbarPlaybackControls?>(null) }
             var captionHover by remember { mutableStateOf(CaptionHover()) }
+            val macWindowFrame = remember(window, isMac, macChromeInstalled) {
+                if (isMac && macChromeInstalled) MacWindowChrome.attachWindow(window) else null
+            }
+            DisposableEffect(macWindowFrame) {
+                onDispose { macWindowFrame?.close() }
+            }
+            LaunchedEffect(macWindowFrame, playerFullscreen, embeddedCoverActive) {
+                val active = !playerFullscreen && !embeddedCoverActive
+                macWindowFrame?.titleBarEnabled = active
+                if (!active) macWindowFrame?.clearBounds()
+            }
+            @Composable
+            fun ChromeTitleBar(actions: TitleBarActions) {
+                val density = androidx.compose.ui.platform.LocalDensity.current.density
+                WindowTitleBar(
+                    actions = actions,
+                    title = windowTitle,
+                    icon = icon,
+                    systemDecorated = nativeTitlebar && nativeFrame != null,
+                    maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
+                    minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
+                    maximize = {
+                        nativeFrame?.toggleMaximize() ?: run {
+                            windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
+                                androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
+                        }
+                    },
+                    close = requestClose,
+                    captionBounds = {
+                        nativeFrame?.captionBounds = it
+                        macWindowFrame?.setCaptionBounds(it, density)
+                    },
+                    brandBounds = {
+                        nativeFrame?.brandBounds = it
+                        macWindowFrame?.setBrandBounds(it, density)
+                    },
+                    trailingBounds = {
+                        macWindowFrame?.setTrailingBounds(it, density)
+                    },
+                    maximizeBounds = { nativeFrame?.maximizeBounds = it },
+                    minimizeBounds = { nativeFrame?.minimizeBounds = it },
+                    closeBounds = { nativeFrame?.closeBounds = it },
+                    searchBounds = {
+                        nativeFrame?.searchBounds = it
+                        macWindowFrame?.setSearchBounds(it, density)
+                    },
+                    captionHover = captionHover,
+                    dragArea = { modifier, content ->
+                        if (nativeFrame == null && macWindowFrame == null) {
+                            WindowDraggableArea(modifier) { content() }
+                        } else {
+                            Box(modifier) { content() }
+                        }
+                    },
+                )
+            }
             DisposableEffect(window) {
                 composeWindow = window
+                if (isMac) {
+                    val rootPane = (window as? androidx.compose.ui.awt.ComposeWindow)?.rootPane
+                    rootPane?.putClientProperty("apple.awt.fullWindowContent", true)
+                    rootPane?.putClientProperty("apple.awt.transparentTitleBar", true)
+                    rootPane?.putClientProperty("apple.awt.windowTitleVisible", false)
+                    rootPane?.putClientProperty("apple.awt.fullscreenable", true)
+                    runCatching {
+                        if (java.awt.Taskbar.isTaskbarSupported()) {
+                            val taskbar = java.awt.Taskbar.getTaskbar()
+                            if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
+                                (Thread.currentThread().contextClassLoader.getResourceAsStream("app-icon/auralis_squircle.png")
+                                    ?: Thread.currentThread().contextClassLoader.getResourceAsStream("auralis_logo.png"))?.use {
+                                    taskbar.iconImage = ImageIO.read(it)
+                                }
+                            }
+                        }
+                    }
+                }
                 // Every icon size Windows asks for (taskbar, Alt+Tab, Task Manager): one 256px
                 // image shrunk by Windows was an unrecognisable smudge at 16-32px.
                 appIconImages()?.let { window.iconImages = it }
                 // Before Compose paints its first frame the window shows its native background:
                 // make that the loading frame's colour rather than whatever was behind it.
                 java.awt.Color(0x0F, 0x0E, 0x13).let { window.background = it; window.contentPane.background = it }
-                window.minimumSize = java.awt.Dimension(900, 600)
+                window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
                 singleInstanceLock?.recordWindowHandle(window.windowHandle)
-                val frame = runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
-                    .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
+                val frame = if (!isMac) {
+                    runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
+                        .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
+                } else null
                 nativeFrame = frame
                 val inputRestore = installWindowInputRestore(window)
                 java.awt.EventQueue.invokeLater {
@@ -617,7 +931,7 @@ fun main(args: Array<String>) {
             }
             LaunchedEffect(components?.stores) {
                 val st = components?.stores
-                if (st != null) {
+                if (st != null && !isMac) {
                     st.privacy.settingsFlow.collect { privacy ->
                         runCatching {
                             val affinity = com.sun.jna.NativeLibrary.getInstance("user32").getFunction("SetWindowDisplayAffinity")
@@ -626,7 +940,7 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            window.minimumSize = java.awt.Dimension(900, 600)
+            window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
             LaunchedEffect(components?.playback) {
                 val pb = components?.playback
                 if (pb != null) {
@@ -678,6 +992,10 @@ fun main(args: Array<String>) {
                         if (!embeddedCoverActive) content.place(0, 0)
                     }
                 }) {
+                CompositionLocalProvider(
+                    com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+                        (windowVisible && !windowState.isMinimized && !embeddedCoverActive && immersive.trigger == null)
+                ) {
                 AuralisDesktopApp(
                     searchRepository = ready.searchRepository,
                     library = ready.library,
@@ -702,31 +1020,27 @@ fun main(args: Array<String>) {
                     account = ready.account,
                     playerFullscreen = playerFullscreen,
                     onPlayerFullscreen = ::setPlayerFullscreen,
+                    onCloseWindow = requestClose,
+                    onMinimizeWindow = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
+                    openSettingsTrigger = settingsRequestTrigger,
                     onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
-                    playerRequests = playerRequests,
-                    // AuralisDesktopApp leaves it out in fullscreen (it holds it while the player opens or closes).
-                    titleBar = { actions ->
-                        val chrome: @Composable () -> Unit = {
-                            WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
-                                systemDecorated = nativeTitlebar && nativeFrame != null,
-                                maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
-                                minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
-                                maximize = {
-                                    nativeFrame?.toggleMaximize() ?: run {
-                                        windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
-                                            androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
-                                    }
-                                }, close = requestClose,
-                                captionBounds = { nativeFrame?.captionBounds = it },
-                                brandBounds = { nativeFrame?.brandBounds = it },
-                                maximizeBounds = { nativeFrame?.maximizeBounds = it },
-                                minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
-                                searchBounds = { nativeFrame?.searchBounds = it },
-                                captionHover = captionHover)
+                    onToggleLockScreenPreview = {
+                        if (isMac) {
+                            lockScreenPreview = if (lockScreenPreview) {
+                                false
+                            } else {
+                                ready.playback?.queue?.value?.current != null
+                            }
                         }
-                        if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
+                    },
+                    playerRequests = playerRequests,
+                    titleBar = { actions ->
+                        if (!playerFullscreen) {
+                            ChromeTitleBar(actions)
+                        }
                     }
                 )
+                }
                 }
                 if (coverAlpha > 0f) Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)
                     .graphicsLayer { alpha = coverAlpha }.background(Color(0xFF0F0E13))
@@ -745,34 +1059,14 @@ fun main(args: Array<String>) {
                 }
             } else {
                 val placeholderChrome: @Composable () -> Unit = {
-                    WindowTitleBar(
-                        systemDecorated = nativeTitlebar && nativeFrame != null,
-                        actions = TitleBarActions(),
-                        title = if (dev) "Auralis Dev" else "Auralis",
-                        icon = icon,
-                        maximized = windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized,
-                        minimize = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
-                        maximize = {
-                            nativeFrame?.toggleMaximize() ?: run {
-                                windowState.placement = if (windowState.placement == androidx.compose.ui.window.WindowPlacement.Maximized)
-                                    androidx.compose.ui.window.WindowPlacement.Floating else androidx.compose.ui.window.WindowPlacement.Maximized
-                            }
-                        },
-                        close = requestClose,
-                        captionBounds = { nativeFrame?.captionBounds = it },
-                        brandBounds = { nativeFrame?.brandBounds = it },
-                        maximizeBounds = { nativeFrame?.maximizeBounds = it },
-                        minimizeBounds = { nativeFrame?.minimizeBounds = it }, closeBounds = { nativeFrame?.closeBounds = it },
-                        searchBounds = { nativeFrame?.searchBounds = it },
-                        captionHover = captionHover
-                    )
+                    ChromeTitleBar(TitleBarActions())
                 }
                 Box(
                     modifier = Modifier.fillMaxSize()
                         .background(Color(0xFF0F0E13))
                 ) {
                     // Only the chrome while components load: no centred logo flash before the real UI.
-                    if (nativeFrame == null) WindowDraggableArea { placeholderChrome() } else placeholderChrome()
+                    placeholderChrome()
                 }
             }
         }
@@ -782,6 +1076,23 @@ fun main(args: Array<String>) {
         val immersiveStores = components?.stores
         if (immersivePlayback != null && immersiveLyrics != null && immersiveStores != null) {
             com.auralis.music.windows.immersive.ImmersiveIdleWatcher(immersive, immersivePlayback)
+            if (isMac) {
+                com.auralis.music.windows.notch.AuralisNotch(
+                    playback = immersivePlayback,
+                    lyrics = immersiveLyrics,
+                    appearanceStore = immersiveStores.appearance,
+                    lockScreenPreview = lockScreenPreview,
+                    onOpenPlayer = { openWindow(); playerRequests++ },
+                    onOpenSettings = { openWindow(); settingsRequestTrigger++ }
+                )
+                com.auralis.music.windows.immersive.MacLockScreenOverlay(
+                    playback = immersivePlayback,
+                    lyrics = immersiveLyrics,
+                    stores = immersiveStores,
+                    previewActive = lockScreenPreview,
+                    onDismissPreview = { lockScreenPreview = false }
+                )
+            }
             if (!embeddedImmersive) com.auralis.music.windows.immersive.ImmersiveWindows(immersive, immersivePlayback, immersiveLyrics, immersiveStores,
                 appBounds = { composeWindow?.takeIf { windowVisible && !windowState.isMinimized }?.bounds }, icon = icon,
                 onLeaveToPlayer = {

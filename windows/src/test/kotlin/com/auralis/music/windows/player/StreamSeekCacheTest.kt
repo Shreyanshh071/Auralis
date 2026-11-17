@@ -36,7 +36,7 @@ class StreamSeekCacheTest {
             } catch (_: java.io.IOException) {} finally { exchange.close() }
         }
         upstream.start()
-        val vlcDir = java.io.File(System.getenv("LOCALAPPDATA"), "Auralis/app/resources/vlc")
+        val vlcDir = testVlcDirectory()
         val audio = checkNotNull(com.auralis.music.desktop.playback.VlcAudioPlayer.createOrNull(vlcDir))
         try {
             audio.setVolume(0f)
@@ -101,15 +101,15 @@ class StreamSeekCacheTest {
             }
             val start = 170_000
             assertContentEquals(bytes.copyOfRange(start, start + 2048), request(start, start + 2047))
-            val blockStart = start / 32768 * 32768
+            val blockStart = start / (256 * 1024) * (256 * 1024)
             val fetched = requests.count { it.first == blockStart }
             assertEquals(1, fetched)
             val cachedStart = System.nanoTime()
             assertContentEquals(bytes.copyOfRange(start + 100, start + 1100), request(start + 100, start + 1099))
             println("Cached overlapping seek: ${(System.nanoTime() - cachedStart) / 1_000_000}ms")
             assertEquals(fetched, requests.count { it.first == blockStart }, "Seeking within downloaded audio must not fetch it again")
-            assertTrue(requests.all { it.second - it.first + 1 <= 32768 }, "Fresh seeks should not wait for 512 KiB chunks")
-            val cross = 196_600
+            assertTrue(requests.all { it.second - it.first + 1 <= 256 * 1024 }, "Fresh seeks must stay bounded to 256 KiB, never the whole file")
+            val cross = 262_140
             assertContentEquals(bytes.copyOfRange(cross, cross + 4000), request(cross, cross + 3999))
             assertContentEquals(bytes.copyOfRange(bytes.size - 10, bytes.size), request(bytes.size - 10, bytes.size - 1))
         } finally { upstream.stop(0); executor.shutdownNow() }

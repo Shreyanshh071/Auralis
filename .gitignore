@@ -80,5 +80,7 @@ android/app/src/main/cpp/discord/
 # Firestore rules tests
 firestore-tests/node_modules/
 
+# Frozen account libraries saved by connect-server/tools/library-migrate.mjs: private user data.
+library-snapshots/
 # Local JDK used for builds on this machine
 build-tools/

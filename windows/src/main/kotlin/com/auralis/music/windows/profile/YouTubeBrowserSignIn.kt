@@ -34,32 +34,110 @@ internal object YouTubeBrowserSignIn {
     private const val CHOOSER = "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F"
     private val root get() = File(com.auralis.music.util.desktopAppDataDir(), "youtube-signin-browser")
 
-    internal data class Browser(val exe: File, val chromium: Boolean, val name: String)
+    internal data class Browser(val exe: File, val chromium: Boolean, val name: String, val bundled: Boolean = false)
+
+    internal fun bundledMacBrowser(
+        resources: File? = System.getProperty("compose.application.resources.dir")?.let(::File),
+        development: Boolean = System.getProperty("jpackage.app-path") == null
+    ): Browser? {
+        val relative = "signin-browser/Chromium.app/Contents/MacOS/Chromium"
+        val candidates = listOfNotNull(
+            resources?.let { File(it, relative) },
+            if (development) File("windows/build", relative) else null,
+            if (development) File("build", relative) else null
+        )
+        return candidates.firstOrNull { it.isFile && it.canExecute() }?.let { Browser(it, true, "Auralis sign-in", bundled = true) }
+    }
 
     /** The browser to sign in with: any Chromium browser installed, else Firefox or Zen. */
     fun browser(): Browser? {
-        fun appPath(exe: String) = listOf("HKCU", "HKLM").firstNotNullOfOrNull { hive ->
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+
+        if (isMac) {
+            val userHome = System.getProperty("user.home").orEmpty()
+            val chromiumCandidates = listOf(
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" to "Chrome",
+                "$userHome/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" to "Chrome",
+                "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" to "Brave",
+                "$userHome/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" to "Brave",
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" to "Edge",
+                "$userHome/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" to "Edge",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium" to "Chromium",
+                "$userHome/Applications/Chromium.app/Contents/MacOS/Chromium" to "Chromium",
+                "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi" to "Vivaldi",
+                "$userHome/Applications/Vivaldi.app/Contents/MacOS/Vivaldi" to "Vivaldi",
+                "/Applications/Arc.app/Contents/MacOS/Arc" to "Arc",
+                "$userHome/Applications/Arc.app/Contents/MacOS/Arc" to "Arc"
+            )
+            for ((path, name) in chromiumCandidates) {
+                val file = File(path)
+                if (file.isFile && file.canExecute()) {
+                    return Browser(file, true, name)
+                }
+            }
+            val firefoxCandidates = listOf(
+                "/Applications/Firefox.app/Contents/MacOS/firefox" to "Firefox",
+                "$userHome/Applications/Firefox.app/Contents/MacOS/firefox" to "Firefox",
+                "/Applications/Zen Browser.app/Contents/MacOS/zen" to "Zen",
+                "$userHome/Applications/Zen Browser.app/Contents/MacOS/zen" to "Zen",
+                "/Applications/LibreWolf.app/Contents/MacOS/librewolf" to "LibreWolf",
+                "$userHome/Applications/LibreWolf.app/Contents/MacOS/librewolf" to "LibreWolf",
+                "/Applications/Waterfox.app/Contents/MacOS/waterfox" to "Waterfox",
+                "$userHome/Applications/Waterfox.app/Contents/MacOS/waterfox" to "Waterfox"
+            )
+            for ((path, name) in firefoxCandidates) {
+                val file = File(path)
+                if (file.isFile && file.canExecute()) {
+                    return Browser(file, false, name)
+                }
+            }
+            return bundledMacBrowser()
+        }
+
+        if (isWindows) {
+            fun appPath(exe: String) = listOf("HKCU", "HKLM").firstNotNullOfOrNull { hive ->
+                runCatching {
+                    val out = ProcessBuilder("reg", "query", "$hive\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\$exe", "/ve")
+                        .redirectErrorStream(true).start().inputStream.bufferedReader().readText()
+                    Regex("""REG_SZ\s+(.+)""").find(out)?.groupValues?.get(1)?.trim()?.trim('"')?.let(::File)?.takeIf { it.isFile }
+                }.getOrNull()
+            }
+            val local = System.getenv("LOCALAPPDATA").orEmpty()
+            val chromium = listOfNotNull(appPath("chrome.exe"), appPath("msedge.exe"), appPath("brave.exe"),
+                File(System.getenv("ProgramFiles").orEmpty(), "Google/Chrome/Application/chrome.exe"),
+                File(local, "Google/Chrome/Application/chrome.exe"),
+                File(System.getenv("ProgramFiles(x86)").orEmpty(), "Microsoft/Edge/Application/msedge.exe"),
+                File(local, "imput/Helium/Application/chrome.exe")).firstOrNull { it.isFile }
+            if (chromium != null) return Browser(chromium, true, chromium.parentFile?.parentFile?.name ?: "browser")
+            val firefox = listOfNotNull(appPath("firefox.exe"), appPath("zen.exe"),
+                File(System.getenv("ProgramFiles").orEmpty(), "Mozilla Firefox/firefox.exe")).firstOrNull { it.isFile }
+            return firefox?.let { Browser(it, false, it.nameWithoutExtension) }
+        }
+
+        val linuxChromium = listOf("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "brave-browser", "microsoft-edge")
+            .firstNotNullOfOrNull { cmd ->
+                runCatching {
+                    val p = ProcessBuilder("which", cmd).start()
+                    val path = p.inputStream.bufferedReader().readLine()?.trim()
+                    if (p.waitFor() == 0 && !path.isNullOrBlank()) File(path).takeIf { it.isFile && it.canExecute() } else null
+                }.getOrNull()
+            }
+        if (linuxChromium != null) return Browser(linuxChromium, true, linuxChromium.name)
+        val linuxFirefox = listOf("firefox", "zen-browser").firstNotNullOfOrNull { cmd ->
             runCatching {
-                val out = ProcessBuilder("reg", "query", "$hive\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\$exe", "/ve")
-                    .redirectErrorStream(true).start().inputStream.bufferedReader().readText()
-                Regex("""REG_SZ\s+(.+)""").find(out)?.groupValues?.get(1)?.trim()?.trim('"')?.let(::File)?.takeIf { it.isFile }
+                val p = ProcessBuilder("which", cmd).start()
+                val path = p.inputStream.bufferedReader().readLine()?.trim()
+                if (p.waitFor() == 0 && !path.isNullOrBlank()) File(path).takeIf { it.isFile && it.canExecute() } else null
             }.getOrNull()
         }
-        val local = System.getenv("LOCALAPPDATA").orEmpty()
-        val chromium = listOfNotNull(appPath("chrome.exe"), appPath("msedge.exe"), appPath("brave.exe"),
-            File(System.getenv("ProgramFiles").orEmpty(), "Google/Chrome/Application/chrome.exe"),
-            File(local, "Google/Chrome/Application/chrome.exe"),
-            File(System.getenv("ProgramFiles(x86)").orEmpty(), "Microsoft/Edge/Application/msedge.exe"),
-            File(local, "imput/Helium/Application/chrome.exe")).firstOrNull { it.isFile }
-        if (chromium != null) return Browser(chromium, true, chromium.parentFile?.parentFile?.name ?: "browser")
-        val firefox = listOfNotNull(appPath("firefox.exe"), appPath("zen.exe"),
-            File(System.getenv("ProgramFiles").orEmpty(), "Mozilla Firefox/firefox.exe")).firstOrNull { it.isFile }
-        return firefox?.let { Browser(it, false, it.nameWithoutExtension) }
+        return linuxFirefox?.let { Browser(it, false, it.name) }
     }
 
     /** Opens the sign-in window and waits (up to 10 minutes) until YouTube Music is signed in there. */
     suspend fun signIn(onStatus: (String) -> Unit = {}): String = withContext(Dispatchers.IO) {
-        val browser = browser() ?: error("No browser found for signing in. Install Chrome, Edge or Firefox.")
+        val browser = browser() ?: error(if (System.getProperty("os.name").orEmpty().lowercase().contains("mac"))
+            "The sign-in browser is unavailable. Try reinstalling Auralis." else "No browser found for signing in. Install Chrome, Edge or Firefox.")
         onStatus("Sign in in the ${browser.name.replaceFirstChar { it.uppercase() }} window that opened…")
         val cookie = session(browser, headless = false, timeoutMs = 10 * 60_000L) { it != null }
         cookie ?: error("Sign-in didn't finish. The window was closed or took too long.")
@@ -81,7 +159,7 @@ internal object YouTubeBrowserSignIn {
         listOf("browser=${browser.exe}") + cookie.orEmpty().split("; ").map { it.substringBefore('=') }
     }
 
-    private fun profileDir(browser: Browser) = File(root, if (browser.chromium) "chromium" else "firefox")
+    private fun profileDir(browser: Browser) = File(root, if (browser.bundled) "bundled-chromium" else if (browser.chromium) "chromium" else "firefox")
 
     /** Runs the browser on the profile until [done] accepts the session (or [timeoutMs]), then closes it. */
     private suspend fun session(browser: Browser, headless: Boolean, timeoutMs: Long, settleMs: Long = 2_000L,

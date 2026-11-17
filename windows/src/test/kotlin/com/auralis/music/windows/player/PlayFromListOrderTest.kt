@@ -11,7 +11,7 @@ class PlayFromListOrderTest {
     @Test fun pickingASongFromTheListAlreadyPlayingKeepsTheListOrder() = runBlocking {
         val dir = kotlin.io.path.createTempDirectory("play-from-order").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val native = File(System.getProperty("user.home"), "AppData/Local/Auralis/app/resources/vlc")
+        val native = testVlcDirectory()
         val player = assertNotNull(VlcAudioPlayer.createOrNull(native))
         val wave = File(dir, "silent.wav")
         AudioInputStream(java.io.ByteArrayInputStream(ByteArray(8 * 8000 * 2)), AudioFormat(8000f, 16, 1, true, false), 64000)

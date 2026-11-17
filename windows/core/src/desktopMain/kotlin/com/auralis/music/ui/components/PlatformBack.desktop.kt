@@ -21,6 +21,7 @@ object DesktopBackDispatcher {
 
     internal fun add(enabled: () -> Boolean, onBack: () -> Unit): Any = Entry(enabled, onBack).also { synchronized(entries) { entries += it } }
     internal fun remove(token: Any) { synchronized(entries) { entries.remove(token) } }
+    fun clear() { synchronized(entries) { entries.clear() } }
 }
 
 @Composable

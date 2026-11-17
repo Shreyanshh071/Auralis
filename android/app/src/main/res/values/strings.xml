@@ -727,6 +727,9 @@
     <string name="no_listening_stats_yet">No listening stats yet</string>
     <string name="play_your_favorite_music_and_your_listen">Play your favorite music and your listening habits will appear here!</string>
     <string name="clear_listening_stats_2">Clear listening stats?</string>
+    <string name="clear_stats_all_devices">Also clear on all my devices</string>
+    <string name="clear_stats_all_devices_detail">Removes listening history before now from your account and updated devices. Older app versions may retain local copies. This can\'t be undone.</string>
+    <string name="clear_stats_this_device_only_note">Leave this off to clear this phone only: your other devices and your account keep their listening history.</string>
     <string name="this_clears_your_listening_history_play">This clears your listening history, play counts, and all Stats data on this device. Saved songs, playlists, and downloads stay. New listens will count from zero.</string>
     <string name="listening_stats_cleared">Listening stats cleared</string>
     <string name="could_not_clear_listening_stats">Could not clear listening stats</string>

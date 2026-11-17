@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.*
 
 class PlaybackIntentGatingTest {
-    private val native = File(System.getProperty("user.home"), "AppData/Local/Auralis/app/resources/vlc")
+    private val native = testVlcDirectory()
     private val songs = listOf(
         Track("AAAAAAAAAAA", "One", "Artist", duration = 180),
         Track("BBBBBBBBBBB", "Two", "Artist", duration = 180),

@@ -18,8 +18,13 @@ class DesktopRestartTest {
     }
 
     @Test fun restartWaitsForOldProcessToExitBeforeContinuing() {
-        val parent = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-            "-Command", "Start-Sleep -Milliseconds 500")
+        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+        val cmd = if (isWindows) {
+            listOf("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Start-Sleep -Milliseconds 500")
+        } else {
+            listOf("sleep", "0.5")
+        }
+        val parent = ProcessBuilder(cmd)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start()
         try {
             assertTrue(parent.isAlive)

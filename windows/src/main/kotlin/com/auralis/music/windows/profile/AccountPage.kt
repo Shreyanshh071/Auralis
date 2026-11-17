@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -67,6 +69,15 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Default.AccountCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        val avatarUrl = state.profile?.avatarUrl
+                        if (!avatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = state.profile?.displayName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                     }
                     Column(Modifier.weight(1f)) {
                         Text(state.profile!!.displayName.ifBlank { "Signed in to Auralis" }, style = MaterialTheme.typography.titleMedium, color = Color.White)
@@ -84,8 +95,13 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                     }
                 }
             }
+            val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
+            val accountMsg = if (isMac)
+                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this Mac stay."
+            else
+                "Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay."
             Text(
-                desktopText("Your playlists, liked songs and listening stats sync with this account. Signing out removes what came from the account; playlists you imported on this PC stay."),
+                desktopText(accountMsg),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -149,7 +165,7 @@ fun AccountPage(account: DesktopAccount, showBack: Boolean = true, onBack: () ->
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        state.message?.let {
+        (state.syncMessage ?: state.message)?.let {
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),

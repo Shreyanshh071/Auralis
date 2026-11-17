@@ -99,12 +99,17 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
     val cover = moving ?: still
     val time = remember { mutableFloatStateOf(0f) }
     val auraOff = com.auralis.music.windows.dev.PerfFlags.off("aura")
-    LaunchedEffect(Unit) {
-        if (auraOff) return@LaunchedEffect
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
+    LaunchedEffect(visualsActive, auraOff) {
+        if (auraOff || !visualsActive) return@LaunchedEffect
         var previous = 0L
-        while (true) withFrameNanos { now ->
-            if (previous != 0L) time.floatValue += ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
-            previous = now
+        while (true) {
+            // Slow colour drift needs 30 updates/s, even on a 120 Hz display.
+            kotlinx.coroutines.delay(25L)
+            withFrameNanos { now ->
+                if (previous != 0L) time.floatValue += ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
+                previous = now
+            }
         }
     }
     // A shortcut whose cover is still loading shows a quiet sheen, then its aura sweeps in from the
@@ -158,8 +163,18 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
         DisposableEffect(resources) { onDispose { resources.close() } }
         if (auraOff) androidx.compose.foundation.Image(image, null, Modifier.fillMaxSize(),
             contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-        else Canvas(Modifier.fillMaxSize()) {
-            drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
+        else Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            // The source is already blurred to 128px. Evaluate the noise on a smaller GPU
+            // layer and upscale it, rather than shading every Retina pixel on every frame.
+            // Video and sharp lyric glyphs remain at the window's native resolution.
+            val scale = if (presentation == AuraPresentation.FULL_PLAYER) .25f else .5f
+            Canvas(Modifier.fillMaxSize(scale).graphicsLayer {
+                scaleX = 1f / scale
+                scaleY = 1f / scale
+                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+            }) {
+                drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
+            }
         }
       }
     }

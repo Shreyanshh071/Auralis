@@ -7,6 +7,7 @@ import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.model.LyricsProvider
 import com.auralis.music.domain.model.SyncType
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -118,6 +119,20 @@ class DesktopLyricsController(
         }
     }
 
+    init {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.flow.combine(playback.queue, spicyMode.distinctUntilChanged(), playback.connectRemote) { q, spicy, remote ->
+                (if (remote == null) q.tracks.getOrNull(q.index + 1)?.takeIf { q.index >= 0 } else null) to spicy
+            }.distinctUntilChanged().collectLatest { (next, spicy) ->
+                if (next == null || next.duration <= 0L) return@collectLatest
+                kotlinx.coroutines.delay(2_000L)
+                try { withTimeoutOrNull(15_000L) { repository.prefetch(next, spicy) } }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { com.auralis.music.util.Log.w("DesktopLyrics", "Next lyrics preparation unavailable: ${e.javaClass.simpleName}") }
+            }
+        }
+    }
+
     /** Songs whose cached lyrics already had their one network upgrade attempt this session. */
     private val upgradeAttempted = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
@@ -125,7 +140,7 @@ class DesktopLyricsController(
         shownTrack = track
         if (track != null && manualTrackId == track.id && playback.connectRemote.value?.lyricsSelection == null) return
         manualTrackId = null
-        providerGeneration.incrementAndGet()
+        val generation = providerGeneration.incrementAndGet()
         providerJob?.cancel()
         job?.cancel()
         if (track == null) {
@@ -139,9 +154,8 @@ class DesktopLyricsController(
         val cached = repository.cached(videoId, durationSec * 1000L)
         val previous = _state.value
         _state.value = if (previous.trackId == track.id && previous.originalLyrics != null) previous
-            else State(track.id, cached?.takeIf { !preferSpicy || it.provider == LyricsProvider.SPICY_LYRICS },
-                isLoading = cached == null || (preferSpicy && cached.provider != LyricsProvider.SPICY_LYRICS))
-        job = scope.launch {
+            else State(track.id, cached, isLoading = cached == null)
+        job = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val selection = playback.connectRemote.value?.lyricsSelection
             if (selection != null && selection.trackId == track.id) {
                 _state.value = State(track.id, isLoading = true)
@@ -162,28 +176,37 @@ class DesktopLyricsController(
             fun applyResult(candidate: LyricsData?, loading: Boolean = false) {
                 while (true) {
                     val current = _state.value
-                    if (current.trackId != track.id || current.originalLyrics != null || manualTrackId == track.id) return
+                    if (generation != providerGeneration.get() || current.trackId != track.id || current.originalLyrics != null || manualTrackId == track.id) return
                     val selected = DesktopLyricsRepository.choose(current.lyrics, candidate, preferSpicy)
                     if (_state.compareAndSet(current, current.copy(lyrics = selected,
                             isLoading = selected == null && loading))) return
                 }
             }
-            // Align to the real stream length, as the phone does with the player's duration. The
-            // stream is usually open within a second or two; songs with no listed length (common
-            // in imported playlists) wait longer, since matching needs a length to trust.
-            val waitMs = if (durationSec > 0L) 2500L else 8000L
-            val remote = playback.connectRemote.value?.takeIf { it.track.id == track.id }
-            val lengthMs = if (remote != null) remote.durationMs.takeIf { it > 0 } ?: durationSec * 1000L
-                else withTimeoutOrNull(waitMs) { playback.lengthMs.first { it > 0L } } ?: (durationSec * 1000L)
-            if (preferSpicy) {
-                val preferred = withTimeoutOrNull(12_000L) {
-                    repository.upgradeSpicy(LyricsSearchQuery(track.title, track.artist,
-                        durationSec = lengthMs / 1000, videoId = videoId, album = track.album,
-                        channelTitle = track.channelTitle, durationMs = lengthMs,
-                        spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id)))
-                }
+            fun startSpicyUpgrade(durationMs: Long) = launch {
+                val preferred = repository.upgradeSpicy(LyricsSearchQuery(track.title, track.artist,
+                    durationSec = durationMs / 1000, videoId = videoId, album = track.album,
+                    channelTitle = track.channelTitle, durationMs = durationMs,
+                    spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id)))
                 ensureActive()
-                if (preferred != null) { applyResult(preferred); return@launch }
+                applyResult(preferred, loading = _state.value.isLoading)
+            }
+            // Start from the listed recording length. Waiting for the decoder before any
+            // request turned every uncached song into duration wait + provider wait.
+            val remote = playback.connectRemote.value?.takeIf { it.track.id == track.id }
+            val listedLength = remote?.durationMs?.takeIf { it > 0 } ?: durationSec * 1000L
+            val lengthMs = listedLength.takeIf { it > 0L }
+                ?: withTimeoutOrNull(8000L) { playback.lengthMs.first { it > 0L } } ?: 0L
+            if (preferSpicy) startSpicyUpgrade(lengthMs)
+            // Correct provisional alignment when the decoder reports the measured stream.
+            if (remote == null && listedLength > 0L) launch {
+                val measured = playback.lengthMs.first { it > 0L }
+                ensureActive()
+                _state.update { current ->
+                    if (generation != providerGeneration.get() || current.trackId != track.id || current.originalLyrics != null) current
+                    else current.copy(lyrics = current.lyrics?.let {
+                        com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(it, measured, null)
+                    })
+                }
             }
             if (cached != null) {
                 repository.cached(videoId, lengthMs)?.let { realigned ->
@@ -205,7 +228,7 @@ class DesktopLyricsController(
                 durationMs = lengthMs,
                 onInterim = { interim ->
                     // Shown only if it beats what is on screen, and never after the final answer.
-                    if (!preferSpicy) applyResult(interim, loading = true)
+                    applyResult(interim, loading = true)
                 },
                 preferSpicy = preferSpicy
             )

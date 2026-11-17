@@ -2,6 +2,7 @@ package com.auralis.music.desktop.playback
 
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -605,6 +606,7 @@ class DesktopPlaybackController(
             } finally {
                 _resolving.value = false
             }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (_queue.value.current?.id != track.id) return@launch
             val url = result.url
             if (url == null) {

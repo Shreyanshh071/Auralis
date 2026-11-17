@@ -5,7 +5,6 @@ import com.auralis.music.ui.i18n.desktopText
 import com.auralis.music.ui.components.IconButton
 import com.auralis.music.ui.components.TextButton
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import com.auralis.music.ui.components.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -122,8 +121,7 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
     if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text(desktopText("Add a shortcut")) },
         confirmButton = { TextButton(onClick = { picking = false }) { Text(desktopText("Done")) } }, text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text(desktopText("Filter playlists and artists")) })
+                OutlinedTextField(query, { query = it }, singleLine = true, label = { Text(desktopText("Filter playlists and artists")) })
                 val matches = candidates.filter { it.name.contains(query, true) }.distinctBy { it.id }
                 if (matches.isEmpty()) Text(desktopText("No matching playlists or artists."))
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
@@ -179,24 +177,21 @@ internal fun ShortcutCandidateRow(
             ShortcutPhoto(item, side = 48)
         }
         Text(item.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        // Bordered pill of one fixed width, so Add and Remove line up down the list.
         Box(
             modifier = Modifier
-                .width(96.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(RoundedCornerShape(8.dp))
                 .background(actionBackground)
-                .border(1.dp, actionColor.copy(alpha = if (actionHovered) .9f else .55f), RoundedCornerShape(50))
                 .hoverable(actionInteraction)
                 .clickable(
                     interactionSource = actionInteraction,
                     indication = null,
                     onClick = if (pinned) onRemove else onAdd
                 )
-                .padding(vertical = 7.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = desktopText(if (pinned) "Remove" else "Add"),
+                text = if (pinned) "Remove" else "Add",
                 color = if (actionHovered) actionColor else actionColor.copy(alpha = 0.95f),
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium
