@@ -112,11 +112,11 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
         }
     }
 
-    SettingsGroup("Lyrics video loops") {
+    SettingsGroup("Canvas") {
         val prefs by CanvasSettings.prefs.collectAsState()
         SettingToggle(
-            title = "Show video loops in Lyrics",
-            description = "Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art.",
+            title = "Show Canvas in Lyrics",
+            description = "Play Spotify Canvas and animated covers on the lyrics stage when available.",
             checked = prefs.spotifyCanvas,
             onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
         )

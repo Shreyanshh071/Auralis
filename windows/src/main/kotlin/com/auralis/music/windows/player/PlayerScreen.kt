@@ -129,7 +129,8 @@ fun PlayerScreen(
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
+        // Shown for Spotify Canvas or, when it is off or missing, an animated cover.
+        val canvasStage = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
             prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
@@ -176,7 +177,7 @@ fun PlayerScreen(
                         CanvasPlayerDock(playback, track, Modifier.fillMaxSize().padding(bottom = 48.dp))
                     } else {
                         Box(Modifier.offset(y = 12.dp)) {
-                            CoverWithControls(playback, track, artworkUrl, track?.title, coverSize, ContentScale.Crop)
+                            CoverWithControls(playback, track, spotifyCanvasId, artworkUrl, track?.title, coverSize, ContentScale.Crop)
                         }
                         Spacer(Modifier.height(22.dp))
                         PlayerSeekBar(playback, Modifier.width(coverSize))
@@ -579,7 +580,7 @@ private val BlankCursor: PointerIcon by lazy {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun CoverWithControls(
-    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?, artworkUrl: String?, title: String?, size: Dp,
+    playback: DesktopPlaybackController, track: com.auralis.music.domain.model.Track?, spotifyCanvasId: String?, artworkUrl: String?, title: String?, size: Dp,
     scale: ContentScale
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -606,8 +607,8 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        // With no Spotify video on the stage, the cover still plays Apple Music / Tidal motion artwork.
-        AnimatedCover(track, Modifier.fillMaxSize()) {
+        // Spotify Canvas, else the chosen animated-cover source, else the still artwork.
+        AnimatedCover(track, Modifier.fillMaxSize(), spotifyCanvasId = spotifyCanvasId) {
             DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
                 contentDescription = title, contentScale = scale)
         }

@@ -81,8 +81,8 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Show animated covers", "Play short video loops in Now Playing sidebar when available", "canvas video")
             row("Animated cover source", "Source for animated album artwork", "canvas")
         }
-        group("Lyrics video loops") {
-            row("Show video loops in Lyrics", "Play Spotify Canvas videos in full-screen Lyrics when available. Other tracks show their cover art.", "spotify canvas video")
+        group("Canvas") {
+            row("Show Canvas in Lyrics", "Play Spotify Canvas and animated covers on the lyrics stage when available.", "spotify canvas video")
         }
         group("Lyrics appearance") {
             row("Lyrics animation style", "Timing and visual transition mode")
