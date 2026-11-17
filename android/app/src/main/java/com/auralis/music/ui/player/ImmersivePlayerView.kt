@@ -1329,7 +1329,8 @@ internal fun LyricPreviewLine(
                     syncType = syncType,
                     positionMs = { positionState.value + offsetMs },
                     isPlaying = isPlaying,
-                    isBuffering = isBuffering
+                    isBuffering = isBuffering,
+                    onClick = onClick
                 )
                 PreviewSlot.Loading -> FillerText(loadingText, withNote = false)
                 PreviewSlot.Unsynced -> FillerText(str(R.string.lyrics), withNote = true)
@@ -1441,14 +1442,18 @@ internal val BasePreviewLyricStyle = TextStyle(
     )
 )
 
-/** One line through the Metro word renderer, sized to its own text so the chevron can follow it. */
+/**
+ * The line being sung, drawn with the lyric style selected for the main lyrics (Spicy Lyrics or
+ * one of the Vivi styles), sized to its own text so the chevron can follow it.
+ */
 @Composable
 private fun MetroPreviewText(
     line: LyricLine,
     syncType: SyncType,
     positionMs: () -> Long,
     isPlaying: Boolean,
-    isBuffering: Boolean
+    isBuffering: Boolean,
+    onClick: () -> Unit = {}
 ) {
     val text = line.text.trim()
     val PreviewLyricStyle = previewLyricStyle()
@@ -1463,27 +1468,7 @@ private fun MetroPreviewText(
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
             // The word renderer wraps freely; a one-line host gets the plain, ellipsized line.
             if (syncType == SyncType.RICHSYNC && !line.words.isNullOrEmpty() && previewMaxLines > 1) {
-                // Vivi Music's word animation, sized to the preview's own type.
-                val entry = remember(line) {
-                    com.auralis.music.ui.lyrics.vivi.LyricsEntry(
-                        time = line.time,
-                        text = line.text,
-                        words = com.auralis.music.ui.lyrics.vivi.groupWords(line.words)
-                    )
-                }
-                com.auralis.music.ui.lyrics.vivi.LyricsLineV2(
-                    entry = entry,
-                    isActive = true,
-                    isPast = false,
-                    effectivePlaybackPosition = positionMs(),
-                    expressiveAccent = Color.White,
-                    inactiveAlpha = 0.5f,
-                    baseFontSize = PreviewLyricStyle.fontSize.value,
-                    lineHeight = PreviewLyricStyle.fontSize.value * 1.22f,
-                    showTranslated = false,
-                    agentAlignment = Alignment.Start,
-                    agentTextAlign = TextAlign.Left
-                )
+                PreviewStyledLine(line, positionMs, PreviewLyricStyle, onClick)
             } else {
                 Text(text = text, style = PreviewLyricStyle.copy(color = Color.White), maxLines = previewMaxLines, overflow = TextOverflow.Ellipsis)
             }
@@ -2005,4 +1990,60 @@ private val LyricsBubbleIcon: ImageVector by lazy {
             }
         }
     }.build()
+}
+
+/** The preview's line in the main lyrics' selected style, at the preview's text size. */
+@Composable
+private fun PreviewStyledLine(
+    line: LyricLine,
+    positionMs: () -> Long,
+    style: androidx.compose.ui.text.TextStyle,
+    onClick: () -> Unit
+) {
+    val appearance = com.auralis.music.ui.theme.LocalAppearanceSettings.current
+    val mode = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(appearance.lyricsAnimation)
+    val fontSize = style.fontSize.value
+    val lineSpacing = 1.22f
+    if (mode == com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS) {
+        val positionState = remember(line) { androidx.compose.runtime.derivedStateOf { positionMs() } }
+        com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine(
+            line = line,
+            words = line.words,
+            positionMs = positionState,
+            style = style.copy(color = Color.White),
+            isActive = true
+        )
+        return
+    }
+    val entry = remember(line) {
+        com.auralis.music.ui.lyrics.vivi.LyricsEntry(
+            time = line.time,
+            text = line.text,
+            words = com.auralis.music.ui.lyrics.vivi.groupWords(line.words)
+        )
+    }
+    val position = positionMs()
+    when (mode) {
+        com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS -> com.auralis.music.ui.lyrics.vivi.MetroLyricsLine(
+            entry = entry, nextEntryTime = null, effectivePlaybackPosition = position, isSynced = true, isActive = true,
+            distanceFromCurrent = 0, lyricsTextPosition = com.auralis.music.ui.lyrics.vivi.LyricsPosition.LEFT,
+            textColor = Color.White, showRomanized = false, showTranslated = false,
+            onClick = onClick, onLongClick = {}, isSelected = false, isSelectionModeActive = false,
+            isAutoScrollActive = true, expressiveAccent = Color.White, textSize = fontSize
+        )
+        com.auralis.music.domain.model.LyricsAnimationMode.VIVIMUSIC -> com.auralis.music.ui.lyrics.vivi.ViviMusicLyricsLine(
+            entry = entry, nextEntryTime = null, effectivePlaybackPosition = position, isSynced = true, isActive = true,
+            distanceFromCurrent = 0, lyricsTextPosition = com.auralis.music.ui.lyrics.vivi.LyricsPosition.LEFT,
+            textColor = Color.White, showRomanized = false, showTranslated = false, textSize = fontSize,
+            lineSpacing = lineSpacing, onClick = onClick, onLongClick = {}, isSelected = false,
+            isSelectionModeActive = false, isAutoScrollActive = true, expressiveAccent = Color.White
+        )
+        else -> com.auralis.music.ui.lyrics.vivi.ViviWordLine(
+            style = mode, item = entry, index = 0, lines = listOf(entry), isActiveLine = true,
+            effectivePlaybackPosition = position, currentPlaybackPosition = position, currentLineTime = line.time,
+            lineColor = Color.White, lyricsTextSize = fontSize, lyricsLineSpacing = lineSpacing,
+            lyricsGlowEffect = appearance.enableGlowingLyricsEffect, hasActiveTranslations = false,
+            agentAlignment = Alignment.Start, agentTextAlign = TextAlign.Left, expressiveAccent = Color.White
+        )
+    }
 }

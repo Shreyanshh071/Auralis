@@ -143,7 +143,9 @@ fun MetroLyricsLine(
     isAutoScrollActive: Boolean,
     expressiveAccent: Color,
     bgVisible: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Vivi's 36sp, or the small lyric preview's own size. */
+    textSize: Float = 36f
 ) {
     val romanizeAsMain = false
     
@@ -180,7 +182,7 @@ fun MetroLyricsLine(
         label = "lineAlpha"
     )
 
-    val lyricsTextSize = 36f
+    val lyricsTextSize = textSize
     val lyricsLineSpacing = 1.3f
 
     val itemModifier = modifier
