@@ -14,6 +14,21 @@ private class FakeClock(var mono: Long = 1_000_000L, var wall: Long = 1_800_000_
 /** A stand-in with NewPipe's class name: the classifier matches by name, not by import. */
 private class SignInConfirmNotBotException(message: String) : Exception(message)
 
+class RequestBudgetTest {
+    @Test fun continuedProgressCanRenewMoreThanOnce() {
+        val clock = FakeClock()
+        val budget = RequestBudget("long-song", "play", clock = clock)
+        repeat(10) {
+            clock.advance(20_000L)
+            assertFalse(budget.expired)
+            budget.renewAfterProgress()
+        }
+        assertTrue(budget.tryTransition("late-song recovery"))
+        budget.chargeControl()
+        assertEquals(1, budget.controlRequests.get())
+    }
+}
+
 class RetryAfterTest {
     private val now = 1_800_000_000_000L
 

@@ -46,6 +46,8 @@ class StreamLinkCache(
         // Links without an expiry are trusted for an hour at most.
         val bounded = resource.copy(expiresAtWallMs = minOf(resource.expiresAtWallMs, now() + MAX_LIFETIME_MS), fromDisk = false)
         entries[Key(resource.videoId, resource.profile, resource.route)] = bounded
+        entries.entries.sortedByDescending { it.value.expiresAtWallMs }.drop(maxEntries)
+            .forEach { entries.remove(it.key, it.value) }
         scheduleSave()
     }
 
@@ -77,13 +79,17 @@ class StreamLinkCache(
         if (loaded) return
         synchronized(this) {
             if (loaded) return
-            loaded = true
             load()
+            loaded = true
         }
     }
 
     private fun load() {
         val f = runCatching { file() }.getOrNull()?.takeIf { it.isFile } ?: return
+        if (f.length() > 1024 * 1024) {
+            Log.w(TAG, "Ignoring oversized stream-link cache")
+            return
+        }
         val props = runCatching { java.util.Properties().apply { f.inputStream().use { load(it) } } }.getOrElse {
             Log.w(TAG, "Discarding unreadable stream-link cache: ${it.message}")
             runCatching { f.delete() }
@@ -97,6 +103,7 @@ class StreamLinkCache(
         }
         var kept = 0
         for (name in props.stringPropertyNames()) {
+            if (kept >= maxEntries) break
             if (name == VERSION_KEY) continue
             val key = Key.decode(name) ?: continue
             val parts = props.getProperty(name).split('|', limit = 6)

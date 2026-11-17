@@ -36,6 +36,12 @@ class SessionCookieJarTest {
         assertTrue(names("https://youtube.com/").isEmpty(), "or to its parent")
     }
 
+    @Test fun aDomainCookieReplacesTheSameHostOnlyCookie() {
+        save("https://youtube.com/", "SESSION=old; Path=/")
+        save("https://youtube.com/", "SESSION=new; Domain=youtube.com; Path=/")
+        assertEquals(listOf("new"), jar.loadForRequest("https://youtube.com/".toHttpUrl()).map { it.value })
+    }
+
     @Test fun expiredAndInsecureTransportCookiesAreWithheld() {
         save("https://www.youtube.com/", "SECURE=1; Domain=youtube.com; Path=/; Secure")
         save("https://www.youtube.com/", "SHORT=1; Domain=youtube.com; Path=/; Max-Age=60")
@@ -118,6 +124,32 @@ class YouTubeTrafficTest {
             get("/videoplayback", host = "rr1.googlevideo.com")
         }
         assertEquals(1, YouTubeTraffic.count(YouTubeTraffic.Endpoint.PLAYER))
+    }
+
+    @Test fun redirectCannotSpendBeyondTheAllowance() {
+        val budget = RequestBudget("redirect", "play", controlCredits = 1)
+        YouTubeTraffic.withTag(YouTubeTraffic.Tag("redirect", "play", budget)) {
+            assertFailsWith<BudgetExhaustedException> { get("/watch") }
+        }
+        assertEquals(1, budget.controlRequests.get())
+        assertEquals(0, YouTubeTraffic.count(YouTubeTraffic.Endpoint.PLAYER))
+    }
+
+    @Test fun asynchronousSearchCarriesTheIntentBudget() = runBlocking {
+        val budget = RequestBudget("search", "match", controlCredits = 1)
+        withContext(PlaybackIntentContext(budget)) {
+            client.searchBody(Request.Builder().url("http://www.youtube.com:$port/youtubei/v1/search").build(), 2000)
+            assertFailsWith<BudgetExhaustedException> {
+                client.searchBody(Request.Builder().url("http://www.youtube.com:$port/youtubei/v1/search").build(), 2000)
+            }
+        }
+        assertEquals(1, budget.controlRequests.get())
+    }
+
+    @Test fun authorizationHeadersNeverLeaveBearerCredentialsBehind() {
+        val redacted = YouTubeTraffic.redact("Authorization: Bearer superSecret\nCookie: SID=secret; extra=value")
+        assertFalse(redacted.contains("superSecret"))
+        assertFalse(redacted.contains("value"))
     }
 
     @Test fun http429PausesYouTubeRequestsForRetryAfter() {

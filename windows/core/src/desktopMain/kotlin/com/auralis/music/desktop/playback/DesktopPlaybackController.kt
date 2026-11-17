@@ -672,19 +672,18 @@ class DesktopPlaybackController(
     private fun watchProgress(track: Track) {
         progressJob?.cancel()
         progressJob = scope.launch {
-            var renewed = false
             var prefetched = false
             var played = 0L
             var last = -1L
-            while (_queue.value.current?.id == track.id && !(renewed && prefetched)) {
+            while (_queue.value.current?.id == track.id) {
                 kotlinx.coroutines.delay(1000)
                 if (player.state.value == VlcAudioPlayer.State.PLAYING && lengthTrackId.value == track.id) {
                     val position = player.positionMs.value
                     if (last >= 0 && position > last) played += minOf(position - last, 2_000L)
                     last = position
                 } else last = -1L
-                if (!renewed && played >= PROGRESS_RENEW_MS) {
-                    renewed = true
+                if (played >= PROGRESS_RENEW_MS) {
+                    played = 0L
                     retriedTrackId = null
                     stallRetries = 0
                     budget?.renewAfterProgress()
@@ -823,6 +822,9 @@ class DesktopPlaybackController(
             category == com.auralis.music.data.network.FailureCategory.TRANSIENT ||
             category == com.auralis.music.data.network.FailureCategory.BUDGET_EXHAUSTED
         if (!keep) return failed(track, failure)
+        // A failed crossfade lookup can leave the outgoing song alive. Stop it so its
+        // eventual end event cannot advance the queue past the song we are holding.
+        player.stop()
         val wait = (result as? ResolutionResult.Deferred)?.retryInMs ?: YouTubeBackoff.retryInMs()
         com.auralis.music.util.Log.w("DesktopPlayback", "Holding ${track.id} at ${positionMs}ms: $failure ${budget ?: ""}")
         pendingResumeMs = positionMs.coerceAtLeast(0L).takeIf { it > 0L }

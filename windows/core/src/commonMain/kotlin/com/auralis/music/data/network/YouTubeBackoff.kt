@@ -54,8 +54,8 @@ class YouTubeCooldown(
         if (loaded) return
         synchronized(lock) {
             if (loaded) return
-            loaded = true
             load()
+            loaded = true
         }
     }
 
@@ -197,7 +197,9 @@ class YouTubeCooldown(
         com.auralis.music.util.Log.i(TAG, "Restored YouTube pause ($cause) for ${bounded / 1000}s more")
     }
 
-    private fun persist(s: State?) {
+    private fun persist(@Suppress("UNUSED_PARAMETER") requested: State?): Unit = synchronized(lock) {
+        // A slower caller must not overwrite a newer trip (or delete its persisted pause).
+        val s = state
         val file = runCatching { store() }.getOrNull() ?: return
         runCatching {
             if (s == null) { file.delete(); return }

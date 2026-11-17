@@ -47,8 +47,13 @@ suspend fun OkHttpClient.searchBody(request: Request, budgetMs: Long): String =
         // listener's own searches and pages still go (they are single requests they asked for).
         if (youtube && !foreground && !YouTubeBackoff.permit())
             throw IOException("YouTube is temporarily limiting this network")
+        val intent = currentCoroutineContext()[PlaybackIntentContext]?.budget
+        val taggedRequest = intent?.let {
+            request.newBuilder().tag(YouTubeTraffic.Tag::class.java,
+                YouTubeTraffic.Tag(it.correlationId, it.reason, it)).build()
+        } ?: request
         suspendCancellableCoroutine { continuation ->
-            val call = newCall(request)
+            val call = newCall(taggedRequest)
             call.timeout().timeout(budgetMs, TimeUnit.MILLISECONDS)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {

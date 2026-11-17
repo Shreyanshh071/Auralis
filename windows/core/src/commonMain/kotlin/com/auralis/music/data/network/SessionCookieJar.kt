@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 class SessionCookieJar(private val now: () -> Long = System::currentTimeMillis) : CookieJar {
     private val cookies = ConcurrentHashMap<String, Cookie>()
 
-    private fun keyOf(c: Cookie) = "${c.domain}|${c.path}|${c.name}|${c.hostOnly}"
+    private fun keyOf(c: Cookie) = "${c.domain}|${c.path}|${c.name}"
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         val time = now()
@@ -35,7 +35,7 @@ class SessionCookieJar(private val now: () -> Long = System::currentTimeMillis) 
             if (cookie.expiresAt <= time) iterator.remove()
             else if (cookie.matches(url)) result += cookie
         }
-        return result
+        return result.sortedByDescending { it.path.length }
     }
 
     fun clear() = cookies.clear()

@@ -38,7 +38,15 @@ class RequestBudget(
     val transitionsLeft: Int get() = transitions.get().coerceAtLeast(0)
     val exhausted: Boolean get() = expired || credits.get() <= 0
 
-    internal fun chargeControl() { controlRequests.incrementAndGet(); credits.decrementAndGet() }
+    internal fun chargeControl() {
+        if (expired) throw BudgetExhaustedException("Request deadline reached for $correlationId")
+        while (true) {
+            val left = credits.get()
+            if (left <= 0) throw BudgetExhaustedException("Request allowance used up for $correlationId")
+            if (credits.compareAndSet(left, left - 1)) break
+        }
+        controlRequests.incrementAndGet()
+    }
 
     /** Takes one recovery transition; false when none are left (the caller must stop, not retry). */
     fun tryTransition(why: String): Boolean {
@@ -67,8 +75,8 @@ class RequestBudget(
         const val BACKGROUND_DEADLINE_MS = 15_000L
         /**
          * Control-plane requests per intent. A cold NewPipe extraction (visitor, player for each
-         * client, watch page and player JS when signatures need solving) measured well under this;
-         * it is sized to cover that path plus one refresh, not to be a tight limit.
+         * client, watch page and player JS when signatures need solving) needs several requests.
+         * This provisional allowance still needs validation against the traffic diagnostics.
          */
         const val CONTROL_CREDITS = 16
         const val RECOVERY_TRANSITIONS = 2
@@ -145,7 +153,7 @@ object YouTubeTraffic {
     val gate = Interceptor { chain ->
         val request = chain.request()
         val endpoint = endpointOf(request.url.host, request.url.encodedPath)
-        val budget = current.get()?.budget
+        val budget = (request.tag(Tag::class.java) ?: current.get())?.budget
         if (endpoint.controlPlane && budget != null) {
             if (budget.expired) throw BudgetExhaustedException("Request deadline reached for ${budget.correlationId}")
             if (budget.creditsLeft <= 0) throw BudgetExhaustedException("Request allowance used up for ${budget.correlationId}")
@@ -158,7 +166,7 @@ object YouTubeTraffic {
         val request = chain.request()
         val endpoint = endpointOf(request.url.host, request.url.encodedPath)
         if (endpoint == Endpoint.OTHER) return@Interceptor chain.proceed(request)
-        val tag = current.get()
+        val tag = request.tag(Tag::class.java) ?: current.get()
         tag?.budget?.let { if (endpoint.controlPlane) it.chargeControl() else it.mediaRequests.incrementAndGet() }
         val started = System.nanoTime()
         try {
@@ -231,7 +239,10 @@ object YouTubeTraffic {
 
     /** [text] with URLs reduced to host/path and cookie, visitor or token values removed. */
     fun redact(text: String): String =
-        secretPattern.replace(urlPattern.replace(text) { redactUrl(it.value) }) { "${it.groupValues[1]}${it.groupValues[2]}<redacted>" }
+        secretPattern.replace(urlPattern.replace(
+            Regex("""(?im)\b(authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]*""")
+                .replace(text) { "${it.groupValues[1]}: <redacted>" }
+        ) { redactUrl(it.value) }) { "${it.groupValues[1]}${it.groupValues[2]}<redacted>" }
 
     // ---- dated, bounded diagnostics ----------------------------------------------------------
 

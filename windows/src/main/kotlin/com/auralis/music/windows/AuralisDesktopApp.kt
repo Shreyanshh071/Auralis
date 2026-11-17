@@ -5,6 +5,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.auralis.music.ui.components.clickable
@@ -129,14 +131,17 @@ fun AuralisDesktopApp(
         if (playerRequests > 0 && playback?.queue?.value?.current != null) showPlayer = true
     }
     var playerCoversHome by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(showPlayer) {
-        playerCoversHome = false
-        if (showPlayer) {
-            kotlinx.coroutines.delay(180L)
-            playerCoversHome = true
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(showPlayer) { onPlayerFullscreen(showPlayer) }
+    // The right sidebar's bounds in window coordinates, kept live so the player can grow out of
+    // (and shrink back into) it. Read only inside draw/layer blocks: updates never recompose.
+    val rightSidebarBounds = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // True while the player is open because the sidebar's expand button opened it.
+    var playerFromSidebar by remember { mutableStateOf(false) }
+    // While the player is up (and while it opens and closes), Home is measured with its last
+    // windowed constraints so going borderless fullscreen doesn't move it.
+    var homeFrozen by remember { mutableStateOf(false) }
+    // True while the player covers the right sidebar (from its first animation frame until a close).
+    var playerOverSidebar by remember { mutableStateOf(false) }
+    val frozenHomeConstraints = remember { arrayOfNulls<androidx.compose.ui.unit.Constraints>(1) }
     androidx.compose.runtime.LaunchedEffect(playback) {
         val pb = playback ?: return@LaunchedEffect
         var last = pb.session.value
@@ -458,6 +463,11 @@ fun AuralisDesktopApp(
             override fun closePlayer(): Boolean {
                 return handleEscapeBack(showPlayer) { showPlayer = false }
             }
+            override fun hidePlayer(): Boolean {
+                if (!showPlayer) return false
+                showPlayer = false
+                return true
+            }
             override fun openImmersive() = onOpenImmersive()
         }
     }
@@ -664,13 +674,22 @@ fun AuralisDesktopApp(
         Surface(modifier = Modifier.fillMaxSize().handCursorRoot().then(
             if (showSignIn) Modifier.blur(18.dp) else Modifier
         ), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().drawWithContent {
+            Column(Modifier.fillMaxSize().layout { measurable, constraints ->
+                // While the player opens, is open and closes, Home keeps the size it had before the
+                // window went borderless fullscreen: the window resize then moves nothing on screen,
+                // so the player's growth is one motion at the final window size.
+                val use = if (homeFrozen) frozenHomeConstraints[0] ?: constraints
+                    else constraints.also { frozenHomeConstraints[0] = it }
+                val placeable = measurable.measure(use)
+                layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
+            }.drawWithContent {
                 // Preserve Home's state/scroll position, but don't redraw its
                 // artwork, aura and second lyric renderer behind an opaque player.
                 if (!playerCoversHome) drawContent()
             }) {
                 Box(com.auralis.music.windows.dev.perfSkip("titlebar")) {
-                titleBar(TitleBarActions(
+                // Hidden in fullscreen, except while Home is held at its windowed size.
+                if (!playerFullscreen || homeFrozen) titleBar(TitleBarActions(
                     canGoBack = showPlayer || navigation.canGoBack,
                     canGoForward = navigation.canGoForward,
                     back = { if (showPlayer) showPlayer = false else restoreRoute(navigation.back()) },
@@ -979,7 +998,10 @@ fun AuralisDesktopApp(
                           onDrag = { rightSidebarWidth = sidebarWidth(rightSidebarWidth - it, 280f, rightLimit) },
                           onDragging = { resizingRight = it })
                       else Spacer(Modifier.width(8.dp))
-                      Box(Modifier.width(rightDisplay).fillMaxHeight().clip(panelShape).then(com.auralis.music.windows.dev.timedLayout("right")).then(com.auralis.music.windows.dev.perfSkip("right"))
+                      androidx.compose.runtime.DisposableEffect(Unit) { onDispose { rightSidebarBounds.value = null } }
+                      Box(Modifier.width(rightDisplay).fillMaxHeight()
+                          .onGloballyPositioned { rightSidebarBounds.value = it.boundsInRoot() }
+                          .clip(panelShape).then(com.auralis.music.windows.dev.timedLayout("right")).then(com.auralis.music.windows.dev.perfSkip("right"))
                           .then(if (rightIsCollapsed) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)) {
                         SidebarCollapseContent(rightIsCollapsed, sidebarWidth(rightSidebarWidth, 280f, rightLimit).dp, compactWidth = 40.dp) { compact ->
                         if (compact) {
@@ -1007,12 +1029,20 @@ fun AuralisDesktopApp(
                                 }
                             com.auralis.music.windows.player.SidePanel.NOW_PLAYING ->
                                 com.auralis.music.windows.player.NowPlayingSidebar(playback, lyrics,
-                                    onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
+                                    onExpand = {
+                                        playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS
+                                        if (!showPlayer) playerFromSidebar = true
+                                        showPlayer = true
+                                    },
                                     modifier = panelModifier, palette = artworkPalette,
                                     onCollapse = { rightCollapsed = true },
                                     library = library,
                                     onOpenQueue = { sidePanel = com.auralis.music.windows.player.SidePanel.QUEUE },
-                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) }, mainPlayerOpen = showPlayer)
+                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) },
+                                    // Its video cover gives way to a still only once the player
+                                    // hides it: swapped at the click, the change showed before the
+                                    // growth began.
+                                    mainPlayerOpen = playerOverSidebar)
                         }
                         }
                         }
@@ -1048,12 +1078,22 @@ fun AuralisDesktopApp(
                         onClose = ::previousPage)
                 }
             }
-            // The full player slides up over everything, like the phone's player sheet.
-            androidx.compose.animation.AnimatedVisibility(
-                modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT),
+            // The full player grows out of the right sidebar when its expand button opens it, and fades otherwise.
+            com.auralis.music.windows.player.PlayerExpandOverlay(
                 visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                fromSidebar = playerFromSidebar,
+                sidebarBounds = rightSidebarBounds,
+                palette = artworkPalette,
+                fullscreen = playerFullscreen,
+                onFullscreen = onPlayerFullscreen,
+                // Home is held at its windowed size from before the window goes borderless until
+                // after it has shrunk back, so neither resize moves it.
+                onHoldPage = { homeFrozen = it },
+                onCovering = { playerOverSidebar = it },
+                // Home stops drawing only while the player hides it completely.
+                onCovered = { covered -> playerCoversHome = covered },
+                onHidden = { playerFromSidebar = false },
+                modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT)
             ) {
                 if (playback != null && lyrics != null) {
                     com.auralis.music.windows.player.PlayerScreen(

@@ -6,6 +6,7 @@ import com.auralis.music.domain.model.Track
 import com.auralis.music.domain.search.SearchQueryMatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
@@ -26,6 +27,7 @@ object DesktopPlaybackMatch {
         }
         if (isVideoId(track.id)) return track.id
         if (!track.id.startsWith("sp_") && !track.id.startsWith("spotify:")) return null
+        if (!isCustomSearch && stopTrying()) return null
 
         val candidates = searchFn("${track.title} ${track.artist}").filter { isVideoId(it.id) }
 
@@ -98,6 +100,19 @@ object DesktopPlaybackMatch {
     private suspend fun stopTrying(): Boolean = com.auralis.music.data.network.YouTubeBackoff.active ||
         kotlinx.coroutines.currentCoroutineContext()[com.auralis.music.data.network.PlaybackIntentContext]?.budget?.exhausted == true
 
+    private suspend fun <T> meteredSearch(block: () -> T): T {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val budget = kotlinx.coroutines.currentCoroutineContext()[com.auralis.music.data.network.PlaybackIntentContext]?.budget
+            ?: com.auralis.music.data.network.RequestBudget(com.auralis.music.data.network.RequestBudget.newId("m"), "match")
+        val ticket = DesktopStreamResolver.gate.newTicket(RequestPriority.FOREGROUND)
+        return DesktopStreamResolver.gate.withPermit(ticket) {
+            if (stopTrying() || !com.auralis.music.data.network.YouTubeBackoff.permit())
+                throw com.auralis.music.data.network.BudgetExhaustedException("Matching paused or allowance exhausted")
+            NewPipeDownloader.cancellable(minOf(12_000L, budget.remainingMs()).coerceAtLeast(1L),
+                com.auralis.music.data.network.YouTubeTraffic.Tag(budget.correlationId, budget.reason, budget), block)
+        }
+    }
+
     private fun pickCandidate(track: Track, candidates: List<Track>): Track? = pickCandidates(track, candidates).firstOrNull()
 
     private fun pickCandidates(track: Track, candidates: List<Track>): List<Track> {
@@ -130,15 +145,17 @@ object DesktopPlaybackMatch {
             val itc = com.auralis.music.data.network.InnerTubeClient()
             val videos = itc.searchForPlayback(query, com.auralis.music.data.network.InnerTubeClient.FILTER_VIDEOS)
             list.addAll(videos)
-        } catch (_: Exception) {}
-        if (list.isEmpty()) try {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) {}
+        if (list.isEmpty() && !stopTrying()) try {
             val itc = com.auralis.music.data.network.InnerTubeClient()
             val videos = itc.search(query, com.auralis.music.data.network.InnerTubeClient.FILTER_VIDEOS).songs
             list.addAll(videos)
-        } catch (_: Exception) {}
-        if (list.isEmpty()) try {
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) {}
+        if (list.isEmpty() && !stopTrying()) try {
             DesktopStreamResolver.initializeExtractor()
-            NewPipeDownloader.withRequestBudget(12_000L) {
+            meteredSearch {
                 val search = ServiceList.YouTube.getSearchExtractor(query)
                 search.fetchPage()
                 val items = search.initialPage.items.filterIsInstance<StreamInfoItem>().mapNotNull { item ->
@@ -149,7 +166,8 @@ object DesktopPlaybackMatch {
                 }
                 list.addAll(items)
             }
-        } catch (_: Exception) {}
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) {}
         list.distinctBy { it.id }
     }
 
@@ -161,8 +179,9 @@ object DesktopPlaybackMatch {
             if (music.isNotEmpty()) return@withContext music
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { /* Try the video endpoint once when Music isn't available. */ }
+        if (stopTrying()) return@withContext emptyList()
         DesktopStreamResolver.initializeExtractor()
-        NewPipeDownloader.withRequestBudget(12_000L) {
+        meteredSearch {
             val search = ServiceList.YouTube.getSearchExtractor(query)
             search.fetchPage()
             search.initialPage.items.filterIsInstance<StreamInfoItem>().mapNotNull { item ->

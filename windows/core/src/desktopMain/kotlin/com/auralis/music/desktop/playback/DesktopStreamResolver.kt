@@ -117,7 +117,7 @@ object DesktopStreamResolver {
     }
 
     /** Companion video per video (a link, or "" for none) for this run; filled by audio lookups too. */
-    private data class VideoEntry(val url: String, val expiresAtMs: Long)
+    private data class VideoEntry(val url: String, val expiresAtMs: Long, val route: String, val session: Long)
     private val videoCache = ConcurrentHashMap<String, VideoEntry>()
 
     @Volatile private var initialized = false
@@ -147,7 +147,6 @@ object DesktopStreamResolver {
     private val videoFlights = SharedFlights<String, String?>(workers, gate)
     /** Refreshes of one video run one at a time; a second finds the first's fresh link. */
     private val refreshLocks = ConcurrentHashMap<String, Any>()
-    private val lastRefusal = ConcurrentHashMap<String, Long>()
 
     private suspend fun budgetFor(priority: RequestPriority, reason: String): RequestBudget =
         currentCoroutineContext()[PlaybackIntentContext]?.budget
@@ -193,6 +192,7 @@ object DesktopStreamResolver {
     private suspend fun lookUp(target: String, profile: String, route: String, epoch: Long,
         ticket: PriorityGate.Ticket, budget: RequestBudget): ResolutionResult {
         val started = System.currentTimeMillis()
+        val session = NewPipeDownloader.sessionGeneration
         val tested = mutableSetOf<String>()
         var last: PlaybackFailure? = null
         var attempt = 0
@@ -217,7 +217,9 @@ object DesktopStreamResolver {
             if (streams != null) {
                 val outcome = probeCandidates(target, streams, tested, budget)
                 if (outcome is ResolutionResult.Resolved) {
-                    val resource = outcome.resource.copy(profile = profile, route = route, sessionGeneration = NewPipeDownloader.sessionGeneration)
+                    if (NewPipeDownloader.sessionGeneration != session)
+                        return ResolutionResult.Failed(PlaybackFailure(FailureCategory.TRANSIENT, "resolve", detail = "session changed"))
+                    val resource = outcome.resource.copy(profile = profile, route = route, sessionGeneration = session)
                     // A refresh started meanwhile: its link wins, this one isn't published.
                     if (epochOf(target).get() == epoch) links.put(resource)
                     Log.d(TAG, "Resolved $target in ${System.currentTimeMillis() - started}ms (attempt $attempt, itag ${resource.itag} ${resource.mimeType}, client ${resource.client}) ${budget}")
@@ -314,9 +316,8 @@ object DesktopStreamResolver {
     /**
      * A new stream URL for [videoId] after [failedUrl] stopped working (called from the relay's
      * threads, so blocking). Concurrent refreshes of one song share the first one's result; a
-     * refresh never joins an older lookup. The visitor session is replaced only when a song's
-     * media is refused again right after a fresh link (YouTube cutting off one session's
-     * streams); an expired link or another song's failure never resets it.
+     * refresh never joins an older lookup. A media refusal is not proof that the visitor session
+     * is invalid; refreshing a link leaves that shared session intact.
      */
     fun refreshBlocking(videoId: String, failedUrl: String? = null, failure: PlaybackFailure? = null,
         budget: RequestBudget? = null): String? {
@@ -326,13 +327,8 @@ object DesktopStreamResolver {
             links.get(target, profileKey, RouteScope.current())?.takeIf { failedUrl != null && it.url != failedUrl }?.let { return it.url }
             failedUrl?.let { links.removeIfUrl(target, it) } ?: links.remove(target)
             epochOf(target).incrementAndGet()
-            if (failure?.category == FailureCategory.MEDIA_FORBIDDEN) {
-                val previous = lastRefusal.put(target, System.currentTimeMillis())
-                if (previous != null && System.currentTimeMillis() - previous < 10 * 60_000L) {
-                    NewPipeDownloader.resetSession("media for $target refused again after a fresh link")
-                    lastRefusal.remove(target)
-                }
-            }
+            // Repeated media 403s do not establish that the shared visitor session is bad.
+            // Do not disrupt other lookups by resetting it automatically.
             val context: kotlin.coroutines.CoroutineContext = budget?.let { PlaybackIntentContext(it) } ?: kotlin.coroutines.EmptyCoroutineContext
             return runBlocking(context) { resolveResult(videoId, RequestPriority.FOREGROUND, refresh = true).url }
         }
@@ -361,11 +357,13 @@ object DesktopStreamResolver {
         val url = if (topic) null else extractor.videoStreams
             .filter { (it.resolution.substringBefore('p').toIntOrNull() ?: 9999) <= 720 }
             .maxByOrNull { it.resolution.substringBefore('p').toIntOrNull() ?: 0 }?.content
-        videoCache[videoId] = VideoEntry(url.orEmpty(), url?.let(FailureClassifier::expiresAtMs) ?: (System.currentTimeMillis() + 6 * 3600_000L))
+        videoCache[videoId] = VideoEntry(url.orEmpty(), url?.let(FailureClassifier::expiresAtMs) ?: (System.currentTimeMillis() + 6 * 3600_000L),
+            RouteScope.current(), NewPipeDownloader.sessionGeneration)
     }
 
     private fun cachedVideo(videoId: String): VideoEntry? =
-        videoCache[videoId]?.takeIf { System.currentTimeMillis() < it.expiresAtMs - 60_000L }
+        videoCache[videoId]?.takeIf { System.currentTimeMillis() < it.expiresAtMs - 60_000L &&
+            it.route == RouteScope.current() && it.session == NewPipeDownloader.sessionGeneration }
 
     /**
      * Silent companion video for the exact recording. Usually known already from the song's audio

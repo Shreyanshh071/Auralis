@@ -48,6 +48,7 @@ class StreamLinkCacheTest {
             c.put(link(id, expires = now + (i + 1) * 3600_000L))
         }
         val text = file.readText()
+        assertEquals(3, c.size, "the in-memory cache is bounded too")
         assertEquals(3, text.lines().count { it.contains("googlevideo") })
         assertFalse(text.contains("aaaaaaaaaaa|"), "the soonest-expiring entries are dropped first")
         assertFalse(Regex("(?i)cookie|visitor|authorization").containsMatchIn(text))

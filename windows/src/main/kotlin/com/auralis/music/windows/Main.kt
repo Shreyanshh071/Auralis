@@ -697,8 +697,8 @@ fun main(args: Array<String>) {
                     onPlayerFullscreen = ::setPlayerFullscreen,
                     onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
                     playerRequests = playerRequests,
+                    // AuralisDesktopApp leaves it out in fullscreen (it holds it while the player opens or closes).
                     titleBar = { actions ->
-                        if (!playerFullscreen) {
                         val chrome: @Composable () -> Unit = {
                             WindowTitleBar(actions, if (dev) "Auralis Dev" else "Auralis", icon,
                                 systemDecorated = nativeTitlebar && nativeFrame != null,
@@ -718,7 +718,6 @@ fun main(args: Array<String>) {
                                 captionHover = captionHover)
                         }
                         if (nativeFrame == null) WindowDraggableArea { chrome() } else chrome()
-                        }
                     }
                 )
                 }

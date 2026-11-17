@@ -60,4 +60,33 @@ class PlaybackIntentGatingTest {
             scope.cancel()
         }
     }
+
+    @Test fun aRefusedCrossfadeStopsTheOutgoingSongAndHoldsTheQueue() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val wave = File.createTempFile("crossfade-refusal", ".wav")
+        javax.sound.sampled.AudioInputStream(java.io.ByteArrayInputStream(ByteArray(8 * 8000 * 2)),
+            javax.sound.sampled.AudioFormat(8000f, 16, 1, true, false), 64000).use {
+            javax.sound.sampled.AudioSystem.write(it, javax.sound.sampled.AudioFileFormat.Type.WAVE, wave)
+        }
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val playback = DesktopPlaybackController(audio, scope,
+            offlineFile = { if (it == songs[0].id) wave else null },
+            resolveStream = { YouTubeBackoff.trip(); null })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.crossfadeSeconds = 1f
+        playback.setVolume(0f)
+        try {
+            playback.playFrom(songs[0], songs)
+            withTimeout(15_000) { while (playback.state.value != VlcAudioPlayer.State.PLAYING) delay(25) }
+            playback.next()
+            withTimeout(5_000) { while (!YouTubeBackoff.active || playback.state.value != VlcAudioPlayer.State.IDLE) delay(25) }
+            assertEquals(1, playback.queue.value.index)
+        } finally {
+            YouTubeBackoff.recordSuccess()
+            playback.release()
+            scope.cancel()
+            wave.delete()
+        }
+    }
 }
