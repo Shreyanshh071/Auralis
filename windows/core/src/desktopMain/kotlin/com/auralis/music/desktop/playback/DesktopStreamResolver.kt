@@ -70,6 +70,14 @@ object DesktopStreamResolver {
     /** Videos YouTube refuses to anonymous viewers (age-restricted), so they aren't retried. */
     private val ageRestricted = ConcurrentHashMap<String, Long>()
 
+    /**
+     * YouTube's "Sign in to confirm you're not a bot" for this network. Retrying (six lookups a song,
+     * then the next song) only keeps it going, so stream lookups pause for a minute instead.
+     */
+    @Volatile private var botCheckUntil = 0L
+    private const val BOT_CHECK_PAUSE_MS = 60_000L
+    val botCheckActive: Boolean get() = System.currentTimeMillis() < botCheckUntil
+
     @Volatile private var initialized = false
 
     private fun ensureInitialized() {
@@ -124,13 +132,14 @@ object DesktopStreamResolver {
     }
 
     private suspend fun lookUp(target: String): String? = withContext(Dispatchers.IO) {
+        if (botCheckActive) return@withContext null
         val started = System.currentTimeMillis()
         val testedUrls = mutableSetOf<String>()
 
         var extractMs = 0L
         var probeMs = 0L
         for (attempt in 1..MAX_ATTEMPTS) {
-            if (ageRestricted.containsKey(target)) break
+            if (ageRestricted.containsKey(target) || botCheckActive) break
             val extractStarted = System.currentTimeMillis()
             val streams = extractHedged(target)
             extractMs += System.currentTimeMillis() - extractStarted
@@ -186,7 +195,7 @@ object DesktopStreamResolver {
      */
     private suspend fun extractHedged(target: String): List<AudioStream>? = hedgedStreamLookup(
         workers = lookups, hedgeMs = HEDGE_MS, budgetMs = EXTRACTION_BUDGET_MS, maxAttempts = MAX_PARALLEL,
-        stop = { ageRestricted.containsKey(target) },
+        stop = { ageRestricted.containsKey(target) || botCheckActive },
         onHedge = { Log.d(TAG, "Extraction for $target is slow; starting another") }
     ) { runInterruptible { extractStreams(target) }?.takeIf { it.isNotEmpty() } }
 
@@ -203,6 +212,10 @@ object DesktopStreamResolver {
         // Age-restricted for anonymous viewers: retrying won't change that (playback finds another upload).
         if (e is org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException) ageRestricted[target] = System.currentTimeMillis()
         if (com.auralis.music.data.network.YouTubeBackoff.isBlockPage(e.message.orEmpty())) com.auralis.music.data.network.YouTubeBackoff.trip()
+        if (e is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException && !botCheckActive) {
+            botCheckUntil = System.currentTimeMillis() + BOT_CHECK_PAUSE_MS
+            Log.w(TAG, "YouTube asked this network to confirm it isn't a bot; pausing stream lookups for ${BOT_CHECK_PAUSE_MS / 1000}s")
+        }
         Log.w(TAG, "Couldn't resolve $target: ${e.javaClass.simpleName} ${e.message}")
         null
     }

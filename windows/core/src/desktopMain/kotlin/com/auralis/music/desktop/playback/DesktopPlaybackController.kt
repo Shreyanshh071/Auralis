@@ -649,6 +649,12 @@ class DesktopPlaybackController(
 
     private fun failed(track: Track) {
         consecutiveFailures++
+        // A YouTube bot check fails every song alike: say so, and don't skip through the queue.
+        if (DesktopPlaybackMatch.isVideoId(track.id) && DesktopStreamResolver.botCheckActive) {
+            com.auralis.music.util.Log.w("DesktopPlayback", "Not skipping: YouTube's bot check is blocking every song")
+            _errors.tryEmit("YouTube is asking this network to confirm it isn't a bot. Playback should work again in a few minutes.")
+            return
+        }
         _errors.tryEmit("Couldn't play “${track.title}”")
         if (consecutiveFailures < 3 && _queue.value.current?.id == track.id && _queue.value.hasNext) {
             next()
