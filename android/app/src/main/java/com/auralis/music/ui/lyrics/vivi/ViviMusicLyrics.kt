@@ -76,7 +76,6 @@ fun ViviMusicLyricsLine(
     expressiveAccent: Color,
     modifier: Modifier = Modifier
 ) {
-    val appleMusicLyricsBlur = com.auralis.music.ui.theme.LocalAppearanceSettings.current.standardLyricsBlur
 
     // ── Sentence linger ────────────────────────────────────────────────────────
     // Keep the "active" state alive for 180 ms after the line deactivates so
@@ -92,25 +91,6 @@ fun ViviMusicLyricsLine(
     }
 
     // ── Blur ──────────────────────────────────────────────────────────────────
-    val targetBlur = if (!appleMusicLyricsBlur || !isAutoScrollActive || isActive || !isSynced || isSelectionModeActive) {
-        0f
-    } else {
-        // Progressive blur: further away = more blur
-        when (distanceFromCurrent) {
-            1 -> 0f
-            2 -> 0f
-            3 -> 2f
-            4 -> 4f
-            else -> 6f
-        }
-    }
-
-    val animatedBlur by animateFloatAsState(
-        targetValue = targetBlur,
-        // Faster, more reactive blur — 600 ms instead of 1000 ms
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
-        label = "blur"
-    )
 
     // ── Line duration for sentence-level timing ────────────────────────────────
     val duration = remember(entry.time, nextEntryTime) {
@@ -193,7 +173,7 @@ fun ViviMusicLyricsLine(
         )
         // Auralis's row spacing: the gap between lines comes from the list, not from the row.
         .padding(horizontal = 4.dp, vertical = (3 * (lineSpacing / 1.3f).coerceIn(0.85f, 1.4f)).dp)
-        .blur(animatedBlur.dp)
+        // No per-line blur: the lyrics list applies Spicy Lyrics' viewport blur to every style.
 
     // ── Agent alignment ───────────────────────────────────────────────────────
     val agentAlignment = when {

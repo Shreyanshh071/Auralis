@@ -1431,8 +1431,11 @@ private fun MetroPreviewText(
     val density = LocalDensity.current
     BoxWithConstraints {
         val availablePx = with(density) { (maxWidth - 22.dp).roundToPx() }.coerceAtLeast(1)
+        // Measured as the styles draw the sung line (extra bold, a little wider), so a line that fits
+        // stays on one line; only a line too long for the width wraps onto a second.
         val textWidthPx = remember(text, availablePx) {
-            (measurer.measure(text, PreviewLyricStyle, softWrap = false).size.width + 2).coerceAtMost(availablePx)
+            val bold = measurer.measure(text, PreviewLyricStyle.copy(fontWeight = FontWeight.ExtraBold), softWrap = false).size.width
+            (bold * 1.06f + with(density) { 4.dp.toPx() }).toInt().coerceAtMost(availablePx)
         }
         Box(Modifier.width(with(density) { textWidthPx.toDp() })) {
             // The word renderer wraps freely; a one-line host gets the plain, ellipsized line.

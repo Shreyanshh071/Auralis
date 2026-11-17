@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import com.auralis.music.ui.lyrics.LyricsScrollGlide
+import com.auralis.music.ui.lyrics.stationaryLyricsBlur
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -476,6 +477,22 @@ internal fun ViviLyricsView(
                     .then(if (resyncGlass != null && shouldShowResyncButton) Modifier.layerBackdrop(resyncBackdrop) else Modifier)
                     .fillMaxSize()
                     .nestedScroll(lyricsNestedScrollConnection)
+                    // Spicy Lyrics' blur for every style: one viewport blur, sharp around the reading
+                    // point and widened to cover the active lines, not a blur per line.
+                    .stationaryLyricsBlur(
+                        enabled = lyricsStandardBlur && isSynced && isAutoScrollEnabled && !isUserInteracting && !isSelectionModeActive,
+                        focusFraction = targetCenterFraction,
+                        clearHalfHeightPx = {
+                            val info = listState.layoutInfo
+                            val focus = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * targetCenterFraction
+                            info.visibleItemsInfo.filter { visible ->
+                                val row = lazyItems.getOrNull(visible.index)
+                                row is LyricsListItem.Line && (row.index in activeLineIndices || row.index == currentLineIndex)
+                            }.maxOfOrNull { visible ->
+                                maxOf(abs(visible.offset - focus), abs(visible.offset + visible.size - focus)) + with(density) { 28.dp.toPx() }
+                            } ?: 0f
+                        }
+                    )
                     .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                     .drawWithContent {
                         drawContent()
@@ -497,7 +514,8 @@ internal fun ViviLyricsView(
                 ),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                val effectivePlaybackPosition = currentPlaybackPosition + offsetMs
+                // The clock is read per row, and only by rows near the current line: read here, it
+                // recomposed every visible row on every frame, which made the auto-scroll stutter.
                 itemsIndexed(
                     items = lazyItems,
                     key = { lazyIndex, item ->
@@ -508,19 +526,28 @@ internal fun ViviLyricsView(
                     }
                 ) { _, listItem ->
                     when (listItem) {
-                        is LyricsListItem.Indicator -> LyricsIntervalIndicator(
+                        is LyricsListItem.Indicator -> {
+                            val nearCurrent = abs(listItem.afterLineIndex - currentLineIndex) <= 1
+                            val effectivePlaybackPosition = if (nearCurrent) currentPlaybackPosition + offsetMs else Long.MIN_VALUE
+                            LyricsIntervalIndicator(
                             gapStartMs = listItem.gapStartMs,
                             gapEndMs = listItem.gapEndMs,
-                            currentPositionMs = effectivePlaybackPosition,
-                            visible = isSynced && effectivePlaybackPosition in (listItem.gapStartMs - 300L)..listItem.gapEndMs,
+                            currentPositionMs = if (nearCurrent) effectivePlaybackPosition else listItem.gapStartMs,
+                            visible = isSynced && nearCurrent && effectivePlaybackPosition in (listItem.gapStartMs - 300L)..listItem.gapEndMs,
                             color = expressiveAccent,
                             isMetroLyrics = isMetro,
                             onSkip = { onSeekTo(listItem.gapEndMs) },
                             modifier = Modifier.fillMaxWidth()
-                        )
+                            )
+                        }
                         is LyricsListItem.Line -> {
                             val index = listItem.index
                             val item = listItem.entry
+                            // Lines away from the current one show no word motion, so they keep a fixed
+                            // time and don't redraw every frame.
+                            val live = abs(index - currentLineIndex) <= 3 || index in activeLineIndices
+                            val rowClock = if (live) currentPlaybackPosition else item.time - offsetMs
+                            val effectivePlaybackPosition = rowClock + offsetMs
                             // Auralis's line spacing: a gap after each line, a small one when the next is its background vocal.
                             val next = lines.getOrNull(index + 1)
                             val pairedWithNext = next != null && (next.isBackground || (isSynced && next.time == item.time))
@@ -566,7 +593,7 @@ internal fun ViviLyricsView(
                                         style = lyricsAnimationStyle,
                                         displayedCurrentLineIndex = currentLineIndex,
                                         currentLineIndex = currentLineIndex,
-                                        currentPlaybackPosition = currentPlaybackPosition,
+                                        currentPlaybackPosition = rowClock,
                                         effectivePlaybackPosition = effectivePlaybackPosition,
                                         isSynced = isSynced,
                                         isSelected = index in selectedIndices,
@@ -690,17 +717,6 @@ private fun ViviListLine(
         targetValue = if (isActiveByIndex || isActiveByTime) 1.05f else 1f,
         animationSpec = tween(durationMillis = 400)
     )
-    val targetBlur = if (!lyricsStandardBlur || !isAutoScrollEnabled || (isSelectionModeActive && isSelected) || isActiveByIndex || isActiveByTime) {
-        0f
-    } else {
-        when (abs(index - (if (displayedCurrentLineIndex >= 0) displayedCurrentLineIndex else currentLineIndex))) {
-            1, 2 -> 0f
-            3 -> 2f
-            4 -> 4f
-            else -> 6f
-        }
-    }
-    val blurRadius by animateFloatAsState(targetValue = targetBlur, animationSpec = tween(durationMillis = 1000), label = "standard_blur")
 
     val agentAlignment = when {
         item.isBackground -> Alignment.CenterHorizontally
@@ -744,8 +760,7 @@ private fun ViviListLine(
                 // line spread past the row's clipped left edge and lost its first letter.
                 transformOrigin = lyricTransformOrigin(agentAlignment)
             }
-            .then(itemModifier)
-            .blur(blurRadius.dp),
+            .then(itemModifier),
         horizontalAlignment = agentAlignment
     ) {
         val isActiveLine = (isActiveByIndex || isActiveByTime) && isSynced
