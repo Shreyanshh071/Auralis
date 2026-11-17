@@ -129,8 +129,8 @@ fun PlayerScreen(
     CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
     // Opaque: the main window must never show through the player.
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF050505))) {
-        // Shown for Spotify Canvas or, when it is off or missing, an animated cover.
-        val canvasStage = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
+        // The stage is for Spotify Canvas only; animated covers stay on the album cover.
+        val canvasStage = canvasPrefs.spotifyCanvas && maxWidth > 964.dp && prefs.bool("stagePlayer", true) &&
             prefs.bool("tabbedPlayer", true) && panel == PlayerPanel.LYRICS && track != null
         if (canvasStage && canvasReady) {
             CanvasIntro(playback)
@@ -599,8 +599,8 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
         .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
-        // Spotify Canvas, else the chosen animated-cover source, else the still artwork.
-        AnimatedCover(track, Modifier.fillMaxSize(), spotifyCanvasId = spotifyCanvasId) {
+        // The chosen animated-cover source (Auto: Apple Music, Tidal, curated library), else the still artwork.
+        AnimatedCover(track, Modifier.fillMaxSize()) {
             DesktopArtwork(highRes = true, url = artworkUrl, modifier = Modifier.fillMaxSize(), cornerRadius = 16.dp,
                 contentDescription = title, contentScale = scale)
         }

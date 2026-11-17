@@ -319,15 +319,17 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     LaunchedEffect(track?.id, prefs, spotifyCanvasId, canvasOnly) {
         url = null
         fromSpotify = false
-        if (track != null && (prefs.spotifyCanvas || prefs.enabled) &&
-            !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
+        if (track != null && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover") &&
             com.auralis.music.desktop.playback.CanvasVideoEngine.available) {
-            // 1. Spotify Canvas, 2. animated cover from the chosen source (Auto: Apple Music, Tidal,
-            // curated library), 3. nothing: the still artwork() underneath stays.
-            val canvas = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
-            fromSpotify = canvas != null
-            url = canvas ?: (if (prefs.enabled) CanvasLookup.find(track, prefs.source, tall = canvasOnly) else null)
-                ?.let { CanvasLookup.playable(it) }
+            // The lyrics stage plays only Spotify Canvas, the full-height artist loop it is built
+            // for. Animated covers (Apple Music, Tidal, curated library) play on the album cover,
+            // at their own square size; with neither, the still artwork() underneath stays.
+            if (canvasOnly) {
+                url = if (prefs.spotifyCanvas) SpotifyCanvasLookup.find(spotifyCanvasId) else null
+                fromSpotify = url != null
+            } else if (prefs.enabled) {
+                url = CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
+            }
         }
     }
     Box(modifier) {
