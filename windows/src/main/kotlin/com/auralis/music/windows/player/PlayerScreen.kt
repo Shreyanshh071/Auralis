@@ -139,14 +139,6 @@ fun PlayerScreen(
             PlayerBackdrop(if (canvasStage && canvasReady) "Dynamic" else appearance.playerBackgroundStyle,
                 artworkUrl, palette, if (canvasStage) motionAura else null)
             if (canvasStage) {
-                // The video's feathered edge lands on this dark blend instead of the bright
-                // motion mesh, which showed through as a coloured band down the middle.
-                Box(Modifier.fillMaxWidth(.62f).fillMaxHeight()
-                    .graphicsLayer { alpha = if (canvasReady) 1f else 0f }
-                    .background(Brush.horizontalGradient(
-                        0f to Color(0xFF050505),
-                        .76f to Color(0xFF050505).copy(alpha = .9f),
-                        1f to Color.Transparent)))
                 AnimatedCover(track, Modifier.fillMaxWidth(.51f).fillMaxHeight()
                     .graphicsLayer { alpha = if (canvasReady) 1f else 0f },
                     motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, canvasOnly = true,
