@@ -1,8 +1,8 @@
 # Account library on Cloudflare — deployment, cutover and rollback
 
-Date: 14 November 2026. **Nothing in this document has been run against production.** Every step
-below that touches production needs explicit approval first. Steps are ordered so that each one is
-harmless on its own until the next is taken.
+Steps A–D describe the initial pilot. The production endpoint is now configured in normal builds.
+See Step E for the 1.1.4 rollout and the order for moving additional accounts.
+Get approval for production changes, including which accounts to cut over.
 
 Read `spec.md` first. Test evidence is in `test-results.md`.
 
@@ -14,7 +14,7 @@ Read `spec.md` first. Test evidence is in `test-results.md`.
 | B | Deploy the Firestore rules with the fence | Nothing until a fence document exists. One extra billed read per library write. | Deploying the previous rules |
 | C | Install builds with `library.sync.url` set on pilot devices only; public builds stay blank | Pilot devices ask discovery where the library lives. Public users are unaffected. | Reinstalling builds with the property blank |
 | D | Cut over allowlisted internal accounts (`pilot.md`) | Those accounts' libraries move. Old app versions stop syncing them. | `rollback` or `restore` per account |
-| E | Any account beyond the pilot allowlist, or `library.sync.url` in public builds | **Not prepared and not authorized.** Broad rollout stays disabled. | — |
+| E | Ship builds that can discover library authority, then cut over eligible accounts in batches | Unmigrated accounts continue to sync their library through Firestore. Cutover is per account. | `rollback` per account |
 
 Billing: none of these steps enables a paid plan. Step A stays within the Workers free plan only
 while daily usage fits it (see "Budget"). If it does not, the choice to pay is a separate approval.
@@ -131,7 +131,8 @@ syncing on those devices, so roll those accounts back first.
 
 Follow `pilot.md`. Requirements: steps A–C live; the Worker secret `LIBRARY_PILOT_UIDS` names the
 account; the same uid is in a local allowlist file; every device of the account runs a pilot build;
-a service-account key for the Firebase project is available on the operator's machine only.
+a short-lived Firestore operator token or a service-account key for the Firebase project is
+available on the operator's machine only.
 Firestore IAM cannot limit a role to one collection, so the key can read and write the whole
 database: create it for this job, keep it out of Git and logs, and delete it afterwards.
 
@@ -139,6 +140,7 @@ database: create it for this job, keep it out of Git and logs, and delete it aft
 export LIBRARY_URL=https://auralis-connect.auralis018.workers.dev
 export FIREBASE_PROJECT_ID=auralis-70cf8
 export GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/key.json
+# Or provide FIRESTORE_ACCESS_TOKEN through the operator's local environment instead of the key.
 export LIBRARY_SNAPSHOT_DIR=/absolute/path/outside/the/repo/library-snapshots
 read -s LIBRARY_ADMIN_SECRET && export LIBRARY_ADMIN_SECRET
 ```
@@ -171,10 +173,19 @@ Then check on the account's devices: playlists (order, repeated songs, YouTube-i
 likes, saved albums and artists, pins; an edit on one device appears on the other within seconds;
 `report` prints `OK`. Run the export and restore drill in `pilot.md` on the first account.
 
-## Step E — not prepared
+## Step E — 1.1.4 rollout
 
-Moving any account beyond the pilot allowlist, or setting `library.sync.url` in public builds, is
-not prepared and not authorized. It needs its own approval after the pilot and after Phase 0.
+1. Ship Android and desktop builds with the production `library.sync.url`. Verify both platforms
+   can continue editing a Firestore library and can sync a migrated library. Leave the Firestore
+   room fallback and listening-history bridge active while users update.
+2. Start with a small batch of users who confirm that all devices they use for library sync run a
+   compatible build. Include their UIDs in the Worker and local allowlists, preserving existing
+   entries. Use the operator credentials and snapshot location in step D.
+3. Run `report`, migrate the batch one account at a time, and run `report` again. Verify edits travel
+   between updated devices and check quota usage before adding the next batch. If a migrated library
+   stops syncing, use the per-account rollback below. Keep accounts with older devices on Firestore.
+4. Retire compatibility separately. The listening-history bridge is per account and reversible.
+   Keep Firestore room support until older versions no longer need to create or join those rooms.
 
 ## Rollback
 
