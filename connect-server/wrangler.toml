@@ -7,6 +7,8 @@ preview_urls = false
 # Never deploy from here without an explicit go-ahead: see docs/connect-websocket-plan.md.
 [vars]
 FIREBASE_PROJECT_ID = "auralis-70cf8"
+# Listening history on the account service (src/listens-core.js). Settings sync was removed from the apps.
+ACCOUNT_SYNC_TOPICS = "listens"
 
 [[ratelimits]]
 name = "CONNECT_UPGRADES"
