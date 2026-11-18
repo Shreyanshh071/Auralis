@@ -207,6 +207,9 @@ class ListenTogetherViewModel(
         hostPlayer?.let { broadcastFromPlayer(it) }
     }
 
+    /** A room-time notice from elsewhere in the app (e.g. the host queued a song): the glass pill, never a toast. */
+    fun showRoomNotice(message: String) = showPill(message)
+
     fun dismissPill() {
         pillDismissJob?.cancel()
         _uiState.update { it.copy(pillNotification = null) }

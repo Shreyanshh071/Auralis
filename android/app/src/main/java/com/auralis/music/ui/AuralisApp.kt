@@ -703,6 +703,16 @@ fun AuralisApp(
     // Tap handlers read the room's rules at the moment of the tap, not the values from when the
     // screen was last drawn: a permission the host just gave or took applies to the very next tap.
     fun liveRoomUi() = listenTogetherViewModelState?.uiState?.value
+    // Queue confirmations. Outside a room: the usual toast. In a room the listener's song goes to the host
+    // (or is refused) and the Listen Together view model says so with a glass pill, so no solid toast;
+    // the host gets the same glass pill style.
+    fun queueNotice(message: String) {
+        if (com.auralis.music.data.sync.ListenTogetherManager.activeRoomCode != null) {
+            listenTogetherViewModelState?.takeIf { it.uiState.value.isHost }?.showRoomNotice(message)
+            return
+        }
+        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+    }
     fun guestNow(): Boolean = liveRoomUi()?.let { it.activeRoom != null && !it.isHost } == true
     fun guestMay(rule: (com.auralis.music.data.sync.RoomSettings) -> Boolean): Boolean =
         guestNow() && liveRoomUi()?.activeRoom?.settings?.let(rule) == true
@@ -1230,11 +1240,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     if (obtainPlayerViewModel().playNext(track))
-                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                        queueNotice(str(R.string.playing_next_x, track.title))
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    queueNotice(str(R.string.added_to_queue_x, track.title))
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1327,7 +1337,7 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().playNext(tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                            queueNotice(str(R.string.playing_next_x, album.title))
                                                         }
                                                     }
                                                 },
@@ -1336,7 +1346,7 @@ fun AuralisApp(
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().addToQueue(tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_queue, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
+                                                            queueNotice(str(R.string.added_x_songs_to_queue, tracks.size))
                                                         }
                                                     }
                                                 },
@@ -1426,7 +1436,7 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().playNext(tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                            queueNotice(str(R.string.playing_next_x, album.title))
                                                         }
                                                     }
                                                 },
@@ -1435,7 +1445,7 @@ fun AuralisApp(
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
                                                             obtainPlayerViewModel().addToQueue(tracks)
-                                                            android.widget.Toast.makeText(context, str(R.string.added_x_songs_to_queue, tracks.size), android.widget.Toast.LENGTH_SHORT).show()
+                                                            queueNotice(str(R.string.added_x_songs_to_queue, tracks.size))
                                                         }
                                                     }
                                                 },
@@ -1522,11 +1532,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     if (obtainPlayerViewModel().playNext(track))
-                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                        queueNotice(str(R.string.playing_next_x, track.title))
                                                 },
                                                 onAddToQueue = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    queueNotice(str(R.string.added_to_queue_x, track.title))
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1623,11 +1633,11 @@ fun AuralisApp(
                                                 },
                                                 onPlayNext = { track ->
                                                     if (obtainPlayerViewModel().playNext(track))
-                                                        android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                        queueNotice(str(R.string.playing_next_x, track.title))
                                                 },
                                                 onAddToQueueTrack = { track ->
                                                     obtainPlayerViewModel().addToQueue(listOf(track))
-                                                    android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                                                    queueNotice(str(R.string.added_to_queue_x, track.title))
                                                 },
                                                 onStartRadio = { track ->
                                                     playOrRequest(track) { obtainPlayerViewModel().playTrack(track, listOf(track), 0) }
@@ -1973,11 +1983,11 @@ fun AuralisApp(
                     onClearHistory = { homeViewModel.clearHistory() },
                     onPlayNext = { track ->
                         if (obtainPlayerViewModel().playNext(track))
-                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                            queueNotice(str(R.string.playing_next_x, track.title))
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))
-                        android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                        queueNotice(str(R.string.added_to_queue_x, track.title))
                     },
                     onDismiss = { isHistoryOpen = false }
                 )
@@ -2016,11 +2026,11 @@ fun AuralisApp(
                     },
                     onPlayNext = { track ->
                         if (obtainPlayerViewModel().playNext(track))
-                            android.widget.Toast.makeText(context, str(R.string.playing_next_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                            queueNotice(str(R.string.playing_next_x, track.title))
                     },
                     onAddToQueue = { track ->
                         obtainPlayerViewModel().addToQueue(listOf(track))
-                        android.widget.Toast.makeText(context, str(R.string.added_to_queue_x, track.title), android.widget.Toast.LENGTH_SHORT).show()
+                        queueNotice(str(R.string.added_to_queue_x, track.title))
                     },
                     hasActiveMiniPlayer = (playerUiState.currentTrack ?: audioPlayerTrack) != null,
                     isTrackPinned = { homeViewModel.isTrackPinned(it) },
