@@ -24,8 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -49,6 +53,7 @@ internal fun HoverSlider(
     thin: Dp = 4.dp,
     thick: Dp = 10.dp,
     hitSize: Dp = 22.dp,
+    onDraggingChanged: (Boolean) -> Unit = {},
 ) {
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
@@ -56,6 +61,7 @@ internal fun HoverSlider(
     val size by animateDpAsState(if (enabled && (hovered || dragging)) thick else thin, tween(180), label = "sliderThickness")
     val change by rememberUpdatedState(onValueChange)
     val finished by rememberUpdatedState(onValueChangeFinished)
+    val draggingChanged by rememberUpdatedState(onDraggingChanged)
     Box(
         modifier
             .then(if (vertical) Modifier.width(hitSize).fillMaxHeight() else Modifier.height(hitSize).fillMaxWidth())
@@ -66,26 +72,40 @@ internal fun HoverSlider(
                 fun fraction(position: Offset) = if (vertical) 1f - position.y / this.size.height else position.x / this.size.width
                 awaitEachGesture {
                     val down = awaitFirstDown()
+                    down.consume()
                     dragging = true
-                    change(fraction(down.position).coerceIn(0f, 1f))
-                    drag(down.id) {
-                        it.consume()
-                        change(fraction(it.position).coerceIn(0f, 1f))
+                    draggingChanged(true)
+                    try {
+                        change(fraction(down.position).coerceIn(0f, 1f))
+                        drag(down.id) {
+                            it.consume()
+                            change(fraction(it.position).coerceIn(0f, 1f))
+                        }
+                        finished()
+                    } finally {
+                        dragging = false
+                        draggingChanged(false)
                     }
-                    dragging = false
-                    finished()
                 }
             },
         contentAlignment = Alignment.Center
     ) {
         Canvas(if (vertical) Modifier.width(size).fillMaxHeight() else Modifier.height(size).fillMaxWidth()) {
             val radius = CornerRadius(if (vertical) this.size.width / 2 else this.size.height / 2)
-            drawRoundRect(inactiveColor, cornerRadius = radius)
             val v = value.coerceIn(0f, 1f)
             if (vertical) {
-                val h = this.size.height * v
-                drawRoundRect(activeColor, topLeft = Offset(0f, this.size.height - h), size = Size(this.size.width, h), cornerRadius = radius)
+                val rail = Path().apply {
+                    addRoundRect(RoundRect(0f, 0f, this@Canvas.size.width, this@Canvas.size.height, radius))
+                }
+                drawPath(rail, inactiveColor)
+                val fillHeight = this.size.height * v
+                if (fillHeight > 0f) clipPath(rail) {
+                    drawRect(activeColor, topLeft = Offset(0f, this.size.height - fillHeight),
+                        size = Size(this.size.width, fillHeight))
+                }
+                drawPath(rail, Color.White.copy(alpha = .24f), style = Stroke(1.dp.toPx()))
             } else {
+                drawRoundRect(inactiveColor, cornerRadius = radius)
                 drawRoundRect(activeColor, size = Size(this.size.width * v, this.size.height), cornerRadius = radius)
             }
         }

@@ -45,6 +45,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import com.auralis.music.ui.components.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -70,15 +71,20 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import coil3.compose.AsyncImage
 import com.auralis.music.desktop.lyrics.DesktopLyricsController
 import com.auralis.music.desktop.playback.DesktopPlaybackController
@@ -453,10 +459,9 @@ internal fun LyricsPanel(
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifier = Modifier, compact: Boolean = false) {
-    val appearanceStore = com.auralis.music.data.datastore.LocalSettingsStores.current.appearance
-    val appearance by appearanceStore.settingsFlow.collectAsState(appearanceStore.getInitialSettings())
     val length by playback.lengthMs.collectAsState()
     val state by playback.state.collectAsState()
     val remote by playback.connectRemote.collectAsState()
@@ -472,15 +477,17 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
     var dragFraction by remember(queue.current?.id) { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val shown = dragFraction?.let { (it * duration).toLong() } ?: position
+    val updateSeek: (Float) -> Unit = { if (duration > 0) dragFraction = it }
+    val finishSeek: () -> Unit = {
+        dragFraction?.let { playback.seekTo((it * duration).toLong()) }
+        dragFraction = null
+    }
     if (compact) {
         Column(modifier) {
             com.auralis.music.ui.components.AuralisPlayerSlider(
                 value = fraction,
-                onValueChange = { if (duration > 0) dragFraction = it },
-                onValueChangeFinished = {
-                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
-                    dragFraction = null
-                },
+                onValueChange = updateSeek,
+                onValueChangeFinished = finishSeek,
                 isPlaying = playing,
                 currentPosMs = shown, totalDurationMs = duration,
                 sliderStyle = "Slim", showTimestamps = false,
@@ -493,21 +500,50 @@ private fun PlayerSeekBar(playback: DesktopPlaybackController, modifier: Modifie
             }
         }
     } else {
+        var hoverFraction by remember { mutableStateOf<Float?>(null) }
+        fun updateHover(x: Float?, width: Int) {
+            hoverFraction = x?.takeIf { width > 0 }?.let { (it / width).coerceIn(0f, 1f) }
+        }
+        val timestampStyle = LocalTextStyle.current.copy(fontSize = 17.sp, fontFeatureSettings = "tnum")
+        val timestampColor = Color.White.copy(alpha = .8f)
+        val durationText = playerTimeText(duration)
+        val timestampWidthPx = rememberTextMeasurer().measure(durationText, style = timestampStyle).size.width
+        val timestampWidth = with(LocalDensity.current) { timestampWidthPx.toDp() }
         Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-            PlayerTime(shown)
-            com.auralis.music.ui.components.AuralisPlayerSlider(
-                value = fraction,
-                onValueChange = { if (duration > 0) dragFraction = it },
-                onValueChangeFinished = {
-                    dragFraction?.let { playback.seekTo((it * duration).toLong()) }
-                    dragFraction = null
-                },
-                isPlaying = playing,
-                currentPosMs = shown, totalDurationMs = duration,
-                sliderStyle = appearance.playerSliderStyle, showTimestamps = false,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-            )
-            PlayerTime(duration)
+            Text(playerTimeText(shown), modifier = Modifier.width(timestampWidth),
+                style = timestampStyle, color = timestampColor, maxLines = 1, softWrap = false)
+            Box(Modifier.weight(1f).padding(horizontal = 12.dp)
+                .onPointerEvent(PointerEventType.Enter) { updateHover(it.changes.firstOrNull()?.position?.x, size.width) }
+                .onPointerEvent(PointerEventType.Move) { updateHover(it.changes.firstOrNull()?.position?.x, size.width) }
+                .onPointerEvent(PointerEventType.Exit) { hoverFraction = null }
+            ) {
+                com.auralis.music.ui.components.AuralisPlayerSlider(
+                    value = fraction,
+                    onValueChange = updateSeek,
+                    onValueChangeFinished = finishSeek,
+                    isPlaying = playing,
+                    currentPosMs = shown, totalDurationMs = duration,
+                    sliderStyle = "Slim", showTimestamps = false
+                )
+                val preview = dragFraction ?: hoverFraction
+                if (duration > 0 && preview != null) {
+                    val gap = with(LocalDensity.current) { 6.dp.roundToPx() }
+                    Text(
+                        text = playerTimeText((preview * duration).toLong()),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        modifier = Modifier.align(Alignment { bubble, track, _ ->
+                            val x = (track.width * preview - bubble.width / 2f).roundToInt()
+                                .coerceIn(0, (track.width - bubble.width).coerceAtLeast(0))
+                            IntOffset(x, gap - bubble.height)
+                        }).background(Color.Black.copy(alpha = .67f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Text(durationText, style = timestampStyle, color = timestampColor, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -529,8 +565,12 @@ internal fun rememberShownPosition(
 
 @Composable
 private fun PlayerTime(ms: Long, fontSize: Int = 17) {
+    Text(playerTimeText(ms), fontSize = fontSize.sp, color = Color.White.copy(alpha = .8f))
+}
+
+private fun playerTimeText(ms: Long): String {
     val seconds = (ms / 1000).coerceAtLeast(0)
-    Text(desktopText("%d:%02d").format(seconds / 60, seconds % 60), fontSize = fontSize.sp, color = Color.White.copy(alpha = .8f))
+    return desktopText("%d:%02d").format(seconds / 60, seconds % 60)
 }
 
 @Composable
@@ -634,6 +674,9 @@ private fun CoverWithControls(
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
+    val volumeHover = remember { MutableInteractionSource() }
+    val volumeHovered by volumeHover.collectIsHoveredAsState()
+    var adjustingVolume by remember { mutableStateOf(false) }
     // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
     // way, as in a video player; the slightest movement brings both back.
     var lastMove by remember { mutableLongStateOf(0L) }
@@ -643,7 +686,8 @@ private fun CoverWithControls(
         idle = false
         if (hovered) { kotlinx.coroutines.delay(COVER_IDLE_MS); idle = true }
     }
-    val reveal by androidx.compose.animation.core.animateFloatAsState(if (hovered && !idle) 1f else 0f,
+    val showControls = adjustingVolume || (hovered && (!idle || volumeHovered))
+    val reveal by androidx.compose.animation.core.animateFloatAsState(if (showControls) 1f else 0f,
         tween(if (idle) 450 else 220), label = "coverControls")
     val queue by playback.queue.collectAsState()
     val volume by playback.volume.collectAsState()
@@ -655,7 +699,7 @@ private fun CoverWithControls(
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
-        .then(if (hovered && idle) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
+        .then(if (hovered && !showControls) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
         AnimatedCover(
             track = track,
             modifier = Modifier.fillMaxSize(),
@@ -671,13 +715,18 @@ private fun CoverWithControls(
             if (reveal > 0f) {
                 PlayerTransport(playback,
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp))
-                Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(size * .42f),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
+                val volumeHeight = size * .34f
+                Box(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).height(volumeHeight)
+                    .hoverable(volumeHover), contentAlignment = Alignment.BottomCenter) {
                     HoverSlider(value = volume, onValueChange = playback::setVolume, vertical = true,
-                        thin = 14.dp, thick = 20.dp, hitSize = 28.dp, modifier = Modifier.weight(1f))
-                    IconButton(onClick = playback::toggleMute, modifier = Modifier.size(30.dp)) {
+                        thin = 20.dp, thick = 24.dp, hitSize = 30.dp,
+                        inactiveColor = Color.Black.copy(alpha = .22f),
+                        onDraggingChanged = { adjustingVolume = it })
+                    IconButton(onClick = playback::toggleMute, modifier = Modifier.size(26.dp)) {
                         Icon(if (volume > 0f) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                            if (volume > 0f) "Mute" else "Unmute", tint = Color.White, modifier = Modifier.size(18.dp))
+                            desktopText(if (volume > 0f) "Mute" else "Unmute"),
+                            tint = if (volume * volumeHeight.value >= 20f) Color(0xFF252525) else Color.White,
+                            modifier = Modifier.size(14.dp))
                     }
                 }
             }
