@@ -947,13 +947,18 @@ class ConnectEngine(
         val repeat: RepeatMode, val context: ConnectContext?)
     private var restoredBookmark: RestoredBookmark? = null
 
-    /** Restore a resumable local player without claiming the account or starting audio. */
+    /**
+     * Restore a resumable local player without claiming the account or starting audio. Only into an
+     * empty player: a song this device already has (its own last session, say) stays. Turning sync on
+     * replaced it with whatever another, now offline, device played last.
+     */
     private fun restoreLocalBookmark(snapshot: ConnectSnapshot?, p: ConnectPlayer) {
         val session = snapshot?.session ?: return
         val track = session.track ?: return
         if (!deviceAvailable || !p.canPlay || session.ownerId == me.id || localControl != null ||
             session.ownerActive(clock.now()) ||
-            session.transfer?.status?.active == true || preparing?.isActive == true || p.snapshot().playing) return
+            session.transfer?.status?.active == true || preparing?.isActive == true || p.snapshot().playing ||
+            (p.snapshot().track != null && restoredBookmark == null)) return
         val bookmark = RestoredBookmark(session.ownerId, session.epoch, track, session.positionMs,
             session.queueIndex, snapshot.queue, session.shuffle, session.repeat, session.context)
         if (restoredBookmark == bookmark) return

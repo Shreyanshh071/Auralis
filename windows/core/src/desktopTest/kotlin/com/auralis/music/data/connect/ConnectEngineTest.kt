@@ -359,6 +359,22 @@ class ConnectEngineTest {
         assertEquals(bookmark.track?.id, w.server.snapshot().session?.track?.id)
     }
 
+    @Test fun turningSyncOnKeepsTheSongThisDeviceAlreadyHas() = runTest {
+        val (w, phone, _) = threeDevices()
+        phone.user(ConnectIntent.Load(songs(3, "phone"), 1))
+        w.run(5_000)
+        phone.engine.stop(signOut = false)
+        w.run(1_000)
+        assertEquals("phone2", w.server.snapshot().session?.track?.id)
+        // The PC reopens its own last song (paused) before sync starts.
+        val pc = w.device("pc-2", "Desk PC", ConnectPlatform.WINDOWS, ConnectDeviceType.COMPUTER)
+        pc.player.load(songs(2, "own"), 0, 30_000L, play = false, shuffle = false, repeat = RepeatMode.OFF, context = null)
+        pc.start()
+        w.run(5_000)
+        assertEquals("own1", pc.player.track?.id, "The account's old bookmark must not replace this device's own song")
+        assertFalse(pc.player.playing)
+    }
+
     private class World(val test: TestScope) {
         val server = FakeServer { test.testScheduler.currentTime }
         val devices = mutableListOf<SimDevice>()
