@@ -25,7 +25,7 @@ internal object DesktopJioSaavnAudio {
     internal data class Recording(val track: Track, val explicit: Boolean, val has320: Boolean, val encryptedUrl: String)
 
     suspend fun find320(track: Track): String? = withTimeoutOrNull(LOOKUP_TIMEOUT_MS) {
-        if (track.id.startsWith("unavailable:") || track.duration <= 0 || track.title.isBlank() ||
+        if (track.id.startsWith("unavailable:") || track.title.isBlank() ||
             track.artist.isBlank() || track.artist.equals("Spotify Artist", ignoreCase = true)) return@withTimeoutOrNull null
         val query = "${TitleCleaner.cleanTitle(track.title)} ${TitleCleaner.cleanArtist(track.artist)}".trim()
         val results = call("search.getResults", "q" to query, "p" to "1", "n" to "10").optJSONArray("results")
@@ -43,14 +43,32 @@ internal object DesktopJioSaavnAudio {
     }
 
     internal fun pick(track: Track, candidates: List<Recording>): Recording? {
+        if (track.duration <= 0) return pickWithoutDuration(track, candidates)
         val title = SearchQueryMatcher.baseTitle(TitleCleaner.cleanTitle(track.title))
-        if (track.duration <= 0 || title.isBlank()) return null
+        if (title.isBlank()) return null
         return candidates.filter { it.has320 }.sortedByDescending { it.explicit }.firstOrNull { row ->
             val match = row.track
             match.duration > 0 && match.artist.isNotBlank() && abs(match.duration - track.duration) <= 2 &&
                 SearchQueryMatcher.baseTitle(TitleCleaner.cleanTitle(match.title)) == title &&
                 SearchQueryMatcher.scoreTrackCandidate(track, match) >= 40.0
         }
+    }
+
+    private fun pickWithoutDuration(track: Track, candidates: List<Recording>): Recording? {
+        val title = SearchQueryMatcher.normalize(track.title)
+        val artist = SearchQueryMatcher.normalize(track.artist)
+        val album = SearchQueryMatcher.normalize(track.album.orEmpty())
+        if (title.isBlank() || artist.isBlank() || album.isBlank()) return null
+
+        val matches = candidates.filter { row ->
+            val match = row.track
+            row.has320 && match.duration > 0 &&
+                SearchQueryMatcher.normalize(match.title) == title &&
+                SearchQueryMatcher.normalize(match.artist) == artist &&
+                SearchQueryMatcher.normalize(match.album.orEmpty()) == album
+        }
+        // The same release can have multiple catalog IDs. Require agreement on its runtime.
+        return matches.groupBy { it.track.duration }.values.singleOrNull()?.maxByOrNull { it.explicit }
     }
 
     internal fun stream320(value: String): String? {
