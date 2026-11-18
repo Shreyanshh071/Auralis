@@ -23,7 +23,7 @@ interface CooldownClock {
  *
  * Causes have their own schedules (all provisional app policy, not known YouTube thresholds):
  *  - rate limited: 5s doubling to 60s, or the server's Retry-After when longer;
- *  - verification challenge: 5 min doubling to 30 min (conservative: requests prolong it);
+ *  - verification challenge: no timed pause; the failed intent stops, manual retry is immediate;
  *  - transient: after [TRANSIENT_TRIP_COUNT] failures in a row, 5s doubling to 60s.
  *
  * The deadline is persisted (versioned, bounded, without secrets), so a restart keeps waiting; a
@@ -113,8 +113,7 @@ class YouTubeCooldown(
         ensureLoaded()
         val cleared = synchronized(lock) {
             consecutiveTransient = 0
-            if (!fromPlayer && state?.cause == Cause.VERIFICATION) {
-                trialLeaseUntil = 0L
+            if (!fromPlayer && state?.let { clock.monotonicMs() < it.untilMono } == true) {
                 return
             }
             val had = state != null
@@ -136,13 +135,17 @@ class YouTubeCooldown(
 
     fun trip(cause: Cause, retryAfterMs: Long? = null) {
         ensureLoaded()
+        if (cause == Cause.VERIFICATION) {
+            synchronized(lock) { trips++ }
+            return
+        }
         val next = synchronized(lock) {
             val now = clock.monotonicMs()
             val previous = state
             val step = if (previous != null && previous.cause == cause) (previous.step + 1).coerceAtMost(10) else 0
             val (base, cap) = when (cause) {
                 Cause.RATE_LIMITED, Cause.TRANSIENT -> 5_000L to 60_000L
-                Cause.VERIFICATION -> 5 * 60_000L to 30 * 60_000L
+                Cause.VERIFICATION -> 60_000L to 60_000L
             }
             val scheduled = (base shl step).coerceAtMost(cap)
             // Bounded jitter (+/-10%) so separate processes don't retry in lockstep.
@@ -188,6 +191,11 @@ class YouTubeCooldown(
             return
         }
         val (cause, untilWall, step) = parsed
+        if (cause == Cause.VERIFICATION) {
+            // Migrate older builds: a failed extraction must not lock out a new app session.
+            runCatching { file.delete() }
+            return
+        }
         val remaining = untilWall - clock.wallMs()
         if (remaining <= 0L) return
         // A wall clock set back (or a corrupt deadline) can't lock playback for longer than this.
@@ -202,7 +210,7 @@ class YouTubeCooldown(
         val s = state
         val file = runCatching { store() }.getOrNull() ?: return
         runCatching {
-            if (s == null) { file.delete(); return }
+            if (s == null || s.cause == Cause.VERIFICATION) { file.delete(); return }
             file.parentFile?.mkdirs()
             val p = java.util.Properties()
             p.setProperty("version", VERSION.toString())

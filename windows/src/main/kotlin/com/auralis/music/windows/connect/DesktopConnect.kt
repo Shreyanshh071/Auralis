@@ -48,7 +48,7 @@ class DesktopConnectPlayer(private val controller: DesktopPlaybackController, pr
     @Volatile private var lastError: Pair<String, Long>? = null
 
     init {
-        scope.launch { controller.errors.collect { lastError = it to System.currentTimeMillis() } }
+        scope.launch { controller.errors.collect { lastError = it.message to System.currentTimeMillis() } }
     }
 
     override fun snapshot(): LocalPlayback {

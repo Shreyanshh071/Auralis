@@ -268,6 +268,7 @@ object DesktopStreamResolver {
         } catch (e: Throwable) {
             // Throwable, not Exception: a missing class (NoClassDefFoundError) must not kill playback.
             val failure = FailureClassifier.classify(e, "extract")
+            if (failure.category == FailureCategory.VERIFICATION_CHALLENGE) budget.stopControlRequests()
             when (failure.category) {
                 FailureCategory.RATE_LIMITED, FailureCategory.VERIFICATION_CHALLENGE, FailureCategory.TRANSIENT -> YouTubeBackoff.trip(failure)
                 FailureCategory.RESTRICTED -> restricted[target] = System.currentTimeMillis()

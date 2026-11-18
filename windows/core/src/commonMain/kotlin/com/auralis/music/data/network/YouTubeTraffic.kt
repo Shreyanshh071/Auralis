@@ -38,6 +38,9 @@ class RequestBudget(
     val transitionsLeft: Int get() = transitions.get().coerceAtLeast(0)
     val exhausted: Boolean get() = expired || credits.get() <= 0
 
+    /** End this intent's automatic lookups without imposing a timer on the next Play press. */
+    fun stopControlRequests() { credits.set(0) }
+
     internal fun chargeControl() {
         if (expired) throw BudgetExhaustedException("Request deadline reached for $correlationId")
         while (true) {

@@ -15,6 +15,15 @@ private class FakeClock(var mono: Long = 1_000_000L, var wall: Long = 1_800_000_
 private class SignInConfirmNotBotException(message: String) : Exception(message)
 
 class RequestBudgetTest {
+    @Test fun endingAnAttemptDoesNotBlockANewManualAttempt() {
+        val first = RequestBudget("first", "play")
+        first.stopControlRequests()
+        assertFailsWith<BudgetExhaustedException> { first.chargeControl() }
+        val retry = RequestBudget("retry", "play")
+        retry.chargeControl()
+        assertFalse(retry.exhausted)
+    }
+
     @Test fun continuedProgressCanRenewMoreThanOnce() {
         val clock = FakeClock()
         val budget = RequestBudget("long-song", "play", clock = clock)
@@ -124,8 +133,6 @@ class YouTubeCooldownTest {
             clock.advance(wait + 1)
             assertTrue(c.permit())
         }
-        c.trip(YouTubeCooldown.Cause.VERIFICATION)
-        assertTrue(c.retryInMs() >= 4 * 60_000L, "a verification challenge has its own, longer pause")
     }
 
     @Test fun transientFailuresPauseOnlyAfterARun() {
@@ -136,13 +143,20 @@ class YouTubeCooldownTest {
         assertTrue(c.active)
     }
 
-    @Test fun aSearchAnsweringDoesNotEndAVerificationPause() {
+    @Test fun verificationAllowsImmediateManualRetry() {
         val c = cooldown()
         c.trip(YouTubeCooldown.Cause.VERIFICATION)
-        c.recordSuccess(fromPlayer = false)
-        assertTrue(c.active)
-        c.recordSuccess(fromPlayer = true)
         assertFalse(c.active)
+        assertEquals(0L, c.retryInMs())
+        repeat(3) { assertTrue(c.permit()) }
+    }
+
+    @Test fun verificationDoesNotCancelAnActualRateLimitWait() {
+        val c = cooldown()
+        c.trip(YouTubeCooldown.Cause.RATE_LIMITED, retryAfterMs = 120_000)
+        c.trip(YouTubeCooldown.Cause.VERIFICATION)
+        assertEquals(120_000L, c.retryInMs())
+        assertFalse(c.permit())
     }
 
     @Test fun pausePersistsAcrossRestartAndClockJumpsCannotLockForever() {
@@ -173,5 +187,16 @@ class YouTubeCooldownTest {
         assertFalse(file.exists(), "an unreadable state file is removed")
         file.writeText("version=99\nscope=youtube-control\ncause=RATE_LIMITED\nuntilWall=${clock.wall + 60_000}\nstep=0\n")
         assertFalse(cooldown(file).active)
+    }
+
+    @Test fun verificationDoesNotLockOutTheNextLaunch() {
+        val file = File.createTempFile("verification-pause", ".properties").apply { deleteOnExit() }
+        val current = cooldown(file)
+        current.trip(YouTubeCooldown.Cause.VERIFICATION)
+        assertFalse(current.active)
+        assertFalse(file.exists())
+        file.writeText("version=1\nscope=youtube-control\ncause=VERIFICATION\nuntilWall=${clock.wall + 300_000}\nstep=0\n")
+        assertFalse(cooldown(file).active, "old persisted verification pauses must be migrated away")
+        assertFalse(file.exists())
     }
 }

@@ -21,7 +21,7 @@ class HomeAlbumResolutionTest {
     private val song = Track("abcdefghijk", "Example Song", "Example Artist", album = album.title, albumId = "MPRE-test")
 
     @Test fun everyAlbumCanResolveDuringABackgroundSearchCooldown() = runBlocking<Unit> {
-        YouTubeBackoff.trip()
+        YouTubeBackoff.trip(com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.RATE_LIMITED, retryAfterMs = 60000))
         val http = OkHttpClient.Builder().addInterceptor { chain ->
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                 .body("{}".toResponseBody("application/json".toMediaType())).build()
