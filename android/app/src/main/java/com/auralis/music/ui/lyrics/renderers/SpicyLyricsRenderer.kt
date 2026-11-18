@@ -19,7 +19,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -29,7 +30,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import com.auralis.music.domain.model.LyricLine
@@ -178,6 +178,16 @@ object SpicyLyricsMotion {
     }
 }
 
+/** Each character may belong to one animation unit only. The span mapper falls back to
+ * searching from the line start, so a repeated word ("Always-ways-ways") could claim
+ * letters an earlier unit already owns; both then drew them, offset by their own motion. */
+internal fun spicyExclusiveSpans(spans: List<LyricsEngine.WordRange>): List<LyricsEngine.WordRange> {
+    var claimed = 0
+    return spans.filter { span ->
+        (span.startIndex >= claimed).also { kept -> if (kept) claimed = span.endIndex }
+    }
+}
+
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
 private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>) {
     val startMs = parts.minOfOrNull { it.range.word.time } ?: 0L
@@ -263,7 +273,6 @@ fun SpicyLyricsLine(
     }
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    val measurer = rememberTextMeasurer()
     var layout by remember(line.text, style) { mutableStateOf<TextLayoutResult?>(null) }
     var frameNanos by remember { mutableLongStateOf(0L) }
     val motionActive = com.auralis.music.ui.theme.LocalPreviewMotionActive.current != false
@@ -275,7 +284,7 @@ fun SpicyLyricsLine(
         val spans = LyricsEngine.mapWordsToLineSpans(line.text, displayed?.flatMap { it.syllables ?: listOf(it) })
         // A source syllable is an animation unit, even inside a written word.
         // Combining all syllables first loses the motion of a held final syllable.
-        spans.mapNotNull { span ->
+        spicyExclusiveSpans(spans).mapNotNull { span ->
             var start = span.startIndex
             var end = span.endIndex
             while (start < end && line.text[start].isWhitespace()) start++
@@ -312,9 +321,12 @@ fun SpicyLyricsLine(
         val fontPx = with(density) { style.fontSize.toPx() }
         geometry.map { slice ->
             if (slice.letter >= 0) slice.bounds else {
-                        val previous = geometry.filter { it.row == slice.row && it.bounds.right <= slice.bounds.left }
+                        // Neighbours by position, not by strict separation: joined syllables'
+                        // glyph boxes overlap slightly, and skipping them let this mask reach
+                        // into the neighbour so its letters were drawn twice.
+                        val previous = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x < slice.bounds.center.x }
                             .maxOfOrNull { it.bounds.right }
-                        val next = geometry.filter { it.row == slice.row && it.bounds.left >= slice.bounds.right }
+                        val next = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x > slice.bounds.center.x }
                             .minOfOrNull { it.bounds.left }
                         Rect(previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - fontPx * .2f),
                             layout!!.getLineTop(slice.row),
@@ -337,27 +349,37 @@ fun SpicyLyricsLine(
         }
     }
     // Spicy's text-shadow is 4 + 12 x glow px for letters and 4 + 2 x glow px for words at its
-    // 56 px lyric size. Each glow is shaped from the slice's own glyphs at the full radius.
-    val glows = remember(layout, geometry, density, direction) {
-        layout?.let { measured ->
-            val fontPx = with(density) { style.fontSize.toPx() }
-            geometry.map { slice ->
-                if (groups[slice.wordIndex].endMs == null) return@map null
-                val cssRadius = (if (slice.letter >= 0) 16f else 6f) * fontPx / 56f
-                val blur = ((cssRadius / 2f - .5f) / .57735f).coerceAtLeast(.5f)
-                val alone = measurer.measure(line.text.substring(slice.from, slice.to), style)
-                val pad = cssRadius * 2f + 2f
-                val size = Size(alone.size.width + pad * 2, alone.size.height + pad * 2)
-                val image = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
-                CanvasDrawScope().draw(density, direction, Canvas(image), size) {
-                    drawText(alone, color = Color.Transparent, topLeft = Offset(pad, pad),
-                        shadow = Shadow(Color.White, blurRadius = blur))
-                }
-                val glyphs = alone.getPathForRange(0, slice.to - slice.from).getBounds()
-                SpicyGlow(image, Offset(slice.bounds.left - glyphs.left - pad,
-                    measured.getLineBaseline(slice.row) - alone.firstBaseline - pad))
+    // 56 px lyric size. Each glow is cut from the paragraph raster itself (as on desktop) and
+    // blurred, so it always sits exactly on the drawn glyphs. Re-measuring a syllable on its own
+    // misplaced it for complex scripts (a Devanagari syllable ghosted a row below its word).
+    val glows = remember(raster, geometry, inkMasks, density) {
+        val source = raster ?: return@remember emptyList<SpicyGlow?>()
+        val (paragraph, rasterPad) = source
+        val pixels = paragraph.asAndroidBitmap()
+        val fontPx = with(density) { style.fontSize.toPx() }
+        geometry.mapIndexed { index, slice ->
+            if (groups[slice.wordIndex].endMs == null) return@mapIndexed null
+            val cssRadius = (if (slice.letter >= 0) 16f else 6f) * fontPx / 56f
+            val blur = ((cssRadius / 2f - .5f) / .57735f).coerceAtLeast(.5f)
+            val ink = inkMasks[index]
+            val left = (ink.left + rasterPad).toInt().coerceIn(0, pixels.width - 1)
+            val top = (ink.top + rasterPad).toInt().coerceIn(0, pixels.height - 1)
+            val right = kotlin.math.ceil(ink.right + rasterPad).toInt().coerceIn(left + 1, pixels.width)
+            val bottom = kotlin.math.ceil(ink.bottom + rasterPad).toInt().coerceIn(top + 1, pixels.height)
+            val crop = android.graphics.Bitmap.createBitmap(pixels, left, top, right - left, bottom - top)
+            val shift = IntArray(2)
+            val blurPaint = android.graphics.Paint().apply {
+                maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
             }
-        }.orEmpty().also { values -> imageLifetime.retain(values.mapNotNull { it?.image }) }
+            val alpha = crop.extractAlpha(blurPaint, shift)
+            val image = android.graphics.Bitmap.createBitmap(alpha.width.coerceAtLeast(1), alpha.height.coerceAtLeast(1),
+                android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(image).drawBitmap(alpha, 0f, 0f,
+                android.graphics.Paint().apply { color = android.graphics.Color.WHITE })
+            if (crop !== pixels) crop.recycle()
+            alpha.recycle()
+            SpicyGlow(image.asImageBitmap(), Offset(left - rasterPad + shift[0], top - rasterPad + shift[1]))
+        }.also { values -> imageLifetime.retain(values.mapNotNull { it?.image }) }
     }
     val wordSprings = remember(groups) { groups.map { SpicySprings() } }
     val letterSprings = remember(geometry) { geometry.map { SpicySprings() } }

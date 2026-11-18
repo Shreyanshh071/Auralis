@@ -3009,7 +3009,9 @@ internal fun ClassicQueueContent(
                                         // Moving a song from above the current one shifts the current one up by one.
                                         val to = if (from < current) current else current + 1
                                         if (from >= 0 && to in queueSnapshot.indices && from != to) onReorderQueue(from, to)
-                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.playing_next_x, item.title))
+                                        com.auralis.music.ui.components.AppPillManager.showPill(
+                                            str(if (from == to) R.string.already_playing_next_x else R.string.playing_next_x, item.title)
+                                        )
                                     }
                                 } else null,
                                 onRemoveFromPlaylist = if (swipeEnabled && onRemoveQueueItem != null) {

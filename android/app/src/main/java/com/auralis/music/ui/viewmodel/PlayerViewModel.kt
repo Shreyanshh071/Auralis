@@ -1262,8 +1262,23 @@ class PlayerViewModel(
             )
             return false
         }
+        // Asking again for the song that's already lined up next would only stack copies of it.
+        if (toQueue.size == 1 && isAlreadyNext(toQueue.first())) {
+            com.auralis.music.ui.components.AppPillManager.showPill(
+                com.auralis.music.ui.i18n.str(com.auralis.music.R.string.already_playing_next_x, toQueue.first().title)
+            )
+            return false
+        }
         playNextFiltered(toQueue)
         return true
+    }
+
+    /** True when [track] is the song queued right after the one playing. */
+    private fun isAlreadyNext(track: Track): Boolean {
+        val (queue, index) = audioPlayer?.queueState?.value?.let { it.queue to it.currentIndex }
+            ?: _uiState.value.let { it.queue to it.currentIndex }
+        if (index < 0) return false
+        return queue.getOrNull(index + 1)?.id == track.id
     }
 
     private fun playNextFiltered(tracks: List<Track>) {

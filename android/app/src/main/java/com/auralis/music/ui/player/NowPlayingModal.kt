@@ -1455,7 +1455,9 @@ fun NowPlayingModal(
                                                             ?: queueSnapshot.indexOfFirst { it.id == uiState.currentTrack?.id }
                                                         val to = if (from < current) current else current + 1
                                                         if (from >= 0 && current >= 0 && to in queueSnapshot.indices && from != to) onReorderQueue(from, to)
-                                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.playing_next_x, item.track.title))
+                                                        com.auralis.music.ui.components.AppPillManager.showPill(
+                                                            str(if (from == to) R.string.already_playing_next_x else R.string.playing_next_x, item.track.title)
+                                                        )
                                                     }
                                                 } else null,
                                                 onRemoveFromPlaylist = if (swipeEnabled && onRemoveQueueItem != null) {

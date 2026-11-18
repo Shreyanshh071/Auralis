@@ -483,12 +483,20 @@ class DesktopPlaybackController(
     /** Restores the same pre-mute volume, including after restarting while muted. */
     fun toggleMute() = volumeState.toggleMute()
 
+    /** True when [track] is already the song lined up right after the one playing. */
+    fun isNext(track: Track): Boolean {
+        val q = _queue.value
+        return q.current != null && q.tracks.getOrNull(q.index + 1)?.id == track.id
+    }
+
     /** Puts [track] right after the playing song (or plays it when nothing is queued). */
     fun playNext(track: Track) {
         if (intercepted("recommend", track)) return
         if (connect(com.auralis.music.data.connect.ConnectIntent.PlayNext(track))) return
         val q = _queue.value
         if (q.current == null) return playFrom(track, listOf(track))
+        // Asking again for the song already lined up next must not stack another copy behind it.
+        if (isNext(track)) return
         if (preventDuplicates && q.tracks.drop(q.index + 1).any { it.id == track.id }) return
         val tracks = q.tracks.toMutableList().apply { add(q.index + 1, track) }
         _queue.value = q.copy(tracks = tracks, listenedIndices = q.listenedIndices.map { if (it > q.index) it + 1 else it }.toSet())

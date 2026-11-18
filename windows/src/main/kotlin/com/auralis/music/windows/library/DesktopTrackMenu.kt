@@ -43,8 +43,12 @@ fun DesktopTrackMenu(
         userPlaylists = playlists,
         onToggleFavorite = { scope.launch { library.toggleFavorite(track) } },
         onPlayNext = {
-            playback?.playNext(track)
-            showMessage(str(Strings.playing_next_x, track.title))
+            if (playback?.isNext(track) == true) {
+                showMessage(str(Strings.already_playing_next_x, track.title))
+            } else {
+                playback?.playNext(track)
+                showMessage(str(Strings.playing_next_x, track.title))
+            }
         },
         onAddToQueue = {
             playback?.addToQueue(track)

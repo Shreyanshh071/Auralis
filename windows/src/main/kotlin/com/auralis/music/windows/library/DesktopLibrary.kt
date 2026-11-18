@@ -101,8 +101,12 @@ fun DesktopLibrary(
             },
             onAddToQueue = { tracks -> tracks.forEach { playback?.addToQueue(it) } },
             onPlayNext = { track ->
-                playback?.playNext(track)
-                showMessage(str(Strings.playing_next_x, track.title))
+                if (playback?.isNext(track) == true) {
+                    showMessage(str(Strings.already_playing_next_x, track.title))
+                } else {
+                    playback?.playNext(track)
+                    showMessage(str(Strings.playing_next_x, track.title))
+                }
             },
             onAddToQueueTrack = { track ->
                 playback?.addToQueue(track)

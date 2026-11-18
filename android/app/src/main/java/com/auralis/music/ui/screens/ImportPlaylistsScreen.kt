@@ -85,12 +85,20 @@ fun ImportPlaylistsScreen(
     isImportingExternal: Boolean = false,
     externalImportMessage: String? = null,
     onClearExternalImportMessage: () -> Unit = {},
+    onImportMusicAccountPlaylists: (List<com.auralis.music.data.importer.ExternalPlaylist>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val youTubeSignedIn by YouTubeSession.signedIn.collectAsState()
     val accountLabel by YouTubeSession.accountLabel.collectAsState()
     val spotifySignedIn by SpotifySession.signedIn.collectAsState()
     val spotifyAccountLabel by SpotifySession.accountLabel.collectAsState()
+    val accountPrefs = LocalContext.current.getSharedPreferences("music_account_connections", Context.MODE_PRIVATE)
+    var connectedMusicAccounts by remember {
+        mutableStateOf(com.auralis.music.data.importer.MusicAccountService.entries.filter {
+            accountPrefs.getBoolean(it.source, false)
+        }.toSet())
+    }
+    var musicAccount by remember { mutableStateOf<com.auralis.music.data.importer.MusicAccountService?>(null) }
 
     var showPlaylistPickerPopup by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf<List<YouTubeMusicLibrary.LibraryPlaylist>?>(null) }
@@ -135,7 +143,7 @@ fun ImportPlaylistsScreen(
         }
     }
 
-    val signInPush = com.auralis.music.ui.theme.rememberPushProgress(showSpotifySignIn)
+    val signInPush = com.auralis.music.ui.theme.rememberPushProgress(showSpotifySignIn || musicAccount != null)
 
     Box(Modifier.fillMaxSize()) {
     AccountPageTheme {
@@ -149,7 +157,7 @@ fun ImportPlaylistsScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 com.auralis.music.ui.library.PlaylistImportSyncToggle()
-                val linkedCount = listOf(youTubeSignedIn, spotifySignedIn).count { it }
+                val linkedCount = listOf(youTubeSignedIn, spotifySignedIn).count { it } + connectedMusicAccounts.size
                 AccountSectionLabel(str(R.string.account_ui_connected_accounts),
                     str(R.string.account_ui_linked_count, linkedCount))
                 YouTubeAccountCard(
@@ -175,6 +183,16 @@ fun ImportPlaylistsScreen(
                     },
                     onSignIn = { showSpotifySignIn = true },
                     onDisconnect = { SpotifySession.signOut() }
+                )
+                MusicAccountCards(
+                    connected = connectedMusicAccounts,
+                    busy = isImportingExternal,
+                    onOpen = { service -> onClearExternalImportMessage(); musicAccount = service },
+                    onDisconnect = { service ->
+                        com.auralis.music.data.importer.MusicAccountBrowser.disconnect(service)
+                        accountPrefs.edit().remove(service.source).apply()
+                        connectedMusicAccounts = connectedMusicAccounts - service
+                    }
                 )
             }
 
@@ -233,6 +251,20 @@ fun ImportPlaylistsScreen(
                 spotifyReloadKey++
             },
             onDismiss = { showSpotifySignIn = false }
+        )
+    }
+    com.auralis.music.ui.theme.AuralisPushedPage(page = musicAccount) { service ->
+        MusicAccountImportScreen(
+            service = service,
+            importedPlaylistIds = importedPlaylistIds,
+            isSaving = isImportingExternal,
+            saveMessage = externalImportMessage,
+            onConnected = {
+                accountPrefs.edit().putBoolean(service.source, true).apply()
+                connectedMusicAccounts = connectedMusicAccounts + service
+            },
+            onImport = onImportMusicAccountPlaylists,
+            onDismiss = { musicAccount = null }
         )
     }
     }
