@@ -109,6 +109,22 @@ class AccountLibraryMergeTest {
         assertEquals(listOf("a", "b"), plan.account.playlists.single().tracks.map { it.id })
     }
 
+    @Test fun `authoritative account removals reach unchanged linked playlists`() {
+        val before = list("x", "a", "ransom")
+        val plan = AccountLibraryMerge.merge(lib(before), lib(list("x", "a")), agreed(before), now,
+            protected = setOf("x"), cloudAuthoritative = true)
+        assertEquals(listOf("a"), plan.writePlaylists.single().tracks.map { it.id })
+        assertFalse(plan.accountChanged)
+    }
+
+    @Test fun `authoritative account still preserves concurrent local additions to linked playlists`() {
+        val before = list("x", "a", "b")
+        val plan = AccountLibraryMerge.merge(lib(list("x", "a", "b", "local")), lib(list("x", "a", "remote")),
+            agreed(before), now, protected = setOf("x"), cloudAuthoritative = true)
+        assertTrue(plan.account.playlists.single().tracks.any { it.id == "local" })
+        assertTrue(plan.account.playlists.single().tracks.any { it.id == "remote" })
+    }
+
     @Test fun `the oldest date added wins on every device`() {
         val tracks = arrayOf("a")
         val plan = AccountLibraryMerge.merge(lib(list("x", *tracks, createdAt = 900L)), lib(list("x", *tracks, createdAt = 100L)), null, now)

@@ -23,6 +23,8 @@
 //   FIREBASE_PROJECT_ID             e.g. auralis-70cf8
 //   GOOGLE_APPLICATION_CREDENTIALS  path to a service-account key that may read users/* and write
 //                                   libraryAuthority/* (never commit it), or
+//   FIRESTORE_ACCESS_TOKEN          short-lived Google OAuth operator token (not an app ID token)
+//                                   instead of a service-account key; never print or commit it
 //   FIRESTORE_EMULATOR_HOST         host:port of a local emulator (tests)
 //   LIBRARY_SNAPSHOT_DIR            where frozen sources and exports are saved (default ./library-snapshots)
 //
@@ -78,7 +80,7 @@ async function serviceAccountToken(keyPath, fetcher) {
   return { token: body.access_token, until: Date.now() + (body.expires_in - 120) * 1000 };
 }
 
-export function firestoreClient({ projectId, emulatorHost, keyPath, fetcher = fetch }) {
+export function firestoreClient({ projectId, emulatorHost, keyPath, accessToken, fetcher = fetch }) {
   if (!projectId) throw new Error('FIREBASE_PROJECT_ID is required');
   const origin = emulatorHost ? `http://${emulatorHost}` : 'https://firestore.googleapis.com';
   const root = `projects/${projectId}/databases/(default)/documents`;
@@ -86,7 +88,8 @@ export function firestoreClient({ projectId, emulatorHost, keyPath, fetcher = fe
   const headers = async () => {
     // The emulator treats "owner" as backend access, which is what a service account is in production.
     if (emulatorHost) return { authorization: 'Bearer owner', 'content-type': 'application/json' };
-    if (!keyPath) throw new Error('GOOGLE_APPLICATION_CREDENTIALS is required outside the emulator');
+    if (accessToken) return { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' };
+    if (!keyPath) throw new Error('GOOGLE_APPLICATION_CREDENTIALS or FIRESTORE_ACCESS_TOKEN is required outside the emulator');
     if (!cached || Date.now() > cached.until) cached = await serviceAccountToken(keyPath, fetcher);
     return { authorization: `Bearer ${cached.token}`, 'content-type': 'application/json' };
   };
@@ -378,7 +381,7 @@ async function main(argv) {
   if (!command) return usage();
   const env = process.env;
   const deps = {
-    firestore: firestoreClient({ projectId: env.FIREBASE_PROJECT_ID, emulatorHost: env.FIRESTORE_EMULATOR_HOST, keyPath: env.GOOGLE_APPLICATION_CREDENTIALS }),
+    firestore: firestoreClient({ projectId: env.FIREBASE_PROJECT_ID, emulatorHost: env.FIRESTORE_EMULATOR_HOST, keyPath: env.GOOGLE_APPLICATION_CREDENTIALS, accessToken: env.FIRESTORE_ACCESS_TOKEN }),
     library: libraryClient({ url: env.LIBRARY_URL, secret: env.LIBRARY_ADMIN_SECRET }),
     snapshotDir: env.LIBRARY_SNAPSHOT_DIR ?? './library-snapshots',
     log: (line) => console.log(line),

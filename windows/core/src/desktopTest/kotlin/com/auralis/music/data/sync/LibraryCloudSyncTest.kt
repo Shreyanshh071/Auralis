@@ -454,20 +454,32 @@ class LibraryCloudSyncTest {
 
     // ---- service-linked playlists ----------------------------------------------------------------
 
-    @Test fun `a linked playlist only ever gains songs here`() = runTest {
+    @Test fun `an acknowledged phone removal reaches a YouTube linked desktop and is not resurrected`() = runTest {
         val start = SyncedLibrary(listOf(list("imported:PL1", "a", "b", "c")))
         val server = Server().apply { import(start) }
         val phone = Device(server, "phone", start, agreed(start)); val pc = Device(server, "pc", start, agreed(start))
         phone.library = SyncedLibrary(listOf(list("imported:PL1", "a", "d")))
         phone.sync()
-        // The PC syncs this playlist with YouTube itself: a removal made elsewhere must not strip it.
+        // Cloudflare is the account authority: a service link must not undo an account edit.
         pc.sync(protected = setOf("imported:PL1"))
-        assertEquals(listOf("a", "b", "c", "d"), pc.tracks("imported:PL1"))
-        val deleted = Device(server, "tablet", start, agreed(start))
-        deleted.library = SyncedLibrary()
-        deleted.sync()
+        assertEquals(listOf("a", "d"), pc.tracks("imported:PL1"))
+        phone.sync()
+        assertEquals(listOf("a", "d"), phone.tracks("imported:PL1"), "the desktop must not upload the removed songs again")
+        pc.library = SyncedLibrary(listOf(list("imported:PL1", "a")))
         pc.sync(protected = setOf("imported:PL1"))
-        assertEquals(listOf("imported:PL1"), pc.lists(), "a deletion elsewhere does not remove a playlist the service sync owns")
+        phone.sync()
+        assertEquals(listOf("a"), phone.tracks("imported:PL1"), "the reverse direction still works")
+    }
+
+    @Test fun `an explicit account playlist deletion reaches a YouTube linked desktop`() = runTest {
+        val start = SyncedLibrary(listOf(list("imported:PL1", "a"), list("keep1", "b"), list("keep2", "c"), list("keep3", "d")))
+        val server = Server().apply { import(start) }
+        val phone = Device(server, "phone", start, agreed(start))
+        val pc = Device(server, "pc", start, agreed(start))
+        phone.library = start.copy(playlists = start.playlists.filterNot { it.id == "imported:PL1" })
+        phone.sync()
+        pc.sync(protected = setOf("imported:PL1"))
+        assertEquals(listOf("keep1", "keep2", "keep3"), pc.lists())
     }
 
     // ---- authority, epochs and accounts ----------------------------------------------------------

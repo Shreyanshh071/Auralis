@@ -105,8 +105,11 @@ object AccountLibraryMerge {
     private fun oldest(a: Long, b: Long) = if (a > 0 && (b <= 0 || a < b)) a else b
 
     /**
-     * @param protected playlists another sync owns (YouTube two-way sync): songs are only ever added to them here, and that sync takes them on to the service.
+     * @param protected playlists another sync owns (YouTube two-way sync): legacy cloud copies
+     * only add songs to them. An authoritative account service can also carry accepted removals.
      * @param duplicates a cloud playlist this device already holds under another id: never added here.
+     * @param cloudAuthoritative the ordered account service owns accepted edits, including removals
+     * on service-linked playlists. Legacy Firestore copies retain the add-only protection.
      */
     fun merge(
         local: SyncedLibrary,
@@ -114,7 +117,8 @@ object AccountLibraryMerge {
         baseline: SyncBaseline?,
         now: Long,
         protected: Set<String> = emptySet(),
-        duplicates: (Playlist) -> Boolean = { false }
+        duplicates: (Playlist) -> Boolean = { false },
+        cloudAuthoritative: Boolean = false
     ): SyncPlan {
         val localById = local.playlists.associateBy { it.id }
         val cloudById = cloud.playlists.associateBy { it.id }
@@ -139,7 +143,7 @@ object AccountLibraryMerge {
                     duplicates(there) -> upload += there
                     else -> { upload += there; writes += there; added += id }
                 }
-                here != null && deletedAt != null && here.createdAt <= deletedAt && id !in protected -> removals += id
+                here != null && deletedAt != null && here.createdAt <= deletedAt && (cloudAuthoritative || id !in protected) -> removals += id
                 here != null && there == null -> { deleted.remove(id); upload += here }
                 here != null && there != null -> {
                     deleted.remove(id)
@@ -149,7 +153,7 @@ object AccountLibraryMerge {
                     val agreed = known?.get(id)
                     val merged = when {
                         mine == theirs || agreed == theirs -> here
-                        agreed == mine && id !in protected -> there
+                        agreed == mine && (cloudAuthoritative || id !in protected) -> there
                         else -> bothChanged(here, there)
                     }.copy(createdAt = createdAt)
                     upload += merged

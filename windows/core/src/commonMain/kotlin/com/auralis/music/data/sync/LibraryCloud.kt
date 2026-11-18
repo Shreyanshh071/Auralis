@@ -422,7 +422,8 @@ class LibraryCloudSync(
             pull(mirror)
             persist(uid, mirror)
             val mine = local()
-            val plan = AccountLibraryMerge.merge(mine, mirror.library(), baseline, now(), protected, duplicates(mine))
+            val plan = AccountLibraryMerge.merge(mine, mirror.library(), baseline, now(), protected, duplicates(mine),
+                cloudAuthoritative = true)
             val ops = if (plan.accountChanged) LibraryOps.diff(mirror, plan.account, newId) else emptyList()
             if (ops.isEmpty()) return@withLock Result(plan, saved = true, refused = 0)
             var stale = false
