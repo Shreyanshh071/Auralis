@@ -506,6 +506,25 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         ready.size
     }
 
+    private val listensSyncLock = Mutex()
+
+    /**
+     * [syncListensCloud] on the app's own scope. Run from a screen's effect it was cancelled whenever
+     * that effect restarted (four times in the first 30 s of a launch), and the first run, which copies
+     * the whole Firestore history, never finished, so nothing went up or came down. One run at a time:
+     * a request while one is running is covered by it or by the next.
+     */
+    fun syncListensCloudInBackground(stats: com.auralis.music.desktop.library.DesktopListeningStats,
+        history: com.auralis.music.domain.repository.HistoryRepository? = null): Job = scope.launch {
+        if (!listensSyncLock.tryLock()) return@launch
+        try {
+            val sent = syncListensCloud(stats, history)
+            if (sent > 0) com.auralis.music.util.Log.i("AccountSync", "Sent $sent finished listens to the account")
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${e.javaClass.simpleName}: ${e.message}") }
+        finally { listensSyncLock.unlock() }
+    }
+
     /** A change another device made: applied from the frame when it follows on, otherwise pulled. */
     suspend fun listensChanged(frame: org.json.JSONObject?, stats: com.auralis.music.desktop.library.DesktopListeningStats,
         history: com.auralis.music.domain.repository.HistoryRepository? = null) = withContext(Dispatchers.IO) {

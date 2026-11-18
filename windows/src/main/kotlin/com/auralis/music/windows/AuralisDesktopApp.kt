@@ -381,8 +381,8 @@ fun AuralisDesktopApp(
         if (accountState.profile?.uid.isNullOrBlank()) return@LaunchedEffect
         account.syncCloudLibrary(library, listeningStats, history)
         libraryViewModel.refresh()
-        if (account.listensOnCloud()) runCatching { account.syncListensCloud(listeningStats, history) }
-            .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+        // On the account's own scope: this effect restarts often, and a cancelled run synced nothing.
+        if (account.listensOnCloud()) account.syncListensCloudInBackground(listeningStats, history)
         else runCatching { account.pushListens(listeningStats) }
             .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
     }
@@ -438,8 +438,7 @@ fun AuralisDesktopApp(
             // The recorder saves every 5 s while playing, so sample rather than debounce.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             listeningStats.listens.sample(if (listensOnCloud) 5 * 60_000L else 20_000L).collect {
-                if (listensOnCloud) runCatching { account.syncListensCloud(listeningStats, history) }
-                    .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${it.message}") }
+                if (listensOnCloud) account.syncListensCloudInBackground(listeningStats, history)
                 else runCatching { account.pushListens(listeningStats) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }
             }
