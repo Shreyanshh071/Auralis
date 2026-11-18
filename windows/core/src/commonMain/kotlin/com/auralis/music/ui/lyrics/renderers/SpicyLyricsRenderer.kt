@@ -219,6 +219,13 @@ internal fun spicyExclusiveSpans(spans: List<LyricsEngine.WordRange>): List<Lyri
     }
 }
 
+/** Subtle light kept on sung text of the active line after each word's swell fades. */
+private const val ACTIVE_RESTING_BLOOM = .15f
+/** Wide soft bloom behind sung ink: blur radius as a fraction of font size, and its strength. */
+private const val ACTIVE_BLOOM_SIGMA = .22f
+private const val ACTIVE_WIDE_BLOOM = .82f
+private const val ACTIVE_RESTING_BRIGHTNESS = .6f
+
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
 private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>,
                              val emphasizedLetters: List<SpicyEmphasizedLetter>?) {
@@ -248,7 +255,8 @@ private data class SpicyWord(val start: Int, val end: Int, val parts: List<Timed
 private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBounds: Rect,
                               val rtl: Boolean, val from: Int, val to: Int, val row: Int, val letter: Int = -1)
 
-private data class SpicyBloom(val image: ImageBitmap, val origin: Offset)
+private data class SpicyBloom(val image: ImageBitmap, val origin: Offset,
+                              val wide: ImageBitmap, val wideOrigin: Offset)
 /** Where glow masks are blurred. Off the UI thread in the app; pixel tests swap in an inline
  *  dispatcher so a snapshot never depends on whether the background blur finished first. */
 object SpicyGlowPreparation {
@@ -400,18 +408,24 @@ fun SpicyLyricsLine(
                 coroutineContext.ensureActive()
                 // Spicy's regular shadow is wider on emphasized letters than words.
                 val sigma = (fontPx * if (slice.letter >= 0) .065f else .045f).coerceAtLeast(1f)
-                val padding = kotlin.math.ceil(sigma * 3f + 2f).toInt()
                 val ink = inkMasks[index]
-                val size = Size(kotlin.math.ceil(ink.width + padding * 2).toFloat(),
-                    kotlin.math.ceil(ink.height + padding * 2).toFloat())
-                val mask = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
-                CanvasDrawScope().draw(density, direction, Canvas(mask), size) {
-                    drawRect(Color.Transparent, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
-                    clipRect(padding.toFloat(), padding.toFloat(), padding + ink.width, padding + ink.height) {
-                        drawImage(source.first, Offset(padding - ink.left - source.second, padding - ink.top - source.second))
+                fun blurred(sigma: Float): Pair<ImageBitmap, Offset> {
+                    val padding = kotlin.math.ceil(sigma * 3f + 2f).toInt()
+                    val size = Size(kotlin.math.ceil(ink.width + padding * 2).toFloat(),
+                        kotlin.math.ceil(ink.height + padding * 2).toFloat())
+                    val mask = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
+                    CanvasDrawScope().draw(density, direction, Canvas(mask), size) {
+                        drawRect(Color.Transparent, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
+                        clipRect(padding.toFloat(), padding.toFloat(), padding + ink.width, padding + ink.height) {
+                            drawImage(source.first, Offset(padding - ink.left - source.second, padding - ink.top - source.second))
+                        }
                     }
+                    return blurSpicyGlyphMask(mask, sigma) to Offset(ink.left - padding, ink.top - padding)
                 }
-                SpicyBloom(blurSpicyGlyphMask(mask, sigma), Offset(ink.left - padding, ink.top - padding))
+                val tight = blurred(sigma)
+                // A soft, wide light behind sung ink: the tight shadow alone reads as an outline.
+                val wide = blurred((fontPx * ACTIVE_BLOOM_SIGMA).coerceAtLeast(2f))
+                SpicyBloom(tight.first, tight.second, wide.first, wide.second)
             }
             }
             imageLifetime.retain(prepared.map { it.image })
@@ -531,14 +545,21 @@ fun SpicyLyricsLine(
                     }
                 }) {
                     val strength = if (letterPose != null) letterPose.glow else wordPose.glow
-                    val bloomAlpha = if (letterPose != null) (strength * .65f).coerceIn(0f, .65f)
-                        else (strength * .35f).coerceIn(0f, .35f)
+                    // Sung ink on the active line keeps a soft resting light once its swell
+                    // settles, so the highlight reads as lit rather than pale.
+                    val lit = ((fill + .2f) / 1.2f).coerceIn(0f, 1f)
+                    val bloomAlpha = maxOf(lit * ACTIVE_RESTING_BLOOM,
+                        if (letterPose != null) (strength * .65f).coerceIn(0f, .65f)
+                        else (strength * .55f).coerceIn(0f, .55f))
                     blooms.getOrNull(index)?.let { bloom ->
+                        val wideAlpha = lit * ACTIVE_WIDE_BLOOM
+                        if (wideAlpha > .001f) drawImage(bloom.wide, bloom.wideOrigin, alpha = wideAlpha)
                         if (bloomAlpha > .001f) drawImage(bloom.image, bloom.origin, alpha = bloomAlpha)
                     }
                     val inkBounds = inkMasks[index]
                     val baseAlpha = if (line.isBackground) 1f else .85f
-                    val glowingAlpha = baseAlpha + (1f - baseAlpha) * strength.coerceIn(0f, 1f)
+                    val glowingAlpha = baseAlpha + (1f - baseAlpha) *
+                        maxOf(strength, lit * ACTIVE_RESTING_BRIGHTNESS).coerceIn(0f, 1f)
                     drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds, glowingAlpha)
                 }
             }
@@ -588,7 +609,7 @@ private fun SpicyLineSyncedText(line: LyricLine, positionMs: State<Long>, style:
             val edge = height * progress
             // Brighten the glyph fill itself. A paragraph shadow can become a rectangular
             // haze on the desktop GPU backend and also paints outside counters and spaces.
-            val innerGlow = light.coerceIn(0f, 1f)
+            val innerGlow = maxOf(light, ACTIVE_RESTING_BRIGHTNESS).coerceIn(0f, 1f)
             drawText(measured, brush = Brush.verticalGradient(
                 listOf(Color.White.copy(alpha = .85f + innerGlow * .15f),
                     Color.White.copy(alpha = .65f + innerGlow * .35f)),
