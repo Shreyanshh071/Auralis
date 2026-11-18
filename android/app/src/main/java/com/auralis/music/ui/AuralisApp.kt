@@ -1079,29 +1079,60 @@ fun AuralisApp(
                     // Active Listen Together Banner (if connected to a room)
                     if (listenTogetherUiState.activeRoom != null) {
                         val room = listenTogetherUiState.activeRoom!!
-                        Surface(
+                        // Glass, like the room's pills: a translucent tint of the page, a soft sheen and a
+                        // lit edge. It sits inside the pills' blur source, so it can't blur itself.
+                        val bannerShape = RoundedCornerShape(24.dp)
+                        val bannerSurface = MaterialTheme.dynamicSurface
+                        val bannerDark = bannerSurface.luminance() < 0.5f
+                        val bannerInk = if (bannerDark) Color.White else MaterialTheme.colorScheme.onSurface
+                        val bannerAccent = MaterialTheme.colorScheme.primary
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 6.dp)
+                                .clip(bannerShape)
+                                .background(bannerSurface.copy(alpha = if (bannerDark) 0.34f else 0.52f))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.White.copy(alpha = if (bannerDark) 0.10f else 0.22f), Color.Transparent)
+                                    )
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    brush = Brush.verticalGradient(
+                                        listOf(
+                                            Color.White.copy(alpha = if (bannerDark) 0.30f else 0.55f),
+                                            bannerAccent.copy(alpha = 0.18f),
+                                            Color.White.copy(alpha = 0.06f)
+                                        )
+                                    ),
+                                    shape = bannerShape
+                                )
                                 .clickable {
                                     obtainListenTogetherViewModel()
                                     isListenTogetherOpen = true
                                 }
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(bannerAccent.copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Groups, contentDescription = null, tint = bannerAccent, modifier = Modifier.size(17.dp))
+                                }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = str(R.string.room_x_x_connected, room.code, listenTogetherUiState.members.size),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = bannerInk,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = when {
@@ -1110,14 +1141,17 @@ fun AuralisApp(
                                                 str(R.string.synced_with_host)
                                             else -> str(R.string.synced_with_host_controls_locked)
                                         },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                        color = bannerInk.copy(alpha = 0.62f),
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 EqualizerBars(
                                     isPlaying = playerUiState.isPlaying,
                                     modifier = Modifier.size(16.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = bannerAccent
                                 )
                             }
                         }

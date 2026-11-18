@@ -650,7 +650,7 @@
     <string name="no_playlists_found_in_your_youtube_music">No playlists found in your YouTube Music account.</string>
     <string name="importing">Importing...</string>
     <string name="broadcasting_as_host">BROADCASTING AS HOST</string>
-    <string name="synced_with_host">SYNCED WITH HOST</string>
+    <string name="synced_with_host">Synced with host</string>
     <string name="room_code_copied_x">Room code copied: %1$s</string>
     <string name="copy">Copy</string>
     <string name="tap_code_to_copy_and_invite_friends">Tap code to copy and invite friends</string>
