@@ -12,14 +12,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Instant
 import kotlin.math.abs
 
 /** Android's room protocol with the desktop transport and playback boundary. */
 class DesktopTogether internal constructor(private val playback: RoomPlayback?, private val api: FirestoreRest,
-    private val scope: CoroutineScope, private val pollMs: Long) {
+    private val scope: CoroutineScope, private val pollMs: Long,
+    /** The Cloudflare room server, when this build has one (together.sync.url); null keeps rooms on Firestore. */
+    private val cloud: CloudRoomStore? = null) {
     constructor(playback: DesktopPlaybackController?, api: FirestoreRest, scope: CoroutineScope) :
-        this(playback?.let(::VlcRoomPlayback), api, scope, 1000L)
+        this(playback?.let(::VlcRoomPlayback), api, scope, 1000L,
+            System.getProperty("auralis.togetherSyncUrl")?.takeIf(String::isNotBlank)?.let { url -> CloudRoomStore(url, scope) { api.roomToken(it) } })
+    private val firestoreRooms = FirestoreRoomStore(api)
+    /** Where the current room lives. */
+    private var store: RoomStore = firestoreRooms
     data class Recommendation(val id: String, val track: Track, val name: String, val status: String,
         val uid: String = "", val note: String = "", val upvotes: List<String> = emptyList(), val createdAt: Long = 0)
     data class SongRequest(val id: String, val name: String, val track: Track,
@@ -93,21 +98,29 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
                 name = displayName.trim().take(80).ifBlank { if(code == null) "Host" else "Listener" }
                 val roomCode = code ?: generateCode()
                 var remote: JSONObject? = null
+                val now = System.currentTimeMillis()
+                val member = JSONObject().put("id",api.uid).put("name",name)
+                    .put("isHost",code == null).put("joinedAt",now).put("lastSeen",now).put("avatarColorHex","#D4E157")
                 if (code == null) {
+                    // New rooms go to the room server when this build has one.
+                    store = cloud ?: firestoreRooms
                     mutable.update { it.copy(host = true, settings = hostSettings, hostName = name, uid = api.uid) }
-                    api.write("rooms/$roomCode", hostFields(roomCode, true), "serverUpdatedAt", merge = false, create = true)
+                    store.createRoom(roomCode, hostFields(roomCode, true), member)
                     created = roomCode
                 } else {
-                    remote = api.get("rooms/$roomCode") ?: error("Room not found. Check the code.")
+                    // Rooms made by older apps live on Firestore: try the server first, then Firestore.
+                    store = cloud?.takeIf { it.has(roomCode) } ?: firestoreRooms
+                    remote = store.getRoom(roomCode) ?: error("Room not found. Check the code.")
                     check(remote.optString("status") == "active") { "This room has ended" }
-                    val host = api.get("rooms/$roomCode/members/${remote.getString("hostId")}")
-                    check(host != null && !ListenTogetherSyncMath.isPresenceStale(timestamp(host,"serverSeen","lastSeen"),
-                        System.currentTimeMillis()+api.offsetMs)) { "The host is no longer connected" }
+                    store.joinRoom(roomCode, member)
+                    val host = store.getMember(roomCode, remote.getString("hostId"))
+                    if (host == null || ListenTogetherSyncMath.isPresenceStale(timestamp(host,"serverSeen","lastSeen"),
+                        System.currentTimeMillis()+store.offsetMs)) {
+                        runCatching { store.removeSelf(roomCode) }
+                        error("The host is no longer connected")
+                    }
+                    remote = store.getRoom(roomCode) ?: remote
                 }
-                val now = System.currentTimeMillis()
-                api.write("rooms/$roomCode/members/${api.uid}", JSONObject().put("id",api.uid).put("name",name)
-                    .put("isHost",code == null).put("joinedAt",now).put("lastSeen",now).put("avatarColorHex","#D4E157")
-                    .put("expireAt",Instant.ofEpochMilli(now+86_400_000)),"serverSeen",merge=false)
                 commandTracker.reset(); handledRecommendations.clear(); handledRequests.clear()
                 lastHeartbeat=now; lastRoster=0; lastGuestSeekVersion=-1; lastReady=null; lastBroadcast=""; lastBroadcastAt=0
                 lastHostSample=0; seekLead=200; lastCorrection=0; heldTrack=null; aloneSince=now; idleSince=now
@@ -121,7 +134,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
                 if(pollMs>0) startPolling()
             } catch(e:Exception) {
                 unbindControls()
-                if (code != null && mutable.value.code.isNotEmpty()) runCatching { api.delete("rooms/$code/members/${api.uid}") }
+                if (code != null && mutable.value.code.isNotEmpty()) runCatching { store.removeSelf(code) }
                 created?.let { runCatching { deleteRoom(it) } }
                 mutable.value=State(settings=hostSettings,message=readable(e))
                 if(e is CancellationException) throw e
@@ -175,22 +188,21 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     internal suspend fun pollOnce()=gate.withLock {
         val s=mutable.value
         if(s.code.isEmpty()) return@withLock
-        val now=System.currentTimeMillis();val path="rooms/${s.code}"
-        val remote=if(!s.host) api.get(path) else null
+        val now=System.currentTimeMillis()
+        val remote=if(!s.host) store.getRoom(s.code) else null
         if(!s.host && (remote==null || remote.optString("status")!="active")) {
-            runCatching { api.delete("$path/members/${api.uid}") }
+            runCatching { store.removeSelf(s.code) }
             unbindControls();playback?.local { playback.pause(true) }
             mutable.value=State(settings=hostSettings,message="The host ended the room");return@withLock
         }
         if(now-lastHeartbeat>=ListenTogetherSyncMath.HEARTBEAT_INTERVAL_MS) {
-            api.write("$path/members/${api.uid}",JSONObject().put("lastSeen",now)
-                .put("expireAt",Instant.ofEpochMilli(now+86_400_000)),"serverSeen");lastHeartbeat=now
+            store.heartbeat(s.code,now);lastHeartbeat=now
         }
         if(now-lastRoster>=if(s.host) 1000L else 2500L) {
-            roster=api.list("$path/members")
+            roster=store.listMembers(s.code)
             val live=roster.map { memberFrom(it.second) }.filterNot {
-                ListenTogetherSyncMath.isPresenceStale(it.lastSeenServerMs,now+api.offsetMs) }
-            val recommendations=api.list("$path/recommendations").mapNotNull { (p,raw) -> raw.optJSONObject("track")?.let {
+                ListenTogetherSyncMath.isPresenceStale(it.lastSeenServerMs,now+store.offsetMs) }
+            val recommendations=store.listRecs(s.code).mapNotNull { (p,raw) -> raw.optJSONObject("track")?.let {
                 Recommendation(p.substringAfterLast('/'),parseTrack(it),raw.optString("recommendedByName"),raw.optString("status","pending"),
                     raw.optString("recommendedByUid"),raw.optString("note"),strings(raw.optJSONArray("upvotes")),raw.optLong("createdAt"))
             } }.sortedWith(compareByDescending<Recommendation> { it.upvotes.size }.thenBy { it.createdAt })
@@ -202,12 +214,12 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             val fields=hostFields(s.code,false)
             val stable=JSONObject(fields.toString()).apply { remove("updatedAt");remove("playbackPosition");remove("expireAt") }.toString()
             if(stable!=lastBroadcast || now-lastBroadcastAt>=5000) {
-                api.write(path,fields,"serverUpdatedAt");lastBroadcast=stable;lastBroadcastAt=now
+                store.writeRoom(s.code,fields,stamp=true);lastBroadcast=stable;lastBroadcastAt=now
             }
         } else if(remote!=null) {
             val host=roster.firstOrNull { it.second.optString("id")==remote.optString("hostId") }?.second
-            if(host!=null && ListenTogetherSyncMath.isPresenceStale(timestamp(host,"serverSeen","lastSeen"),now+api.offsetMs)) {
-                api.delete("$path/members/${api.uid}");unbindControls();playback?.local { playback.pause(true) }
+            if(host!=null && ListenTogetherSyncMath.isPresenceStale(timestamp(host,"serverSeen","lastSeen"),now+store.offsetMs)) {
+                store.removeSelf(s.code);unbindControls();playback?.local { playback.pause(true) }
                 mutable.value=State(settings=hostSettings,message="The host disconnected");return@withLock
             }
             follow(remote)
@@ -228,7 +240,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
                 .put("videoId",RecordingMatches.getMatchedVideoId(it.id)?:it.id) }?:JSONObject.NULL)
             .put("queue",JSONArray().apply { window.forEach { put(trackJson(it)) } }).put("queueIndex",if(q.current==null) -1 else index)
             .put("isPlaying",p?.playing==true && heldTrack==null).put("playbackPosition",position).put("playbackRate",p?.rate?:1f)
-            .put("updatedAt",now).put("seekVersion",seekVersion).put("expireAt",Instant.ofEpochMilli(now+86_400_000))
+            .put("updatedAt",now).put("seekVersion",seekVersion)
             .put("membersList",JSONArray().apply { mutable.value.memberDetails.forEach { put(JSONObject().put("id",it.id).put("name",it.name)
                 .put("isHost",it.isHost).put("joinedAt",it.joinedAt).put("avatarColorHex",it.avatarColorHex)) } })
             .put("memberCount",mutable.value.memberDetails.size.coerceAtLeast(1))
@@ -259,7 +271,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             }
             p.sync(tracks,index);if(!p.ready) return@local
             val playing=room.optBoolean("isPlaying");val speed=room.optDouble("playbackRate",1.0).coerceIn(.25,4.0).toFloat()
-            val hostTime=ListenTogetherSyncMath.hostBroadcastLocalTime(timestamp(room,"serverUpdatedAt","updatedAt"),room.optLong("updatedAt"),api.offsetMs)
+            val hostTime=ListenTogetherSyncMath.hostBroadcastLocalTime(timestamp(room,"serverUpdatedAt","updatedAt"),room.optLong("updatedAt"),store.offsetMs)
             val target=estimatedPosition(room.optLong("playbackPosition"),hostTime,playing,System.currentTimeMillis(),speed.toDouble())
                 .coerceIn(0L,(p.length-1).coerceAtLeast(0))
             val seek=room.optLong("seekVersion");p.speed(speed)
@@ -335,7 +347,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         }
     }
     private fun finishRecommendation(rec:Recommendation,status:String) {
-        api.write("rooms/${mutable.value.code}/recommendations/${rec.id}",JSONObject().put("status",status))
+        store.setRecStatus(mutable.value.code,rec.id,status)
         handledRecommendations+=rec.id
         if(status=="accepted") playback?.local { playback.add(rec.track) }
         if(status=="played") playback?.local { playback.play(rec.track,listOf(rec.track)) }
@@ -348,7 +360,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         hostSettings=settings
         if(mutable.value.code.isEmpty()) { mutable.update { it.copy(settings=settings) };return }
         operation {
-            api.write("rooms/${mutable.value.code}",JSONObject().put("settings",JSONObject(settings.toMap())))
+            store.writeRoom(mutable.value.code,JSONObject().put("settings",JSONObject(settings.toMap())),stamp=false)
             mutable.update { it.copy(settings=settings,requests=emptyList()) };handledRequests.clear()
         }
     }
@@ -363,7 +375,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         val fields=JSONObject().put("type",c.type).put("positionMs",c.positionMs).put("seq",++sequence)
             .put("track",c.track?.let(::trackJson)?:JSONObject.NULL).put("fromIndex",c.fromIndex).put("toIndex",c.toIndex)
             .put("queueIds",JSONArray(c.queueIds))
-        api.write("rooms/${mutable.value.code}/members/${api.uid}",JSONObject().put("command",fields))
+        store.writeSelf(mutable.value.code,JSONObject().put("command",fields))
         if(c.changesSong && mutable.value.settings.requireApproval) mutable.update { it.copy(message="Sent to the host for approval") }
     }
     fun recommend(track:Track,note:String="") {
@@ -372,9 +384,9 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         operation {
             if(mutable.value.code.isEmpty()) return@operation
             val id=java.util.UUID.randomUUID().toString()
-            api.write("rooms/${mutable.value.code}/recommendations/$id",JSONObject().put("id",id).put("track",trackJson(track))
+            store.addRec(mutable.value.code,id,JSONObject().put("id",id).put("track",trackJson(track))
                 .put("recommendedByUid",api.uid).put("recommendedByName",name).put("note",note.trim().take(500))
-                .put("upvotes",JSONArray().put(api.uid)).put("createdAt",System.currentTimeMillis()).put("status","pending"),merge=false)
+                .put("upvotes",JSONArray().put(api.uid)).put("createdAt",System.currentTimeMillis()).put("status","pending"))
             lastRoster=0
             mutable.update { it.copy(message=if(it.settings.requireApproval) "Sent to the host for approval" else "Added to the room's queue") }
         }
@@ -395,13 +407,11 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     }
     fun upvote(rec:Recommendation)=operation {
         if(mutable.value.code.isEmpty()) return@operation
-        val path="rooms/${mutable.value.code}/recommendations/${rec.id}"
-        val fresh=api.get(path)?:return@operation
-        api.transformArray(path,"upvotes",api.uid,api.uid in strings(fresh.optJSONArray("upvotes")));lastRoster=0
+        store.toggleUpvote(mutable.value.code,rec.id);lastRoster=0
     }
     fun dismissRecommendation(rec:Recommendation) {
         if(!mutable.value.host && rec.uid!=api.uid) return
-        operation { api.delete("rooms/${mutable.value.code}/recommendations/${rec.id}");lastRoster=0 }
+        operation { store.deleteRec(mutable.value.code,rec.id);lastRoster=0 }
     }
     fun searchRecommendations(query:String) {
         searchJob?.cancel()
@@ -421,8 +431,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         val network=JSONObject()
         if(!mutable.value.host && p.ready && lastReady!=track) network.put("readyFor",track)
         if(stall.isPoor!=lastPoor) network.put("slow",stall.isPoor)
-        if(network.length()>0) api.write("rooms/${mutable.value.code}/members/${api.uid}",JSONObject().put("network",network),
-            mask=network.keys().asSequence().map { "network.$it" }.toList())
+        if(network.length()>0) store.writeNetwork(mutable.value.code,network)
         if(network.has("readyFor")) lastReady=track
         if(network.has("slow")) lastPoor=stall.isPoor
         mutable.update { it.copy(poorConnection=stall.isPoor) }
@@ -456,18 +465,13 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             val s=mutable.value;if(s.code.isEmpty()) return@withLock
             mutable.update { it.copy(busy=true) }
             try {
-                if(s.host) deleteRoom(s.code) else api.delete("rooms/${s.code}/members/${api.uid}")
+                if(s.host) deleteRoom(s.code) else store.removeSelf(s.code)
                 unbindControls();mutable.value=State(settings=hostSettings)
             } catch(e:CancellationException) { throw e }
             catch(e:Exception) { mutable.value=s.copy(busy=false,message="Couldn't leave cleanly: ${readable(e)}. Try again.");if(pollMs>0) startPolling() }
         }
     }
-    private fun deleteRoom(code:String) {
-        val path="rooms/$code"
-        api.write(path,JSONObject().put("status","closed"))
-        api.list("$path/recommendations").forEach { api.delete(it.first) }
-        api.delete(path);api.list("$path/members").forEach { api.delete(it.first) }
-    }
+    private fun deleteRoom(code:String) = store.deleteRoom(code)
     suspend fun close()=withContext(Dispatchers.IO) { disconnect();if(mutable.value.code.isEmpty()) runCatching { api.deleteAnonymousAccount() };Unit }
     companion object {
         fun generateCode():String=(1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")

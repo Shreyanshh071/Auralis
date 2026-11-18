@@ -251,6 +251,13 @@ compose.desktop {
             "account.sync.url must be blank or a production HTTPS endpoint."
         }
         if (accountSyncUrl.isNotEmpty()) jvmArgs("-Dauralis.accountSyncUrl=$accountSyncUrl")
+        // Listen Together on the Cloudflare room server: blank keeps every room on Firestore.
+        val togetherUrl = providers.gradleProperty("together.sync.url").orElse("").get().trim()
+        require(togetherUrl.isEmpty() || (togetherUrl.startsWith("https://") && togetherUrl.none { it.isWhitespace() || it == '"' || it == '\\' } &&
+            !togetherUrl.contains("staging", ignoreCase = true))) {
+            "together.sync.url must be blank or a production HTTPS endpoint."
+        }
+        if (togetherUrl.isNotEmpty()) jvmArgs("-Dauralis.togetherSyncUrl=$togetherUrl")
         // Software rendering is exercised by verifySoftwareRendering before enabling it
         // in the installer; GPU rendering remains until that performance check passes.
 

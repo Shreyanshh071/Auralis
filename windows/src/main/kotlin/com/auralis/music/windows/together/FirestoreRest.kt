@@ -122,6 +122,13 @@ class FirestoreRest(private val project: String, private val apiKey: String, pri
         return token.ifEmpty { null }
     }
 
+    /** An ID token for the Listen Together room server, anonymous or not; null when signing in fails. */
+    @Synchronized fun roomToken(forceRefresh: Boolean): String? = try {
+        if (forceRefresh) expiresAt = 0
+        authenticate()
+        token.ifEmpty { null }
+    } catch (e: Exception) { null }
+
     @Synchronized fun authenticate() {
         if (token.isNotEmpty() && System.currentTimeMillis() < expiresAt) return
         if (refresh.isNotEmpty()) {

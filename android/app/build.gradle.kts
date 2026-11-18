@@ -79,6 +79,12 @@ android {
             "account.sync.url must be blank or a production HTTPS endpoint."
         }
         buildConfigField("String", "ACCOUNT_SYNC_URL", "\"$accountSyncUrl\"")
+        // Listen Together on the Cloudflare room server: blank keeps every room on Firestore.
+        val togetherUrl = providers.gradleProperty("together.sync.url").orElse("").get().trim()
+        require(togetherUrl.isEmpty() || (togetherUrl.startsWith("https://") && togetherUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !togetherUrl.contains("staging", ignoreCase = true))) {
+            "together.sync.url must be blank or a production HTTPS endpoint."
+        }
+        buildConfigField("String", "TOGETHER_URL", "\"$togetherUrl\"")
         buildConfigField("boolean", "SYNC_PILOT", "false")
     }
 
@@ -121,6 +127,7 @@ android {
             buildConfigField("boolean", "SYNC_PILOT", "true")
             buildConfigField("String", "LIBRARY_SYNC_URL", "\"\"")
             buildConfigField("String", "ACCOUNT_SYNC_URL", "\"https://auralis-connect-staging.auralis018.workers.dev\"")
+            buildConfigField("String", "TOGETHER_URL", "\"https://auralis-connect-staging.auralis018.workers.dev\"")
             buildConfigField("String", "CONNECT_REALTIME_URL", "\"wss://auralis-connect-staging.auralis018.workers.dev/v1/connect\"")
         }
     }

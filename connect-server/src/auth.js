@@ -41,8 +41,8 @@ export function stagingIdentity(token, secret, now = Date.now()) {
   return difference === 0 ? { uid: `staging-${match[2]}`, expiresAtMs: now + 86_400_000 } : null;
 }
 
-/** The account a token proves, or null. Anonymous Listen Together guests have none here. */
-export async function verifyToken(token, projectId, keys, nowMs = Date.now()) {
+/** The account a token proves, or null. Anonymous sign-ins count only where [anonymous] allows them (Listen Together). */
+export async function verifyToken(token, projectId, keys, nowMs = Date.now(), { anonymous = false } = {}) {
   const parts = typeof token === 'string' ? token.split('.') : [];
   if (parts.length !== 3) return null;
   let header, claims;
@@ -59,7 +59,7 @@ export async function verifyToken(token, projectId, keys, nowMs = Date.now()) {
   if (!(claims.exp > now) || !(claims.iat <= now + CLOCK_SKEW_S) || !(claims.auth_time <= now + CLOCK_SKEW_S)) return null;
   if (claims.aud !== projectId || claims.iss !== `https://securetoken.google.com/${projectId}`) return null;
   if (typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 128) return null;
-  if (claims.firebase?.sign_in_provider === 'anonymous') return null;
+  if (claims.firebase?.sign_in_provider === 'anonymous' && !anonymous) return null;
   const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);

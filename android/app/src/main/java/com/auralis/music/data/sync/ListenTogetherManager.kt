@@ -10,7 +10,13 @@ import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.tasks.await
+import com.auralis.music.data.together.TogetherRoomSocket
 import java.util.Locale
 import kotlin.random.Random
 
@@ -185,6 +191,7 @@ const val ROOM_CLOSING_IDLE = "idle"
  */
 private const val ROOM_TTL_MS = 24L * 60 * 60 * 1000
 private const val CLOSED_ROOM_TTL_MS = 60L * 60 * 1000
+private const val CLOUD_CONNECT_TIMEOUT_MS = 8_000L
 
 private fun expiresIn(ms: Long) = com.google.firebase.Timestamp(java.util.Date(System.currentTimeMillis() + ms))
 
@@ -235,6 +242,18 @@ class ListenTogetherManager(
         suspend fun leaveRoomBeforeShutdown(timeoutMs: Long = 2_500L) {
             val roomCode = activeRoomCode ?: return
             val isHost = isHostUser
+            ListenTogetherCloud.socket(roomCode)?.let { socket ->
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { socket.leave() }
+                } catch (e: Exception) {
+                    android.util.Log.e("ListenTogether", "[Shutdown] Couldn't leave room=$roomCode: ${e.message}")
+                } finally {
+                    ListenTogetherCloud.close(roomCode)
+                    activeRoomCode = null
+                    isHostUser = false
+                }
+                return
+            }
             val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
             try {
                 kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
@@ -254,6 +273,13 @@ class ListenTogetherManager(
         fun performTaskRemovedCleanup() {
             val roomCode = activeRoomCode ?: return
             val isHost = isHostUser
+            if (ListenTogetherCloud.socket(roomCode) != null) {
+                // Fire-and-forget like the Firestore path: the server closes the room if this was the host.
+                ListenTogetherCloud.leaveInBackground(roomCode)
+                activeRoomCode = null
+                isHostUser = false
+                return
+            }
             val uid = try { FirebaseAuth.getInstance().currentUser?.uid } catch (_: Exception) { null } ?: return
             try {
                 val db = FirebaseFirestore.getInstance()
@@ -301,6 +327,7 @@ class ListenTogetherManager(
      * sign-in disabled, or no response at all.
      */
     suspend fun diagnoseConnection(): String {
+        if (ListenTogetherCloud.enabled) return ListenTogetherCloud.diagnose()
         return try {
             kotlinx.coroutines.withTimeout(8_000) {
                 ensureAuthenticated()
@@ -387,6 +414,11 @@ class ListenTogetherManager(
             "expireAt" to expiresIn(ROOM_TTL_MS)
         )
 
+        if (ListenTogetherCloud.enabled) {
+            val member = mapOf("id" to uid, "name" to displayName, "isHost" to true, "lastSeen" to now, "joinedAt" to now, "avatarColorHex" to "#D4E157")
+            return createCloudRoom(uid, roomCode, roomData, member)
+        }
+
         roomDoc.set(roomData).await()
 
         // Member Data matching hasValidMemberShape() exactly (id, name, isHost, lastSeen)
@@ -413,6 +445,7 @@ class ListenTogetherManager(
     suspend fun joinRoom(roomCode: String, memberDisplayName: String): NativeRoomState {
         val uid = ensureAuthenticated()
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        if (ListenTogetherCloud.enabled) joinCloudRoom(uid, normalizedCode, memberDisplayName)?.let { return it }
 
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
         val snapshot = roomDoc.get().await()
@@ -480,6 +513,16 @@ class ListenTogetherManager(
     suspend fun heartbeat(roomCode: String): ClockOffsetSample? {
         val uid = auth.currentUser?.uid ?: return null
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { socket ->
+            // The reply carries the server's time, so no read-back is needed to measure the clock.
+            return try {
+                val ack = socket.updateMember(mapOf("lastSeen" to System.currentTimeMillis()))
+                ListenTogetherSyncMath.clockOffsetSample(ack.sentAt, ack.ackAt, ack.serverNow)
+            } catch (e: Exception) {
+                android.util.Log.w("ListenTogether", "[Heartbeat] failed for room=$normalizedCode: ${e.message}")
+                null
+            }
+        }
         val memberDoc = firestore.collection("rooms").document(normalizedCode)
             .collection("members").document(uid)
         return try {
@@ -549,6 +592,7 @@ class ListenTogetherManager(
         try {
             // Enqueue history and playback atomically. No extra server read/transaction, and
             // serialize enqueueing so overlapping broadcasts cannot overwrite newer history.
+            val cloud = ListenTogetherCloud.socket(normalizedCode)
             val write = synchronized(activityHistories) {
                 if (activities.isNotEmpty()) {
                     val history = (activityHistories[normalizedCode].orEmpty() + activities)
@@ -556,9 +600,9 @@ class ListenTogetherManager(
                     activityHistories[normalizedCode] = history
                     updates["activity"] = history.map { it.toMap() }
                 }
-                roomDoc.update(updates)
+                if (cloud == null) roomDoc.update(updates) else null
             }
-            write.await()
+            if (cloud != null) cloud.updateRoom(ListenTogetherCloud.withoutServerFields(updates)) else write!!.await()
             android.util.Log.d("ListenTogether", "[Host Broadcast OK] room=$normalizedCode, isPlaying=$isPlaying, pos=${playbackPositionMs}ms, track=${currentTrack?.title}, seekVersion=$seekVersion")
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "[Host Broadcast Error] failed updating room $normalizedCode: ${e.message}", e)
@@ -570,6 +614,10 @@ class ListenTogetherManager(
     /** Host: start (or with nulls, cancel) the room's closing countdown that every member sees. */
     suspend fun setRoomClosing(roomCode: String, closingAtMs: Long?, reason: String?) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let {
+            it.updateRoom(mapOf("closing" to closingAtMs?.let { at -> mapOf("at" to at, "reason" to reason) }))
+            return
+        }
         firestore.collection("rooms").document(normalizedCode)
             // One field: the room record is capped at 20 fields by the security rules.
             .update("closing", closingAtMs?.let { mapOf("at" to it, "reason" to reason) }).await()
@@ -577,6 +625,7 @@ class ListenTogetherManager(
 
     suspend fun updateRoomSettings(roomCode: String, settings: RoomSettings) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateRoom(mapOf("settings" to settings.toMap())); return }
         firestore.collection("rooms").document(normalizedCode)
             .update("settings", settings.toMap()).await()
     }
@@ -585,6 +634,7 @@ class ListenTogetherManager(
     suspend fun setSlowConnection(roomCode: String, slow: Boolean) {
         val uid = auth.currentUser?.uid ?: return
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateMember(mapOf("network" to mapOf("slow" to slow))); return }
         firestore.collection("rooms").document(normalizedCode)
             .collection("members").document(uid)
             .update("network.slow", slow).await()
@@ -597,6 +647,7 @@ class ListenTogetherManager(
     suspend fun setReadyFor(roomCode: String, trackId: String) {
         val uid = auth.currentUser?.uid ?: return
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateMember(mapOf("network" to mapOf("readyFor" to trackId))); return }
         firestore.collection("rooms").document(normalizedCode)
             .collection("members").document(uid)
             .update("network.readyFor", trackId).await()
@@ -606,24 +657,37 @@ class ListenTogetherManager(
     suspend fun sendGuestCommand(roomCode: String, command: GuestCommand) {
         val uid = auth.currentUser?.uid ?: return
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val commandMap = mapOf(
+            "type" to command.type,
+            "positionMs" to command.positionMs,
+            "seq" to command.seq,
+            "track" to command.track?.let(::trackToMap),
+            "fromIndex" to command.fromIndex,
+            "toIndex" to command.toIndex,
+            "queueIds" to command.queueIds
+        )
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateMember(mapOf("command" to commandMap)); return }
         firestore.collection("rooms").document(normalizedCode)
             .collection("members").document(uid)
-            .update(
-                "command", mapOf(
-                    "type" to command.type,
-                    "positionMs" to command.positionMs,
-                    "seq" to command.seq,
-                    "track" to command.track?.let(::trackToMap),
-                    "fromIndex" to command.fromIndex,
-                    "toIndex" to command.toIndex,
-                    "queueIds" to command.queueIds
-                )
-            ).await()
+            .update("command", commandMap).await()
     }
 
     suspend fun leaveRoom(roomCode: String, isHost: Boolean) {
-        val uid = auth.currentUser?.uid ?: return
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { socket ->
+            try {
+                socket.leave()
+            } catch (e: Exception) {
+                android.util.Log.e("ListenTogether", "[Leave Room Error] code=$normalizedCode, isHost=$isHost: ${e.message}", e)
+            } finally {
+                ListenTogetherCloud.close(normalizedCode)
+                activeRoomCode = null
+                isHostUser = false
+            }
+            stopListening()
+            return
+        }
+        val uid = auth.currentUser?.uid ?: return
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
         try {
@@ -642,7 +706,14 @@ class ListenTogetherManager(
         stopListening()
     }
 
-    fun observeRoomState(roomCode: String): Flow<NativeRoomState?> = callbackFlow {
+    fun observeRoomState(roomCode: String): Flow<NativeRoomState?> = cloudSocket(roomCode)?.let { socket ->
+        val normalizedCode = socket.roomCode
+        socket.state.filter { it.loaded }.map { s -> s.room?.let(ListenTogetherCloud::room) }.distinctUntilChanged().onEach { state ->
+            if (state != null) synchronized(activityHistories) {
+                if (normalizedCode !in activityHistories) activityHistories[normalizedCode] = state.activity
+            }
+        }
+    } ?: callbackFlow {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val roomDoc = firestore.collection("rooms").document(normalizedCode)
 
@@ -667,7 +738,10 @@ class ListenTogetherManager(
         }
     }
 
-    fun observeRoomMembers(roomCode: String): Flow<List<RoomMember>> = callbackFlow {
+    fun observeRoomMembers(roomCode: String): Flow<List<RoomMember>> = cloudSocket(roomCode)?.let { socket ->
+        // No list (a dropped connection) keeps the last good roster, as with Firestore errors.
+        socket.state.mapNotNull { it.members }.distinctUntilChanged().map { list -> list.map(ListenTogetherCloud::member) }
+    } ?: callbackFlow {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val membersCol = firestore.collection("rooms").document(normalizedCode).collection("members")
 
@@ -731,11 +805,14 @@ class ListenTogetherManager(
     ): String {
         val uid = ensureAuthenticated()
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        val displayName = recommenderName.ifBlank { "Guest_${uid.take(4)}" }
+        ListenTogetherCloud.socket(normalizedCode)?.let {
+            return it.recommend(mapOf("track" to trackToMap(track), "recommendedByName" to displayName, "note" to note.trim()))
+        }
         val recCol = firestore.collection("rooms").document(normalizedCode).collection("recommendations")
         val recDoc = recCol.document()
         val docId = recDoc.id
         val now = System.currentTimeMillis()
-        val displayName = recommenderName.ifBlank { "Guest_${uid.take(4)}" }
 
         val recData = hashMapOf(
             "id" to docId,
@@ -752,7 +829,12 @@ class ListenTogetherManager(
         return docId
     }
 
-    fun observeRecommendations(roomCode: String): Flow<List<RoomRecommendation>> = callbackFlow {
+    fun observeRecommendations(roomCode: String): Flow<List<RoomRecommendation>> = cloudSocket(roomCode)?.let { socket ->
+        socket.state.mapNotNull { it.recs }.distinctUntilChanged().map { list ->
+            list.mapNotNull(ListenTogetherCloud::recommendation).sortedWith(
+                compareByDescending<RoomRecommendation> { it.upvotes.size }.thenByDescending { it.createdAt })
+        }
+    } ?: callbackFlow {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
         val recCol = firestore.collection("rooms")
             .document(normalizedCode)
@@ -781,6 +863,7 @@ class ListenTogetherManager(
     suspend fun upvoteRecommendation(roomCode: String, recommendationId: String) {
         val uid = ensureAuthenticated()
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.upvote(recommendationId); return }
         val recDoc = firestore.collection("rooms")
             .document(normalizedCode)
             .collection("recommendations")
@@ -801,6 +884,12 @@ class ListenTogetherManager(
 
     suspend fun updateRecommendationStatus(roomCode: String, recommendationId: String, status: String) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { socket ->
+            try { socket.setRecStatus(recommendationId, status) } catch (e: Exception) {
+                android.util.Log.e("ListenTogether", "Failed updating recommendation status: ${e.message}", e)
+            }
+            return
+        }
         val recDoc = firestore.collection("rooms")
             .document(normalizedCode)
             .collection("recommendations")
@@ -815,6 +904,12 @@ class ListenTogetherManager(
 
     suspend fun deleteRecommendation(roomCode: String, recommendationId: String) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
+        ListenTogetherCloud.socket(normalizedCode)?.let { socket ->
+            try { socket.deleteRec(recommendationId) } catch (e: Exception) {
+                android.util.Log.e("ListenTogether", "Failed deleting recommendation: ${e.message}", e)
+            }
+            return
+        }
         val recDoc = firestore.collection("rooms")
             .document(normalizedCode)
             .collection("recommendations")
@@ -825,6 +920,79 @@ class ListenTogetherManager(
         } catch (e: Exception) {
             android.util.Log.e("ListenTogether", "Failed deleting recommendation: ${e.message}", e)
         }
+    }
+
+    private fun cloudSocket(roomCode: String): TogetherRoomSocket? = ListenTogetherCloud.socket(roomCode.trim().uppercase(Locale.ROOT))
+
+    /** A new room on the room server; a code someone already holds is replaced, at most twice. */
+    private suspend fun createCloudRoom(uid: String, firstCode: String, roomData: Map<String, Any?>, member: Map<String, Any?>): Pair<String, String> {
+        var code = firstCode
+        repeat(3) {
+            val socket = ListenTogetherCloud.open(code)
+            try {
+                if (!socket.awaitLoaded(CLOUD_CONNECT_TIMEOUT_MS)) throw java.io.IOException("Couldn't reach the Listen Together server")
+                val ack = socket.create(ListenTogetherCloud.withoutServerFields(roomData), member)
+                lastJoinClockOffset = ListenTogetherSyncMath.clockOffsetSample(ack.sentAt, ack.ackAt, ack.serverNow)
+                activeRoomCode = code
+                isHostUser = true
+                return Pair(code, uid)
+            } catch (e: TogetherRoomSocket.Refused) {
+                ListenTogetherCloud.close(code)
+                if (e.code != "exists") throw e
+                code = generateRoomCode()
+            } catch (e: Exception) {
+                ListenTogetherCloud.close(code)
+                throw e
+            }
+        }
+        throw IllegalStateException("Couldn't find a free room code. Please try again.")
+    }
+
+    /**
+     * Joins [code] on the room server. Null when the room isn't there (or the server can't be
+     * reached), so the caller tries Firestore, where rooms from older app versions live.
+     */
+    private suspend fun joinCloudRoom(uid: String, code: String, memberDisplayName: String): NativeRoomState? {
+        val socket = ListenTogetherCloud.open(code)
+        if (!socket.awaitLoaded(CLOUD_CONNECT_TIMEOUT_MS)) {
+            ListenTogetherCloud.close(code)
+            return null
+        }
+        val existing = socket.state.value.room
+        if (existing == null) {
+            ListenTogetherCloud.close(code)
+            return null
+        }
+        val displayName = memberDisplayName.trim().takeIf { it.isNotBlank() && !isGenericListenerName(it) }
+            ?: getAuthenticatedDisplayName().takeIf { it.isNotBlank() }
+            ?: "User_${uid.take(4)}"
+        val now = System.currentTimeMillis()
+        val ack = try {
+            socket.join(mapOf("id" to uid, "name" to displayName, "isHost" to false, "lastSeen" to now, "joinedAt" to now, "avatarColorHex" to "#D4E157"))
+        } catch (e: TogetherRoomSocket.Refused) {
+            ListenTogetherCloud.close(code)
+            throw when (e.code) {
+                "full" -> IllegalStateException("This room is full.")
+                else -> IllegalStateException("This room is no longer active.")
+            }
+        } catch (e: Exception) {
+            ListenTogetherCloud.close(code)
+            throw e
+        }
+        val offset = ListenTogetherSyncMath.clockOffsetSample(ack.sentAt, ack.ackAt, ack.serverNow)
+        val joined = socket.state.value
+        val room = joined.room?.let(ListenTogetherCloud::room)
+        // A host whose app died without closing the room stops checking in; don't join a dead room.
+        val host = joined.members?.firstOrNull { it["id"] == room?.hostId }?.let(ListenTogetherCloud::member)
+        if (room == null || host == null || ListenTogetherSyncMath.isPresenceStale(host.lastSeenServerMs, ack.serverNow)) {
+            runCatching { socket.leave() }
+            ListenTogetherCloud.close(code)
+            throw IllegalStateException("This room is no longer active.")
+        }
+        lastJoinClockOffset = offset
+        activeRoomCode = code
+        isHostUser = false
+        return room
     }
 
     fun stopListening() {

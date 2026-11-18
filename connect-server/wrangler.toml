@@ -29,6 +29,17 @@ simple = { limit = 600, period = 60 }
 name = "LIBRARY"
 class_name = "LibraryAccount"
 
+# Listen Together rooms (docs/listen-together-cloudflare.md): one object per room code. The apps only
+# use it when they are built with together.sync.url; otherwise rooms stay on Firestore.
+[[ratelimits]]
+name = "TOGETHER_UPGRADES"
+namespace_id = "10405"
+simple = { limit = 300, period = 60 }
+
+[[durable_objects.bindings]]
+name = "TOGETHER"
+class_name = "ListenRoom"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ConnectAccount"]
@@ -36,6 +47,10 @@ new_sqlite_classes = ["ConnectAccount"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["LibraryAccount"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["ListenRoom"]
 
 # Throwaway measurement target: see docs/connect-staging-plan.md. STAGING_SECRET is set with
 # `wrangler secret put` for this environment only, and production never has it.
@@ -63,6 +78,15 @@ simple = { limit = 600, period = 60 }
 name = "LIBRARY"
 class_name = "LibraryAccount"
 
+[[env.staging.ratelimits]]
+name = "TOGETHER_UPGRADES"
+namespace_id = "10406"
+simple = { limit = 300, period = 60 }
+
+[[env.staging.durable_objects.bindings]]
+name = "TOGETHER"
+class_name = "ListenRoom"
+
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["ConnectAccount"]
@@ -70,3 +94,7 @@ new_sqlite_classes = ["ConnectAccount"]
 [[env.staging.migrations]]
 tag = "v2"
 new_sqlite_classes = ["LibraryAccount"]
+
+[[env.staging.migrations]]
+tag = "v3"
+new_sqlite_classes = ["ListenRoom"]

@@ -4,8 +4,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import { googleKeys, stagingIdentity, verifyToken } from './auth.js';
 import { LibraryAccount, libraryRoute } from './library.js';
+import { ListenRoom, togetherRoute } from './together.js';
 
-export { LibraryAccount };
+export { LibraryAccount, ListenRoom };
 import { MAX_DEVICES, MAX_FRAME_BYTES, MAX_SOCKETS, RateLimit, UNSAVED_VERSIONS, decideUpdate, intentAccepted, mustSave,
   recoverSession, validDevice, validDeviceId, validQueue } from './core.js';
 
@@ -26,6 +27,10 @@ export default {
     if (url.pathname.startsWith('/v1/library')) {
       return env.LIBRARY ? libraryRoute(request, env, url, authenticate) : new Response('not found', { status: 404 });
     }
+    // Listen Together rooms: their own namespace, so nothing below changes for them.
+    if (url.pathname === '/v1/together') {
+      return env.TOGETHER ? togetherRoute(request, env, url, authenticate) : new Response('not found', { status: 404 });
+    }
     if (url.pathname !== '/v1/connect') return new Response('not found', { status: 404 });
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426 });
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
@@ -44,7 +49,7 @@ export default {
   },
 };
 
-async function authenticate(token, env, url) {
+async function authenticate(token, env, url, { anonymous = false } = {}) {
   // Exists only for local tests: wrangler.toml never sets it, and it refuses any non-local host.
   if (env.DEV_AUTH === 'local-tests-only' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')) {
     const dev = /^dev:([A-Za-z0-9_-]+)(?::(-?\d+))?$/.exec(token ?? '');
@@ -54,7 +59,7 @@ async function authenticate(token, env, url) {
   const staging = stagingIdentity(token, env.STAGING_SECRET);
   if (staging) return staging;
   try {
-    return await verifyToken(token, env.FIREBASE_PROJECT_ID, await googleKeys());
+    return await verifyToken(token, env.FIREBASE_PROJECT_ID, await googleKeys(), Date.now(), { anonymous });
   } catch {
     return null;
   }
