@@ -462,6 +462,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         includePlaying: Boolean = false): Int = withContext(Dispatchers.IO) {
         val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext 0
         if (!accountSyncOn) return@withContext 0
+        watchListens(stats, history)
         val status = listensCloud.status(uid) ?: return@withContext 0
         val bridge = status.optBoolean("bridge", true)
         if (listensStartedFor != uid) {
@@ -524,6 +525,23 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${e.javaClass.simpleName}: ${e.message}") }
         finally { listensSyncLock.unlock() }
+    }
+
+    /** Register before discovery or uploads: an idle receiver must not depend on a screen's startup lookup. */
+    internal fun watchListens(stats: com.auralis.music.desktop.library.DesktopListeningStats,
+        history: com.auralis.music.domain.repository.HistoryRepository? = null) {
+        if (!accountSyncOn) return
+        val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return
+        libraryCloud.listen(uid, "listens") { frame ->
+            if (mutable.value.profile?.uid != uid) return@listen
+            try {
+                listensChanged(frame, stats, history)
+                if (frame != null) com.auralis.music.util.Log.i("AccountSync", "Applied listening history notification")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                com.auralis.music.util.Log.w("AccountSync", "Listening notification failed: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
     }
 
     /** A change another device made: applied from the frame when it follows on, otherwise pulled. */

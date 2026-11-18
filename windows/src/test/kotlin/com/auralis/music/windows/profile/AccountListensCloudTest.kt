@@ -87,7 +87,7 @@ class AccountListensCloudTest {
             a.signIn(); b.signIn()
             a.account.syncListensCloud(a.stats, a.history)
             b.account.syncListensCloud(b.stats, b.history)
-            b.account.accountSync.listen(uid, "listens") { frame -> b.account.listensChanged(frame, b.stats, b.history) }
+            // Normal account startup must subscribe; the receiving PC stays idle throughout.
             delay(800)
             val track = Track("still-playing", "Still playing", "Artist")
             a.history.addToHistory(track)
@@ -97,7 +97,25 @@ class AccountListensCloudTest {
             withTimeout(10_000) { b.history.getHistory().first { list -> list.any { it.track.id == track.id } } }
             assertTrue(b.stats.listens.value.any { it.track.id == track.id && it.timeMs == 5_000L })
             assertEquals(0, a.account.syncListensCloud(a.stats, a.history, includePlaying = true))
+            val reverse = Track("phone-play", "Phone play", "Another artist")
+            b.stats.record("phone-active", reverse, System.currentTimeMillis() - 6_000, 5_000)
+            b.account.syncListensCloudInBackground(b.stats, b.history).join()
+            // A is now the idle PC: no local play, refresh, or sync call to make this appear.
+            withTimeout(10_000) { a.history.getHistory().first { list -> list.any { it.track.id == reverse.id } } }
         } finally { a.close(); b.close() }
+    }
+
+    @Test fun `idle subscription works before any discovery or local upload on the receiver`() = runBlocking {
+        if (base == null) return@runBlocking
+        val sender = Desktop("sender"); val idle = Desktop("idle")
+        try {
+            sender.signIn(); idle.signIn()
+            idle.account.watchListens(idle.stats, idle.history)
+            delay(800)
+            sender.stats.record("new", Track("idle-delivery", "Idle delivery", "Artist"), System.currentTimeMillis() - 6_000, 5_000)
+            sender.account.syncListensCloudInBackground(sender.stats, sender.history).join()
+            withTimeout(10_000) { idle.history.getHistory().first { list -> list.any { it.track.id == "idle-delivery" } } }
+        } finally { sender.close(); idle.close() }
     }
 
     @Test fun `history moves to the service once, then listens travel between desktops by notification`() = runBlocking {
