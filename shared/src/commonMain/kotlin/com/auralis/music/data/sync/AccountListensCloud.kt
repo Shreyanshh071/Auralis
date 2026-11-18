@@ -50,22 +50,21 @@ class ListenBatcher(private val store: LibraryCloudStore, private val settleMs: 
         json.keys().asSequence().associateWith { json.getLong(it) }.toMutableMap()
     }.getOrDefault(mutableMapOf())
 
-    /** Listens ready to send from [local] (this device's own, newest last), and not sent at this length. */
-    fun ready(uid: String, local: List<ListenEvent>, now: Long): List<ListenEvent> {
+    /** Unsent measured time; [includePlaying] lets recents reach other devices before the song ends. */
+    fun ready(uid: String, local: List<ListenEvent>, now: Long, includePlaying: Boolean = false): List<ListenEvent> {
         val done = sent(uid)
         val newest = local.maxOfOrNull { it.startedAt }
         return local.filter { e ->
             val finished = e.startedAt != newest || now - (e.startedAt + e.listenedMs) >= settleMs
-            finished && (done[e.key] ?: 0L) < e.listenedMs
+            (finished || includePlaying) && (done[e.key] ?: 0L) < e.listenedMs
         }
     }
 
-    /** Records that [events] were accepted, forgetting entries older than a week. */
+    /** Keep acknowledgments for retained local history too, or every sync reuploads old listens. */
     fun markSent(uid: String, events: List<ListenEvent>, now: Long) {
         val done = sent(uid)
         events.forEach { done[it.key] = maxOf(done[it.key] ?: 0L, it.listenedMs) }
-        val kept = done.filterKeys { key -> key.substringBefore('_').toLongOrNull()?.let { now - it < keepMs } != false }
-        store.write(uid, SENT, JSONObject(kept).toString())
+        store.write(uid, SENT, JSONObject(done).toString())
     }
 
     private companion object { const val SENT = "listens-sent" }

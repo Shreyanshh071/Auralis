@@ -44,6 +44,7 @@ dependencies {
     // NewPipe needs protobuf at runtime. The old Firestore transport supplied it transitively.
     implementation("com.google.protobuf:protobuf-java:3.25.8")
     testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
     implementation(project(":windows-core"))
     implementation(libs.okhttp)
     implementation(compose.desktop.currentOs)

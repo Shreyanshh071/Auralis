@@ -38,6 +38,8 @@ class AccountListensCloudTest {
         val dir = java.nio.file.Files.createTempDirectory("listens-$name").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val stats = DesktopListeningStats(File(dir, "listens.json"))
+        val history = com.auralis.music.desktop.library.DesktopHistoryRepository(File(dir, "history.json"),
+            com.auralis.music.desktop.library.DesktopLibraryRepository(File(dir, "library.json")))
         val api = FirestoreRest("test", "key") { url, method, body, _ -> when {
             url.contains("signInWithPassword") -> JSONObject().put("idToken", token).put("refreshToken", "refresh").put("localId", uid).put("expiresIn", "3600")
             url.contains("securetoken.googleapis.com") -> JSONObject().put("id_token", token).put("refresh_token", "refresh").put("user_id", uid).put("expires_in", "3600")
@@ -76,6 +78,26 @@ class AccountListensCloudTest {
         val doc = days[day] ?: JSONObject().put("events", JSONObject())
         doc.getJSONObject("events").put("${ts}_$trackId", JSONObject().put("t", trackId).put("ts", ts).put("ms", ms).put("ti", trackId).put("ar", "Old"))
         doc.put("updatedAt", System.currentTimeMillis()); days[day] = doc
+    }
+
+    @Test fun `a playing song reaches both recent histories without waiting for completion`() = runBlocking {
+        if (base == null) return@runBlocking
+        val a = Desktop("playing-a"); val b = Desktop("playing-b")
+        try {
+            a.signIn(); b.signIn()
+            a.account.syncListensCloud(a.stats, a.history)
+            b.account.syncListensCloud(b.stats, b.history)
+            b.account.accountSync.listen(uid, "listens") { frame -> b.account.listensChanged(frame, b.stats, b.history) }
+            delay(800)
+            val track = Track("still-playing", "Still playing", "Artist")
+            a.history.addToHistory(track)
+            a.stats.record("active", track, System.currentTimeMillis() - 6_000, 5_000)
+            a.account.syncListensCloudInBackground(a.stats, a.history).join()
+            assertEquals(track.id, a.history.getHistory().first().first().track.id)
+            withTimeout(10_000) { b.history.getHistory().first { list -> list.any { it.track.id == track.id } } }
+            assertTrue(b.stats.listens.value.any { it.track.id == track.id && it.timeMs == 5_000L })
+            assertEquals(0, a.account.syncListensCloud(a.stats, a.history, includePlaying = true))
+        } finally { a.close(); b.close() }
     }
 
     @Test fun `history moves to the service once, then listens travel between desktops by notification`() = runBlocking {

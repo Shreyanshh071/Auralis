@@ -458,7 +458,8 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
      * Returns how many listens were sent.
      */
     suspend fun syncListensCloud(stats: com.auralis.music.desktop.library.DesktopListeningStats,
-        history: com.auralis.music.domain.repository.HistoryRepository? = null): Int = withContext(Dispatchers.IO) {
+        history: com.auralis.music.domain.repository.HistoryRepository? = null,
+        includePlaying: Boolean = false): Int = withContext(Dispatchers.IO) {
         val uid = mutable.value.profile?.uid?.takeIf { it.isNotBlank() } ?: return@withContext 0
         if (!accountSyncOn) return@withContext 0
         val status = listensCloud.status(uid) ?: return@withContext 0
@@ -497,7 +498,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                 com.auralis.music.domain.model.TrackArtists.encode(
                     com.auralis.music.data.network.OfficialArtistResolver.cached(l.track.id) ?: l.track.artists))
         }
-        val ready = listenBatcher.ready(uid, mine, now)
+        val ready = listenBatcher.ready(uid, mine, now, includePlaying = includePlaying)
         if (ready.isEmpty()) return@withContext 0
         listensCloud.push(uid, ready)
         listenBatcher.markSent(uid, ready, now)
@@ -518,8 +519,8 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         history: com.auralis.music.domain.repository.HistoryRepository? = null): Job = scope.launch {
         if (!listensSyncLock.tryLock()) return@launch
         try {
-            val sent = syncListensCloud(stats, history)
-            if (sent > 0) com.auralis.music.util.Log.i("AccountSync", "Sent $sent finished listens to the account")
+            val sent = syncListensCloud(stats, history, includePlaying = true)
+            if (sent > 0) com.auralis.music.util.Log.i("AccountSync", "Sent $sent measured listens to the account")
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { com.auralis.music.util.Log.w("AccountSync", "Listening sync failed: ${e.javaClass.simpleName}: ${e.message}") }
         finally { listensSyncLock.unlock() }

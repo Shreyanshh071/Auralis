@@ -119,7 +119,7 @@ object StatsCloudSync {
             AuralisDatabase.getInstance(appContext).playbackEventDao()
                 .getTotalPlayTimeInRange(0L, Long.MAX_VALUE)
                 .distinctUntilChanged()
-                .sample(UPLOAD_INTERVAL_MS)
+                .sample(if (cloudOn()) 30_000L else UPLOAD_INTERVAL_MS)
                 .collect { upload() }
         }
     }
@@ -393,7 +393,7 @@ object StatsCloudSync {
     val accountWideClearAvailable = kotlinx.coroutines.flow.MutableStateFlow(false)
     @Volatile private var cloudBridge: Boolean? = null
     @Volatile private var cloudStartedFor: String? = null
-    private const val CLOUD_UPLOAD_INTERVAL_MS = 5 * 60_000L
+    private const val CLOUD_UPLOAD_INTERVAL_MS = 30_000L
     @Volatile private var lastCloudUpload = 0L
 
     /** Whether this account's listens use the service. Asks once per account; a refusal or outage means no. */
@@ -495,7 +495,7 @@ object StatsCloudSync {
     }
 
     /**
-     * This phone's finished listens, each sent once, in batches at most every 5 minutes, and mirrored
+     * This phone's measured listens, sending only increased time, at most every 30 seconds, and mirrored
      * to Firestore (writes only, marked with this device) while old app versions may read it.
      */
     private suspend fun cloudUpload(uid: String, force: Boolean = false) {
@@ -514,14 +514,14 @@ object StatsCloudSync {
                         t?.toDomain()?.let { track -> com.auralis.music.domain.model.TrackArtists.encode(
                             com.auralis.music.data.network.OfficialArtistResolver.cached(track.id) ?: track.artists) })
                 }
-                val ready = batcher.ready(uid, mine, now)
+                val ready = batcher.ready(uid, mine, now, includePlaying = true)
                 lastCloudUpload = now
                 if (ready.isEmpty()) return@withLock
                 listensCloud.push(uid, ready)
                 batcher.markSent(uid, ready, now)
                 if (cloudBridge != false) runCatching { mirror(uid, ready) }
                     .onFailure { Log.w(TAG, "Listening mirror to Firestore failed: ${it.javaClass.simpleName}") }
-                Log.i(TAG, "Sent ${ready.size} finished listens to the account")
+                Log.i(TAG, "Sent ${ready.size} measured listens to the account")
             } catch (e: Exception) {
                 Log.w(TAG, "Listening upload failed, will retry: ${e.javaClass.simpleName}")
             }

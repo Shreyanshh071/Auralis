@@ -428,7 +428,7 @@ fun AuralisDesktopApp(
         listensCloudActive = listensOnCloud
         if (listensOnCloud) {
             // Other devices' listens arrive by notification (or are pulled after a reconnect), and
-            // this PC's finished listens go up in batches at most every 5 minutes. Nothing is polled.
+            // this PC's measured listens go up in batches at most every 30 seconds. Nothing is polled.
             account.accountSync.listen(accountState.profile!!.uid, "listens") { frame ->
                 runCatching { account.listensChanged(frame, listeningStats, history) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening update failed: ${it.message}") }
@@ -437,7 +437,7 @@ fun AuralisDesktopApp(
         launch {
             // The recorder saves every 5 s while playing, so sample rather than debounce.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            listeningStats.listens.sample(if (listensOnCloud) 5 * 60_000L else 20_000L).collect {
+            listeningStats.listens.sample(if (listensOnCloud) 30_000L else 20_000L).collect {
                 if (listensOnCloud) account.syncListensCloudInBackground(listeningStats, history)
                 else runCatching { account.pushListens(listeningStats) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }

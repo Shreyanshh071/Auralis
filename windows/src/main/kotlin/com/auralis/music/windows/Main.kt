@@ -307,10 +307,10 @@ fun main(args: Array<String>) {
                 }
             }
             appScope.launch {
-                kotlinx.coroutines.flow.combine(pb.queue, pb.state, pb.session) { q, state, session ->
-                    if (state == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING) session to q.current else null
-                }.filterNotNull().distinctUntilChangedBy { it.first }.collect { (_, track) ->
-                    if (track != null && !stores.privacy.settingsFlow.first().pauseListenHistory) {
+                com.auralis.music.windows.history.establishedHistoryPlays(
+                    pb.queue, pb.state, pb.session, pb.establishedTrackId
+                ).collect { (_, track) ->
+                    if (!stores.privacy.settingsFlow.first().pauseListenHistory) {
                         hist.addToHistory(track)
                         hist.recordPlay(track)
                     }
