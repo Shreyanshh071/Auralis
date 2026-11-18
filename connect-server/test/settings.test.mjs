@@ -100,8 +100,8 @@ test('retiring the bridge is explicit, needs the exact acknowledgement, and can 
   assert.equal((await exchange(uid, 'android')).bridge, true);
 });
 
-test('a Worker without ACCOUNT_SYNC_TOPICS serves no settings (production default)', async () => {
-  off = await startServer(8799, undefined, { ACCOUNT_SYNC_TOPICS: null });
+test('a Worker with account topics disabled serves no settings', async () => {
+  off = await startServer(8799, undefined, { ACCOUNT_SYNC_TOPICS: '' });
   const uid = account();
   const answer = await rpc(uid, { t: 'settings', v: 2, platform: 'android', seed: { 'a.theme': 'dark' } }, 'pc', 'http://127.0.0.1:8799');
   assert.equal(answer.code, 'topic');

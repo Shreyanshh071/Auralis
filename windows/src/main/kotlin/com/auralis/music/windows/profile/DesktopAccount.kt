@@ -413,6 +413,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
 
     private val cloudStore by lazy { com.auralis.music.data.sync.FileLibraryCloudStore(File(sessionFile.parentFile, "library-cloud")) }
     private val listensCloud by lazy { com.auralis.music.data.sync.ListensCloudSync(cloudStore) { uid, frame -> libraryCloud.call(uid, frame) } }
+    private val recentHistoryBatcher by lazy { com.auralis.music.data.sync.RecentHistoryBatcher(cloudStore) }
     private val listenBatcher by lazy { com.auralis.music.data.sync.ListenBatcher(cloudStore) }
     private val listenDevice by lazy {
         syncMarks.getString("library_device", "")?.takeIf { it.isNotBlank() }
@@ -437,6 +438,7 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         if (listens.isEmpty()) return
         stats.importListens(listens)
         history?.importHistory(listens.map { com.auralis.music.domain.model.HistoryEntry(it.track, it.startedAt) }, uid)
+        recentHistoryBatcher.markSent(uid, pulled.events)
     }
 
     /**
@@ -492,6 +494,12 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
         }
         if (mutable.value.profile?.uid != uid) return@withContext 0
         listensCloud.pull(uid) { applyListens(it, stats, history, uid) }
+        val recent = recentHistoryBatcher.ready(uid, history?.getHistory()?.first().orEmpty(), listenDevice)
+        if (recent.isNotEmpty()) {
+            listensCloud.push(uid, recent)
+            recentHistoryBatcher.markSent(uid, recent)
+            com.auralis.music.util.Log.i("AccountSync", "Sent ${recent.size} recent history entries to the account")
+        }
         val now = System.currentTimeMillis()
         val mine = stats.listens.value.filter { !it.id.startsWith("cloud_") && it.timeMs > 0 }.map { l ->
             com.auralis.music.data.sync.ListenEvent(l.track.id, l.startedAt, l.timeMs, l.track.title, l.track.artist, l.track.album,
@@ -500,12 +508,12 @@ class DesktopAccount(private val sessionFile: File, private val scope: Coroutine
                     com.auralis.music.data.network.OfficialArtistResolver.cached(l.track.id) ?: l.track.artists))
         }
         val ready = listenBatcher.ready(uid, mine, now, includePlaying = includePlaying)
-        if (ready.isEmpty()) return@withContext 0
+        if (ready.isEmpty()) return@withContext recent.size
         listensCloud.push(uid, ready)
         listenBatcher.markSent(uid, ready, now)
         if (bridge) runCatching { mirrorListens(uid, ready) }
             .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening mirror to Firestore failed: ${it.javaClass.simpleName}") }
-        ready.size
+        ready.size + recent.size
     }
 
     private val listensSyncLock = Mutex()

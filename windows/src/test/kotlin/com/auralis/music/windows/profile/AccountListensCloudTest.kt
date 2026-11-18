@@ -118,6 +118,22 @@ class AccountListensCloudTest {
         } finally { sender.close(); idle.close() }
     }
 
+    @Test fun `closing Loving Machine immediately syncs history without inventing a measured listen`() = runBlocking {
+        if (base == null) return@runBlocking
+        val phone = Desktop("short-phone"); val pc = Desktop("idle-pc")
+        try {
+            phone.signIn(); pc.signIn()
+            pc.account.watchListens(pc.stats, pc.history)
+            delay(800)
+            val song = Track("5tpQaCAq6Qc", "Loving Machine", "TV Girl")
+            phone.history.addToHistory(song) // A recent exists, but no stats event was measured.
+            phone.account.syncListensCloudInBackground(phone.stats, phone.history).join()
+            withTimeout(10_000) { pc.history.getHistory().first { list -> list.any { it.track.id == song.id } } }
+            assertFalse(pc.stats.listens.value.any { it.track.id == song.id }, "history must not manufacture listening time")
+            assertEquals(0, phone.account.syncListensCloud(phone.stats, phone.history, includePlaying = true), "recent sent once")
+        } finally { phone.close(); pc.close() }
+    }
+
     @Test fun `history moves to the service once, then listens travel between desktops by notification`() = runBlocking {
         if (base == null) return@runBlocking
         val now = System.currentTimeMillis()

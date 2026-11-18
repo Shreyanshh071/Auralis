@@ -431,7 +431,8 @@ fun AuralisDesktopApp(
         launch {
             // The recorder saves every 5 s while playing, so sample rather than debounce.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            listeningStats.listens.sample(if (listensOnCloud) 30_000L else 20_000L).collect {
+            kotlinx.coroutines.flow.combine(listeningStats.listens, history.getHistory()) { listens, recents -> listens to recents }
+                .sample(if (listensOnCloud) 30_000L else 20_000L).collect {
                 if (listensOnCloud) account.syncListensCloudInBackground(listeningStats, history)
                 else runCatching { account.pushListens(listeningStats) }
                     .onFailure { com.auralis.music.util.Log.w("AccountSync", "Listening upload failed: ${it.message}") }

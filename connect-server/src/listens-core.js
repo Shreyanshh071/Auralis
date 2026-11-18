@@ -12,10 +12,10 @@ const whole = (v) => (Number.isSafeInteger(v) ? v : null);
 export function listenEvent(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const ts = whole(raw.ts); const ms = whole(raw.ms);
-  if (!isStr(raw.t, 256) || !raw.t || ts === null || ts <= 0 || ms === null || ms <= 0 || ms > 24 * 3_600_000) return null;
+  if (!isStr(raw.t, 256) || !raw.t || ts === null || ts <= 0 || ms === null || ms < 0 || (ms === 0 && raw.h !== true) || ms > 24 * 3_600_000) return null;
   const text = (v, max) => (isStr(v, max) && v !== '' ? v : null);
   return { t: raw.t, ts, ms, ti: text(raw.ti, 300), ar: text(raw.ar, 300), al: text(raw.al, 300), th: text(raw.th, 600),
-    du: whole(raw.du) ?? 0, d: text(raw.d, 80),
+    du: whole(raw.du) ?? 0, d: text(raw.d, 80), ...(ms === 0 ? { h: true } : {}),
     ...(text(raw.as, 8192) ? { as: text(raw.as, 8192) } : {}) };
 }
 

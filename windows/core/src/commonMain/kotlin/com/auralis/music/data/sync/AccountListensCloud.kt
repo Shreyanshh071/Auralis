@@ -21,6 +21,7 @@ data class ListenEvent(
     fun toJson(): JSONObject = JSONObject().put("t", trackId).put("ts", startedAt).put("ms", listenedMs)
         .put("ti", title ?: JSONObject.NULL).put("ar", artist ?: JSONObject.NULL).put("al", album ?: JSONObject.NULL)
         .put("th", thumbnail ?: JSONObject.NULL).put("du", duration).apply {
+            if (listenedMs == 0L) put("h", true) // Recent history only; never measured listening time.
             if (device != null) put("d", device)
             if (artistsJson != null) put("as", artistsJson)
         }
@@ -30,7 +31,7 @@ data class ListenEvent(
 
         fun fromJson(o: JSONObject): ListenEvent? {
             val id = o.optString("t"); val ts = o.optLong("ts"); val ms = o.optLong("ms")
-            if (id.isBlank() || ts <= 0 || ms <= 0) return null
+            if (id.isBlank() || ts <= 0 || ms < 0 || (ms == 0L && !o.optBoolean("h"))) return null
             return ListenEvent(id, ts, ms, text(o, "ti"), text(o, "ar"), text(o, "al"), text(o, "th"), o.optLong("du"), text(o, "d"), text(o, "as"))
         }
     }
@@ -198,5 +199,23 @@ class ListensCloudSync(
     private companion object {
         const val CURSOR = "listens-cursor"
         const val BATCH = 500
+    }
+}
+
+/** Recent history is independent of measured stats: even closing a song immediately records a recent. */
+class RecentHistoryBatcher(private val store: LibraryCloudStore) {
+    private fun sent(uid: String): JSONObject = runCatching { JSONObject(store.read(uid, "recent-history-sent") ?: "{}") }.getOrDefault(JSONObject())
+    fun ready(uid: String, entries: List<com.auralis.music.domain.model.HistoryEntry>, device: String): List<ListenEvent> {
+        val done = sent(uid)
+        return entries.filter { it.playedAt > done.optLong(it.track.id) }.map { e ->
+            val t = e.track
+            ListenEvent(t.id, e.playedAt, 0, t.title, t.artist, t.album, t.thumbnail, t.duration, device,
+                com.auralis.music.domain.model.TrackArtists.encode(t.artists))
+        }
+    }
+    fun markSent(uid: String, events: List<ListenEvent>) {
+        val done = sent(uid)
+        events.forEach { done.put(it.trackId, maxOf(done.optLong(it.trackId), it.startedAt)) }
+        store.write(uid, "recent-history-sent", done.toString())
     }
 }

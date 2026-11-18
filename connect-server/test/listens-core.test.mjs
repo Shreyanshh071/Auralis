@@ -50,3 +50,14 @@ test('artist credits survive history normalization and a longer legacy copy', ()
   assert.equal(longer[eventKey(original)].ms, 2000);
   assert.equal(listenEvent(ev('bad', DAY, 1000, { as: 'x'.repeat(8193) })).as, undefined);
 });
+
+test('explicit recent history carries zero measured time and can later grow into a measured listen', () => {
+  const recent = ev('loving-machine', DAY, 0, { h: true });
+  assert.equal(listenEvent(recent).h, true);
+  const first = mergeListens({}, [recent]).get(dayOf(DAY)).map;
+  assert.equal(first[eventKey(recent)].ms, 0);
+  assert.equal(mergeListens({ [dayOf(DAY)]: first }, [recent]).size, 0);
+  const grown = mergeListens({ [dayOf(DAY)]: first }, [ev('loving-machine', DAY, 1200)]).get(dayOf(DAY)).map;
+  assert.equal(grown[eventKey(recent)].ms, 1200);
+  assert.equal(grown[eventKey(recent)].h, undefined);
+});

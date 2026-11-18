@@ -18,6 +18,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -116,11 +117,21 @@ object StatsCloudSync {
             restoreIfNeeded()
             listenForOtherDevices(scope)
             upload()
+            var lastLegacyUpload = System.currentTimeMillis()
             AuralisDatabase.getInstance(appContext).playbackEventDao()
                 .getTotalPlayTimeInRange(0L, Long.MAX_VALUE)
+                .combine(AuralisDatabase.getInstance(appContext).historyDao().getHistoryWithTracksFlow()) { total, history ->
+                    total to history.map { it.history.trackId to it.history.playedAt }
+                }
                 .distinctUntilChanged()
-                .sample(if (cloudOn()) 30_000L else UPLOAD_INTERVAL_MS)
-                .collect { upload() }
+                .sample(30_000L)
+                .collect {
+                    val now = System.currentTimeMillis()
+                    if (cloudOn() || now - lastLegacyUpload >= UPLOAD_INTERVAL_MS) {
+                        upload()
+                        lastLegacyUpload = now
+                    }
+                }
         }
     }
 
@@ -144,7 +155,7 @@ object StatsCloudSync {
             if (signedInUid() != uid || !LocalDataOwner.belongsTo(uid)) return@withTransaction
             val from = incoming.minOf { it.timestamp } - CloudListens.SAME_LISTEN_WINDOW_MS
             val to = incoming.maxOf { it.timestamp } + CloudListens.SAME_LISTEN_WINDOW_MS
-            val plan = CloudListens.plan(incoming, dao.getEventsSince(from).filter { it.timestamp <= to })
+            val plan = CloudListens.plan(incoming.filter { it.playTimeMs > 0 }, dao.getEventsSince(from).filter { it.timestamp <= to })
             db.trackDao().upsertTracksPreservingFavorite(plan.inserts.map { it.track.toEntity() })
             dao.insertEvents(plan.inserts.map { PlaybackEventEntity(trackId = it.track.id, timestamp = it.timestamp, playTimeMs = it.playTimeMs) })
             for (g in plan.grows) {
@@ -156,7 +167,7 @@ object StatsCloudSync {
                 com.auralis.music.domain.model.HistoryEntry(it.track.toDomain(), it.history.playedAt)
             }
             val mergedHistory = com.auralis.music.domain.model.mergeSyncedHistory(existingHistory,
-                (if (backfillHistory) incoming else plan.inserts).map {
+                (if (backfillHistory) incoming else plan.inserts + incoming.filter { it.playTimeMs == 0L }).map {
                     com.auralis.music.domain.model.HistoryEntry(it.track, it.timestamp)
                 })
             if (mergedHistory != existingHistory) {
@@ -382,6 +393,7 @@ object StatsCloudSync {
 
     private val cloudStore by lazy { FileLibraryCloudStore(java.io.File(appContext.filesDir, "library-cloud")) }
     private val listensCloud by lazy { ListensCloudSync(cloudStore) { uid, frame -> AccountSyncHub.client(appContext).call(uid, frame) } }
+    private val recentHistoryBatcher by lazy { RecentHistoryBatcher(cloudStore) }
     private val batcher by lazy { ListenBatcher(cloudStore) }
     private val device: String by lazy {
         AccountSyncHub.client(appContext)
@@ -437,6 +449,7 @@ object StatsCloudSync {
     private suspend fun applyPulled(uid: String, pulled: ListensPulled) {
         if (pulled.clearedBefore > 0) applyClear(uid, pulled.clearedBefore)
         val added = importListens(toCloudListens(pulled.events, pulled.clearedBefore), uid, backfillHistory = pulled.reset)
+        recentHistoryBatcher.markSent(uid, pulled.events)
         if (added > 0) Log.i(TAG, "Added $added listens from the account")
     }
 
@@ -501,12 +514,20 @@ object StatsCloudSync {
     private suspend fun cloudUpload(uid: String, force: Boolean = false) {
         if (!LocalDataOwner.belongsTo(uid)) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastCloudUpload < CLOUD_UPLOAD_INTERVAL_MS) return
         mutex.withLock {
             try {
                 statsRepository.removeEstimatedListens()
                 statsRepository.mergeChunkedListens()
                 val db = AuralisDatabase.getInstance(appContext)
+                val recent = recentHistoryBatcher.ready(uid, db.historyDao().getHistoryWithTracks().map {
+                    com.auralis.music.domain.model.HistoryEntry(it.track.toDomain(), it.history.playedAt)
+                }, device)
+                if (recent.isNotEmpty()) {
+                    listensCloud.push(uid, recent)
+                    recentHistoryBatcher.markSent(uid, recent)
+                    Log.i(TAG, "Sent ${recent.size} recent history entries to the account")
+                }
+                if (!force && now - lastCloudUpload < CLOUD_UPLOAD_INTERVAL_MS) return@withLock
                 val tracks = HashMap<String, com.auralis.music.data.local.entity.TrackEntity?>()
                 val mine = db.playbackEventDao().getEventsSince(now - 7 * 86_400_000L).filter { it.playTimeMs > 0 }.map { ev ->
                     val t = tracks.getOrPut(ev.trackId) { db.trackDao().getTrackById(ev.trackId) }
