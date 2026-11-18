@@ -28,7 +28,9 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     data class Recommendation(val id: String, val track: Track, val name: String, val status: String,
         val uid: String = "", val note: String = "", val upvotes: List<String> = emptyList(), val createdAt: Long = 0)
     data class SongRequest(val id: String, val name: String, val track: Track,
-        val command: GuestCommand? = null, val recommendation: Recommendation? = null)
+        val command: GuestCommand? = null, val recommendation: Recommendation? = null,
+        /** Who asked: approval rooms hold one waiting request per listener. */
+        val memberId: String = "")
     data class State(val code: String = "", val host: Boolean = false, val busy: Boolean = false,
         val members: List<String> = emptyList(), val message: String? = null, val track: String = "",
         val recommendations: List<Recommendation> = emptyList(), val settings: RoomSettings = RoomSettings(),
@@ -37,7 +39,9 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         val searching: Boolean = false, val closingAtMs: Long? = null, val closingReason: String? = null,
         val waitingForGuests: Boolean = false, val poorConnection: Boolean = false,
         val activity: List<RoomActivity> = emptyList(),
-        val currentTrack: Track? = null, val isPlaying: Boolean = false) {
+        val currentTrack: Track? = null, val isPlaying: Boolean = false,
+        /** Listeners with a request waiting for the host, as the host shares it. */
+        val waitingRequests: List<String> = emptyList()) {
         val guestControls get() = settings.guestsCanControlPlayback
         val guestSongs get() = settings.guestsMayPlaySongs
     }
@@ -76,6 +80,10 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     private var stalledTrack: String? = null
     private var stall = PlaybackStallDetector()
     private var lastPoor = false
+    /** When this listener last sent a request that needs approval; covers the moment before the host's list arrives. */
+    private var lastRequestAt = 0L
+    /** Room code and waiting list last shared, so the room only hears about real changes. */
+    private var publishedWaiting: Pair<String, List<String>>? = null
     private fun operation(block: suspend () -> Unit): Job = scope.launch(Dispatchers.IO) {
         gate.withLock { try { block() } catch(e: CancellationException) { throw e }
             catch(e: Exception) { mutable.update { it.copy(busy = false, message = readable(e)) } } }
@@ -153,7 +161,8 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
                     if(locked) mutable.update { it.copy(message="Wait a moment before skipping again") }; locked}
                 action=="recommend" && track!=null->{recommend(track);true}
                 action=="edit_queue"->{mutable.update { it.copy(message="Use the individual song's queue menu") };true}
-                s.settings.allows(command)->{sendCommand(command);true}
+                s.settings.allows(command)->{
+                    if(!(command.changesSong && s.settings.approvalApplies && requestAlreadyWaiting())) sendCommand(command);true}
                 else->{mutable.update { it.copy(message="The host has turned off this action") };true}
             }
         }
@@ -209,7 +218,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             mutable.update { it.copy(memberDetails=live,members=live.map { m->m.name },recommendations=recommendations) };lastRoster=now
         }
         if(s.host) {
-            processCommands();processRecommendations();releaseStartIfReady(now)
+            processCommands();processRecommendations();publishWaitingRequests(s.code);releaseStartIfReady(now)
             if(lifecycle(now)) return@withLock
             val fields=hostFields(s.code,false)
             val stable=JSONObject(fields.toString()).apply { remove("updatedAt");remove("playbackPosition");remove("expireAt") }.toString()
@@ -252,6 +261,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     private fun follow(room:JSONObject) {
         val p=playback?:return
         mutable.update { it.copy(settings=settingsFrom(room.optJSONObject("settings")),hostName=room.optString("hostName"),
+            waitingRequests=strings(room.optJSONObject("settings")?.optJSONArray("waiting")),
             closingAtMs=room.optJSONObject("closing")?.optLong("at"),closingReason=room.optJSONObject("closing")?.optString("reason"),
             activity=(room.optJSONArray("activity")?:JSONArray()).let { a->(0 until a.length()).mapNotNull { i->
                 val o=a.optJSONObject(i)?:return@mapNotNull null;RoomActivity(o.optString("id"),o.optString("message"),o.optString("actorId")) } }) }
@@ -305,7 +315,8 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             }
             if(command.changesSong && s.settings.approvalApplies && track!=null) {
                 val id="play_${member.id}_${command.seq}"
-                if(handledRequests.add(id)) mutable.update { it.copy(requests=it.requests+SongRequest(id,member.name,track,command),
+                if(mutable.value.requests.any { it.memberId==member.id }) { handledRequests.add(id);continue }
+                if(handledRequests.add(id)) mutable.update { it.copy(requests=it.requests+SongRequest(id,member.name,track,command,memberId=member.id),
                     message="${member.name} requested ${track.title}. Open Listen Together to allow or decline.") }
                 continue
             }
@@ -338,8 +349,10 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         for(rec in mutable.value.recommendations) {
             if(rec.status!="pending" || rec.id in handledRecommendations) continue
             when(mutable.value.settings.decideGuestSong()) {
-                GuestSongDecision.WAIT_FOR_HOST->if(handledRequests.add("add_${rec.id}")) mutable.update {
-                    it.copy(requests=it.requests+SongRequest("add_${rec.id}",rec.name,rec.track,recommendation=rec),
+                GuestSongDecision.WAIT_FOR_HOST->if(rec.uid.isNotBlank() && mutable.value.requests.any { it.memberId==rec.uid && it.recommendation?.id!=rec.id })
+                    finishRecommendation(rec,"declined")
+                else if(handledRequests.add("add_${rec.id}")) mutable.update {
+                    it.copy(requests=it.requests+SongRequest("add_${rec.id}",rec.name,rec.track,recommendation=rec,memberId=rec.uid),
                         message="${rec.name} requested ${rec.track.title}. Open Listen Together to allow or decline.") }
                 GuestSongDecision.ADD->finishRecommendation(rec,"accepted")
                 GuestSongDecision.DECLINE->finishRecommendation(rec,"declined")
@@ -360,7 +373,8 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
         hostSettings=settings
         if(mutable.value.code.isEmpty()) { mutable.update { it.copy(settings=settings) };return }
         operation {
-            store.writeRoom(mutable.value.code,JSONObject().put("settings",JSONObject(settings.toMap())),stamp=false)
+            store.writeRoom(mutable.value.code,JSONObject().put("settings",JSONObject(settings.toMap()).put("waiting",JSONArray())),stamp=false)
+            publishedWaiting=mutable.value.code to emptyList()
             mutable.update { it.copy(settings=settings,requests=emptyList()) };handledRequests.clear()
         }
     }
@@ -372,6 +386,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     }
     private fun sendCommand(c:GuestCommand)=operation {
         if(mutable.value.code.isEmpty()) return@operation
+        if(c.changesSong && mutable.value.settings.approvalApplies) lastRequestAt=System.currentTimeMillis()
         val fields=JSONObject().put("type",c.type).put("positionMs",c.positionMs).put("seq",++sequence)
             .put("track",c.track?.let(::trackJson)?:JSONObject.NULL).put("fromIndex",c.fromIndex).put("toIndex",c.toIndex)
             .put("queueIds",JSONArray(c.queueIds))
@@ -381,6 +396,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     fun recommend(track:Track,note:String="") {
         if(mutable.value.host) { playback?.local { playback.add(track) };return }
         if(!mutable.value.settings.guestsMayAddSongs) { mutable.update { it.copy(message="The host has turned off adding songs") };return }
+        if(mutable.value.settings.requireApproval) { if(requestAlreadyWaiting()) return;lastRequestAt=System.currentTimeMillis() }
         operation {
             if(mutable.value.code.isEmpty()) return@operation
             val id=java.util.UUID.randomUUID().toString()
@@ -443,6 +459,25 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
             heldTrack=null;playback?.releaseHold();mutable.update { it.copy(waitingForGuests=false) }
         }
     }
+    /**
+     * Approval rooms: a listener may have one request waiting. True (after saying so) when they
+     * already do, so nothing else is sent.
+     */
+    private fun requestAlreadyWaiting():Boolean {
+        val s=mutable.value
+        if(s.host || !s.settings.requireApproval) return false
+        val waiting=api.uid in s.waitingRequests || s.recommendations.any { it.status=="pending" && it.uid==api.uid } ||
+            System.currentTimeMillis()-lastRequestAt<5000
+        if(waiting) mutable.update { it.copy(message=REQUEST_WAITING) }
+        return waiting
+    }
+    /** Host: tells listeners who has a request waiting, so their app says so instead of sending another. */
+    private fun publishWaitingRequests(code:String) {
+        val waiting=code to mutable.value.requests.map { it.memberId }.filter { it.isNotBlank() }.distinct()
+        if(waiting==publishedWaiting) return
+        store.writeRoom(code,JSONObject().put("settings",JSONObject(hostSettings.toMap()).put("waiting",JSONArray(waiting.second))),stamp=false)
+        publishedWaiting=waiting
+    }
     private fun announce(message:String,actor:String=api.uid) {
         mutable.update { it.copy(activity=(it.activity+RoomActivity(java.util.UUID.randomUUID().toString(),message,actor)).takeLast(20)) }
     }
@@ -474,6 +509,7 @@ class DesktopTogether internal constructor(private val playback: RoomPlayback?, 
     private fun deleteRoom(code:String) = store.deleteRoom(code)
     suspend fun close()=withContext(Dispatchers.IO) { disconnect();if(mutable.value.code.isEmpty()) runCatching { api.deleteAnonymousAccount() };Unit }
     companion object {
+        const val REQUEST_WAITING="You already have a request waiting. You can send another once the host responds."
         fun generateCode():String=(1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")
         fun estimatedPosition(position:Long,stamp:Long,playing:Boolean,now:Long,speed:Double):Long=
             position+if(playing && stamp>0) ((now-stamp).coerceAtLeast(0)*speed).toLong() else 0

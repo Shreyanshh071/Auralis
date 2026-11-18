@@ -802,10 +802,8 @@ fun AuralisApp(
             currentLT.onHostReopenSession = { track, queue, index, positionMs ->
                 currentPV.playTrack(track, queue.ifEmpty { listOf(track) }, index.coerceAtLeast(0), initialPositionMs = positionMs, preserveQueueSource = true)
             }
-            currentLT.onHostAddToQueue = { track ->
-                currentPV.addToQueue(listOf(track))
-                android.widget.Toast.makeText(context, str(R.string.added_x_to_room_queue, track.title), android.widget.Toast.LENGTH_SHORT).show()
-            }
+            // Room notices are glass pills from the Listen Together view model; no second toast here.
+            currentLT.onHostAddToQueue = { track -> currentPV.addToQueue(listOf(track)) }
         }
 
         // Host broadcasting runs off the player state inside the ViewModel, so it keeps working

@@ -178,8 +178,14 @@ data class NativeRoomState(
     val closingReason: String? = null,
     /** The host closed their player on [currentTrack] (it's paused there, ready to reopen). */
     val playerClosed: Boolean = false,
-    val activity: List<RoomActivity> = emptyList()
+    val activity: List<RoomActivity> = emptyList(),
+    /** Listeners with a request waiting for the host (approval rooms allow one each). */
+    val waitingRequestIds: List<String> = emptyList()
 )
+
+/** The `waiting` list the host keeps inside the room's settings. */
+fun waitingRequestsFrom(settings: Any?): List<String> =
+    ((settings as? Map<*, *>)?.get("waiting") as? List<*>).orEmpty().filterIsInstance<String>()
 
 const val ROOM_CLOSING_EMPTY = "empty"
 const val ROOM_CLOSING_IDLE = "idle"
@@ -623,11 +629,16 @@ class ListenTogetherManager(
             .update("closing", closingAtMs?.let { mapOf("at" to it, "reason" to reason) }).await()
     }
 
-    suspend fun updateRoomSettings(roomCode: String, settings: RoomSettings) {
+    /**
+     * The room's rules, plus [waiting]: listeners whose request the host hasn't answered yet. It lives
+     * inside `settings` because the Firestore room record is already at its 20-field cap.
+     */
+    suspend fun updateRoomSettings(roomCode: String, settings: RoomSettings, waiting: List<String> = emptyList()) {
         val normalizedCode = roomCode.trim().uppercase(Locale.ROOT)
-        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateRoom(mapOf("settings" to settings.toMap())); return }
+        val map = settings.toMap() + ("waiting" to waiting)
+        ListenTogetherCloud.socket(normalizedCode)?.let { it.updateRoom(mapOf("settings" to map)); return }
         firestore.collection("rooms").document(normalizedCode)
-            .update("settings", settings.toMap()).await()
+            .update("settings", map).await()
     }
 
     /** Tells the room whether this member's connection is too slow for smooth playback. */
@@ -1130,7 +1141,8 @@ class ListenTogetherManager(
             closingAtMs = ((doc.get("closing") as? Map<*, *>)?.get("at") as? Number)?.toLong(),
             closingReason = (doc.get("closing") as? Map<*, *>)?.get("reason") as? String,
             playerClosed = trackRaw?.get("closed") as? Boolean ?: false,
-            activity = (doc.get("activity") as? List<*>).orEmpty().mapNotNull(RoomActivity::from)
+            activity = (doc.get("activity") as? List<*>).orEmpty().mapNotNull(RoomActivity::from),
+            waitingRequestIds = waitingRequestsFrom(doc.get("settings"))
         )
     }
 }

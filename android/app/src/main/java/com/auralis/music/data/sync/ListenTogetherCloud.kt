@@ -108,7 +108,8 @@ object ListenTogetherCloud {
             closingAtMs = long(closing?.get("at")),
             closingReason = closing?.get("reason") as? String,
             playerClosed = trackRaw?.get("closed") as? Boolean ?: false,
-            activity = (doc["activity"] as? List<*>).orEmpty().mapNotNull(RoomActivity::from)
+            activity = (doc["activity"] as? List<*>).orEmpty().mapNotNull(RoomActivity::from),
+            waitingRequestIds = waitingRequestsFrom(doc["settings"])
         )
     }
 

@@ -1123,6 +1123,7 @@
     <string name="the_host_has_turned_off_adding_songs">The host has turned off adding songs</string>
     <string name="sent_x_to_the_host_for_approval">Sent \"%1$s\" to the host for approval</string>
     <string name="added_x_to_the_room_s_queue">Added \"%1$s\" to the room\'s queue</string>
+    <string name="room_request_already_waiting">You already have a request waiting. You can send another once the host responds.</string>
     <string name="couldn_t_add_x">Couldn\'t add \"%1$s\"</string>
     <string name="couldn_t_load_that_exact_song_here_playi">Couldn\'t load that exact song here — playing our own copy instead</string>
     <string name="notifications_when_new_auralis_releases">Notifications when new Auralis releases and features are available</string>

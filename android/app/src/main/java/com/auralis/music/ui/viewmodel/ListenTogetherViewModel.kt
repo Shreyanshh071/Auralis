@@ -57,7 +57,9 @@ data class HostSongRequest(
     /** A skip instead of a pick: +1 next song, -1 previous song ([track] is the song it lands on). */
     val skip: Int = 0,
     val recommendation: RoomRecommendation? = null,
-    val receivedAtMs: Long = System.currentTimeMillis()
+    val receivedAtMs: Long = System.currentTimeMillis(),
+    /** Who asked: approval rooms hold one waiting request per listener. */
+    val memberId: String = ""
 )
 
 data class ListenTogetherUiState(
@@ -85,6 +87,8 @@ private const val OPTIMISTIC_WINDOW_MS = 2_500L
 private const val CONNECT_TIMEOUT_MS = 15_000L
 /** How long a guest's skip waits for the host to switch before this phone goes back to the room's song. */
 private const val PENDING_SKIP_TIMEOUT_MS = 6_000L
+/** After sending a request, how long a second one is refused before the host's waiting list arrives. */
+private const val REQUEST_SETTLE_MS = 5_000L
 
 /** The longest the host holds a new song at 0:00 waiting for guests to load it. */
 private const val SYNC_START_TIMEOUT_MS = 5_000L
@@ -374,7 +378,7 @@ class ListenTogetherViewModel(
         if (!state.isHost) return
         viewModelScope.launch {
             try {
-                manager.updateRoomSettings(roomCode, settings)
+                manager.updateRoomSettings(roomCode, settings, waitingRequestIds())
             } catch (e: Exception) {
                 Log.e("ListenTogether", "Failed updating room settings: ${e.message}", e)
                 showPill(str(R.string.couldn_t_update_room_settings))
@@ -420,7 +424,7 @@ class ListenTogetherViewModel(
                 }
                 val requestedTrack = command.track
                 if (command.type == GuestCommand.PLAY_TRACK && requestedTrack != null && roomRules().approvalApplies) {
-                    addSongRequest(HostSongRequest(id = "play_${member.id}_${command.seq}", memberName = member.name, track = requestedTrack, playNow = true))
+                    addSongRequest(HostSongRequest(id = "play_${member.id}_${command.seq}", memberName = member.name, track = requestedTrack, playNow = true, memberId = member.id))
                     continue
                 }
                 if ((command.type == GuestCommand.NEXT || command.type == GuestCommand.PREVIOUS) && roomRules().approvalApplies) {
@@ -428,7 +432,7 @@ class ListenTogetherViewModel(
                     val queue = hostPlayer?.queueState?.value
                     val landsOn = queue?.queue?.getOrNull(queue.currentIndex + step)
                         ?: Track(id = "", title = if (step > 0) "The next song" else "The previous song")
-                    addSongRequest(HostSongRequest(id = "skip_${member.id}_${command.seq}", memberName = member.name, track = landsOn, playNow = true, skip = step))
+                    addSongRequest(HostSongRequest(id = "skip_${member.id}_${command.seq}", memberName = member.name, track = landsOn, playNow = true, skip = step, memberId = member.id))
                     continue
                 }
                 // The new song starts for everyone by itself once loaded; a "play" now would start it early.
@@ -492,22 +496,77 @@ class ListenTogetherViewModel(
                 // Waits in the host's "Song requests" list; the host hears about it once.
                 com.auralis.music.data.sync.GuestSongDecision.WAIT_FOR_HOST -> {
                     if (announcedRequestIds.add(rec.id)) {
-                        addSongRequest(HostSongRequest(id = "add_${rec.id}", memberName = rec.recommendedByName, track = rec.track, playNow = false, recommendation = rec))
+                        addSongRequest(HostSongRequest(id = "add_${rec.id}", memberName = rec.recommendedByName, track = rec.track, playNow = false, recommendation = rec, memberId = rec.recommendedByUid))
                     }
                 }
             }
         }
     }
 
+    /**
+     * One waiting request per listener. A second one while the first waits is dropped (an added song is
+     * declined so it doesn't linger); updated apps don't send it at all and tell the listener why.
+     */
     private fun addSongRequest(request: HostSongRequest) {
+        var extra = false
         _uiState.update { state ->
-            if (state.songRequests.any { it.id == request.id }) state
-            else state.copy(songRequests = state.songRequests + request)
+            extra = false
+            when {
+                state.songRequests.any { it.id == request.id } -> state
+                request.memberId.isNotBlank() && state.songRequests.any { it.memberId == request.memberId } -> { extra = true; state }
+                else -> state.copy(songRequests = state.songRequests + request)
+            }
         }
+        if (extra) {
+            Log.d("ListenTogether", "[Host] Ignored ${request.memberName}'s extra request: one is already waiting")
+            request.recommendation?.let { declineRecommendation(it) }
+            return
+        }
+        publishWaitingRequests()
     }
 
     private fun removeSongRequest(id: String) {
         _uiState.update { state -> state.copy(songRequests = state.songRequests.filterNot { it.id == id }) }
+        publishWaitingRequests()
+    }
+
+    private fun waitingRequestIds(): List<String> =
+        _uiState.value.songRequests.map { it.memberId }.filter { it.isNotBlank() }.distinct()
+
+    /** Room code and list last sent, so the room only hears about real changes. */
+    private var publishedWaiting: Pair<String, List<String>>? = null
+
+    /** Tells listeners who has a request waiting, so their app can say so instead of sending another. */
+    private fun publishWaitingRequests() {
+        val state = _uiState.value
+        val code = state.activeRoom?.code ?: return
+        if (!state.isHost) return
+        val waiting = code to waitingRequestIds()
+        if (waiting == publishedWaiting) return
+        publishedWaiting = waiting
+        viewModelScope.launch {
+            try { manager.updateRoomSettings(code, state.hostSettings, waiting.second) }
+            catch (e: Exception) { Log.w("ListenTogether", "Couldn't share waiting requests: ${e.message}") }
+        }
+    }
+
+    /** When this listener last sent a request that needs approval; covers the moment before the host's list arrives. */
+    private var lastRequestSentAt = 0L
+
+    /**
+     * Approval rooms: a listener may have one request waiting. True (after telling them so) when
+     * they already do, so the caller doesn't send another.
+     */
+    private fun requestAlreadyWaiting(): Boolean {
+        val state = _uiState.value
+        val room = state.activeRoom ?: return false
+        if (state.isHost || !room.settings.requireApproval) return false
+        val me = state.currentUserId
+        val waiting = me in room.waitingRequestIds ||
+            state.recommendations.any { it.status == "pending" && it.recommendedByUid == me } ||
+            System.currentTimeMillis() - lastRequestSentAt < REQUEST_SETTLE_MS
+        if (waiting) showPill(str(R.string.room_request_already_waiting))
+        return waiting
     }
 
     /** Host tapped Allow on a guest's song. */
@@ -868,6 +927,10 @@ class ListenTogetherViewModel(
         val state = _uiState.value
         val room = state.activeRoom ?: return
         if (state.isHost || !room.settings.guestsMayPlaySongs) return
+        if (room.settings.approvalApplies) {
+            if (requestAlreadyWaiting()) return
+            lastRequestSentAt = System.currentTimeMillis()
+        }
         viewModelScope.launch {
             try {
                 manager.sendGuestCommand(room.code, GuestCommand(GuestCommand.PLAY_TRACK, 0L, System.currentTimeMillis(), track))
@@ -893,7 +956,11 @@ class ListenTogetherViewModel(
                         { command: GuestCommand ->
                             // Read the rules at tap time: the host can flip either switch mid-room.
                             val rules = _uiState.value.activeRoom?.settings
-                            if (rules?.allows(command) == true) {
+                            val needsApproval = rules?.approvalApplies == true && command.changesSong
+                            if (needsApproval && requestAlreadyWaiting()) {
+                                // One request at a time: nothing is sent and nothing changes here.
+                            } else if (rules?.allows(command) == true) {
+                                if (needsApproval) lastRequestSentAt = System.currentTimeMillis()
                                 if (rules.approvalApplies && (command.type == GuestCommand.NEXT || command.type == GuestCommand.PREVIOUS)) {
                                     showPill(str(R.string.asked_the_host_to_x, if (command.type == GuestCommand.NEXT) "skip to the next song" else "go back a song"))
                                 }
@@ -1338,12 +1405,17 @@ class ListenTogetherViewModel(
         val roomCode = state.activeRoom?.code ?: return
         if (state.isHost) {
             onHostAddToQueue?.invoke(track)
+            showPill(str(R.string.added_x_to_room_queue, track.title))
             return
         }
         val rules = roomRules()
         if (!rules.guestsMayAddSongs) {
             showPill(str(R.string.the_host_has_turned_off_adding_songs))
             return
+        }
+        if (rules.requireApproval) {
+            if (requestAlreadyWaiting()) return
+            lastRequestSentAt = System.currentTimeMillis()
         }
         viewModelScope.launch {
             try {
