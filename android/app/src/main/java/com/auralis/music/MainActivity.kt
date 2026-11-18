@@ -174,7 +174,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             com.auralis.music.data.sync.StatsCloudSync.init(applicationContext, statsRepository)
             kotlinx.coroutines.delay(3000L)
-            com.auralis.music.data.sync.AndroidAccountPreferences(applicationContext).start(this)
             accountSync = googleAccountSyncManager
             googleAccountSyncManager.startContinuousCloudSync(this)
             // Listening stats live on the account too, so a reinstall doesn't wipe them.

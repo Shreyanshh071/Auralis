@@ -271,12 +271,6 @@ fun main(args: Array<String>) {
         val lyr = step("lyrics") { lyricsDeferred.await() }
         val acc = step("account") { accountDeferred.await() }
         val flags = step("flags") { libraryFlagsDeferred.await() }
-        val preferencesDeviceStore = PropertiesFileKeyValueStore(java.io.File(dataDir, "account-preferences.properties"))
-        val preferencesDevice = preferencesDeviceStore.getString("device", "")?.takeIf(String::isNotBlank)
-            ?: java.util.UUID.randomUUID().toString().also { preferencesDeviceStore.putStrings(mapOf("device" to it)) }
-        com.auralis.music.windows.profile.startDesktopPreferencesSync(acc, stores.accountPreferencesLocal,
-            stores.accountPreferencesJournal, preferencesDevice, recorderScope)
-
         val radioRecommendations = com.auralis.music.windows.player.DesktopRadioRecommendations(hist)
         pb?.radioCandidates = radioRecommendations::candidates
 
