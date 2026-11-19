@@ -25,11 +25,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
+    val accountAvailable: Boolean
+        get() = CanvasSettings.prefs.value.spotifyAccount &&
+            com.auralis.music.data.network.SpotifySession.signedIn.value
+
     private val client by lazy {
         SpotifyCanvasClient(NetworkClientProvider.okHttpClient, File(desktopAppDataDir(), "cache/spotify-canvas"),
             accountToken = {
                 // Settings > Canvas > "Fetch Canvas with your Spotify account", signed in only.
-                if (CanvasSettings.prefs.value.spotifyAccount && com.auralis.music.data.network.SpotifySession.signedIn.value)
+                if (accountAvailable)
                     com.auralis.music.data.network.SpotifySession.getValidAccessToken() else null
             })
     }
@@ -62,6 +66,7 @@ internal class SpotifyCanvasClient(
     private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
     private val misses = ConcurrentHashMap<String, Long>()
     private val failures = ConcurrentHashMap<String, Long>()
+    private val accountRetry = ConcurrentHashMap<String, Long>()
     private val qualityRetries = ConcurrentHashMap<String, Long>()
     // Coalesce requests for the same track without queueing playback behind other songs' downloads.
     private val trackLocks = Array(64) { Mutex() }
@@ -101,7 +106,9 @@ internal class SpotifyCanvasClient(
             val known = indexedFileId(trackId)
             known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = clock()
-            if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L)) return@withLock null
+            if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L)) {
+                return@withLock fromAccount(trackId, now)
+            }
             // The video was cleared from disk but its id is still known: fetch it again directly.
             // SpicyLyrics can stop listing a canvas it once returned, so it is not asked first, and
             // a SpicyLyrics rate limit (retryAt) does not block this.
@@ -116,7 +123,7 @@ internal class SpotifyCanvasClient(
                     // Fall through to SpicyLyrics, which may list a newer canvas for the track.
                 }
             }
-            if (now < retryAt.get()) return@withLock null
+            if (now < retryAt.get()) return@withLock fromAccount(trackId, now)
             // Only SpicyLyrics saying it has no canvas blocks the track for a while; a failed
             // download (no network, a deleted folder) is retried after a minute.
             var noneListed = false
@@ -129,9 +136,8 @@ internal class SpotifyCanvasClient(
                 failures[trackId] = now + 60_000L
                 null
             }
-            viaSpicy
-                ?: fromAccount(trackId)
-                ?: run { if (noneListed) misses[trackId] = now + MISS_RETRY_MS; null }
+            if (noneListed) misses[trackId] = now + MISS_RETRY_MS
+            viaSpicy ?: fromAccount(trackId, now)
         }
     }
 
@@ -178,8 +184,10 @@ internal class SpotifyCanvasClient(
      * web-player token. Used only when SpicyLyrics has no canvas for the track. The token goes to
      * Spotify and nowhere else.
      */
-    private suspend fun fromAccount(trackId: String): String? {
+    private suspend fun fromAccount(trackId: String, now: Long): String? {
+        if (now < (accountRetry[trackId] ?: 0L)) return null
         val token = accountToken?.invoke() ?: return null
+        accountRetry[trackId] = now + 60_000L
         return try {
             val uri = "spotify:track:$trackId".toByteArray()
             val entity = byteArrayOf(0x0a) + varint(uri.size) + uri

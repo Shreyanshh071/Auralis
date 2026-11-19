@@ -135,7 +135,7 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         user.CallWindowProc(previous, current, message, w, l)
                     root && message == 0x0005 -> { // WM_SIZE: see MinimisedRenderPause.
                         if (w.toInt() == 1) renderPause.minimised(true)
-                        // AWT takes the restored size first; then a frame is drawn before Windows goes on.
+                        // Let AWT process the new size before scheduling a frame.
                         user.CallWindowProc(previous, current, message, w, l)
                             .also { if (w.toInt() == 0 || w.toInt() == 2) renderPause.minimised(false) }
                     }

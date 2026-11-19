@@ -1,6 +1,10 @@
 package com.auralis.music.windows.player
 
 import com.auralis.music.ui.i18n.desktopText
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 
 import androidx.compose.foundation.background
 import com.auralis.music.ui.components.clickable
@@ -39,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,28 +58,48 @@ import com.auralis.music.windows.search.DesktopArtwork
  * (bold when playing) and "artist · length". Click a song to play it; its menu removes it.
  */
 @Composable
-fun QueueView(playback: DesktopPlaybackController, modifier: Modifier = Modifier) {
+fun QueueView(playback: DesktopPlaybackController, modifier: Modifier = Modifier, animateEntrance: Boolean = false) {
     val queue by playback.queue.collectAsState()
     val state by playback.state.collectAsState()
     QueueList(queue, state == VlcAudioPlayer.State.PLAYING, playback::playAt, playback::removeAt,
-        playback::clearHistory, playback::togglePlayPause, modifier)
+        playback::clearHistory, playback::togglePlayPause, modifier, animateEntrance = animateEntrance)
 }
 
 @Composable
 internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolean,
     onPlayAt: (Int) -> Unit, onRemoveAt: (Int) -> Unit, onClearHistory: () -> Unit, onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()) {
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    animateEntrance: Boolean = false
+) {
     val upcomingStart = queue.index.coerceAtLeast(0)
     val history = queue.history
     val historyCount = history.size
     var initiallyPositioned by remember { mutableStateOf(false) }
+    val entrance = remember(animateEntrance) { Animatable(if (animateEntrance) 0f else 1f) }
 
     // Open on the playing song, as the phone's queue does.
     LaunchedEffect(queue.current != null) {
         if (!initiallyPositioned && queue.current != null) {
             if (historyCount > 0) listState.scrollToItem(historyCount + 1)
             initiallyPositioned = true
+        }
+    }
+    LaunchedEffect(animateEntrance, initiallyPositioned) {
+        if (animateEntrance && (initiallyPositioned || queue.current == null)) {
+            entrance.animateTo(1f, tween(330, easing = LinearEasing))
+        }
+    }
+    fun reveal(index: Int): Modifier = if (!animateEntrance) Modifier else Modifier.graphicsLayer {
+        val elapsed = entrance.value
+        if (elapsed >= 1f) {
+            alpha = 1f
+            translationY = 0f
+        } else {
+            val stagger = (index - listState.firstVisibleItemIndex).coerceIn(0, 8) * 24f
+            val progress = FastOutSlowInEasing.transform(((elapsed * 330f - stagger) / 135f).coerceIn(0f, 1f))
+            alpha = progress
+            translationY = 7.dp.toPx() * (1f - progress)
         }
     }
 
@@ -84,7 +109,7 @@ internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolea
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = trailing)) {
         if (historyCount > 0) {
             item(key = "history_header") {
-                QueueSectionHeader("History", action = {
+                QueueSectionHeader("History", modifier = reveal(0), action = {
                     Text(
                         text = desktopText("Clear"),
                         color = Color.White.copy(alpha = 0.75f),
@@ -98,11 +123,14 @@ internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolea
             }
             items(historyCount, key = { "h${history[it].index}:${history[it].value.id}" }) { offset ->
                 val (i, track) = history[offset]
-                QueueRow(track, isCurrent = false, isPlaying = false, onClick = { onPlayAt(i) }, onRemove = { onRemoveAt(i) })
+                QueueRow(track, isCurrent = false, isPlaying = false, onClick = { onPlayAt(i) },
+                    onRemove = { onRemoveAt(i) }, modifier = reveal(offset + 1))
             }
         }
+        val upcomingHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
         item(key = "continue_header") {
-            QueueSectionHeader("Continue Playing", modifier = Modifier.padding(top = if (historyCount > 0) 10.dp else 0.dp))
+            QueueSectionHeader("Continue Playing",
+                modifier = reveal(upcomingHeaderIndex).padding(top = if (historyCount > 0) 10.dp else 0.dp))
         }
         items(queue.tracks.size - upcomingStart, key = { "u${it + upcomingStart}:${queue.tracks[it + upcomingStart].id}" }) { offset ->
             val i = offset + upcomingStart
@@ -111,7 +139,8 @@ internal fun QueueList(queue: DesktopPlaybackController.Queue, isPlaying: Boolea
                 isCurrent = i == queue.index,
                 isPlaying = isPlaying,
                 onClick = { if (i == queue.index) onToggle() else onPlayAt(i) },
-                onRemove = if (i == queue.index) null else ({ onRemoveAt(i) })
+                onRemove = if (i == queue.index) null else ({ onRemoveAt(i) }),
+                modifier = reveal(upcomingHeaderIndex + offset + 1)
             )
         }
     }
@@ -137,11 +166,12 @@ private fun QueueSectionHeader(title: String, modifier: Modifier = Modifier, act
 }
 
 @Composable
-private fun QueueRow(track: Track, isCurrent: Boolean, isPlaying: Boolean, onClick: () -> Unit, onRemove: (() -> Unit)?) {
+private fun QueueRow(track: Track, isCurrent: Boolean, isPlaying: Boolean, onClick: () -> Unit, onRemove: (() -> Unit)?,
+    modifier: Modifier = Modifier) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)

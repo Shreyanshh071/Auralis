@@ -10,6 +10,8 @@ import com.auralis.music.domain.model.SpeedDialType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class SidebarPlaylistShortcutTest {
     private val imported = Playlist("imported:youtube_music:PLremote", "Imported playlist")
@@ -39,5 +41,14 @@ class SidebarPlaylistShortcutTest {
         assertNull(resolveShortcutPlaylist(shortcut, listOf(sameName), listOf(link)))
         assertNull(resolveShortcutPlaylist(shortcut, listOf(linked), listOf(link.copy(service = SyncService.SPOTIFY))))
         assertNull(resolveShortcutPlaylist(shortcut, listOf(linked, sameName), listOf(link, link.copy(localId = sameName.id))))
+    }
+
+    @Test fun hidesDeletedPlaylistShortcutsAndKeepsValidLinks() {
+        assertFalse(isShortcutAvailable(shortcut, listOf(sameName), emptyList()))
+        assertFalse(isShortcutAvailable(shortcut.copy(type = SpeedDialType.PLAYLIST,
+            id = "playlist-${imported.id}", album = null), emptyList(), emptyList()))
+        assertTrue(isShortcutAvailable(shortcut, listOf(linked), listOf(link)))
+        val album = PlaylistResult("MPRE-album", "Album")
+        assertTrue(isShortcutAvailable(shortcut.copy(id = "album-${album.id}", album = album), emptyList(), emptyList()))
     }
 }

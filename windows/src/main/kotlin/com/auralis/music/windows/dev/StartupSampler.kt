@@ -139,6 +139,7 @@ internal object ClassArchive {
  * the buffer swap and the wait for the display), shown when 9ms or more.
  */
 internal object FrameLog {
+    var enabled = false
     private val times = LongArray(512)
     private val widths = IntArray(512)
     private val heights = IntArray(512)
@@ -239,7 +240,7 @@ internal fun installRenderTiming(window: java.awt.Window, dataDir: File) {
 
 /** A panel's measure and place time in [FrameLog] (named in the frame log). */
 internal fun timedLayout(name: String): androidx.compose.ui.Modifier =
-    androidx.compose.ui.Modifier.layout { measurable, constraints ->
+    if (!FrameLog.enabled) androidx.compose.ui.Modifier else androidx.compose.ui.Modifier.layout { measurable, constraints ->
         val started = System.nanoTime()
         val placeable = measurable.measure(constraints)
         FrameLog.part(name, System.nanoTime() - started)

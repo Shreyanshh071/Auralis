@@ -9,6 +9,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +50,7 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
 import com.auralis.music.domain.model.LyricLine
+import com.auralis.music.data.parser.WordTiming
 import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
 import kotlin.math.PI
@@ -57,6 +60,7 @@ import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.roundToInt
 
 /** Native drawing of the Spicy style: soft word fill, swelling syllables and held-note letters.
  * This is an independent Compose renderer; the API supplies data, never executable UI code.
@@ -295,9 +299,10 @@ fun SpicyLyricsLine(
     nextLineTime: Long? = null
 ) {
     val glyphMotion = com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion.current
-    val displayText = remember(line.text, line.isBackground) { SpicyBackingText.displayText(line.text, line.isBackground) }
-    val displayWords = remember(displayText, words, line.isBackground) {
-        SpicyBackingText.displayWords(displayText, words, line.isBackground)
+    val repaired = remember(line, words) { WordTiming.repairTimedSyllableSpacing(line.copy(words = words)) }
+    val displayText = remember(repaired.text, line.isBackground) { SpicyBackingText.displayText(repaired.text, line.isBackground) }
+    val displayWords = remember(displayText, repaired.words, line.isBackground) {
+        SpicyBackingText.displayWords(displayText, repaired.words, line.isBackground)
     }
     val imageLifetime = remember(displayText) { SpicyImageLifetime() }
     // Line-sync is a whole-line highlight. Do not manufacture timed words from its text.
@@ -378,31 +383,6 @@ fun SpicyLyricsLine(
             }
         }.orEmpty()
     }
-    val inkMasks = remember(layout, geometry, style, density) {
-        val fontPx = with(density) { style.fontSize.toPx() }
-        geometry.map { slice ->
-            // Advance boxes are not ink bounds: italic end glyphs overhang them.
-            // Give letter masks the same outer gutters as whole-word masks while
-            // retaining shared boundaries between adjacent animation pieces.
-            run {
-                        val previous = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x < slice.bounds.center.x }
-                            .maxOfOrNull { it.bounds.right }
-                        val next = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x > slice.bounds.center.x }
-                            .minOfOrNull { it.bounds.left }
-                        val measured = checkNotNull(layout)
-                        // Tight line-height trims can place real ink beyond the first/last
-                        // layout row. Only internal edges need to fence off neighbouring rows.
-                        val outerGutter = fontPx * .3f
-                        val top = measured.getLineTop(slice.row) - if (slice.row == 0) outerGutter else 0f
-                        val bottom = measured.getLineBottom(slice.row) +
-                            if (slice.row == measured.lineCount - 1) outerGutter else 0f
-                        Rect(previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - outerGutter),
-                            top,
-                            next?.let { (it + slice.bounds.right) / 2 } ?: (slice.bounds.right + outerGutter),
-                            bottom)
-            }
-        }
-    }
     val raster = remember(layout, density, direction, groups) {
         layout?.let { measured ->
             val fontPx = with(density) { style.fontSize.toPx() }
@@ -415,6 +395,43 @@ fun SpicyLyricsLine(
             }
             imageLifetime.retain(listOf(bitmap))
             bitmap to pad.toFloat()
+        }
+    }
+    val inkMasks = remember(layout, geometry, raster, style, density) {
+        val measured = layout
+        val fontPx = with(density) { style.fontSize.toPx() }
+        val gutter = fontPx * .3f
+        if (measured == null) emptyList() else {
+            val rowEdges = raster?.takeIf { measured.lineCount > 1 }?.let { (bitmap, pad) ->
+                wrappedInkEdges(bitmap, pad, measured, fontPx)
+            }
+            geometry.map { slice ->
+                val neighbors = geometry.filter { it.row == slice.row && it !== slice }
+                val previous = neighbors.filter { it.bounds.center.x < slice.bounds.center.x }.maxOfOrNull { it.bounds.right }
+                val next = neighbors.filter { it.bounds.center.x > slice.bounds.center.x }.minOfOrNull { it.bounds.left }
+                val left = previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - gutter)
+                val right = next?.let { (it + slice.bounds.right) / 2 } ?: (slice.bounds.right + gutter)
+                val top = rowEdges?.getOrNull(slice.row - 1) ?: (measured.getLineTop(slice.row) - gutter)
+                val bottom = rowEdges?.getOrNull(slice.row) ?: (measured.getLineBottom(slice.row) + gutter)
+                if (rowEdges == null) Rect(left, top, right, bottom)
+                else Rect(left.roundToInt().toFloat(), top.roundToInt().toFloat(),
+                    right.roundToInt().toFloat(), bottom.roundToInt().toFloat())
+            }
+        }
+    }
+    val wrappedPieces = remember(raster, inkMasks, layout) {
+        val source = raster
+        if (source == null || (layout?.lineCount ?: 1) <= 1) emptyList() else {
+            val (bitmap, pad) = source
+            inkMasks.map { ink ->
+                val offset = IntOffset((ink.left + pad).toInt(), (ink.top + pad).toInt())
+                val size = IntSize(ink.width.toInt().coerceAtLeast(1), ink.height.toInt().coerceAtLeast(1))
+                val piece = ImageBitmap(size.width, size.height)
+                CanvasDrawScope().draw(density, direction, Canvas(piece), Size(size.width.toFloat(), size.height.toFloat())) {
+                    drawImage(bitmap, srcOffset = offset, srcSize = size)
+                }
+                piece
+            }.also { imageLifetime.retain(it) }
         }
     }
     val wordSprings = remember(groups) { groups.map { SpicySprings() } }
@@ -583,10 +600,39 @@ fun SpicyLyricsLine(
                     val baseAlpha = if (line.isBackground) 1f else .85f
                     val glowingAlpha = baseAlpha + (1f - baseAlpha) *
                         maxOf(strength, lit * ACTIVE_RESTING_BRIGHTNESS).coerceIn(0f, 1f)
-                    drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds, glowingAlpha)
+                    val piece = wrappedPieces.getOrNull(index)
+                    drawFill(piece ?: text, if (piece == null) origin else inkBounds.topLeft,
+                        slice.bounds, fill, slice.rtl, fontPx, inkBounds, glowingAlpha)
                 }
             }
         })
+}
+
+/** Find the least ink near each layout boundary before cutting the paragraph into moving pieces. */
+private fun wrappedInkEdges(
+    bitmap: ImageBitmap, pad: Float, layout: TextLayoutResult, fontPx: Float
+): List<Float> {
+    val reach = (fontPx * .18f).roundToInt().coerceAtLeast(1)
+    val scan = IntArray(bitmap.width * (2 * reach + 1))
+    return (0 until layout.lineCount - 1).map { row ->
+        val nominal = (layout.getLineBottom(row) + pad).roundToInt()
+        val first = (nominal - reach).coerceAtLeast(0)
+        val last = (nominal + reach).coerceAtMost(bitmap.height - 1)
+        bitmap.readPixels(scan, startY = first, height = last - first + 1)
+        var best = nominal
+        var bestScore = Long.MAX_VALUE
+        for (y in first..last) {
+            var ink = 0L
+            val start = (y - first) * bitmap.width
+            for (x in start until start + bitmap.width) ink += scan[x] ushr 24
+            val score = ink * (reach + 1) + abs(y - nominal)
+            if (score < bestScore) {
+                best = y
+                bestScore = score
+            }
+        }
+        best - pad
+    }
 }
 
 /** Line-sync's vertical fill and breath use the original line interval, including wrapped rows. */
@@ -645,7 +691,8 @@ private fun SpicyLineSyncedText(line: LyricLine, positionMs: State<Long>, style:
 }
 
 /** Spicy's gradient: lit up to [fill] of the slice, then a fade over the next fifth of it. */
-private fun DrawScope.drawFill(text: ImageBitmap, origin: Offset, bounds: Rect, fill: Float, rtl: Boolean, fontPx: Float, inkBounds: Rect = bounds, litAlpha: Float = .85f) {
+private fun DrawScope.drawFill(text: ImageBitmap, origin: Offset, bounds: Rect, fill: Float, rtl: Boolean, fontPx: Float,
+    inkBounds: Rect = bounds, litAlpha: Float = .85f) {
     // The raster contains the whole paragraph. Stay inside this row vertically:
     // expanding into its neighbours paints their unsung glyphs with this word's fill.
     // Slices must not overlap: half a pixel of a neighbouring glyph otherwise

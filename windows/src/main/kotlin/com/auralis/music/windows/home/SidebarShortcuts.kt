@@ -36,6 +36,9 @@ internal fun resolveShortcutPlaylist(item: SpeedDialItem, playlists: List<Playli
     return playlists.singleOrNull { it.id in linkedIds }
 }
 
+internal fun isShortcutAvailable(item: SpeedDialItem, playlists: List<Playlist>, links: List<PlaylistSyncLink>): Boolean =
+    item.localPlaylistId() == null || resolveShortcutPlaylist(item, playlists, links) != null
+
 /** The same persisted pins used by song, playlist, album and artist menus, visible on every page. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +102,7 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
         it.isPinned || it.id in state.pinnedSpeedDialIds || it.track?.id in state.pinnedSpeedDialIds
     }
     val pins = (state.pinnedItems + pinnedCandidateMatches + pagePins).filter { item ->
+        if (!isShortcutAvailable(item, playlists, playlistLinks)) return@filter false
         val itemAlbum = item.album
         item.isPinned ||
         item.id in state.pinnedSpeedDialIds ||

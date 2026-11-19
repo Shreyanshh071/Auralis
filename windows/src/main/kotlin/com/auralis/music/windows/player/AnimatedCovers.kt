@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
+import com.auralis.music.util.PropertiesFileKeyValueStore
+import com.auralis.music.util.desktopAppDataDir
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -37,9 +39,13 @@ import java.util.concurrent.ConcurrentHashMap
 /** Where animated covers come from. Auto tries Apple Music, then Tidal, then the curated library. */
 internal enum class CanvasSource(val label: String) { AUTO("Auto"), APPLE("Apple Music"), TIDAL("Tidal"), CURATED("Curated library") }
 
+internal enum class StageVisual(val label: String) {
+    AUTO("Auto"), SPOTIFY("Spotify Canvas"), ALBUM("Animated cover")
+}
+
 internal data class CanvasPrefs(val enabled: Boolean = true, val source: CanvasSource = CanvasSource.AUTO, val spotifyCanvas: Boolean = true,
     /** Ask Spotify with the signed-in account when SpicyLyrics has no Canvas. Off by default. */
-    val spotifyAccount: Boolean = false)
+    val spotifyAccount: Boolean = false, val stageVisual: StageVisual = StageVisual.AUTO)
 
 /** Appearance > Animated covers, kept in its own small file. */
 internal object CanvasSettings {
@@ -48,6 +54,11 @@ internal object CanvasSettings {
     }
     private val mutable = MutableStateFlow(load())
     val prefs: StateFlow<CanvasPrefs> = mutable
+    private val songVisuals by lazy { SongStageVisuals(PropertiesFileKeyValueStore(File(desktopAppDataDir(), "stage-visuals.properties"))) }
+    val songVisualChanges get() = songVisuals.changes
+
+    fun songVisual(track: Track) = songVisuals.get(track)
+    fun setSongVisual(track: Track, visual: StageVisual?) = songVisuals.set(track, visual)
 
     private var introPlays = -1
     private var lastIntroSession: Long? = null
@@ -83,12 +94,33 @@ internal object CanvasSettings {
         CanvasPrefs(store.getString("enabled", "true") != "false",
             CanvasSource.entries.firstOrNull { it.name == store.getString("source", "AUTO") } ?: CanvasSource.AUTO,
             store.getString("spotifyCanvas", "true") != "false",
-            store.getString("spotifyAccount", "false") == "true")
+            store.getString("spotifyAccount", "false") == "true",
+            StageVisual.entries.firstOrNull { it.name == store.getString("stageVisual", "") } ?: StageVisual.AUTO)
     }.getOrDefault(CanvasPrefs())
 
     fun update(prefs: CanvasPrefs) {
         mutable.value = prefs
-        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name, "spotifyCanvas" to prefs.spotifyCanvas.toString(), "spotifyAccount" to prefs.spotifyAccount.toString(), "loopIntroPlays" to introPlays.toString())) }
+        runCatching { store.putStrings(mapOf("enabled" to prefs.enabled.toString(), "source" to prefs.source.name,
+            "spotifyCanvas" to prefs.spotifyCanvas.toString(), "spotifyAccount" to prefs.spotifyAccount.toString(),
+            "stageVisual" to prefs.stageVisual.name, "loopIntroPlays" to introPlays.toString())) }
+    }
+}
+
+/** Keyed by recording and release, with legacy tracks falling back to their song ID. */
+internal class SongStageVisuals(private val store: com.auralis.music.util.KeyValueStore) {
+    private val revision = MutableStateFlow(0L)
+    val changes: StateFlow<Long> = revision
+
+    private fun key(track: Track): String =
+        "${track.id.length}:${track.id}:${track.albumId ?: track.album.orEmpty().trim().lowercase()}"
+
+    fun get(track: Track): StageVisual? =
+        StageVisual.entries.firstOrNull { it.name == store.getString(key(track), "") && it != StageVisual.AUTO }
+
+    @Synchronized
+    fun set(track: Track, visual: StageVisual?) {
+        store.putStrings(mapOf(key(track) to (visual?.name ?: "")))
+        revision.value++
     }
 }
 
@@ -98,6 +130,8 @@ internal object CanvasLookup {
     private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     private val http by lazy { com.auralis.music.data.network.NetworkClientProvider.okHttpClient }
     private val found = ConcurrentHashMap<String, String>()   // key -> url, or "" for none
+    private val lookupLocks = Array(32) { kotlinx.coroutines.sync.Mutex() }
+    private val videoLocks = Array(32) { kotlinx.coroutines.sync.Mutex() }
     private val disk by lazy {
         com.auralis.music.util.PropertiesFileKeyValueStore(File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers.properties"))
     }
@@ -108,11 +142,19 @@ internal object CanvasLookup {
         val version = if (preferTall) "v4" else "v3"
         val key = "$version|${source.name}|${titleKey(track.title)}|${norm(track.artist)}|${albumKey(track.album.orEmpty())}|tall=$preferTall"
         found[key]?.let { return@withContext it.ifBlank { null } }
+        lookupLocks[key.hashCode().ushr(1) % lookupLocks.size].withLock {
+            findUncached(key, track, source, preferTall)
+        }
+    }
+
+    private suspend fun findUncached(key: String, track: Track, source: CanvasSource, preferTall: Boolean): String? {
+        found[key]?.let { return it.ifBlank { null } }
         disk.getString(key, "")?.takeIf { it.isNotEmpty() }?.let { cached ->
             val (url, at) = cached.substringBefore('\t') to (cached.substringAfter('\t', "0").toLongOrNull() ?: 0L)
             // A miss is retried after a week; a found video is kept.
             if (url.isNotBlank() || System.currentTimeMillis() - at < 7 * 86_400_000L) {
-                found[key] = url; return@withContext url.ifBlank { null }
+                found[key] = url
+                return url.ifBlank { null }
             }
         }
         val sources = if (source == CanvasSource.AUTO) listOf(CanvasSource.APPLE, CanvasSource.TIDAL, CanvasSource.CURATED) else listOf(source)
@@ -124,16 +166,18 @@ internal object CanvasLookup {
                     CanvasSource.CURATED -> curated(track)
                     CanvasSource.AUTO -> null
                 }
-            }.onFailure { Log.w(TAG, "${s.label} lookup failed for '${track.title}': ${it.message}") }.getOrNull()
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                Log.w(TAG, "${s.label} lookup failed for '${track.title}': ${it.message}")
+            }.getOrNull()
         }
         found[key] = url.orEmpty()
         runCatching { disk.putStrings(mapOf(key to "${url.orEmpty()}\t${System.currentTimeMillis()}")) }
         if (url != null) Log.i(TAG, "Animated cover (tall=$preferTall) for '${track.title}': $url")
-        url
+        return url
     }
 
     private val videoFolder by lazy { File(com.auralis.music.util.desktopAppDataDir(), "cache/animated-covers") }
-    private val playableLock = kotlinx.coroutines.sync.Mutex()
     private const val MAX_VIDEO_BYTES = 64L * 1024 * 1024
 
     /**
@@ -143,9 +187,9 @@ internal object CanvasLookup {
      */
     suspend fun playable(url: String): String = withContext(Dispatchers.IO) {
         if (!url.startsWith("https://") || url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) return@withContext url
-        playableLock.withLock {
-            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
-            val name = digest.take(16).joinToString("") { "%02x".format(it) } + ".mp4"
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
+        val name = digest.take(16).joinToString("") { "%02x".format(it) } + ".mp4"
+        videoLocks[name.hashCode().ushr(1) % videoLocks.size].withLock {
             val target = File(videoFolder, name)
             if (target.isFile && target.length() > 64 * 1024) return@withLock target.absolutePath
             runCatching {
@@ -306,17 +350,51 @@ internal object CanvasLookup {
 internal fun isStageCanvasAspect(width: Int, height: Int): Boolean =
     width > 0 && height > 0 && kotlin.math.abs(width.toDouble() / height - 9.0 / 16) < .05
 
-internal suspend fun <T : Any> firstStageSource(
-    album: Deferred<T?>, spotify: Deferred<T?>
+internal suspend fun <T : Any> preferredStageSource(
+    preferred: Deferred<T?>, fallback: Deferred<T?>, graceMs: Long? = null
 ): Pair<T?, Deferred<T?>?> {
-    val (first, other) = select {
-        album.onAwait { it to spotify }
-        spotify.onAwait { it to album }
+    if (graceMs == null) {
+        return preferred.await()?.let { it to fallback } ?: (fallback.await() to null)
     }
-    return if (first == null) other.await() to null else first to other
+    // Give Auto's preferred source a head start. A slow catalogue lookup must not
+    // keep an already playable album video off the stage indefinitely.
+    withTimeoutOrNull(graceMs) { preferred.await() to Unit }?.let { (video, _) ->
+        return if (video != null) video to fallback else fallback.await() to null
+    }
+    return select {
+        preferred.onAwait { if (it != null) it to fallback else fallback.await() to null }
+        fallback.onAwait { if (it != null) it to preferred else preferred.await() to null }
+    }
 }
 
-private data class StageVideo(val path: String, val spotifyId: String? = null)
+internal const val AUTO_CANVAS_HEAD_START_MS = 1_250L
+
+internal suspend fun <T : Any> chooseAutoStageSource(
+    cached: Deferred<T?>, spotify: Deferred<T?>, album: Deferred<T?>
+): Pair<T?, Deferred<T?>?> = cached.await()?.let { it to album }
+    ?: preferredStageSource(spotify, album, graceMs = AUTO_CANVAS_HEAD_START_MS)
+
+internal data class StageVideo(val path: String, val spotifyId: String? = null)
+
+/** Survives closing the player. The owner creates a new choice for each playback session. */
+internal class StagePlaybackChoice {
+    private var settings: Pair<CanvasPrefs, StageVisual?>? = null
+    private var video: StageVideo? = null
+
+    fun current(prefs: CanvasPrefs, songVisual: StageVisual?): StageVideo? =
+        video.takeIf { settings == (prefs to songVisual) }
+
+    fun commit(prefs: CanvasPrefs, songVisual: StageVisual?, video: StageVideo) {
+        if (current(prefs, songVisual) != null) return
+        settings = prefs to songVisual
+        this.video = video
+    }
+
+    fun forgetFailed(prefs: CanvasPrefs, songVisual: StageVisual?, path: String) {
+        if (current(prefs, songVisual)?.path == path) video = null
+    }
+}
+
 private enum class VideoStart { READY, REJECTED, COVER_ONLY }
 
 /**
@@ -327,27 +405,37 @@ private enum class VideoStart { READY, REJECTED, COVER_ONLY }
 internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
     motionAura: MotionAura? = null, spotifyCanvasId: String? = null, stage: Boolean = false,
     playbackClock: PlaybackClockSource? = null, enabled: Boolean = true,
-    onStageUnavailable: (() -> Unit)? = null,
+    songVisual: StageVisual? = null,
+    stageChoice: StagePlaybackChoice? = null,
     artwork: @Composable BoxScope.() -> Unit) {
     val prefs by CanvasSettings.prefs.collectAsState()
-    val latestStageUnavailable by rememberUpdatedState(onStageUnavailable)
-    var url by remember(track, prefs, spotifyCanvasId, stage, enabled) { mutableStateOf<String?>(null) }
-    var resolvedSpotifyId by remember(track, prefs, spotifyCanvasId, stage, enabled) { mutableStateOf<String?>(null) }
-    var alternateStageVideo by remember(track, prefs, spotifyCanvasId, stage, enabled) {
+    val visual = songVisual ?: prefs.stageVisual
+    val trackKey = if (stage) track?.id else track
+    var lookupHint by remember(track?.id, stageChoice, prefs, songVisual) { mutableStateOf(spotifyCanvasId) }
+    var url by remember(trackKey, prefs, lookupHint, stage, enabled, songVisual, stageChoice) { mutableStateOf<String?>(null) }
+    var resolvedSpotifyId by remember(trackKey, prefs, lookupHint, stage, enabled, songVisual, stageChoice) { mutableStateOf<String?>(null) }
+    var alternateStageVideo by remember(trackKey, prefs, lookupHint, stage, enabled, songVisual, stageChoice) {
         mutableStateOf<Deferred<StageVideo?>?>(null)
     }
-    val rejectedStageUrls = remember(track, prefs, spotifyCanvasId, stage, enabled) { mutableSetOf<String>() }
+    val rejectedStageUrls = remember(trackKey, prefs, lookupHint, stage, enabled, songVisual, stageChoice) { mutableSetOf<String>() }
+    LaunchedEffect(spotifyCanvasId, url, stageChoice, track?.id, prefs, songVisual) {
+        // Lyrics may supply an ID while the stage still shows the static cover.
+        if (stage && url == null && stageChoice?.current(prefs, songVisual) == null && spotifyCanvasId != null) {
+            lookupHint = spotifyCanvasId
+        }
+    }
     fun showStageVideo(video: StageVideo?) {
         resolvedSpotifyId = video?.spotifyId
         url = video?.path
         when {
-            video == null -> latestStageUnavailable?.invoke()
+            video == null -> Unit
             video.spotifyId != null -> Log.i("AnimatedCovers", "Stage for '${track?.title}': Spotify Canvas ${video.spotifyId}")
             else -> Log.i("AnimatedCovers", "Stage for '${track?.title}': album motion artwork")
         }
     }
-    LaunchedEffect(track, prefs, spotifyCanvasId, stage, enabled) {
-        val allowed = enabled && (prefs.enabled || (stage && prefs.spotifyCanvas))
+    LaunchedEffect(trackKey, prefs, lookupHint, stage, enabled, songVisual, stageChoice) {
+        val spotifyAllowed = stage && prefs.spotifyCanvas && songVisual != StageVisual.ALBUM
+        val allowed = enabled && (prefs.enabled || spotifyAllowed)
         if (track != null && allowed && !com.auralis.music.windows.dev.PerfFlags.off("animatedcover")) coroutineScope {
             val engineAvailable = async(Dispatchers.IO) {
                 com.auralis.music.desktop.playback.CanvasVideoEngine.available
@@ -358,17 +446,32 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     if (prefs.enabled) CanvasLookup.find(track, prefs.source)
                         ?.let { StageVideo(CanvasLookup.playable(it)) } else null
                 }
+                val cachedSpotify = async(Dispatchers.IO) {
+                    if (spotifyAllowed && visual == StageVisual.AUTO)
+                        TrackCanvasLookup.findCached(track, lookupHint, matchRelease = true)
+                            ?.takeUnless { CoverOnlyCanvas.verdict(it.spotifyId) == true }
+                            ?.let { StageVideo(it.path, it.spotifyId) }
+                    else null
+                }
                 val spotify = async(Dispatchers.IO) {
-                    if (prefs.spotifyCanvas) TrackCanvasLookup.find(track, spotifyCanvasId)
+                    cachedSpotify.await() ?: if (spotifyAllowed)
+                        TrackCanvasLookup.find(track, lookupHint, matchRelease = visual != StageVisual.SPOTIFY)
                         ?.takeUnless { CoverOnlyCanvas.verdict(it.spotifyId) == true }
                         ?.let { StageVideo(it.path, it.spotifyId) } else null
                 }
                 if (engineAvailable.await()) {
-                    val (first, alternate) = firstStageSource(album, spotify)
+                    val committed = stageChoice?.current(prefs, songVisual)
+                    val (first, alternate) = when {
+                        committed != null -> committed to if (committed.spotifyId == null) spotify else album
+                        !spotifyAllowed || visual == StageVisual.ALBUM -> preferredStageSource(album, spotify)
+                        !prefs.enabled || visual == StageVisual.SPOTIFY -> preferredStageSource(spotify, album)
+                        else -> chooseAutoStageSource(cachedSpotify, spotify, album)
+                    }
                     alternateStageVideo = alternate
                     showStageVideo(first)
                 } else {
                     album.cancel()
+                    cachedSpotify.cancel()
                     spotify.cancel()
                     showStageVideo(null)
                 }
@@ -376,16 +479,18 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 url = CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
                 Log.i("AnimatedCovers", "Cover for '${track.title}': ${url ?: "still artwork"}")
             }
-        } else if (stage) {
-            latestStageUnavailable?.invoke()
         }
     }
     Box(modifier) {
         artwork()
         val video = url
-        if (video != null && com.auralis.music.ui.player.LocalPlaybackVisualsActive.current) key(track?.id, video) {
+        val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
+        val visibleNow by rememberUpdatedState(visualsActive)
+        var retainDecoder by remember(trackKey, video, stageChoice) { mutableStateOf(false) }
+        if (video != null && (visualsActive || (stage && retainDecoder))) key(track?.id, video, stageChoice) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
             val firstFrame = remember { CompletableDeferred<VideoStart>() }
+            val decodedFrame = remember { CompletableDeferred<Unit>() }
             // First play of a stage Canvas: compare its frames with the
             // song's cover, so a Canvas that is only that cover on a blur is never shown.
             val stageSpotifyId = resolvedSpotifyId?.takeIf { stage }
@@ -399,18 +504,21 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 } finally { coverPending.set(false) }
             }
             LaunchedEffect(video, motionAura, stage, stageSpotifyId, playbackClock) {
+                if (stage) retainDecoder = true
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
                 var stop: (() -> Unit)? = null
                 try {
                     withContext(Dispatchers.IO) {
                         stop = com.auralis.music.desktop.playback.CanvasVideoEngine.play(
                             video, clock = playbackClock, frameShortSide = if (stage) 1440 else 960,
-                            loop = true, canPause = { firstFrame.isCompleted }
+                            loop = true, canPause = { firstFrame.isCompleted },
+                            videoVisible = if (stage) ({ visibleNow }) else null
                         ) {
                             synchronized(active) {
                                 if (active.get()) {
                                     // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
                                     if (stageSpotifyId == null || isStageCanvasAspect(it.width, it.height)) {
+                                        decodedFrame.complete(Unit)
                                         if (!firstFrame.isCompleted || frame != null) when (gate.allow(it)) {
                                             true -> {
                                                 frame = it
@@ -436,17 +544,25 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                 val started = System.currentTimeMillis()
                 val alternate = alternateStageVideo
                 val result = if (alternate == null) firstFrame.await() else {
-                    withTimeoutOrNull(5_000) { firstFrame.await() } ?: select<VideoStart?> {
+                    val startupBudget = if (stageSpotifyId != null && visual == StageVisual.AUTO) 1_800L else 5_000L
+                    val startedVideo = withTimeoutOrNull(startupBudget) { firstFrame.await() }
+                    val assessedVideo = if (startedVideo == null && decodedFrame.isCompleted) {
+                        // A decoding Canvas may still be going through the cover-only check.
+                        withTimeoutOrNull(5_000L) { firstFrame.await() }
+                    } else startedVideo
+                    assessedVideo ?: select<VideoStart?> {
                         firstFrame.onAwait { it }
                         alternate.onAwait { if (it != null) null else firstFrame.await() }
                     }
                 }
                 if (result == VideoStart.READY) {
                     Log.i("AnimatedCovers", "Stage video visible after ${System.currentTimeMillis() - started}ms")
-                    // Prepare the sharper copy for the next play without restarting the visible loop.
+                    stageChoice?.commit(prefs, songVisual, StageVideo(video, stageSpotifyId))
+                    // Source lookups finish in the background and warm the cache for the next play.
                     if (stageSpotifyId != null) SpotifyCanvasLookup.sharp(stageSpotifyId)
                     return@LaunchedEffect
                 }
+                stageChoice?.forgetFailed(prefs, songVisual, video)
                 rejectedStageUrls.add(video)
                 alternateStageVideo = null
                 val replacement = alternate?.await()?.takeUnless { it.path in rejectedStageUrls }

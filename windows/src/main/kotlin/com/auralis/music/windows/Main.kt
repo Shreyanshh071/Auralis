@@ -141,6 +141,8 @@ fun main(args: Array<String>) {
     }
 
     val launchStarted = System.currentTimeMillis()
+    val traceLayout = java.io.File(dataDir, "trace-frames").isFile || java.io.File(dataDir, "trace-resize").isFile
+    com.auralis.music.windows.dev.FrameLog.enabled = traceLayout
     com.auralis.music.windows.dev.StartupSampler.startIfRequested(dataDir)
     com.auralis.music.windows.dev.ClassArchive.maintainIfPackaged()
     Log.i(TAG, "Starting Auralis for ${if (isMacPlatform) "macOS" else "Windows"} ${System.getProperty("jpackage.app-version") ?: "(dev)"}, args=${args.toList()}")
@@ -939,7 +941,6 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
             LaunchedEffect(components?.playback) {
                 val pb = components?.playback
                 if (pb != null) {
@@ -965,10 +966,13 @@ fun main(args: Array<String>) {
                 Log.i(TAG, "UI settled ${System.currentTimeMillis() - launchStarted}ms after launch")
                 appSettled = true
             }
-            val coverAlpha by androidx.compose.animation.core.animateFloatAsState(if (appSettled) 0f else 1f,
+            val coverAlpha = androidx.compose.animation.core.animateFloatAsState(if (appSettled) 0f else 1f,
                 androidx.compose.animation.core.tween(160), label = "startupCover")
+            val showStartupCover by remember(coverAlpha) {
+                androidx.compose.runtime.derivedStateOf { coverAlpha.value > 0f }
+            }
             if (ready != null) Box(Modifier.fillMaxSize().background(Color(0xFF0F0E13))
-                .layout { measurable, constraints ->
+                .then(if (traceLayout) Modifier.layout { measurable, constraints ->
                     val started = System.nanoTime()
                     val placeable = measurable.measure(constraints)
                     com.auralis.music.windows.dev.FrameLog.laidOut(System.nanoTime() - started)
@@ -982,7 +986,7 @@ fun main(args: Array<String>) {
                     com.auralis.music.windows.dev.FrameLog.drawn(size.width.toInt(), size.height.toInt())
                     drawContent()
                     com.auralis.music.windows.dev.FrameLog.drawFinished()
-                }) {
+                } else Modifier)) {
                 Box(Modifier.fillMaxSize().layout { measurable, constraints ->
                     val appConstraints = if (embeddedCoverActive) retainedAppConstraints.get() ?: constraints
                         else constraints.also { retainedAppConstraints.set(it) }
@@ -1041,8 +1045,8 @@ fun main(args: Array<String>) {
                 )
                 }
                 }
-                if (coverAlpha > 0f) Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)
-                    .graphicsLayer { alpha = coverAlpha }.background(Color(0xFF0F0E13))
+                if (showStartupCover) Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)
+                    .graphicsLayer { alpha = coverAlpha.value }.background(Color(0xFF0F0E13))
                     // Clicks don't reach controls that aren't visible yet.
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
                 androidx.compose.animation.AnimatedVisibility(

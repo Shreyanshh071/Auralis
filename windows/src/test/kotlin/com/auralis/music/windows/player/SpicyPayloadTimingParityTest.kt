@@ -10,6 +10,18 @@ import org.json.JSONObject
 import kotlin.test.*
 
 class SpicyPayloadTimingParityTest {
+    @Test fun repairsGluedWordsFromCachedSyllablesWithoutChangingTheirTiming() {
+        fun timed(vararg pieces: String): LyricWord {
+            val syllables = pieces.mapIndexed { index, text -> LyricWord(text, index * 500L, 500) }
+            return LyricWord(pieces.joinToString(""), 0, pieces.size * 500L, syllables = syllables)
+        }
+        val words = listOf(timed("plastic", "watering "), timed("chinese", "rubber", "plant "), timed("beauti", "ful"))
+        val repaired = WordTiming.repairTimedSyllableSpacing(LyricLine(0, words.joinToString("") { it.word }, words = words))
+        assertEquals("plastic watering chinese rubber plant beautiful", repaired.text)
+        assertEquals(words.flatMap { it.syllables.orEmpty() }.map { it.time to it.duration },
+            repaired.words.orEmpty().flatMap { it.syllables.orEmpty() }.map { it.time to it.duration })
+    }
+
     @Test fun samePayloadKeepsEverySplitAndRegularSpicyEmphasisDecisionThroughTheAppPipeline() {
         // Same source-syllable decision as Spicy's regular Syllable.ts:
         // each supplied duration >=1000ms uses Emphasize, ending 250ms early.

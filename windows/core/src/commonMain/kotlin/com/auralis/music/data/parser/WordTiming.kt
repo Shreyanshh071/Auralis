@@ -234,7 +234,7 @@ object WordTiming {
         "friend", "world", "life", "time", "year", "day", "night", "way", "thing",
         "eye", "hand", "head", "heart", "body", "soul", "mind", "face", "door",
         "house", "home", "room", "road", "street", "car", "city", "town", "water",
-        "sky", "sun", "moon", "star", "fire", "earth", "air", "tree", "plant",
+        "sky", "sun", "moon", "star", "fire", "earth", "air", "tree", "plant", "plastic", "rubber",
         "sound", "word", "song", "music", "voice", "name", "place", "part", "side",
         "end", "line", "shadow", "dream", "truth", "lie", "peace", "war", "pain",
         "tear", "smile", "kiss", "bed", "blood", "bone", "breath", "rain", "wind",
@@ -530,6 +530,31 @@ object WordTiming {
     )
 
     private fun letters(text: String): String = text.lowercase().filter { it.isLetter() }
+
+    /** Insert missing word boundaries while retaining the provider's syllable clocks. */
+    fun repairTimedSyllableSpacing(line: LyricLine): LyricLine {
+        val words = line.words ?: return line
+        if (words.none { !it.syllables.isNullOrEmpty() }) return line
+        val joined = words.joinToString("") { it.word }.trim()
+        if (joined != line.text.trim()) return line
+        val repaired = words.map { word ->
+            val parts = word.syllables ?: return@map word
+            if (parts.joinToString("") { it.word } != word.word) return@map word
+            val spaced = parts.toMutableList()
+            var accumulated = parts.firstOrNull()?.word.orEmpty()
+            for (i in 1 until parts.size) {
+                val previous = parts[i - 1].word
+                val next = parts[i].word
+                val hasSpace = previous.lastOrNull()?.isWhitespace() == true || next.firstOrNull()?.isWhitespace() == true
+                if (hasSpace || isWordBoundaryWithoutSpace(accumulated, previous, next)) {
+                    if (!hasSpace) spaced[i - 1] = parts[i - 1].copy(word = "$previous ")
+                    accumulated = next
+                } else accumulated += next
+            }
+            if (spaced == parts) word else word.copy(word = spaced.joinToString("") { it.word }, syllables = spaced)
+        }
+        return if (repaired == words) line else line.copy(text = repaired.joinToString("") { it.word }.trim(), words = repaired)
+    }
 
     /**
      * True when two spans written with no space between them are nonetheless separate words.

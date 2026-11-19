@@ -117,16 +117,51 @@ if (-not (Test-Path -LiteralPath "$distributionDir\Auralis.exe")) {
     throw "Missing Windows distribution at $distributionDir"
 }
 Write-Host "==> Updating installed application and runtime..." -ForegroundColor Cyan
-Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $appLocalDir -Recurse -Force
+function Copy-AppImage([string]$destination) {
+    $vlcPath = 'app\resources\vlc'
+    $sourceVlc = Join-Path $distributionDir $vlcPath
+    $targetVlc = Join-Path $destination $vlcPath
+    if (-not (Test-Path -LiteralPath $targetVlc -PathType Container)) {
+        Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+        }
+        return
+    }
+
+    # VLC indexes plugin DLLs by file timestamp and size. Keep the installed files when
+    # their contents match so an ordinary app update can reuse the native plugin cache.
+    foreach ($folder in @('', 'app', 'app\resources')) {
+        $source = Join-Path $distributionDir $folder
+        $target = Join-Path $destination $folder
+        $vlcAncestor = @{ '' = 'app'; 'app' = 'resources'; 'app\resources' = 'vlc' }[$folder]
+        Get-ChildItem -LiteralPath $source | Where-Object Name -NE $vlcAncestor | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force
+        }
+    }
+    if (Test-Path -LiteralPath $sourceVlc -PathType Container) {
+        $vlcChanged = $false
+        foreach ($file in Get-ChildItem -LiteralPath $sourceVlc -Recurse -File) {
+            $relative = $file.FullName.Substring($sourceVlc.Length + 1)
+            $target = Join-Path $targetVlc $relative
+            if ($relative -eq 'plugins\plugins.dat') { continue }
+            if ((Test-Path -LiteralPath $target -PathType Leaf) -and
+                (Get-FileHash -LiteralPath $file.FullName).Hash -eq (Get-FileHash -LiteralPath $target).Hash) { continue }
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+            if ($file.Extension -eq '.dll') { $vlcChanged = $true }
+        }
+        $pluginCache = Join-Path $targetVlc 'plugins\plugins.dat'
+        if ($vlcChanged -and (Test-Path -LiteralPath $pluginCache -PathType Leaf)) {
+            Remove-Item -LiteralPath $pluginCache -Force
+        }
+    }
 }
 
+Copy-AppImage $appLocalDir
 $packageCaches = Get-ChildItem -Path "$env:LOCALAPPDATA\Packages\*\LocalCache\Local\Auralis" -ErrorAction SilentlyContinue
 foreach ($pkgCache in $packageCaches) {
     Write-Host "==> Syncing update to package virtualized cache: $($pkgCache.FullName)..." -ForegroundColor Cyan
-    Get-ChildItem -LiteralPath $distributionDir | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $pkgCache.FullName -Recurse -Force
-    }
+    Copy-AppImage $pkgCache.FullName
 }
 
 foreach ($sessionName in $sessionHashes.Keys) {

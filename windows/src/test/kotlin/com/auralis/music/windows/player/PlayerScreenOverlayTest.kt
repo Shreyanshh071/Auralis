@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.auralis.music.ui.components.HandCursor
 import com.auralis.music.ui.components.clickable
+import com.auralis.music.ui.components.combinedClickable
 import com.auralis.music.ui.components.handCursorRoot
 import kotlinx.coroutines.Dispatchers
 import kotlin.test.Test
@@ -51,6 +52,7 @@ class PlayerScreenOverlayTest {
         var miniPlayerClicks = 0
         var draggedBehind = false
         var overlayButtonClicks = 0
+        var lyricSeeks = 0
         var sliderValue by mutableFloatStateOf(0.2f)
         var showPlayer by mutableStateOf(true)
         var selectedPanel by mutableStateOf(PlayerPanel.LYRICS)
@@ -124,7 +126,9 @@ class PlayerScreenOverlayTest {
                                     .size(300.dp, 300.dp)
                             ) {
                                 items(40) { index ->
-                                    Box(Modifier.fillMaxWidth().height(48.dp)) {
+                                    Box(Modifier.fillMaxWidth().height(48.dp).combinedClickable(
+                                        onClick = { lyricSeeks++ }, onLongClick = {}
+                                    )) {
                                         Text("Queue item $index")
                                     }
                                 }
@@ -191,16 +195,26 @@ class PlayerScreenOverlayTest {
 
             // 4. Overlay's own controls remain interactive (close button, Queue tab, Queue scroll, HoverSlider)
             scene.sendPointerEvent(PointerEventType.Press, Offset(36f, 36f), type = PointerType.Mouse)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(36f, 36f), type = PointerType.Mouse)
+            scene.sendPointerEvent(PointerEventType.Move, Offset(38f, 37f), type = PointerType.Mouse)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(38f, 37f), type = PointerType.Mouse)
             render(2)
             assertEquals(1, overlayButtonClicks, "Player's own close button must still receive clicks")
 
             val queueTabPoint = Offset(tabsBounds.right - 30f, tabsBounds.center.y)
             scene.sendPointerEvent(PointerEventType.Move, queueTabPoint, type = PointerType.Mouse)
             scene.sendPointerEvent(PointerEventType.Press, queueTabPoint, type = PointerType.Mouse)
-            scene.sendPointerEvent(PointerEventType.Release, queueTabPoint, type = PointerType.Mouse)
+            val shiftedTabPoint = queueTabPoint + Offset(1f, 1f)
+            scene.sendPointerEvent(PointerEventType.Move, shiftedTabPoint, type = PointerType.Mouse)
+            scene.sendPointerEvent(PointerEventType.Release, shiftedTabPoint, type = PointerType.Mouse)
             render(2)
             assertEquals(PlayerPanel.QUEUE, selectedPanel, "Player's Queue tab must still be clickable")
+
+            val rowPoint = Offset(1050f, 278f)
+            scene.sendPointerEvent(PointerEventType.Press, rowPoint, type = PointerType.Mouse)
+            scene.sendPointerEvent(PointerEventType.Move, rowPoint + Offset(1f, 1f), type = PointerType.Mouse)
+            scene.sendPointerEvent(PointerEventType.Release, rowPoint + Offset(1f, 1f), type = PointerType.Mouse)
+            render(2)
+            assertEquals(1, lyricSeeks, "A scrollable lyric row must still seek with small pointer movement")
 
             // Queue LazyColumn inside overlay still scrolls
             scene.sendPointerEvent(

@@ -14,6 +14,43 @@ class SpotifyCanvasResolverTest {
     private val equivalent get() = SpicyRecording(singleId, track.title, track.artist, 197949, track.title)
 
     @Test
+    fun correspondingSingleInCacheIsFoundBeforeAnyProviderLookup() = runBlocking {
+        val resolver = SpotifyCanvasResolver({ error("No download needed") }, { _, _ -> error("No catalogue needed") },
+            releaseAlbum = { if (it == lyricsId) "Original Television Soundtrack" else track.title },
+            cachedLookup = { "/$it.mp4" })
+        assertEquals(ResolvedCanvas(singleId, "/$singleId.mp4"),
+            resolver.findCached(track, listOf(lyricsId, singleId), matchRelease = true))
+    }
+
+    @Test
+    fun autoRejectsDifferentReleaseAndKeepsTheCorrespondingSingle() = runBlocking {
+        val resolver = SpotifyCanvasResolver({ "/$it.mp4" }, { _, excluded ->
+            equivalent.takeUnless { it.id in excluded }
+        }, releaseAlbum = { "Original Television Soundtrack" })
+        assertEquals(ResolvedCanvas(singleId, "/$singleId.mp4"), resolver.find(track, lyricsId))
+        assertEquals(ResolvedCanvas(lyricsId, "/$lyricsId.mp4"), resolver.find(track, lyricsId, matchRelease = false))
+    }
+
+    @Test
+    fun autoAllowsMatchingRemasterAndUnknownRelease() = runBlocking {
+        for (album in listOf("PETAL (Remastered 2003)", null)) {
+            val resolver = SpotifyCanvasResolver({ "/canvas.mp4" }, { _, _ -> null }, releaseAlbum = { album })
+            assertEquals(ResolvedCanvas(lyricsId, "/canvas.mp4"), resolver.find(track, lyricsId))
+        }
+    }
+
+    @Test
+    fun publicMetadataIsBoundToTheRequestedTrack() {
+        val html = """
+            <meta property="og:url" content="https://open.spotify.com/track/$lyricsId"/>
+            <meta name="music:album" content="https://open.spotify.com/album/$singleId"/>
+            <meta property="og:description" content="Artist · Rock &amp; Roll · Song · 2025"/>
+        """.trimIndent()
+        assertEquals("Rock & Roll", spotifyPageAlbum(html, lyricsId))
+        assertNull(spotifyPageAlbum(html, singleId))
+    }
+
+    @Test
     fun findsCanvasWithoutSpotifyLyricsOrASpotifyPlaybackId() = runBlocking {
         val lookedUp = mutableListOf<String>()
         val resolver = SpotifyCanvasResolver({ lookedUp += it; "/canvas.mp4" }, { _, _ -> equivalent })
@@ -71,6 +108,15 @@ class SpotifyCanvasResolverTest {
         val resolver = SpotifyCanvasResolver({ if (it == singleId) "/imported.mp4" else null }, { _, _ -> null })
         assertNull(resolver.find(track, null))
         assertEquals(ResolvedCanvas(singleId, "/imported.mp4"), resolver.find(track, null, listOf(singleId)))
+    }
+
+    @Test
+    fun enablingTheAccountFallbackInvalidatesEarlierMissingCanvas() = runBlocking {
+        var optedIn = false
+        val resolver = SpotifyCanvasResolver({ if (optedIn) "/canvas.mp4" else null }, { _, _ -> null })
+        assertNull(resolver.find(track, lyricsId))
+        optedIn = true
+        assertEquals(ResolvedCanvas(lyricsId, "/canvas.mp4"), resolver.find(track, lyricsId, accountAvailable = true))
     }
 
     @Test

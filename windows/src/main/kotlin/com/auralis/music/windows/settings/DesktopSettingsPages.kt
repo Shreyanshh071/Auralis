@@ -189,8 +189,16 @@ private fun CanvasSettingsSection() {
         Toggle("Show Canvas in Lyrics", prefs.spotifyCanvas) {
             com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyCanvas = it))
         }
-        Text(desktopText("Use Spotify Canvas on the lyrics stage when animated album artwork is unavailable or turned off."),
+        Text(desktopText("Allow Spotify Canvas on the lyrics stage."),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (prefs.spotifyCanvas && prefs.enabled) {
+            val options = com.auralis.music.windows.player.StageVisual.entries
+            Choice("Stage visual", prefs.stageVisual.label, options.map { it.label }) { label ->
+                com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(stageVisual = options.first { it.label == label }))
+            }
+            Text(desktopText("Auto checks for a matching release. Set a different visual for a song in the full player."),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
         Toggle("Fetch Canvas with your Spotify account", prefs.spotifyAccount && spotifySignedIn) {
             if (spotifySignedIn) com.auralis.music.windows.player.CanvasSettings.update(prefs.copy(spotifyAccount = it))

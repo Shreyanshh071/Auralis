@@ -24,6 +24,7 @@ internal fun DesktopHome(
     playback: DesktopPlaybackController?,
     browse: DesktopBrowseState,
     onOpenPlaylist: (String) -> Unit,
+    playlistLinks: List<com.auralis.music.data.playlistsync.PlaylistSyncLink> = emptyList(),
     onNavigateToSearch: () -> Unit,
     showMessage: (String) -> Unit,
     findMusic: (@Composable () -> Unit)? = null,
@@ -49,13 +50,21 @@ internal fun DesktopHome(
     val subscriptions = remember { ArtistSubscriptions() }
     val favorites by library.getFavoriteTracks().collectAsState(emptyList())
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
-    val state by viewModel.uiState.collectAsState()
+    val rawState by viewModel.uiState.collectAsState()
     val queue = playback?.queue?.collectAsState()?.value
     val playing = playback?.state?.collectAsState()?.value == VlcAudioPlayer.State.PLAYING
     var menuTrack by remember { mutableStateOf<Track?>(null) }
     var menuPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var menuAlbum by remember { mutableStateOf<PlaylistResult?>(null) }
     val playlists by library.getPlaylists().collectAsState(emptyList())
+    val state = remember(rawState, playlists, playlistLinks) {
+        rawState.copy(
+            pinnedItems = rawState.pinnedItems.filter { isShortcutAvailable(it, playlists, playlistLinks) },
+            speedDialPages = rawState.speedDialPages.map { page ->
+                page.filter { isShortcutAvailable(it, playlists, playlistLinks) }
+            }
+        )
+    }
     val savedAlbums by library.getSavedAlbums().collectAsState(emptyList())
     var collageUrls by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(playlists) {
@@ -126,7 +135,8 @@ internal fun DesktopHome(
         isPlaying = playing,
         onPlay = { track, _ -> if (playback != null) playback.playSingle(track) else showMessage("Playback needs VLC") },
         onShortcut = { item ->
-            when (item.type) {
+            val local = resolveShortcutPlaylist(item, playlists, playlistLinks)
+            if (local != null) onOpenPlaylist(local.id) else when (item.type) {
                 SpeedDialType.TRACK -> item.track?.let { track ->
                     playback?.playSingle(track)
                 }
@@ -134,7 +144,7 @@ internal fun DesktopHome(
                     val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image, item.artistQuery)
                     if (album.id.startsWith("local:")) onOpenPlaylist(album.id.removePrefix("local:")) else browse.openAlbum(album)
                 }
-                SpeedDialType.PLAYLIST -> onOpenPlaylist(item.id.removePrefix("playlist-"))
+                SpeedDialType.PLAYLIST -> Unit
                 SpeedDialType.ARTIST -> browse.openArtist(Artist(id = item.id.takeIf { it.startsWith("UC") }.orEmpty(),
                     name = item.artistQuery ?: item.name, thumbnail = item.image))
                 else -> Unit
@@ -162,10 +172,10 @@ internal fun DesktopHome(
         onShortcutMenu = { item ->
             when (item.type) {
                 SpeedDialType.TRACK -> menuTrack = item.track
-                SpeedDialType.PLAYLIST -> menuPlaylist = playlists.firstOrNull { it.id == item.id.removePrefix("playlist-") }
+                SpeedDialType.PLAYLIST -> menuPlaylist = resolveShortcutPlaylist(item, playlists, playlistLinks)
                 SpeedDialType.ALBUM -> {
                     val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image)
-                    val local = playlists.firstOrNull { "local:${it.id}" == album.id }
+                    val local = resolveShortcutPlaylist(item, playlists, playlistLinks)
                     if (local != null) menuPlaylist = local else menuAlbum = album
                 }
                 else -> Unit

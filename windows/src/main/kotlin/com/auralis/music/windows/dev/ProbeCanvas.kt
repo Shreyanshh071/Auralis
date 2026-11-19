@@ -51,12 +51,13 @@ fun main(rawArgs: Array<String>): Unit = runBlocking {
     val firstFrame = java.util.concurrent.CountDownLatch(1)
     val size = java.util.concurrent.atomic.AtomicReference("")
     val playing = java.util.concurrent.atomic.AtomicBoolean(true)
+    val visible = java.util.concurrent.atomic.AtomicBoolean(true)
     val clock = object : com.auralis.music.data.service.PlaybackClockSource {
         override fun rawPositionMs() = 0L
         override fun isPlaying() = playing.get()
         override fun speed() = 1f
     }
-    val stop = CanvasVideoEngine.play(video, clock = clock, loop = true,
+    val stop = CanvasVideoEngine.play(video, clock = clock, loop = true, videoVisible = visible::get,
         frameShortSide = if (spotifyId != null || stage) 1440 else 960) {
         frames.incrementAndGet()
         // VLC redisplays an unchanged frame while paused, so callbacks alone aren't motion.
@@ -93,6 +94,16 @@ fun main(rawArgs: Array<String>): Unit = runBlocking {
         println("RESUME callbacks=${frames.get() - pausedFrames} imageChanges=${changes.get() - pausedChanges}")
         check(changes.get() - pausedChanges > 2) { "Canvas did not resume with the song" }
         println("PAUSE/RESUME passed")
+        visible.set(false)
+        Thread.sleep(300)
+        val hiddenFrames = frames.get()
+        Thread.sleep(500)
+        check(frames.get() == hiddenFrames) { "Hidden Canvas still published frames" }
+        visible.set(true)
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+        while (frames.get() == hiddenFrames && System.nanoTime() < deadline) Thread.sleep(10)
+        check(frames.get() > hiddenFrames) { "The retained decoder did not resume when shown" }
+        println("HIDE/SHOW passed with the original decoder")
     } finally {
         stop?.invoke()
     }

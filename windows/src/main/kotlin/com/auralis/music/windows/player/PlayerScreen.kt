@@ -8,9 +8,11 @@ import com.kyant.backdrop.Backdrop
 import com.auralis.music.ui.i18n.desktopText
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -38,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -51,6 +54,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import com.auralis.music.ui.components.IconButton
@@ -65,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -106,14 +112,17 @@ import com.auralis.music.windows.search.DesktopArtwork
  * phone's MetroLyrics view (its default lyrics style) on the right.
  */
 @Composable
-fun PlayerScreen(
+internal fun PlayerScreen(
     playback: DesktopPlaybackController,
     lyrics: DesktopLyricsController,
     panel: PlayerPanel,
     onPanelChange: (PlayerPanel) -> Unit,
     onClose: () -> Unit,
     palette: com.auralis.music.ui.theme.ArtworkPalette = com.auralis.music.ui.theme.DefaultArtworkPalette,
-    onImmersive: () -> Unit = {}
+    onImmersive: () -> Unit = {},
+    stageChoice: StagePlaybackChoice,
+    playerVisible: Boolean,
+    drawControls: Boolean
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
@@ -137,13 +146,19 @@ fun PlayerScreen(
     }
     val spotifyCanvasId = lyricsSpotifyId ?: knownSpotifyId
     val canvasPrefs by CanvasSettings.prefs.collectAsState()
+    val songVisualRevision by CanvasSettings.songVisualChanges.collectAsState()
+    val songVisual = remember(track, songVisualRevision) { track?.let(CanvasSettings::songVisual) }
     val glassBackdrop = rememberLayerBackdrop()
     val seekArtwork = rememberLayerBackdrop()
     val lyricsBackdrop = rememberLayerBackdrop()
     val seekBackdrop = rememberCombinedBackdrop(glassBackdrop, seekArtwork)
     val combinedBackdrop = rememberCombinedBackdrop(glassBackdrop, lyricsBackdrop)
     val resyncSource = remember(combinedBackdrop, lyricsBackdrop) { ResyncBackdrop(combinedBackdrop, lyricsBackdrop) }
-    CompositionLocalProvider(LocalResyncBackdrop provides resyncSource) {
+    val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current && playerVisible
+    CompositionLocalProvider(
+        LocalResyncBackdrop provides resyncSource,
+        com.auralis.music.ui.player.LocalPlaybackVisualsActive provides visualsActive
+    ) {
     // Opaque: the main window must never show or receive pointer events through the player.
     BoxWithConstraints(
         Modifier
@@ -151,12 +166,15 @@ fun PlayerScreen(
             .background(Color(0xFF050505))
             .blockUnderlyingPointerEvents()
     ) {
-        val canvasStage = track != null && shouldShowCanvasStage(
+        val stageAllowed = track != null && shouldShowCanvasStage(
             canvasPrefs = canvasPrefs,
-            maxWidth = maxWidth,
+            maxWidth = Dp.Infinity,
             stagePlayer = prefs.bool("stagePlayer", true),
             tabbedPlayer = prefs.bool("tabbedPlayer", true)
         )
+        var stageMounted by remember(stageChoice) { mutableStateOf(false) }
+        val canvasStage = stageAllowed && (maxWidth > CanvasStageMinWidth || (!playerVisible && stageMounted))
+        if (canvasStage && playerVisible && !stageMounted) SideEffect { stageMounted = true }
         val backdropHeight = (STAGE_BACKDROP_WIDTH * maxHeight.value / maxWidth.value.coerceAtLeast(1f))
             .toInt().coerceIn(1, STAGE_BACKDROP_WIDTH * 2)
         val motionAura = rememberMotionAura(track?.id, backdropHeight)
@@ -165,13 +183,11 @@ fun PlayerScreen(
         }
         val stageVisible = canvasStage && canvasReady
         val stageTransition = updateTransition(stageVisible, label = "Canvas stage")
-        val fade = tween<Float>(700, easing = FastOutSlowInEasing)
+        val fade = tween<Float>(620, easing = FastOutSlowInEasing)
         val stageOpacity = stageTransition.animateFloat(transitionSpec = { fade }, label = "Canvas opacity") {
             if (it) 1f else 0f
         }
-        // Wait for the stage canvas check to decline before starting a 1:1 cover decoder in CoverWithControls.
-        var stageDeclined by remember(track?.id, canvasStage, canvasPrefs, spotifyCanvasId) { mutableStateOf(false) }
-        if (stageVisible) {
+        if (stageVisible && playerVisible) {
             CanvasIntro(playback)
         }
         Box(Modifier.fillMaxSize().then(if (track != null || resyncSource.users.intValue > 0)
@@ -186,15 +202,20 @@ fun PlayerScreen(
             // Fade the sharp and blurred versions together so neither jumps ahead of the other.
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = stageOpacity.value }) {
                 CanvasStageBackdrop(motionAura)
-                if (canvasStage) {
-                    AnimatedCover(track, Modifier.fillMaxWidth(.58f).fillMaxHeight(),
-                        motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, stage = true,
-                        playbackClock = playback.clock,
-                        onStageUnavailable = { stageDeclined = true }) {}
+                if (stageAllowed && (canvasStage || stageMounted)) {
+                    CompositionLocalProvider(com.auralis.music.ui.player.LocalPlaybackVisualsActive provides
+                        (visualsActive && canvasStage)) {
+                        AnimatedCover(track, Modifier.fillMaxWidth(.58f).fillMaxHeight(),
+                            motionAura = motionAura, spotifyCanvasId = spotifyCanvasId, stage = true,
+                            playbackClock = playback.clock,
+                            songVisual = songVisual,
+                            stageChoice = stageChoice) {}
+                    }
                 }
             }
         }
 
+        if (drawControls) {
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 32.dp)) {
             val wide = maxWidth > 900.dp && prefs.bool("stagePlayer",true)
             val leftWidth = if (wide) maxWidth * 0.44f else maxWidth
@@ -208,7 +229,9 @@ fun PlayerScreen(
                         .fillMaxHeight()
                         .then(if (wide) Modifier.width(leftWidth) else Modifier.weight(1f))
                 ) {
-                    stageTransition.AnimatedVisibility(visible = { !it }, enter = fadeIn(fade), exit = fadeOut(fade)) {
+                    // Keep the tile solid for the start of the dissolve, while the stage underneath fills in.
+                    stageTransition.AnimatedVisibility(visible = { !it }, enter = fadeIn(fade),
+                        exit = fadeOut(tween(500, delayMillis = 120, easing = FastOutSlowInEasing))) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.offset(y = 12.dp).layerBackdrop(seekArtwork)) {
                                 CoverWithControls(
@@ -217,7 +240,7 @@ fun PlayerScreen(
                                     artworkUrl = artworkUrl,
                                     size = coverSize,
                                     scale = ContentScale.Crop,
-                                    animateCover = !canvasStage || stageDeclined
+                                    animateCover = !canvasStage
                                 )
                             }
                             Spacer(Modifier.height(22.dp))
@@ -263,9 +286,17 @@ fun PlayerScreen(
                                 Box(Modifier.weight(.65f)) {LyricsPanel(playback,lyrics)}
                                 HorizontalDivider()
                                 Box(Modifier.weight(.35f)) {QueueView(playback)}
-                            } else when (panel) {
-                                PlayerPanel.LYRICS -> LyricsPanel(playback, lyrics)
-                                PlayerPanel.QUEUE -> QueueView(playback, Modifier.padding(horizontal = 16.dp))
+                            } else AnimatedContent(
+                                targetState = panel,
+                                modifier = Modifier.fillMaxSize(),
+                                transitionSpec = { fadeIn(tween(145)) togetherWith fadeOut(tween(95)) },
+                                label = "Player panel"
+                            ) { visiblePanel ->
+                                when (visiblePanel) {
+                                    PlayerPanel.LYRICS -> LyricsPanel(playback, lyrics)
+                                    PlayerPanel.QUEUE -> QueueView(playback, Modifier.padding(horizontal = 16.dp),
+                                        animateEntrance = true)
+                                }
                             }
                         }
                     }
@@ -276,23 +307,52 @@ fun PlayerScreen(
         IconButton(onClick = onClose, modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = desktopText("Close player"), tint = Color.White, modifier = Modifier.size(32.dp))
         }
-        IconButton(onClick = onImmersive, modifier = Modifier.padding(12.dp).align(Alignment.TopEnd)) {
-            Icon(Icons.Rounded.Fullscreen, contentDescription = desktopText("Immersive mode"), tint = Color.White, modifier = Modifier.size(28.dp))
+        Row(Modifier.padding(12.dp).align(Alignment.TopEnd)) {
+            if (canvasStage && track != null && canvasPrefs.spotifyCanvas) {
+                SongVisualMenu(track, songVisual)
+            }
+            IconButton(onClick = onImmersive) {
+                Icon(Icons.Rounded.Fullscreen, contentDescription = desktopText("Immersive mode"), tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+        }
         }
     }
 }
 
 }
 
+@Composable
+private fun SongVisualMenu(track: com.auralis.music.domain.model.Track, selected: StageVisual?) {
+    var open by remember(track.id) { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = desktopText("Visual for this song"), tint = Color.White)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for ((visual, label) in listOf(null to "Use Appearance setting",
+                StageVisual.SPOTIFY to "Use Spotify Canvas", StageVisual.ALBUM to "Use animated cover")) {
+                DropdownMenuItem(
+                    text = { Text(desktopText(label), fontWeight = if (selected == visual) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = {
+                        CanvasSettings.setSongVisual(track, visual)
+                        open = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 /**
  * Stops pointer events on non-interactive regions of an overlay (clicks, hovers, drags, wheel
- * scrolls) from passing through to siblings drawn underneath in the same [Box], while still
- * letting this overlay's own children handle events first in the main pass.
+ * scrolls) from passing through to siblings drawn underneath in the same [Box].
+ * The pointer modifier itself makes the overlay hit-testable. Consuming events here
+ * would cancel child clicks when the pointer moves between press and release.
  */
 internal fun Modifier.blockUnderlyingPointerEvents(): Modifier = pointerInput(Unit) {
     awaitPointerEventScope {
         while (true) {
-            awaitPointerEvent().changes.forEach { it.consume() }
+            awaitPointerEvent()
         }
     }
 }
@@ -308,9 +368,11 @@ internal fun shouldShowCanvasStage(
     stagePlayer: Boolean,
     tabbedPlayer: Boolean
 ): Boolean = (canvasPrefs.spotifyCanvas || canvasPrefs.enabled) &&
-    maxWidth > 964.dp &&
+    maxWidth > CanvasStageMinWidth &&
     stagePlayer &&
     tabbedPlayer
+
+private val CanvasStageMinWidth = 964.dp
 
 /** Auralis Connect in the full player: the device button and, while another device plays, where. */
 @Composable
@@ -650,6 +712,7 @@ private fun CoverWithControls(
     val volumeHover = remember { MutableInteractionSource() }
     val volumeHovered by volumeHover.collectIsHoveredAsState()
     var adjustingVolume by remember { mutableStateOf(false) }
+    var pointerDown by remember { mutableStateOf(false) }
     // A mouse left resting on the cover: after a moment the controls and the cursor get out of the
     // way, as in a video player; the slightest movement brings both back.
     var lastMove by remember { mutableLongStateOf(0L) }
@@ -659,19 +722,27 @@ private fun CoverWithControls(
         idle = false
         if (hovered) { kotlinx.coroutines.delay(COVER_IDLE_MS); idle = true }
     }
-    val showControls = adjustingVolume || (hovered && (!idle || volumeHovered))
+    val showControls = adjustingVolume || pointerDown || (hovered && (!idle || volumeHovered))
     val reveal by androidx.compose.animation.core.animateFloatAsState(if (showControls) 1f else 0f,
         tween(if (idle) 450 else 220), label = "coverControls")
-    val queue by playback.queue.collectAsState()
     val volume by playback.volume.collectAsState()
     Box(Modifier.size(size).shadow(24.dp, RoundedCornerShape(16.dp))
         .clip(RoundedCornerShape(16.dp)).hoverable(hover)
         .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move) { event ->
             event.changes.firstOrNull()?.let { if (pointerActivity.moved(it.position)) lastMove = System.nanoTime() }
         }
-        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press) { lastMove = System.nanoTime() }
-        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) { lastMove = System.nanoTime() }
-        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) { pointerActivity.exited() }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press) {
+            pointerDown = true
+            lastMove = System.nanoTime()
+        }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release) {
+            pointerDown = it.changes.any { change -> change.pressed }
+            lastMove = System.nanoTime()
+        }
+        .onPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Exit) {
+            pointerActivity.exited()
+            pointerDown = false
+        }
         .then(if (hovered && !showControls) Modifier.pointerHoverIcon(BlankCursor, overrideDescendants = true) else Modifier)) {
         AnimatedCover(
             track = track,
@@ -685,7 +756,7 @@ private fun CoverWithControls(
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal }) {
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .15f), .6f to Color.Black.copy(alpha = .25f), 1f to Color.Black.copy(alpha = .6f))))
-            if (reveal > 0f) {
+            if (hovered || showControls || reveal > 0f) {
                 PlayerTransport(playback,
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp))
                 val volumeHeight = size * .34f

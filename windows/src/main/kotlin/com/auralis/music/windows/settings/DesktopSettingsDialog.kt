@@ -64,6 +64,7 @@ import com.auralis.music.windows.discord.DiscordCardPreferences
 import com.auralis.music.windows.discord.WindowsDiscordPresence
 import com.auralis.music.windows.player.CanvasSettings
 import com.auralis.music.windows.player.CanvasSource
+import com.auralis.music.windows.player.StageVisual
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -118,10 +119,16 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
         val prefs by CanvasSettings.prefs.collectAsState()
         SettingToggle(
             title = "Show Canvas in Lyrics",
-            description = "Use Spotify Canvas on the lyrics stage when animated album artwork is unavailable or turned off.",
+            description = "Allow Spotify Canvas on the lyrics stage.",
             checked = prefs.spotifyCanvas,
             onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
         )
+        if (prefs.spotifyCanvas && prefs.enabled) {
+            SettingChoice("Stage visual", "Auto checks for a matching release. Set a different visual for a song in the full player.",
+                prefs.stageVisual.label, StageVisual.entries.map { it.label }) { label ->
+                CanvasSettings.update(prefs.copy(stageVisual = StageVisual.entries.first { it.label == label }))
+            }
+        }
         val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
         SettingToggle(
             title = "Fetch Canvas with your Spotify account",

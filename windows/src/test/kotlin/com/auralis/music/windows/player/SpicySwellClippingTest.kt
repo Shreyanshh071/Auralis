@@ -23,6 +23,37 @@ import org.jetbrains.skia.EncodedImageFormat
 import kotlin.test.*
 
 class SpicySwellClippingTest {
+    @Test fun wrappedLyricsStillAnimateHeldLetters() {
+        val text = "green watering can"
+        val words = listOf(LyricWord("green ", 1000, 2200), LyricWord("watering ", 3200, 1200),
+            LyricWord("can", 4400, 600))
+        fun capture(width: Int, motion: Boolean): IntArray {
+            val scene = ImageComposeScene(width, 220, coroutineContext = Dispatchers.Unconfined) {
+                MaterialTheme {
+                    CompositionLocalProvider(com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion provides motion) {
+                        Box(Modifier.fillMaxSize().background(Color.Black).padding(12.dp)) {
+                            SpicyLyricsLine(LyricLine(1000, text, words = words), words, mutableLongStateOf(1800L),
+                                TextStyle(fontSize = 42.sp, lineHeight = 46.sp, fontWeight = FontWeight.Bold), true)
+                        }
+                    }
+                }
+            }
+            return try {
+                repeat(8) { scene.render(it * 16_666_667L).close() }
+                scene.render(9 * 16_666_667L).use { image ->
+                    Bitmap.makeFromImage(image).use { bitmap ->
+                        IntArray(bitmap.width * bitmap.height) { bitmap.getColor(it % bitmap.width, it / bitmap.width) }
+                    }
+                }
+            } finally { scene.close() }
+        }
+        val still = capture(200, false)
+        val moving = capture(200, true)
+        assertTrue(still.indices.any { it / 200 > 58 && (still[it] and 255) > 32 }, "The fixture must wrap")
+        assertTrue(still.indices.any { it / 200 < 58 && (still[it] and 255) < 12 && (moving[it] and 255) > 100 },
+            "The active letters should move beyond their resting ink")
+    }
+
     @Test fun fullySungWordsKeepOverhangsAndDescenders() {
         for (text in listOf("right through", "right through f", "Know", "night by", "Dracula")) {
             fun capture(active: Boolean): IntArray {

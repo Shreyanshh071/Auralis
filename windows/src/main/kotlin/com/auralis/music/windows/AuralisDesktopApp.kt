@@ -19,6 +19,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
@@ -475,6 +480,15 @@ fun AuralisDesktopApp(
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
+    val playbackSession = playback?.session?.collectAsState()?.value
+    val stageChoice = remember(playback, playbackSession, queue?.current?.id) {
+        com.auralis.music.windows.player.StagePlaybackChoice()
+    }
+    val fullPlayerVisible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null
+    var retainedStageChoice by remember { mutableStateOf<com.auralis.music.windows.player.StagePlaybackChoice?>(null) }
+    androidx.compose.runtime.LaunchedEffect(fullPlayerVisible, stageChoice) {
+        if (fullPlayerVisible) retainedStageChoice = stageChoice
+    }
     val playerState = playback?.state?.collectAsState()?.value
     androidx.compose.runtime.LaunchedEffect(queue?.current?.id, playerState, youtubeFallback) {
         val fallback = youtubeFallback ?: return@LaunchedEffect
@@ -925,6 +939,7 @@ fun AuralisDesktopApp(
                                 searchRepository = searchRepository,
                                 playback = playback,
                                 browse = browse,
+                                playlistLinks = playlistSync.store.links.collectAsState().value,
                                 onOpenPlaylist = { id ->
                                     libraryViewModel.selectPlaylist(id)
                                     destination = DesktopDestination.LIBRARY
@@ -1119,14 +1134,19 @@ fun AuralisDesktopApp(
                         onClose = ::previousPage)
                 }
             }
-            // The full player slides up over everything, like the phone's player sheet.
-            androidx.compose.animation.AnimatedVisibility(
-                modifier = Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT),
-                visible = showPlayer && destination != DesktopDestination.WRAPPED && playback != null && lyrics != null,
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
-            ) {
-                if (playback != null && lyrics != null) {
+            val playerTransition = updateTransition(fullPlayerVisible, label = "Full player")
+            val playerAlpha = playerTransition.animateFloat(
+                transitionSpec = { tween(if (targetState) 180 else 160) }, label = "Player opacity"
+            ) { if (it) 1f else 0f }
+            val drawPlayer = playerTransition.currentState || fullPlayerVisible || playerTransition.isRunning
+            if (playback != null && lyrics != null && (drawPlayer || retainedStageChoice === stageChoice)) {
+                // An unplaced player cannot receive input or draw, but its stage decoder remains composed.
+                Box(Modifier.padding(top = if (playerFullscreen) 0.dp else TITLE_BAR_HEIGHT)
+                    .layout { measurable, constraints ->
+                        val player = measurable.measure(constraints)
+                        layout(player.width, player.height) { if (drawPlayer) player.place(0, 0) }
+                    }
+                    .graphicsLayer { alpha = playerAlpha.value }) {
                     com.auralis.music.windows.player.PlayerScreen(
                         playback,
                         lyrics,
@@ -1134,7 +1154,10 @@ fun AuralisDesktopApp(
                         onPanelChange = { playerPanel = it },
                         onClose = { showPlayer = false },
                         palette = artworkPalette,
-                        onImmersive = onOpenImmersive
+                        onImmersive = onOpenImmersive,
+                        stageChoice = stageChoice,
+                        playerVisible = fullPlayerVisible,
+                        drawControls = drawPlayer
                     )
                 }
             }

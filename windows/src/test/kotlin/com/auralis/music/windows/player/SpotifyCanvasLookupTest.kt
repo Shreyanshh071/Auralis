@@ -204,7 +204,7 @@ class SpotifyCanvasLookupTest {
     }
 
     @Test
-    fun rateLimitStillPausesAllProviderRequests() = runBlocking {
+    fun rateLimitStillPausesPublicProviderRequests() = runBlocking {
         val folder = Files.createTempDirectory("canvas-test").toFile()
         var now = 1000L
         var count = 0
@@ -221,5 +221,38 @@ class SpotifyCanvasLookupTest {
             assertNull(client.find(second))
             assertEquals(2, count)
         } finally { folder.deleteRecursively() }
+    }
+
+    @Test
+    fun enablingAccountCanRecoverARecentPublicMissOrRateLimit() = runBlocking {
+        for (publicCode in listOf(200, 429)) {
+            val folder = Files.createTempDirectory("canvas-account-fallback").toFile()
+            var optedIn = false
+            val requests = mutableListOf<String>()
+            val video = ByteArray(120_000) { 3 }
+            val uri = url.toByteArray()
+            val record = byteArrayOf(0x12, uri.size.toByte()) + uri
+            val accountReply = byteArrayOf(0x0a, record.size.toByte()) + record
+            val http = OkHttpClient.Builder().addInterceptor { chain ->
+                val host = chain.request().url.host
+                requests += host
+                when (host) {
+                    "regional.canvasstore.slnode.spicylyrics.org" ->
+                        response(chain, answer(first, video = false).toByteArray(), publicCode)
+                    "spclient.wg.spotify.com" -> response(chain, accountReply)
+                    "canvaz.scdn.co" -> response(chain, video)
+                    else -> error("Unexpected host $host")
+                }
+            }.build()
+            try {
+                val client = SpotifyCanvasClient(http, folder, accountToken = { "test".takeIf { optedIn } })
+                assertNull(client.find(first))
+                optedIn = true
+                val recovered = assertNotNull(client.find(first))
+                assertContentEquals(video, java.io.File(recovered).readBytes())
+                assertEquals(listOf("regional.canvasstore.slnode.spicylyrics.org", "spclient.wg.spotify.com",
+                    "canvaz.scdn.co"), requests)
+            } finally { folder.deleteRecursively() }
+        }
     }
 }

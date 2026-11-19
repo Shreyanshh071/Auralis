@@ -32,6 +32,7 @@ object CanvasVideoEngine {
         frameShortSide: Int = FRAME_SHORT_SIDE,
         loop: Boolean = clock == null,
         canPause: () -> Boolean = { true },
+        videoVisible: (() -> Boolean)? = null,
         onFrame: (ImageBitmap) -> Unit
     ): (() -> Unit)? {
         require(frameShortSide in 1..2160)
@@ -54,6 +55,7 @@ object CanvasVideoEngine {
             object : uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallback {
                 override fun display(mediaPlayer: uk.co.caprica.vlcj.player.base.MediaPlayer, nativeBuffers: Array<out ByteBuffer>,
                     bufferFormat: uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat) {
+                    if (videoVisible?.invoke() == false && firstFrameShown.get() && canPause()) return
                     val now = System.nanoTime()
                     if (now - lastFrame < 33_000_000L || width <= 0 || height <= 0) return
                     lastFrame = now
@@ -79,17 +81,20 @@ object CanvasVideoEngine {
         // while its clock advances. FFmpeg's demuxer handles these local segments correctly.
         if (java.io.File(url).isFile && url.endsWith(".ts", ignoreCase = true)) options += ":demux=avformat"
         player.media().play(url, *options.toTypedArray())
-        if (clock != null) Thread({
+        if (clock != null || videoVisible != null) Thread({
             while (active.get()) {
                 runCatching {
-                    if (!loop) {
+                    if (!loop && clock != null) {
                         val position = clock.rawPositionMs()
                         if (kotlin.math.abs(player.status().time() - position) > 600) player.controls().setTime(position)
                     }
                     // Allow the stage to validate the first frame even if the song is paused.
-                    if (!loop || (firstFrameShown.get() && canPause())) player.controls().setPause(!clock.isPlaying())
+                    if (!loop || (firstFrameShown.get() && canPause())) {
+                        val pause = videoVisible?.invoke() == false || clock?.isPlaying() == false
+                        if (videoVisible == null || player.status().isPlaying == pause) player.controls().setPause(pause)
+                    }
                 }
-                Thread.sleep(200)
+                Thread.sleep(if (videoVisible == null) 200 else 50)
             }
         }, "music-video-sync").apply { isDaemon = true; start() }
         return {
