@@ -31,6 +31,15 @@ const seed = (path, data) => asServer((db) => setDoc(doc(db, path), data));
 const fence = (uid, state = 'migrating') => seed(`libraryAuthority/${uid}`, { state, epoch: 1, at: 1 });
 const stored = async (path) => { let data; await asServer(async (db) => { data = (await getDoc(doc(db, path))).data(); }); return data; };
 
+test('old clients cannot read, create, replace or delete the backend bridge journal', async () => {
+  await seed(`libraryBridgeJournal/${ALICE}`, { id: 'pending', checksum: 'checked' });
+  const db = account(ALICE);
+  await assertFails(getDoc(doc(db, `libraryBridgeJournal/${ALICE}`)));
+  await assertFails(setDoc(doc(db, `libraryBridgeJournal/${ALICE}`), { id: 'forged' }));
+  await assertFails(deleteDoc(doc(db, `libraryBridgeJournal/${ALICE}`)));
+  await assertFails(setDoc(doc(db, `libraryBridgeJournal/${BOB}`), { id: 'forged' }));
+});
+
 const song = (id) => ({ id, title: `Song ${id}`, artist: 'A', album: null, thumbnail: 't', duration: 180 });
 /** What `cloudDocument` (Android) and `pushLibrary` (desktop) write. */
 const libraryDoc = (extra = {}) => ({

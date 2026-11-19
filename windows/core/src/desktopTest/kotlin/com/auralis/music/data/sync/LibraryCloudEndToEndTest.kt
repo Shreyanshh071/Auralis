@@ -86,7 +86,7 @@ class LibraryCloudEndToEndTest {
         if (port == null) return
         runBlocking {
             val phone = Device("phone"); val pc = Device("pc")
-            assertEquals(LibraryRoute.Firestore, phone.client.route(uid, check = true), "an account nobody migrated is legacy")
+            assertEquals(LibraryRoute.Wait(true), phone.client.route(uid, check = true), "updated clients wait for backend import, without Firestore fallback")
             assertEquals("migrating", admin("begin").getString("state"))
             assertEquals(LibraryRoute.Wait(migrating = true), phone.client.route(uid, check = true))
             admin("abort")
@@ -206,7 +206,7 @@ class LibraryCloudEndToEndTest {
             phone.library = SyncedLibrary(favorites = listOf(song("kept")))
             phone.sync()
             admin("rollback-begin"); admin("rollback-commit")
-            assertEquals(LibraryRoute.Firestore, phone.client.route(uid, check = true))
+            assertEquals(LibraryRoute.Wait(true), phone.client.route(uid, check = true))
             phone.client.erase(uid)
             assertEquals(0, admin("verify").getJSONObject("counts").getInt("favorites"), "the archived rows went too")
             val unreachable = LibraryCloudClient("http://127.0.0.1:9", "phone", FileLibraryCloudStore(phone.dir), http, scope, token = { _, _ -> bearer })

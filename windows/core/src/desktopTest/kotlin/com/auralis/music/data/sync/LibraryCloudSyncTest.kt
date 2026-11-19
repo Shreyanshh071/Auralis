@@ -559,8 +559,8 @@ class LibraryCloudSyncTest {
         val hour = 3_600_000L
         fun route(known: AuthorityAnswer?, reachable: Boolean, now: Long = clock) = LibraryAuthorityPolicy.route(true, known, reachable, now)
         assertEquals(LibraryRoute.Wait(migrating = false), route(null, reachable = false))
-        assertEquals(LibraryRoute.Firestore, route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), reachable = true))
-        assertEquals(LibraryRoute.Firestore, route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), false, clock + 5 * hour))
+        assertEquals(LibraryRoute.Wait(false), route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), reachable = true))
+        assertEquals(LibraryRoute.Wait(false), route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), false, clock + 5 * hour))
         assertEquals(LibraryRoute.Wait(false), route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), false, clock + 7 * hour))
         assertEquals(LibraryRoute.Wait(false), route(AuthorityAnswer(LibraryAuthority.LEGACY, 0, clock), false, clock - hour), "a clock set back is not trusted")
         assertEquals(LibraryRoute.Wait(migrating = true), route(AuthorityAnswer(LibraryAuthority.MIGRATING, 1, clock), true))

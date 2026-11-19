@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import androidx.room.withTransaction
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -347,11 +348,12 @@ class GoogleAccountSyncManager(
         isRestoring = true
 
         try {
-            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            val docSnap = db.collection("users").document(uid).get().await()
-
-            com.auralis.music.data.datastore.OnboardingStore.restorePicks(
-                uid, docSnap.data?.get("starterTaste") as? Map<*, *>)
+            if (!libraryCloud.enabled) {
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val docSnap = db.collection("users").document(uid).get().await()
+                com.auralis.music.data.datastore.OnboardingStore.restorePicks(
+                    uid, docSnap.data?.get("starterTaste") as? Map<*, *>)
+            }
 
             // Another account's library is on the phone: clear it here (it's in that account's
             // backup) before this account's lands, so accounts never mix.
@@ -362,6 +364,19 @@ class GoogleAccountSyncManager(
                 val stats = async { com.auralis.music.data.sync.StatsCloudSync.restoreIfNeeded() }
 
                 val synced = syncLibrary(uid)
+                if (libraryCloud.enabled) {
+                    // The backend's verified import already fetched this profile data. Never let
+                    // an unrelated Firestore profile read block an authoritative cloud library.
+                    try {
+                        val profile = libraryCloud.call(uid, org.json.JSONObject().put("t", "profile.picks"))
+                        val picks = profile.optJSONObject("picks")
+                        if (profile.optBoolean("available") && picks != null) {
+                            com.auralis.music.data.datastore.OnboardingStore.restorePicks(uid,
+                                mapOf("artists" to picks.optString("artists"), "tracks" to picks.optString("tracks", "[]")))
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { /* Library sync stays independent of optional onboarding. */ }
+                }
                 val updated = _userProfile.value.copy(
                     lastSyncedTimestamp = System.currentTimeMillis(),
                     syncedPlaylistsCount = synced.account.playlists.size
@@ -569,6 +584,21 @@ class GoogleAccountSyncManager(
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     fun startContinuousCloudSync(scope: CoroutineScope) {
         followForeground()
+        // Import may be pending on quota/credentials before a library notification subscription
+        // exists. Retry discovery while visible; a migrated account uses push, never this timer.
+        scope.launch(Dispatchers.IO) {
+            var retryMs = 60_000L
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                kotlinx.coroutines.delay(retryMs)
+                val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
+                if (!inForeground || !libraryCloud.enabled || user == null || user.isAnonymous) continue
+                if (libraryCloud.cached(user.uid)?.state == com.auralis.music.data.sync.LibraryAuthority.CLOUDFLARE) {
+                    retryMs = 60_000L
+                    continue
+                }
+                retryMs = if (backupLibraryToCloud()) 60_000L else (retryMs * 2).coerceAtMost(15 * 60_000L)
+            }
+        }
         scope.launch(Dispatchers.IO) {
             val user = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
             if (user != null && !user.isAnonymous) {

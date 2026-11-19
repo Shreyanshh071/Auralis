@@ -87,8 +87,8 @@ class LibraryCloudClient(
 
     /** What discovery says now, or null when it can't be reached. Never guessed. */
     private suspend fun discover(uid: String): AuthorityAnswer? = try {
-        val (status, body) = request(uid) { it.url("$base/v1/library/authority").get() }
-        if (status != 200) null else JSONObject(body).let { json ->
+        val (status, body) = request(uid) { it.url("$base/v1/library/bootstrap").get() }
+        if (status != 200 && status != 202) null else JSONObject(body).let { json ->
             LibraryAuthority.of(json.optString("state"))?.let { AuthorityAnswer(it, json.optInt("epoch"), now()) }
         }
     } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
@@ -103,7 +103,7 @@ class LibraryCloudClient(
         if (!enabled) return LibraryRoute.Firestore
         val known = cached(uid)
         // A move takes seconds, so "migrating" is asked about again on every attempt.
-        val recent = known != null && known.state != LibraryAuthority.MIGRATING && now() - known.checkedAt in 0 until RECHECK_MS
+        val recent = known != null && known.state == LibraryAuthority.CLOUDFLARE && now() - known.checkedAt in 0 until RECHECK_MS
         if (!check && recent) return LibraryAuthorityPolicy.route(true, known, reachable = false, now = now())
         val fresh = discover(uid)
         val answer = LibraryAuthorityPolicy.remember(known, fresh)

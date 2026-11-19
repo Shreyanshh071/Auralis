@@ -70,12 +70,16 @@ fun main(args: Array<String>) {
         require(System.getProperty("auralis.accountSyncUrl") == "https://auralis-connect-staging.auralis018.workers.dev") {
             "The internal sync pilot must use the staging account service."
         }
-        require(System.getProperty("auralis.librarySyncUrl").orEmpty().isBlank()) { "Library migration is outside this pilot." }
+        val pilotLibraryUrl = System.getProperty("auralis.librarySyncUrl").orEmpty()
+        require(pilotLibraryUrl.isBlank() || pilotLibraryUrl == "https://auralis-connect-staging.auralis018.workers.dev") {
+            "The internal library pilot must use the same staging service."
+        }
         val profile = System.getProperty("auralis.dataDir")?.let { java.io.File(it).canonicalFile }
         require(profile != null && profile.parentFile?.name == "sync-pilot") {
             "The sync pilot requires an isolated profile inside a sync-pilot directory."
         }
         System.setProperty("auralis.connectRealtimeUrl", "wss://auralis-connect-staging.auralis018.workers.dev/v1/connect")
+        System.setProperty("auralis.togetherSyncUrl", "https://auralis-connect-staging.auralis018.workers.dev")
     }
     if (System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
         if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
