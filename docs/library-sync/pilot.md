@@ -1,5 +1,7 @@
 # Internal-account pilot — plan, safeguards and stop conditions
 
+> Deployment update, 19 November 2026: [automatic production admission is now live](production-automatic-rollout-2026-11-19.md). The earlier manual/pilot workflow below is retained for protocol and operator reference; ordinary updated users do not require a per-UID migration command.
+
 Date: 14 November 2026. **Not started. Broad rollout stays disabled.** Every production step here
 needs explicit approval (see `runbook.md`). This pilot is for the owner's own internal or test
 accounts only. No existing user account migrates automatically, and nothing in the code migrates an

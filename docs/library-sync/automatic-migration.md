@@ -1,6 +1,6 @@
 # Automatic library import and old-app compatibility
 
-Implemented on main, 19 November 2026. **Source implementation and local verification are not a production rollout.** Deploy and validate the backend before distributing these updated clients. New clients wait when bootstrap is unavailable/disabled; they no longer fall back to Firestore for the library.
+Implemented and enabled on production on 19 November 2026 after owner approval, signed-in staging/device verification and production canary checks. Production now admits all authenticated accounts automatically; see [the production rollout report](production-automatic-rollout-2026-11-19.md). New clients wait when bootstrap is unavailable/disabled; they no longer fall back to Firestore for the library. The deployment checklist below documents the rollout procedure; its earlier approval gates have now been executed for production.
 
 ## Data path
 

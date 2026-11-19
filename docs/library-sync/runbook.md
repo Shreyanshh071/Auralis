@@ -1,5 +1,7 @@
 # Account library on Cloudflare — deployment, cutover and rollback
 
+> Deployment update, 19 November 2026: [automatic production admission is now live](production-automatic-rollout-2026-11-19.md). The earlier manual/pilot workflow below is retained for protocol and operator reference; ordinary updated users do not require a per-UID migration command.
+
 Steps A–D describe the initial pilot. The production endpoint is now configured in normal builds.
 See Step E for the 1.1.4 rollout and the order for moving additional accounts.
 Get approval for production changes, including which accounts to cut over.

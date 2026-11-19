@@ -9,8 +9,9 @@ preview_urls = false
 FIREBASE_PROJECT_ID = "auralis-70cf8"
 # Listening history on the account service (src/listens-core.js). Settings sync was removed from the apps.
 ACCOUNT_SYNC_TOPICS = "listens"
-# Enable only after backend credentials, legacy compatibility and staging acceptance are verified.
-LIBRARY_AUTO_IMPORT = "false"
+# Production automatic import approved after signed-in staging/device and failure verification.
+# Admission is controlled by the separate LIBRARY_AUTO_UIDS secret.
+LIBRARY_AUTO_IMPORT = "true"
 LIBRARY_LEGACY_READ_BUDGET = "5000"
 LIBRARY_LEGACY_WRITE_BUDGET = "5000"
 

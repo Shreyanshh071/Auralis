@@ -1,5 +1,7 @@
 # Account library sync on Cloudflare — technical specification
 
+> Deployment update, 19 November 2026: [automatic production admission is now live](production-automatic-rollout-2026-11-19.md). The earlier manual/pilot workflow below is retained for protocol and operator reference; ordinary updated users do not require a per-UID migration command.
+
 Date: 14 November 2026. Resolves decisions D1–D5 of `HANDOFF.md`. Nothing here is deployed.
 
 Scope: playlists and their tracks, liked songs, saved albums, saved artists, pins and playlist
