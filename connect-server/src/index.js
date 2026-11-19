@@ -5,8 +5,9 @@ import { DurableObject } from 'cloudflare:workers';
 import { googleKeys, stagingIdentity, verifyToken } from './auth.js';
 import { LibraryAccount, libraryRoute } from './library.js';
 import { ListenRoom, togetherRoute } from './together.js';
+import { LibraryLegacyBudget } from './library-budget.js';
 
-export { LibraryAccount, ListenRoom };
+export { LibraryAccount, ListenRoom, LibraryLegacyBudget };
 import { MAX_DEVICES, MAX_FRAME_BYTES, MAX_SOCKETS, RateLimit, UNSAVED_VERSIONS, decideUpdate, intentAccepted, mustSave,
   recoverSession, validDevice, validDeviceId, validQueue } from './core.js';
 

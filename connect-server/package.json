@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/core.test.mjs test/auth.test.mjs test/library-core.test.mjs test/library-operator.test.mjs test/server.test.mjs test/library.test.mjs test/library-pilot.test.mjs test/settings-core.test.mjs test/settings.test.mjs test/listens-core.test.mjs test/listens.test.mjs test/together-core.test.mjs test/together.test.mjs",
+    "test": "node --test --test-concurrency=1 test/core.test.mjs test/auth.test.mjs test/library-core.test.mjs test/library-auto-core.test.mjs test/library-firestore.test.mjs test/library-operator.test.mjs test/server.test.mjs test/library.test.mjs test/library-pilot.test.mjs test/library-auto.test.mjs test/settings-core.test.mjs test/settings.test.mjs test/listens-core.test.mjs test/listens.test.mjs test/together-core.test.mjs test/together.test.mjs",
     "load": "node test/load.mjs",
     "measure": "node tools/measure.mjs"
   },

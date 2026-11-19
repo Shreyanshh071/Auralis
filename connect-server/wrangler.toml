@@ -9,6 +9,10 @@ preview_urls = false
 FIREBASE_PROJECT_ID = "auralis-70cf8"
 # Listening history on the account service (src/listens-core.js). Settings sync was removed from the apps.
 ACCOUNT_SYNC_TOPICS = "listens"
+# Enable only after backend credentials, legacy compatibility and staging acceptance are verified.
+LIBRARY_AUTO_IMPORT = "false"
+LIBRARY_LEGACY_READ_BUDGET = "5000"
+LIBRARY_LEGACY_WRITE_BUDGET = "5000"
 
 [[ratelimits]]
 name = "CONNECT_UPGRADES"
@@ -20,8 +24,8 @@ name = "CONNECT"
 class_name = "ConnectAccount"
 
 # Account library (docs/library-sync/spec.md). Deploying this adds the namespace and routes only:
-# every account stays `legacy` until the migration tool is run for it, and the admin routes answer
-# 404 until LIBRARY_ADMIN_SECRET is set with `wrangler secret put`.
+# automatic import is off until explicitly enabled. Admin routes answer 404 until
+# LIBRARY_ADMIN_SECRET is set with `wrangler secret put`.
 [[ratelimits]]
 name = "LIBRARY_REQUESTS"
 namespace_id = "10403"
@@ -61,6 +65,9 @@ workers_dev = true
 
 [env.staging.vars]
 FIREBASE_PROJECT_ID = "auralis-70cf8"
+LIBRARY_AUTO_IMPORT = "false"
+LIBRARY_LEGACY_READ_BUDGET = "5000"
+LIBRARY_LEGACY_WRITE_BUDGET = "5000"
 
 [[env.staging.ratelimits]]
 name = "CONNECT_UPGRADES"
@@ -100,3 +107,20 @@ new_sqlite_classes = ["LibraryAccount"]
 [[env.staging.migrations]]
 tag = "v3"
 new_sqlite_classes = ["ListenRoom"]
+
+# Backend import/bridge admission; no account libraries or credentials are stored here.
+[[durable_objects.bindings]]
+name = "LIBRARY_LEGACY_BUDGET"
+class_name = "LibraryLegacyBudget"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["LibraryLegacyBudget"]
+
+[[env.staging.durable_objects.bindings]]
+name = "LIBRARY_LEGACY_BUDGET"
+class_name = "LibraryLegacyBudget"
+
+[[env.staging.migrations]]
+tag = "v4"
+new_sqlite_classes = ["LibraryLegacyBudget"]

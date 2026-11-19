@@ -30,7 +30,8 @@ before(async () => {
   env = await initializeTestEnvironment({ projectId: PROJECT, firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
   const here = process.cwd();
   process.chdir(new URL('../connect-server', import.meta.url).pathname);
-  try { server = await startServer(PORT); } finally { process.chdir(here); }
+  try { server = await startServer(PORT, undefined, { LIBRARY_AUTO_IMPORT: 'true', LIBRARY_AUTO_UIDS: '*',
+    LIBRARY_FIRESTORE_EMULATOR: `http://${HOST}`, FIREBASE_PROJECT_ID: PROJECT }); } finally { process.chdir(here); }
 }, { timeout: 180_000 });
 after(async () => { await stopServer(server); await env.cleanup(); });
 
@@ -92,6 +93,26 @@ async function restoreSnapshot(uid) {
   }
 }
 const likesOf = (snapshot) => snapshot.items.filter((i) => i.k === 'f').sort((a, b) => a.pos - b.pos).map((i) => i.id);
+
+test('automatic import and backend bridge accept old desktop writes under the actual security rules', async () => {
+  const uid = user(); const original = userDoc();
+  await firestore.set(`users/${uid}`, original);
+  const response = await fetch(`${BASE}/v1/library/bootstrap`, { headers: { authorization: `Bearer dev:${uid}` } });
+  const ready = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(ready)); assert.equal(ready.state, 'cloudflare');
+  original.playlists[0].tracks.push(song('old-extra'));
+  assert.equal(await oldClientWrites(uid, { playlists: original.playlists }), 200);
+  const pushed = await rpc(uid, { t: 'push', v: 1, epoch: ready.epoch,
+    ops: [{ id: 'auto-unlike', t: 'fav.del', key: 'f1' }] });
+  assert.equal(pushed.results[0].s, 'ok');
+  assert.equal((await library(uid, 'sync-legacy')).status, 200);
+  const cloud = (await library(uid, 'export')).body.library;
+  assert.equal(cloud.playlists.find((p) => p.id === 'p1').tracks.at(-1).id, 'old-extra');
+  const root = await firestore.get(`users/${uid}`);
+  assert.deepEqual(root.data.favorites.map((x) => x.id), ['f2', 'f3']);
+  assert.deepEqual(root.data.preferences, original.preferences, 'masked backend commit preserves unrelated fields');
+  assert.equal((await status(uid, { firestore, library })).problem, null);
+});
 
 // ---- Cutover -----------------------------------------------------------------------------------------
 

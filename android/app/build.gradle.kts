@@ -121,7 +121,9 @@ android {
             matchingFallbacks += listOf("debug")
             // An explicit, isolated internal variant; public URL validation remains unchanged.
             buildConfigField("boolean", "SYNC_PILOT", "true")
-            buildConfigField("String", "LIBRARY_SYNC_URL", "\"\"")
+            val pilotLibraryUrl = if (providers.gradleProperty("sync.pilot.library").orNull == "true")
+                "https://auralis-connect-staging.auralis018.workers.dev" else ""
+            buildConfigField("String", "LIBRARY_SYNC_URL", "\"$pilotLibraryUrl\"")
             buildConfigField("String", "ACCOUNT_SYNC_URL", "\"https://auralis-connect-staging.auralis018.workers.dev\"")
             buildConfigField("String", "TOGETHER_URL", "\"https://auralis-connect-staging.auralis018.workers.dev\"")
             buildConfigField("String", "CONNECT_REALTIME_URL", "\"wss://auralis-connect-staging.auralis018.workers.dev/v1/connect\"")

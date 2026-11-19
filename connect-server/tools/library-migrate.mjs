@@ -9,10 +9,14 @@
 //   node tools/library-migrate.mjs abort    <uid>                      (before the flip only)
 //   node tools/library-migrate.mjs rollback <uid>                      (after the flip: writes the latest library back)
 //   node tools/library-migrate.mjs export   <uid>                      (saves and verifies an export)
+//   node tools/library-migrate.mjs export-source <uid>                (saves the initial automatic-import backup)
 //   node tools/library-migrate.mjs restore  <uid> <export file>        (puts an export back, keeping a backup first)
 //   node tools/library-migrate.mjs bridge-status  <uid>                (settings/history bridge for old app versions)
 //   node tools/library-migrate.mjs retire-bridge  <uid> --old-devices-will-stop-syncing
 //   node tools/library-migrate.mjs restore-bridge <uid>
+//   node tools/library-migrate.mjs adopt-bridge <uid> --allow-old-library-writes
+//   node tools/library-migrate.mjs sync-legacy <uid>                 (force one backend reconciliation)
+//   node tools/library-migrate.mjs resume-automatic <uid> --resume-verified-rollback
 //
 // The allowlist file names the only accounts this tool will move, one uid per line (# comments
 // allowed). The Worker enforces its own list too (LIBRARY_PILOT_UIDS); both must name an account.
@@ -330,6 +334,18 @@ export async function abort(uid, { firestore, library, log = () => {} }) {
  * are kept; nothing is restored from the stale frozen copy.
  */
 export async function rollback(uid, { firestore, library, snapshotDir = null, stopAfter = null, log = () => {}, now = Date.now }) {
+  const current = (await library(uid, 'status')).body;
+  if (current.state === 'cloudflare' && current.automatic?.phase === 'ready') {
+    if (current.automatic.adoptingFence) {
+      const adopted = await library(uid, 'sync-legacy');
+      if (adopted.status !== 200) throw new Retryable(`${uid}: finish the pending bridge adoption before rollback`);
+    }
+    // Automatic accounts normally have no fence. Stop old writers first, reconcile their final
+    // snapshot, then freeze new writers. Otherwise a rollback could overwrite an old-app edit.
+    await firestore.set(fencePath(uid), { state: 'rollback', at: now() });
+    const caught = await library(uid, 'sync-legacy');
+    if (caught.status !== 200) throw new Retryable(`${uid}: legacy catch-up failed; the temporary rollback fence stays in place, retry rollback`);
+  }
   const frozen = await library(uid, 'rollback-begin');
   if (frozen.status !== 200) {
     if (frozen.body.state === 'legacy') { await firestore.delete(fencePath(uid)); return { uid, result: 'already-legacy' }; }
@@ -360,10 +376,12 @@ export async function status(uid, { firestore, library }) {
   const state = (await library(uid, 'status')).body;
   const fence = await firestore.get(fencePath(uid));
   const fenced = fence.exists;
-  const problem = state.state === 'cloudflare' && !fenced ? 'on the library service WITHOUT a fence: old clients can still write Firestore'
+  const automatic = state.automatic;
+  const problem = state.state === 'cloudflare' && !fenced && automatic?.phase !== 'ready' ? 'on the library service WITHOUT a fence or automatic bridge: old clients can still write Firestore'
     : state.state === 'legacy' && fenced ? 'legacy but still fenced: nobody can write the library; run abort or rollback again to lift it'
+    : automatic?.error ? `automatic bridge waiting: ${automatic.error}`
     : null;
-  return { uid, state: state.state, epoch: state.epoch, rev: state.rev, step: state.job?.step ?? null, live: state.live, clientPushes: state.pushes, fenced, problem };
+  return { uid, state: state.state, epoch: state.epoch, rev: state.rev, step: state.job?.step ?? null, live: state.live, clientPushes: state.pushes, fenced, automatic, problem };
 }
 
 // ---- Command line -----------------------------------------------------------------------------------
@@ -376,6 +394,8 @@ async function main(argv) {
   const acceptDropped = bare('--accept-dropped');
   const allowEmpty = bare('--allow-empty');
   const acceptRetire = bare('--old-devices-will-stop-syncing');
+  const acceptAdopt = bare('--allow-old-library-writes');
+  const acceptResume = bare('--resume-verified-rollback');
   const [command, ...rest] = args;
   const usage = () => { console.error('usage: library-migrate.mjs <status|report|migrate|abort|rollback|export|restore> ... (see the top of this file)'); return 2; };
   if (!command) return usage();
@@ -386,6 +406,17 @@ async function main(argv) {
     snapshotDir: env.LIBRARY_SNAPSHOT_DIR ?? './library-snapshots',
     log: (line) => console.log(line),
   };
+  if (['adopt-bridge', 'sync-legacy', 'resume-automatic'].includes(command)) {
+    const [uid] = rest;
+    if (!uid || rest.length !== 1) return usage();
+    if (command === 'adopt-bridge' && !acceptAdopt) { console.error('Not adopted. --allow-old-library-writes acknowledges that old apps can write again through the backend bridge.'); return 2; }
+    if (command === 'resume-automatic' && !acceptResume) { console.error('Not resumed. Verify the rollback first, then pass --resume-verified-rollback.'); return 2; }
+    const acknowledge = command === 'adopt-bridge' ? 'allow old apps to write through the library bridge'
+      : 'resume automatic import from the verified rollback source';
+    const done = await deps.library(uid, command, { acknowledge });
+    console.log(JSON.stringify({ uid, status: done.status, ...done.body }));
+    return done.status === 200 ? 0 : 1;
+  }
   if (command === 'report') {
     if (!allowlistFile) { console.error('report needs --allowlist <file>'); return 2; }
     const result = await report(readAllowlist(allowlistFile), deps);
@@ -438,6 +469,13 @@ async function main(argv) {
       else if (command === 'export') {
         const r = await saveExport(uid, deps);
         console.log(JSON.stringify({ uid, rev: r.rev, checksum: r.checksum, counts: r.counts, file: r.file, verified: true }));
+      } else if (command === 'export-source') {
+        const result = await deps.library(uid, 'export-source');
+        const source = result.body.source;
+        if (result.status !== 200 || !source?.library || await checksum(source.library) !== source.checksum)
+          throw new Error('automatic source backup missing or unverifiable');
+        const file = save(deps.snapshotDir, `${uid.replace(/[^A-Za-z0-9_-]/g, '_')}-${Date.now()}-automatic-source.json`, { uid, source });
+        console.log(JSON.stringify({ uid, file, checksum: source.checksum, verified: true }));
       } else { console.error(`unknown command ${command}`); return 2; }
     } catch (e) {
       failed += 1;

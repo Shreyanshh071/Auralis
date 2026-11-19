@@ -5,6 +5,9 @@
 // The object also owns which system is the account's library (legacy Firestore, migrating, or
 // here), so there is one place to ask. See docs/library-sync/spec.md.
 import { DurableObject } from 'cloudflare:workers';
+import { AutomaticLibrary } from './library-auto.js';
+import { LibraryFirestore, LegacyUnavailable } from './library-firestore.js';
+import { sameLibrary } from './library-bridge-core.js';
 import { RateLimit, validDeviceId } from './core.js';
 import { IMPORT_DAILY_ROWS, MAX_PUSH_EVENTS, clearBefore, dayOf, mergeListens } from './listens-core.js';
 import { MAX_SETTINGS_KEYS, RETIRE_ACKNOWLEDGEMENT, SETTINGS_PLATFORMS, bridgeActive, mergeSettings, preference, topicEnabled } from './settings-core.js';
@@ -35,14 +38,15 @@ export async function libraryRoute(request, env, url, authenticate) {
     if (request.method !== 'POST') return new Response('post only', { status: 405 });
     const body = await readBody(request);
     if (body === null) return new Response('too large', { status: 413 });
-    const uid = decodeURIComponent(admin[1]);
-    // Only accounts named in LIBRARY_PILOT_UIDS can start moving. Unset means none can: no account
-    // is ever migrated because it exists, signs in, or is new.
+    let uid;
+    try { uid = decodeURIComponent(admin[1]); } catch { return json({ error: 'bad account' }, 400); }
+    if (!validId(uid) || /[\\/]/.test(uid) || ['.', '..'].includes(uid)) return json({ error: 'bad account' }, 400);
+    // The legacy manual migration tool retains its separate internal-pilot allowlist.
     if (admin[2] === 'begin' && !pilotAllowed(uid, env)) {
       return json({ error: 'not on the pilot allowlist' }, 403);
     }
     return env.LIBRARY.get(env.LIBRARY.idFromName(uid)).fetch(`https://account/admin/${admin[2]}`,
-      { method: 'POST', body, headers: { 'x-tag': await tag(uid) } });
+      { method: 'POST', body, headers: { 'x-tag': await tag(uid), 'x-uid': uid } });
   }
   const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
   if (env.LIBRARY_REQUESTS && !(await env.LIBRARY_REQUESTS.limit({ key: ip })).success) {
@@ -51,12 +55,13 @@ export async function libraryRoute(request, env, url, authenticate) {
   const token = /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1];
   const who = await authenticate(token, env, url);
   if (!who) return new Response('unauthorized', { status: 401 });
+  if (!validId(who.uid) || /[\\/]/.test(who.uid) || ['.', '..'].includes(who.uid)) return new Response('bad account', { status: 400 });
   const account = env.LIBRARY.get(env.LIBRARY.idFromName(who.uid));
   // Only these headers, set here, reach the account: nothing a client sent is believed.
   const headers = { 'x-uid': who.uid, 'x-expires': String(who.expiresAtMs), 'x-tag': await tag(who.uid) };
-  if (path === '/v1/library/authority') {
+  if (path === '/v1/library/authority' || path === '/v1/library/bootstrap') {
     if (request.method !== 'GET') return new Response('get only', { status: 405 });
-    return account.fetch('https://account/authority', { headers });
+    return account.fetch(`https://account/${path.endsWith('/bootstrap') ? 'bootstrap' : 'authority'}`, { headers });
   }
   const device = url.searchParams.get('device');
   if (!validDeviceId(device)) return new Response('bad device', { status: 400 });
@@ -109,12 +114,146 @@ export class LibraryAccount extends DurableObject {
       CREATE TABLE IF NOT EXISTS settings (platform TEXT NOT NULL, k TEXT NOT NULL, value TEXT NOT NULL, revision INTEGER NOT NULL,
         device TEXT NOT NULL, rev INTEGER NOT NULL, PRIMARY KEY (platform, k)) WITHOUT ROWID;
       CREATE TABLE IF NOT EXISTS listen_days (day TEXT PRIMARY KEY, rev INTEGER NOT NULL, body TEXT NOT NULL) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS library_auto (k TEXT PRIMARY KEY, body TEXT NOT NULL) WITHOUT ROWID;
     `);
     // Keepalive that never wakes this object, so an idle connection does no storage work.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     this.m = null;
     this.limits = new Map();
     this.rows = { read: 0, written: 0 };
+    this.work = Promise.resolve();
+    this.autoCache = undefined;
+    const firestore = new LibraryFirestore(env, (url, init) => fetch(url, init), async (kind, count) => {
+      if (!env.LIBRARY_LEGACY_BUDGET) throw new LegacyUnavailable('legacy-budget-config');
+      const budget = env.LIBRARY_LEGACY_BUDGET.get(env.LIBRARY_LEGACY_BUDGET.idFromName('legacy-io'));
+      const response = await budget.fetch('https://budget/claim', { method: 'POST', body: JSON.stringify({ kind, count }) });
+      if (!response.ok) throw new LegacyUnavailable('legacy-budget', 15 * 60_000);
+    });
+    this.automatic = new AutomaticLibrary({ firestore, load: () => this.autoState(), save: (s) => this.saveAuto(s),
+      snapshot: () => this.snapshot(), commit: (lib, state, options) => this.commitAutomatic(lib, state, options) });
+  }
+
+  serial(work) {
+    const next = this.work.then(async () => {
+      try { return await work(); }
+      catch (error) { this.m = null; this.autoCache = undefined; throw error; }
+    });
+    this.work = next.catch(() => {});
+    return next;
+  }
+
+  autoState() {
+    if (this.autoCache !== undefined) return this.autoCache;
+    const parts = {};
+    for (const row of this.q('SELECT k, body FROM library_auto ORDER BY k')) {
+      const key = row.k.split(':')[0]; parts[key] = (parts[key] ?? '') + row.body;
+    }
+    if (!parts.meta) return (this.autoCache = null);
+    const state = JSON.parse(parts.meta);
+    if (parts.baseline) state.baseline = JSON.parse(parts.baseline);
+    if (parts.source) state.imported.library = JSON.parse(parts.source);
+    if (parts.pending) state.pending.library = JSON.parse(parts.pending);
+    return (this.autoCache = state);
+  }
+
+  saveAuto(state, inTransaction = false) {
+    const { baseline, imported, pending, ...meta } = state;
+    const parts = { meta: JSON.stringify({ ...meta, imported: imported ? { ...imported, library: undefined } : undefined,
+      pending: pending ? { ...pending, library: undefined } : null }) };
+    if (baseline) parts.baseline = JSON.stringify(baseline);
+    if (imported?.library) parts.source = JSON.stringify(imported.library);
+    if (pending?.library) parts.pending = JSON.stringify(pending.library);
+    const write = () => {
+      const held = new Map(this.q('SELECT k, body FROM library_auto').map((r) => [r.k, r.body]));
+      for (const [key, text] of Object.entries(parts)) for (let at = 0; at < text.length; at += 64 * 1024) {
+        const id = `${key}:${String(at / (64 * 1024)).padStart(6, '0')}`; const body = text.slice(at, at + 64 * 1024);
+        if (held.get(id) !== body) this.q('INSERT INTO library_auto VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET body=excluded.body', id, body);
+        held.delete(id);
+      }
+      for (const id of held.keys()) this.q('DELETE FROM library_auto WHERE k = ?', id);
+    };
+    if (inTransaction) write(); else this.ctx.storage.transactionSync(write);
+    this.autoCache = structuredClone(state);
+  }
+
+  commitAutomatic(lib, state, { importing }) {
+    const before = this.meta().rev;
+    try {
+      this.ctx.storage.transactionSync(() => {
+        const m = this.meta();
+        // Retain operation deduplication records across a legacy catch-up/reset.
+        for (const table of ['playlists', 'playlist_chunks', 'items']) this.q(`DELETE FROM ${table}`);
+        Object.assign(m, { pos: 0, removed: 0, oldestRemoval: 0 });
+        this.store(lib);
+        if (!sameLibrary(lib, this.snapshot())) throw new LegacyUnavailable('legacy-verification');
+        m.floor = m.rev;
+        if (importing) { m.state = 'cloudflare'; m.epoch++; m.job = { dir: 'automatic', at: Date.now(), checksum: state.imported.checksum,
+          counts: counts(lib), source: { exists: state.imported.exists, updateTime: state.imported.updateTime } }; }
+        this.saveAuto(state, true); this.save();
+      });
+    } catch (error) { this.m = null; this.autoCache = undefined; throw error; }
+    this.broadcast({ t: 'changed', from: before, rev: this.meta().rev, by: 'legacy-bridge' });
+  }
+
+  async bootstrap(uid) {
+    const m = this.meta(); const state = this.autoState(); const now = Date.now();
+    if (m.state === 'cloudflare') {
+      if (state?.phase === 'ready') { await this.scheduleAutomatic(); }
+      return json({ state: m.state, epoch: m.epoch, v: PROTOCOL_VERSION });
+    }
+    if (m.state === 'migrating' || state?.phase === 'paused')
+      return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION }, 202);
+    if (this.env.LIBRARY_AUTO_IMPORT !== 'true')
+      return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION, reason: 'rollout-off' }, 202);
+    const allowed = (this.env.LIBRARY_AUTO_UIDS ?? '').split(',').map((s) => s.trim());
+    if (!allowed.includes('*') && !allowed.includes(uid))
+      return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION, reason: 'rollout-off' }, 202);
+    if (state?.nextAt > now) return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION,
+      reason: state.error, retryAfterMs: state.nextAt - now }, 202);
+    try {
+      await this.automatic.initialize(uid);
+      return json({ state: m.state, epoch: m.epoch, v: PROTOCOL_VERSION });
+    } catch (error) {
+      const failures = (state?.failures ?? 0) + 1;
+      const retry = Math.max(error.retryMs ?? 60_000, Math.min(15 * 60_000, 15_000 * 2 ** Math.min(failures, 6)));
+      this.saveAuto({ uid, phase: 'pending', failures, error: error.code ?? 'legacy-unavailable', nextAt: now + retry });
+      return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION, reason: error.code ?? 'legacy-unavailable', retryAfterMs: retry }, 202);
+    }
+  }
+
+  async scheduleAutomatic() {
+    const cleanup = this.meta().legacyCleanup;
+    if (cleanup) {
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, cleanup.nextAt)); return;
+    }
+    const state = this.autoState();
+    if (state?.phase !== 'ready' || this.meta().state !== 'cloudflare') return;
+    if (!state.dirty && !state.pending && this.sockets().length === 0) return;
+    const at = Math.max(Date.now() + 1000, state.nextAt ?? 0);
+    const current = await this.ctx.storage.getAlarm();
+    if (current == null || at < current) await this.ctx.storage.setAlarm(at);
+  }
+
+  automaticDirty(inTransaction = false) {
+    const state = this.autoState();
+    if (state?.phase !== 'ready') return;
+    this.saveAuto({ ...state, dirty: true, nextAt: state.failures ? state.nextAt : Date.now() }, inTransaction);
+  }
+
+  async alarm() {
+    return this.serial(async () => {
+      const m = this.meta();
+      if (m.legacyCleanup) {
+        try { await this.automatic.firestore.deleteMarker(m.legacyCleanup.uid); m.legacyCleanup = null; }
+        catch { m.legacyCleanup.nextAt = Date.now() + 15 * 60_000; }
+        this.save(); await this.scheduleAutomatic(); return;
+      }
+      const state = this.autoState();
+      if (state?.phase !== 'ready' || this.meta().state !== 'cloudflare') return;
+      if (!state.dirty && !state.pending && this.sockets().length === 0) return;
+      try { await this.automatic.synchronize(); } catch (error) { event('legacy-wait', { tag: this.tag ?? '?', code: error.code ?? 'legacy-unavailable' }); }
+      await this.scheduleAutomatic();
+    });
   }
 
   // ---- storage ---------------------------------------------------------------------------------
@@ -344,6 +483,7 @@ export class LibraryAccount extends DurableObject {
           m.rev = rev;
           m.pushes += 1;
           this.prune(now);
+          this.automaticDirty(true);
         }
         this.save();
       } catch (e) {
@@ -425,13 +565,18 @@ export class LibraryAccount extends DurableObject {
     // In any state: a library archived by a rollback, or one mid-migration, goes too. Erasing an
     // erased account succeeds again, so a deletion that failed later can simply be retried.
     if (m.state === 'migrating' && m.job?.dir === 'erased') return { t: 'erased', r, epoch: m.epoch };
+    const automatic = this.autoState();
+    const legacyUid = automatic?.imported ? automatic.uid : null;
     this.ctx.storage.transactionSync(() => {
       this.wipe();
+      this.q('DELETE FROM library_auto');
+      this.autoCache = null;
       this.q('DELETE FROM settings');
       this.q('DELETE FROM listen_days');
       Object.assign(m, { settingsRev: m.settingsRev + 1, settingsStartedAt: 0, legacySeenAt: 0, bridgeRetiredAt: 0, backfillFrom: -1, listensRev: m.listensRev + 1,
         listensFloor: m.listensRev + 1, listensImported: false });
       this.setState('migrating', { dir: 'erased', at: now });
+      if (legacyUid) { m.legacyCleanup = { uid: legacyUid, nextAt: now }; this.save(); }
     });
     return { t: 'erased', r, epoch: m.epoch };
   }
@@ -626,8 +771,13 @@ export class LibraryAccount extends DurableObject {
   // ---- transport -------------------------------------------------------------------------------
 
   async fetch(request) {
+    return this.serial(() => this.fetchSerialized(request));
+  }
+
+  async fetchSerialized(request) {
     const url = new URL(request.url);
     this.tag = request.headers.get('x-tag') ?? this.tag ?? '?';
+    this.accountUid = request.headers.get('x-uid');
     if (url.pathname.startsWith('/admin/')) {
       const action = url.pathname.slice(7);
       const response = await this.admin(action, await request.text());
@@ -639,14 +789,21 @@ export class LibraryAccount extends DurableObject {
     const expiresAtMs = Number(request.headers.get('x-expires'));
     if (!(expiresAtMs > now)) return new Response('expired', { status: 401 });
     const m = this.meta();
+    if (url.pathname === '/bootstrap') return this.bootstrap(request.headers.get('x-uid'));
     if (url.pathname === '/authority') return json({ state: m.state, epoch: m.epoch, v: PROTOCOL_VERSION });
     const device = request.headers.get('x-device');
     if (url.pathname === '/rpc') {
       let frame;
       try { frame = JSON.parse(await request.text()); } catch { return json({ t: 'err', code: 'bad-frame' }, 400); }
       if (!frame || typeof frame !== 'object' || Array.isArray(frame)) return json({ t: 'err', code: 'bad-frame' }, 400);
+      if (frame.t === 'profile.picks') {
+        const state = this.autoState();
+        return json({ t: 'profile.picks', available: state?.phase === 'ready', picks: state?.picks ?? null });
+      }
       const done = this.handle(frame, device, now);
       if (done.pushed) this.broadcast(done.pushed, device);
+      if (frame.t === 'push' && done.reply.changed) this.automaticDirty();
+      await this.scheduleAutomatic();
       return json(done.reply);
     }
     const open = this.sockets();
@@ -659,6 +816,7 @@ export class LibraryAccount extends DurableObject {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     pair[1].serializeAttachment({ device, expiresAtMs });
+    await this.scheduleAutomatic();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -684,6 +842,10 @@ export class LibraryAccount extends DurableObject {
   }
 
   async webSocketMessage(socket, message) {
+    return this.serial(() => this.messageSerialized(socket, message));
+  }
+
+  async messageSerialized(socket, message) {
     const attachment = socket.deserializeAttachment();
     if (!attachment || socket.readyState !== WebSocket.READY_STATE_OPEN) return;
     const size = typeof message === 'string' ? message.length : message.byteLength;
@@ -701,6 +863,8 @@ export class LibraryAccount extends DurableObject {
     try { frame = JSON.parse(message); } catch { return send({ t: 'err', code: 'bad-frame' }); }
     if (!frame || typeof frame !== 'object' || Array.isArray(frame)) return send({ t: 'err', code: 'bad-frame' });
     const done = this.handle(frame, attachment.device, now);
+    if (frame.t === 'push' && done.reply.changed) this.automaticDirty();
+    await this.scheduleAutomatic();
     send(done.reply);
     if (done.pushed) this.broadcast(done.pushed, attachment.device);
   }
@@ -733,11 +897,42 @@ export class LibraryAccount extends DurableObject {
     const now = Date.now();
     const status = () => ({ state: m.state, epoch: m.epoch, rev: m.rev, floor: m.floor, job: m.job, live: m.live, pushes: m.pushes,
       seen: m.seen, sockets: this.ctx.getWebSockets().length,
+      legacyCleanupPending: !!m.legacyCleanup,
+      automatic: (() => { const s = this.autoState(); return s ? { phase: s.phase, dirty: !!s.dirty, error: s.error ?? null,
+        nextAt: s.nextAt, lastSuccess: s.lastSuccess ?? null, adoptingFence: !!s.adoptionFence } : null; })(),
       bridge: { active: bridgeActive(m), retiredAt: m.bridgeRetiredAt || null, accountSyncSince: m.settingsStartedAt || null,
         oldAppLastSeen: m.legacySeenAt || null, backfillPending: m.backfillFrom >= 0 } });
     const incoming = m.state === 'migrating' && m.job?.dir === 'in';
     switch (action) {
       case 'status': return json(status());
+      case 'export-source': {
+        const s = this.autoState();
+        if (!s?.imported) return json({ error: 'no automatic source backup' }, 404);
+        return json({ ...status(), source: s.imported });
+      }
+      case 'sync-legacy':
+      case 'adopt-bridge': {
+        if (m.state !== 'cloudflare') return json({ error: 'not cloudflare', ...status() }, 409);
+        if (action === 'adopt-bridge') {
+          if (this.env.LIBRARY_AUTO_IMPORT !== 'true' || body.acknowledge !== 'allow old apps to write through the library bridge')
+            return json({ error: 'automatic import must be enabled and the compatibility change acknowledged' }, 400);
+        } else if (this.autoState()?.phase !== 'ready') return json({ error: 'no automatic bridge', ...status() }, 409);
+        try {
+          if (action === 'adopt-bridge') await this.automatic.adoptFenced(this.accountUid, m.job?.checksum);
+          else await this.automatic.synchronize({ force: true });
+          await this.scheduleAutomatic(); return json(status());
+        } catch (error) {
+          await this.scheduleAutomatic();
+          return json({ error: error.code ?? 'legacy-unavailable', ...status() }, 503);
+        }
+      }
+      case 'resume-automatic': {
+        const s = this.autoState();
+        if (m.state !== 'legacy' || s?.phase !== 'paused' || body.acknowledge !== 'resume automatic import from the verified rollback source')
+          return json({ error: 'not a paused rollback, or missing acknowledgement' }, 409);
+        this.saveAuto({ ...s, phase: 'pending', nextAt: 0, failures: 0, pending: null });
+        return json(status());
+      }
       case 'verify': this.expire(now); return json({ ...status(), ...(await this.verify()) });
       case 'export': {
         // Records past the offline window are dropped first, as a device or a read-back would.
@@ -789,7 +984,10 @@ export class LibraryAccount extends DurableObject {
       case 'rollback-begin':
         if (m.state === 'migrating' && m.job?.dir === 'out') return json(status());
         if (m.state !== 'cloudflare') return json({ error: 'not cloudflare', ...status() }, 409);
-        this.setState('migrating', { dir: 'out', step: 'frozen', startedAt: now, was: m.job });
+        this.ctx.storage.transactionSync(() => {
+          if (this.autoState()?.phase === 'ready') this.saveAuto({ ...this.autoState(), phase: 'paused' }, true);
+          this.setState('migrating', { dir: 'out', step: 'frozen', startedAt: now, was: m.job });
+        });
         return json(status());
       case 'restore': {
         // Replaces the library with an export while the account is frozen (after rollback-begin).
@@ -825,7 +1023,11 @@ export class LibraryAccount extends DurableObject {
         return json(status());
       case 'rollback-abort':
         if (!(m.state === 'migrating' && m.job?.dir === 'out')) return json({ error: 'no rollback', ...status() }, 409);
-        this.setState('cloudflare', m.job.was ?? { step: 'done' });
+        this.ctx.storage.transactionSync(() => {
+          this.setState('cloudflare', m.job.was ?? { step: 'done' });
+          if (this.autoState()?.phase === 'paused') this.saveAuto({ ...this.autoState(), phase: 'ready', dirty: true, nextAt: 0 }, true);
+        });
+        await this.scheduleAutomatic();
         return json(status());
       case 'rollback-commit':
         if (m.state === 'legacy') return json(status());

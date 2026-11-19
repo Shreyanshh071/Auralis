@@ -52,9 +52,6 @@ sealed interface LibraryRoute {
 }
 
 object LibraryAuthorityPolicy {
-    /** How long a "legacy" answer is acted on without discovery; the security-rule fence is the real guard. */
-    const val LEGACY_TRUST_MS = 6 * 3_600_000L
-
     /** A lower epoch is an older answer arriving late, never a step back. */
     fun remember(cached: AuthorityAnswer?, fresh: AuthorityAnswer?): AuthorityAnswer? = when {
         fresh == null -> cached
@@ -72,7 +69,9 @@ object LibraryAuthorityPolicy {
         known == null -> LibraryRoute.Wait(migrating = false)
         known.state == LibraryAuthority.CLOUDFLARE -> LibraryRoute.Cloudflare(known.epoch)
         known.state == LibraryAuthority.MIGRATING -> LibraryRoute.Wait(migrating = true)
-        reachable || now - known.checkedAt in 0 until LEGACY_TRUST_MS -> LibraryRoute.Firestore
+        // Updated library clients wait for backend import; legacy is never permission to
+        // read/write Firestore directly. Already-migrated accounts remain usable offline.
+        known.state == LibraryAuthority.LEGACY -> LibraryRoute.Wait(migrating = false)
         else -> LibraryRoute.Wait(migrating = false)
     }
 }

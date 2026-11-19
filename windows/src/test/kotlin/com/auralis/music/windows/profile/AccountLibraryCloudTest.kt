@@ -128,16 +128,17 @@ class AccountLibraryCloudTest {
         } finally { f.close() }
     }
 
-    @Test fun `an account still on Firestore keeps syncing there after discovery is switched on`() = runBlocking {
+    @Test fun `an unmigrated account waits for backend import without direct Firestore fallback`() = runBlocking {
         if (base == null) return@runBlocking
         val f = Fixture(base)
         try {
             f.signIn()
             f.library.setFavorite(like("local"), true)
-            assertTrue(f.sync())
-            assertEquals(setOf("local"), f.firestoreLikes())
+            assertFalse(f.sync())
+            assertEquals(0, f.libraryReads)
+            assertEquals(0, f.libraryWrites)
+            assertEquals(setOf("local"), f.likes(), "pending edits remain local")
             assertEquals(emptySet(), f.serverLikes())
-            assertFalse(f.account.libraryNotifies)
         } finally { f.close() }
     }
 
@@ -194,20 +195,21 @@ class AccountLibraryCloudTest {
         } finally { f.close() }
     }
 
-    @Test fun `a write the fence refuses sends the device back to discovery, then to the new library`() = runBlocking {
+    @Test fun `a pending cached answer is rechecked before local edits are uploaded`() = runBlocking {
         if (base == null) return@runBlocking
         val f = Fixture(base)
         try {
             f.signIn()
-            assertTrue(f.sync(), "legacy at first, and that answer is now cached")
-            // The account is migrated while this device keeps running with its cached answer.
-            f.migrateEmpty()
+            assertFalse(f.sync(), "the account is waiting for verified backend import")
             f.denyWrites = true
             f.library.setFavorite(like("after-cutover"), true)
             assertFalse(f.sync())
             assertEquals(setOf("after-cutover"), f.likes())
-            assertTrue(f.sync(), "the refusal made it ask again, and it found the library server")
+            // Import finishes while the device has its pending answer and a saved local edit.
+            f.migrateEmpty()
+            assertTrue(f.sync(), "pending discovery is checked again, without a Firestore write")
             assertEquals(setOf("after-cutover"), f.serverLikes())
+            assertEquals(0, f.libraryReads)
             assertEquals(0, f.libraryWrites)
         } finally { f.close() }
     }
