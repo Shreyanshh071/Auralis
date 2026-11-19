@@ -104,15 +104,18 @@ test('lost Firestore commit acknowledgement survives a real restart and later ol
 test('rollback prevents automatic reimport; explicit resume works; erase removes recovery data', async () => {
  const firestore = {
   get: async (p) => { const d = fs.docs.get(p); return d ? { exists: true, ...structuredClone(d) } : { exists: false, data: null }; },
-  set: async (p, data) => { fs.put(p, data); },
-  merge: async (p, data, mask) => { fs.put(p, { ...fs.data(p), ...Object.fromEntries(mask.map((k) => [k, data[k]])) }); },
-  delete: async (p) => { fs.docs.delete(p); },
+  set: async () => { assert.fail('automatic rollback must not assume a security-rule fence'); },
+  merge: async () => { assert.fail('the backend owns the conditional mirror'); },
+  delete: async () => { assert.fail('automatic rollback does not manipulate a legacy fence'); },
  };
  const deps = { firestore, library: admin };
  assert.equal((await status('pinkman', deps)).problem, null, 'an automatic bridge needs no fence');
+ await rpc('pinkman', { t: 'push', v: 1, epoch: 1, ops: [{ id: 'rollback-cloud-pending', t: 'fav.put', v: song('cloud-before-rollback') }] });
  const old = fs.data('users/pinkman'); old.favorites.push(song('last-old-edit')); fs.put('users/pinkman', old);
+ fs.conflict = () => { const raced = fs.data('users/pinkman'); raced.favorites.push(song('racing-rollback-edit')); fs.put('users/pinkman', raced); };
  const result = await rollback('pinkman', deps); assert.equal(result.result, 'rolled-back');
- assert.ok(fs.data('users/pinkman').favorites.some((x) => x.id === 'last-old-edit'), 'rollback catches up old writers before freezing');
+ assert.equal(fs.conflict, null, 'the test actually raced the conditional commit');
+ for (const id of ['last-old-edit', 'racing-rollback-edit']) assert.ok(fs.data('users/pinkman').favorites.some((x) => x.id === id), 'rollback catches up old writers and retries races');
  assert.equal(fs.data('libraryAuthority/pinkman'), undefined);
  assert.equal((await bootstrap('pinkman')).status, 202);
  assert.equal((await admin('pinkman', 'resume-automatic', { acknowledge: 'resume automatic import from the verified rollback source' })).status, 200);
@@ -120,6 +123,23 @@ test('rollback prevents automatic reimport; explicit resume works; erase removes
  assert.equal((await rpc('pinkman', { t: 'erase', v: 1 })).t, 'erased'); assert.equal((await admin('pinkman', 'export-source')).status, 404);
  assert.equal((await bootstrap('pinkman')).status, 202, 'erased account cannot reimport');
  await until(() => !fs.data('libraryBridgeJournal/pinkman'));
+});
+test('failed automatic rollback stays frozen and retries the bridge without losing accepted edits', async () => {
+ const uid = 'rollback-quota'; fs.put(`users/${uid}`, { favorites: [song('base')] }); await bootstrap(uid);
+ await rpc(uid, { t: 'push', v: 1, epoch: 1, ops: [{ id: 'accepted-before-rollback', t: 'fav.put', v: song('accepted') }] });
+ const deps = { library: admin, firestore: new Proxy({}, { get: () => () => assert.fail('automatic rollback needs no operator Firestore mutation') }) };
+ fs.status = 429; await assert.rejects(rollback(uid, deps), /reconciliation failed/);
+ const failed = (await admin(uid, 'status')).body; assert.equal(failed.state, 'migrating'); assert.equal(failed.automatic.phase, 'paused');
+ assert.equal((await rpc(uid, { t: 'push', v: 1, epoch: failed.epoch, ops: [{ id: 'frozen', t: 'fav.put', v: song('blocked') }] })).code, 'authority');
+ fs.status = 0; const legacy = fs.data(`users/${uid}`); legacy.favorites.push(song('old-after-failure')); fs.put(`users/${uid}`, legacy);
+ assert.equal((await rollback(uid, deps)).result, 'rolled-back');
+ assert.deepEqual(new Set(fs.data(`users/${uid}`).favorites.map((x) => x.id)), new Set(['base', 'accepted', 'old-after-failure']));
+ assert.equal((await rollback(uid, deps)).result, 'already-legacy');
+ await admin(uid, 'resume-automatic', { acknowledge: 'resume automatic import from the verified rollback source' });
+ fs.status = 429; assert.equal((await bootstrap(uid)).status, 202);
+ assert.equal((await admin(uid, 'export-source')).status, 200, 'an interrupted reimport keeps the prior source backup');
+ assert.equal((await exported(uid)).library.favorites.length, 3, 'the last archive is not replaced with empty data');
+ fs.status = 0;
 });
 test('quota cannot block erase; backend marker cleanup remains pending across a restart', async () => {
  fs.put('users/cleanup-quota', { favorites: [song('old')] }); await bootstrap('cleanup-quota');

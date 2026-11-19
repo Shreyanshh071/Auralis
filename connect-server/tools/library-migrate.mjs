@@ -329,23 +329,15 @@ export async function abort(uid, { firestore, library, log = () => {} }) {
 }
 
 /**
- * After the flip: freezes the library service, writes its latest library back into the Firestore
- * document old clients use, checks it, then lifts the fence. Edits made on the library service
- * are kept; nothing is restored from the stale frozen copy.
+ * After the flip: freezes updated writers and returns the latest library to Firestore. Automatic
+ * accounts reconcile through the backend's conditional bridge; manual migrations retain their
+ * verified write and fence release. Accepted edits are kept, never replaced with a stale backup.
  */
 export async function rollback(uid, { firestore, library, snapshotDir = null, stopAfter = null, log = () => {}, now = Date.now }) {
   const current = (await library(uid, 'status')).body;
-  if (current.state === 'cloudflare' && current.automatic?.phase === 'ready') {
-    if (current.automatic.adoptingFence) {
-      const adopted = await library(uid, 'sync-legacy');
-      if (adopted.status !== 200) throw new Retryable(`${uid}: finish the pending bridge adoption before rollback`);
-    }
-    // Automatic accounts normally have no fence. Stop old writers first, reconcile their final
-    // snapshot, then freeze new writers. Otherwise a rollback could overwrite an old-app edit.
-    await firestore.set(fencePath(uid), { state: 'rollback', at: now() });
-    const caught = await library(uid, 'sync-legacy');
-    if (caught.status !== 200) throw new Retryable(`${uid}: legacy catch-up failed; the temporary rollback fence stays in place, retry rollback`);
-  }
+  const automatic = ['ready', 'paused'].includes(current.automatic?.phase);
+  if (automatic && current.state === 'legacy' && current.job?.rolledBack)
+    return { uid, result: 'already-legacy', epoch: current.epoch };
   const frozen = await library(uid, 'rollback-begin');
   if (frozen.status !== 200) {
     if (frozen.body.state === 'legacy') { await firestore.delete(fencePath(uid)); return { uid, result: 'already-legacy' }; }
@@ -354,6 +346,16 @@ export async function rollback(uid, { firestore, library, snapshotDir = null, st
   if (stopAfter === 'freeze') return { uid, result: 'stopped', at: 'freeze' };
   const exported = await saveExport(uid, { library, snapshotDir, now });
   const file = exported.file;
+  if (automatic) {
+    // The backend owns the baseline and commit journal. It hands off with a conditional mirror
+    // while new clients wait, without assuming deployed rules fence every account's old apps.
+    const done = await library(uid, 'rollback-commit');
+    if (done.status !== 200) throw new Retryable(`${uid}: rollback reconciliation failed; the library stays frozen, retry rollback or abort it`);
+    const final = await saveExport(uid, { library, snapshotDir, now });
+    if (final.checksum !== done.body.job?.checksum) throw new Error(`${uid}: rollback archive did not verify`);
+    log(`${uid}: rolled back through the compatibility bridge; accepted edits kept`);
+    return { uid, result: 'rolled-back', epoch: done.body.epoch, checksum: final.checksum, counts: final.counts, export: final.file };
+  }
   // Backend credentials bypass the fence, which stays up until the document is verified.
   await firestore.merge(userPath(uid), toUserDocument(exported.library, now()), ROLLBACK_FIELDS);
   if (stopAfter === 'write') return { uid, result: 'stopped', at: 'write' };

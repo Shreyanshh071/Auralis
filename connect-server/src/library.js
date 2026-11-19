@@ -216,7 +216,7 @@ export class LibraryAccount extends DurableObject {
     } catch (error) {
       const failures = (state?.failures ?? 0) + 1;
       const retry = Math.max(error.retryMs ?? 60_000, Math.min(15 * 60_000, 15_000 * 2 ** Math.min(failures, 6)));
-      this.saveAuto({ uid, phase: 'pending', failures, error: error.code ?? 'legacy-unavailable', nextAt: now + retry });
+      this.saveAuto({ ...state, uid, phase: 'pending', failures, error: error.code ?? 'legacy-unavailable', nextAt: now + retry });
       return json({ state: 'migrating', epoch: m.epoch, v: PROTOCOL_VERSION, reason: error.code ?? 'legacy-unavailable', retryAfterMs: retry }, 202);
     }
   }
@@ -1029,12 +1029,32 @@ export class LibraryAccount extends DurableObject {
         });
         await this.scheduleAutomatic();
         return json(status());
-      case 'rollback-commit':
+      case 'rollback-commit': {
         if (m.state === 'legacy') return json(status());
         if (!(m.state === 'migrating' && m.job?.dir === 'out')) return json({ error: 'no rollback', ...status() }, 409);
+        const automatic = this.autoState();
+        if (automatic?.imported) {
+          // New writers are frozen; old writers remain live. The bridge's conditional commit
+          // merges their latest snapshot and retries races. Its durable marker also resolves a
+          // lost commit ACK. No project-wide security-rule fence is needed for this handoff.
+          this.saveAuto({ ...automatic, phase: 'ready' });
+          try {
+            await this.automatic.synchronize({ force: true });
+            const verified = await this.verify();
+            this.ctx.storage.transactionSync(() => {
+              this.saveAuto({ ...this.autoState(), phase: 'paused' }, true);
+              this.setState('legacy', { rolledBack: true, automatic: true, at: now, checksum: verified.checksum });
+            });
+            return json({ ...status(), ...verified });
+          } catch (error) {
+            this.saveAuto({ ...this.autoState(), phase: 'paused' });
+            return json({ ...status(), error: error.code ?? 'legacy-unavailable' }, 503);
+          }
+        }
         // Rows stay as an archive until a later import replaces them.
         this.setState('legacy', { rolledBack: true, at: now, checksum: body.checksum ?? null });
         return json(status());
+      }
       default: return json({ error: 'unknown action' }, 404);
     }
   }

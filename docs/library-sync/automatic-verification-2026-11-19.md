@@ -1,5 +1,7 @@
 # Automatic library migration verification — 19 November 2026
 
+Subsequent signed-in staging/device evidence and follow-up fixes are recorded in [the live pilot report](staging-automatic-pilot-2026-11-19.md). The local-only scope below describes the earlier implementation run.
+
 Scope: local implementation on `main`; no production or staging deployment, real-account import, account deletion, live credential change or public release. The Mac UI exclusions from the approved integration were preserved. The only `Main.kt` change permits the isolated staging library pilot and pins its Together endpoint to staging.
 
 ## Results
@@ -28,7 +30,7 @@ The normal Android release BuildConfig and Mac launcher config both contain the 
 - Initial source backup, current library, accepted operations and deduplication survive restart. Local device edits made while waiting are retained and upload after readiness.
 - Quota before first import leaves authority pending; quota after cutover retains accepted Cloudflare data. The global backend budget and empty pilot admission prevent Firestore I/O.
 - Fenced adoption verifies the original checksum, mirrors newer edits and conditionally releases the fence. A body-supplied different UID cannot change the target account.
-- Automatic rollback fences/catches up old writers before freezing updated writers, keeps their last edit, verifies the latest export and leaves reimport paused until explicit operator resume.
+- Automatic rollback freezes updated writers and conditionally reconciles/mirrors legacy data before its authority flip. It keeps racing old edits without relying on a project-wide Firestore rule fence, verifies the final archive and leaves reimport paused until explicit operator resume. Manual migration retains its fenced rollback flow.
 - Account erase removes the DO source backup and blocks reimport. Successful cleanup removes the Firestore mirror marker. The last added regression checks that quota cannot block erase and the remaining metadata cleanup survives a process restart.
 
 Three older test assertions expected enabled clients to keep using Firestore; these were updated to assert the new waiting/import policy and zero direct library reads/writes. No tests were disabled to make the new policy pass. The first broad Gradle run failed on those stale assertions; the corrected runs above passed.

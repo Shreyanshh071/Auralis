@@ -53,7 +53,7 @@ node tools/library-migrate.mjs rollback <uid>
 
 `status`/`report` recognize an unfenced automatic account as valid and expose bridge errors/backoff. The admin `export-source` action returns the immutable initial source backup; `export` remains the current verified library. Exports contain private library data: keep them outside Git with restricted access.
 
-For automatic rollback, the tool temporarily fences old writers, catches up their final edits, freezes Cloudflare writers, exports the latest library, writes and verifies Firestore, then releases the fence. The automatic job stays paused, so the next login cannot undo rollback. Updated Cloudflare-only clients wait during a rollback; restoring old-client service requires coordinating the client release, or explicitly resume automatic import after verifying the rollback:
+For automatic rollback, the tool freezes updated writers and saves a verified backup. The backend reconciles the latest legacy snapshot with its persisted baseline, conditionally mirrors with conflict retries and the crash-recovery marker, then atomically marks authority Legacy. Old writers remain live; their writes after the handoff stay in Firestore. This path needs no new Firestore security-rule fence. Existing manually migrated accounts retain the original fenced rollback path. The automatic job stays paused, so the next login cannot undo rollback. Updated Cloudflare-only clients wait during a rollback; restoring old-client service requires coordinating the client release, or explicitly resume automatic import after verifying the rollback:
 
 ```sh
 node tools/library-migrate.mjs resume-automatic <uid> --resume-verified-rollback
@@ -72,10 +72,10 @@ The production owner must perform the remaining environment work. This change do
    cd connect-server
    npx wrangler secret put LIBRARY_FIRESTORE_SERVICE_ACCOUNT --env staging < /absolute/private/path/service-account.json
    npx wrangler secret put LIBRARY_AUTO_UIDS --env staging
-   npx wrangler deploy --env staging --var LIBRARY_AUTO_IMPORT:true --var ACCOUNT_SYNC_TOPICS:listens
+   npx wrangler deploy --env staging --var LIBRARY_AUTO_IMPORT:true
    ```
 
-   The checked-in defaults stay off. The new namespace migration is `v4` (`LibraryLegacyBudget`); retain all earlier migration tags. Do not replace the production admin secret or staging test-login secret. The Firebase project must be the same project that issued the test account token. Synthetic staging tokens are not a substitute for a Firebase-authenticated import from a real test account.
+   Preserve the existing staging `ACCOUNT_SYNC_TOPICS` secret; do not shadow it with a plain `--var` of the same name. The checked-in defaults stay off. The new namespace migration is `v4` (`LibraryLegacyBudget`); retain all earlier migration tags. Do not replace the production admin secret or staging test-login secret. The Firebase project must be the same project that issued the test account token. Synthetic staging tokens are not a substitute for a Firebase-authenticated import from a real test account.
 3. Build isolated Android internal variant with `./gradlew :app:assembleSyncPilot -Psync.pilot.library=true`; keep its output internal to Gradle (the two root APK deliverables remain release/debug). Build Mac normally, then launch `scripts/run-sync-pilot-macos.sh --library` for an isolated profile against staging. The guard permits only the exact staging library endpoint; normal builds keep production endpoints. Do not sign a personal account into this import pilot.
 4. Test a disposable existing account on phone and Mac, and the friend's Windows build. Include Pinkman's 111→112 track edit while deleting another playlist, ordering/duplicates, likes/unlikes, saved items, offline edits, restart/reconnect and quota failure. Run at least one actual supported old APK against the same test account and verify both directions. Existing locally tested request shapes are useful but do not replace these device checks.
 5. Export and inspect the initial source and current library, test rollback/recovery, and inspect both providers' usage. Confirm backend OAuth/IAM, actual missing-account metadata response and device lifecycle behavior. Do not advertise live readiness from unit-test results.
