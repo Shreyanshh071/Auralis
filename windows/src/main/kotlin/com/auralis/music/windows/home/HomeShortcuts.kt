@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.LibraryMusic
 import com.auralis.music.ui.components.secondaryClick
 import com.auralis.music.windows.player.ArtworkAura
@@ -30,7 +31,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -122,7 +126,37 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
     if (picking) com.auralis.music.ui.components.GlassAlertDialog(onDismissRequest = { picking = false }, title = { Text(desktopText("Add a shortcut")) },
         confirmButton = { TextButton(onClick = { picking = false }) { Text(desktopText("Done")) } }, text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(query, { query = it }, singleLine = true, label = { Text(desktopText("Filter playlists and artists")) })
+                val searchLabel = desktopText("Filter playlists and artists")
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = searchLabel },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    placeholder = { Text(searchLabel, style = MaterialTheme.typography.bodyMedium) },
+                    leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(19.dp)) },
+                    trailingIcon = if (query.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Outlined.Close, desktopText("Clear search"), Modifier.size(18.dp))
+                            }
+                        }
+                    } else null,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = .12f),
+                        unfocusedContainerColor = Color.White.copy(alpha = .08f),
+                        focusedBorderColor = Color.White.copy(alpha = .38f),
+                        unfocusedBorderColor = Color.White.copy(alpha = .13f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White,
+                        focusedPlaceholderColor = Color.White.copy(alpha = .70f),
+                        unfocusedPlaceholderColor = Color.White.copy(alpha = .65f),
+                        focusedLeadingIconColor = Color.White.copy(alpha = .90f),
+                        unfocusedLeadingIconColor = Color.White.copy(alpha = .68f)
+                    )
+                )
                 val matches = candidates.filter { it.name.contains(query, true) }.distinctBy { it.id }
                 if (matches.isEmpty()) Text(desktopText("No matching playlists or artists."))
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {

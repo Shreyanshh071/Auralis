@@ -5,6 +5,8 @@ import com.auralis.music.ui.i18n.desktopText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -112,8 +114,18 @@ internal fun SidebarCard(title: String, action: String? = null, onAction: () -> 
         .padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(desktopText(title), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
-            if (action != null) Text(desktopText(action), Modifier.clickable(onClick = onAction), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = .75f))
+            if (action != null) {
+                val interaction = remember { MutableInteractionSource() }
+                val hovered by interaction.collectIsHoveredAsState()
+                val focused by interaction.collectIsFocusedAsState()
+                val highlighted = hovered || focused
+                Text(desktopText(action), Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = if (highlighted) .10f else 0f))
+                    .clickable(interactionSource = interaction, indication = null, onClick = onAction)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = if (highlighted) 1f else .75f))
+            }
         }
         content()
     }

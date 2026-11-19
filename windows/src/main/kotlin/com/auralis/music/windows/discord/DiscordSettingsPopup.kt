@@ -242,19 +242,6 @@ internal fun DiscordSettingsContent(
                             ) { update { s -> s.copy(statusLine = it) } }
                         }
 
-                        run {
-                            OutlinedTextField(
-                                value = cfg.appName,
-                                onValueChange = { value -> update { it.copy(appName = value.take(128)) } },
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                label = { Text(desktopText("App name")) },
-                                placeholder = { Text(desktopText("Auralis")) },
-                                supportingText = { Text(desktopText("Replaces \"Auralis\" wherever the app name appears. Leave empty to keep it.")) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-
                         run { SectionHeader("ACTIVITY") }
 
                         run {
@@ -277,6 +264,14 @@ internal fun DiscordSettingsContent(
                             ) { update { s -> s.copy(line2 = it) } }
                         }
 
+                        DiscordDropdownRow(
+                            title = "Line 3 / artwork hover text",
+                            description = if (cfg.cover) null else "Shows when album artwork is enabled.",
+                            value = cfg.line3,
+                            options = listOf("album", "artist", "title", "off"),
+                            labels = labels
+                        ) { update { s -> s.copy(line3 = it) } }
+
                         run { SectionHeader("ARTWORK") }
 
                         run {
@@ -296,15 +291,6 @@ internal fun DiscordSettingsContent(
                                 ) { update { s -> s.copy(badge = it) } }
                             }
 
-                            run {
-                                DiscordDropdownRow(
-                                    title = "Line 3 / artwork hover text",
-                                    description = null,
-                                    value = cfg.line3,
-                                    options = listOf("album", "artist", "title", "off"),
-                                    labels = labels
-                                ) { update { s -> s.copy(line3 = it) } }
-                            }
                         }
 
                         run {
@@ -353,6 +339,12 @@ internal fun DiscordSettingsContent(
                         }
 
                         run { SectionHeader("BUTTONS") }
+
+                        Text(
+                            desktopText("Discord shows these buttons to other people viewing your profile. You can try them in the preview."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                         run {
                             DiscordDropdownRow(
@@ -602,8 +594,10 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        val appDisplayName = cfg.appName.trim().ifBlank { "Auralis" }.take(128)
         val payload = discordActivity(activeTrack, cfg.copy(enabled = true, showPaused = true), isPlaying, true, positionMs, durationMs)
+        val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+        fun Modifier.previewLink(url: String?): Modifier =
+            if (url.isNullOrBlank()) this else clickable { uriHandler.openUri(url) }
 
         Surface(
             shape = RoundedCornerShape(14.dp),
@@ -619,7 +613,7 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Listening to $appDisplayName",
+                        text = "Listening to $DISCORD_APP_NAME",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFFDBDEE1)
@@ -638,6 +632,7 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
                             HomeArtwork(
                                 url = activeTrack.track.thumbnail,
                                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
+                                    .previewLink(payload?.optJSONObject("assets")?.optString("large_url"))
                             )
                             if (cfg.badge) {
                                 Surface(
@@ -659,6 +654,7 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
                         val line1Val = activeTrack.text(cfg.line1) ?: activeTrack.track.title
                         Text(
                             text = line1Val,
+                            modifier = Modifier.previewLink(payload?.optString("details_url")),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -670,6 +666,7 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
                             val line2Val = activeTrack.text(cfg.line2) ?: activeTrack.track.artist
                             Text(
                                 text = line2Val,
+                                modifier = Modifier.previewLink(payload?.optString("state_url")),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFFDBDEE1),
                                 maxLines = 1,
@@ -719,20 +716,18 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
                 }
 
                 // Discord Action Buttons
-                val buttons = listOfNotNull(
-                    if (cfg.button1 != "off") resolveButtonLabel(cfg.button1) else null,
-                    if (cfg.button2 != "off") resolveButtonLabel(cfg.button2) else null
-                ).distinct()
-
-                buttons.forEach { label ->
+                val buttons = payload?.optJSONArray("buttons")
+                for (index in 0 until (buttons?.length() ?: 0)) {
+                    val button = buttons?.optJSONObject(index) ?: continue
                     Surface(
-                        modifier = Modifier.fillMaxWidth().height(32.dp),
+                        modifier = Modifier.fillMaxWidth().height(32.dp)
+                            .clip(RoundedCornerShape(4.dp)).previewLink(button.optString("url")),
                         shape = RoundedCornerShape(4.dp),
                         color = Color(0xFF4E5058)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
-                                text = label,
+                                text = desktopText(button.optString("label")),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Medium,
                                 color = Color.White
@@ -753,7 +748,7 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
         )
 
         val memberStatusText = when (cfg.statusLine) {
-            "app" -> cfg.appName.trim().ifBlank { "Auralis" }.take(128)
+            "app" -> DISCORD_APP_NAME
             "line1" -> activeTrack.text(cfg.line1) ?: activeTrack.track.title
             else -> activeTrack.text(cfg.line2) ?: activeTrack.track.artist
         }
@@ -817,14 +812,6 @@ private fun DiscordCardPreviewPanel(cfg: DiscordCardSettings, now: DiscordNow, s
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-}
-
-private fun resolveButtonLabel(kind: String): String = when (kind) {
-    "listen" -> "Listen on YouTube Music"
-    "album" -> "View album"
-    "artist" -> "View artist"
-    "app" -> "Get Auralis"
-    else -> "Auralis"
 }
 
 private fun formatDiscordTime(ms: Long): String {

@@ -23,7 +23,7 @@ class MotionAuraTest {
         ImageIO.write(BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB).apply {
             for (y in 0 until 32) for (x in 0 until 32) setRGB(x, y, 0xffcc2222.toInt())
         }, "png", still)
-        loadAuraTexture(still.absolutePath)
+        assertNotNull(loadAuraTexture(still.absolutePath))
         val feed = MotionAura()
         val collector = launch { feed.collectFrames() }
         val scene = ImageComposeScene(160, 100, coroutineContext = coroutineContext) {

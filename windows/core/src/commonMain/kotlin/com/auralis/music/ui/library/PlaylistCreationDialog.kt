@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.data.playlistsync.*
@@ -64,8 +66,27 @@ fun PlaylistCreationDialog(library: LibraryRepository, engine: PlaylistSyncEngin
         // The desktop glass host also scrolls its dialog. Bound this inner form before
         // its scroll modifier so the outer scroller cannot give it infinite height.
         text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(name, { name = it }, singleLine = true, enabled = !busy && localId == null,
-                label = { Text("Playlist name") }, modifier = Modifier.fillMaxWidth())
+            val colors = MaterialTheme.colorScheme
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playlist name" },
+                singleLine = true,
+                enabled = !busy && localId == null,
+                shape = RoundedCornerShape(14.dp),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                placeholder = { Text("Playlist name", style = MaterialTheme.typography.bodyMedium) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = colors.onSurface.copy(alpha = .12f),
+                    unfocusedContainerColor = colors.onSurface.copy(alpha = .08f),
+                    disabledContainerColor = colors.onSurface.copy(alpha = .05f),
+                    focusedBorderColor = colors.onSurface.copy(alpha = .38f),
+                    unfocusedBorderColor = colors.onSurface.copy(alpha = .13f),
+                    disabledBorderColor = colors.onSurface.copy(alpha = .09f),
+                    focusedPlaceholderColor = colors.onSurface.copy(alpha = .70f),
+                    unfocusedPlaceholderColor = colors.onSurface.copy(alpha = .65f)
+                )
+            )
             // Spotify playlists import but don't sync, so YouTube Music is the only sync choice.
             Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Save to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -101,8 +122,8 @@ private fun PlaylistDestination(title: String, subtitle: String, icon: ImageVect
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(14.dp)
     Surface(shape = shape,
-        color = if (selected) colors.primary.copy(alpha = .12f) else colors.onSurface.copy(alpha = .035f),
-        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = .6f) else colors.outlineVariant.copy(alpha = .5f)),
+        color = if (selected) colors.primary.copy(alpha = .15f) else colors.onSurface.copy(alpha = .045f),
+        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = .32f) else colors.onSurface.copy(alpha = .10f)),
         modifier = Modifier.fillMaxWidth().clip(shape).selectable(selected, enabled = enabled,
             role = Role.RadioButton, onClick = onClick)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,

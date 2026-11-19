@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
@@ -36,17 +37,36 @@ import kotlin.math.PI
 import kotlin.math.floor
 import kotlin.math.sin
 
+@Composable
+internal fun CanvasStageBackdrop(motionAura: MotionAura) {
+    // Keep the last sample for the fade back to cover art if a video stops.
+    val texture = motionAura.texture.value ?: motionAura.lastTexture ?: return
+    val grade = AuraPresentation.FULL_PLAYER
+    val filter = remember(grade) {
+        ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(grade.saturation) })
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        androidx.compose.foundation.Image(texture, null, Modifier.fillMaxSize(), colorFilter = filter,
+            contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.Medium)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - grade.brightness)))
+    }
+}
+
 /**
  * The full player's backgrounds, after the phone's PlayerBackgroundRenderer: Blur, Gradient,
  * Follow theme, Glow motion (drifting palette glows) and Live mesh (three counter-rotating,
  * saturated, blurred copies of the cover, as Spicy Lyrics' dynamic background). Always opaque.
  */
 @Composable
-internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette, motionAura: MotionAura? = null) {
+internal fun PlayerBackdrop(styleKey: String, artworkUrl: String?, palette: ArtworkPalette,
+    playbackClock: com.auralis.music.data.service.PlaybackClockSource? = null,
+    spotifyTrackId: String? = null, trackDurationSeconds: Long = 0L) {
     // "Dynamic" is Spicy Lyrics' full-screen background: the Kawarp warp the sidebar card uses.
     if (styleKey.equals("Dynamic", ignoreCase = true)) {
         // Include the final CSS colour filter, not just the undimmed Kawarp canvas.
-        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, AuraPresentation.FULL_PLAYER, motionAura = motionAura)
+        ArtworkAura(palette, Modifier.fillMaxSize(), artworkUrl, AuraPresentation.FULL_PLAYER,
+            playbackClock = playbackClock,
+            spotifyTrackId = spotifyTrackId, trackDurationSeconds = trackDurationSeconds)
         return
     }
     val style = PlayerBackgroundStyle.fromKey(styleKey)

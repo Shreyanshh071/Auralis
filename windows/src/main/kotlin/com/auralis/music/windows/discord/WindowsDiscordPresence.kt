@@ -102,12 +102,17 @@ internal class WindowsDiscordPresence(private val playback: DesktopPlaybackContr
         var retryAt = 0L
         var retryDelay = 1000L
         var hadCard = false
+        var sentSettings: DiscordCardSettings? = null
         while (currentCoroutineContext().isActive) {
             val cfg = store.settings.value
             if (!cfg.enabled) {
                 if (ipc.connected) { ipc.send(null); ipc.close() }
                 mutableStatus.value = "Disabled"; lastKey = ""; hadCard = false
-                delay(500); continue
+                sentSettings = null
+                retryAt = 0L
+                retryDelay = 1000L
+                store.settings.first { it.enabled }
+                continue
             }
             val time = System.currentTimeMillis()
             if (!ipc.connected && time >= retryAt) {
@@ -123,18 +128,24 @@ internal class WindowsDiscordPresence(private val playback: DesktopPlaybackContr
             val n = mutableNow.value
             resolveArtist(cfg,n)
             val activity = discordActivity(n.track,cfg,n.playing,n.played,n.position,n.duration,time)
-            val key = (activity?.let { JSONObject(it.toString()).apply { remove("timestamps") }.toString() } ?: "clear") + "|${n.playing}|${n.duration}"
+            val key = (activity?.let { JSONObject(it.toString()).apply { remove("timestamps") }.toString() } ?: "clear") +
+                "|${activity?.has("timestamps") == true}|${n.playing}|${n.duration}"
             val seeked = abs(n.position - sentPosition - if (sentPlaying) time - sentAt else 0) > 3000
             val due = key != lastKey || seeked || time - sentAt >= 45000
-            if (ipc.connected && due && time - sentAt >= 6000 && (activity != null || hadCard)) {
-                // Read enable again at send time so a pending update cannot republish after disabling.
-                if (store.settings.value.enabled) {
+            val settingsChanged = cfg != sentSettings
+            // Apply user edits as soon as they change the card. Routine playback updates stay throttled.
+            val sendNow = if (settingsChanged) key != lastKey else due && time - sentAt >= 6000
+            if (ipc.connected && sendNow && (activity != null || hadCard)) {
+                if (store.settings.value == cfg) {
                     if (ipc.send(activity)) {
                         lastKey = key; sentAt = time; sentPosition = n.position; sentPlaying = n.playing; hadCard = activity != null
+                        sentSettings = cfg
                     } else { ipc.close(); sentAt = time; retryAt = time + retryDelay; mutableStatus.value = "Reconnecting to Discord…" }
                 }
+            } else if (ipc.connected && key == lastKey) {
+                sentSettings = cfg
             }
-            delay(500)
+            withTimeoutOrNull(500) { store.settings.first { it != cfg } }
         }
     }
     override fun connect(onResult: (Boolean,String,String) -> Unit) {

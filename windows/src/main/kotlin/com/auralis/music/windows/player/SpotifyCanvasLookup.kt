@@ -19,7 +19,9 @@ import java.net.URI
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** Spotify's track video, downloaded as one short, silent video for the existing VLC renderer. */
 internal object SpotifyCanvasLookup {
@@ -33,6 +35,7 @@ internal object SpotifyCanvasLookup {
     }
 
     suspend fun find(trackId: String?): String? = client.find(trackId)
+    fun cached(trackId: String): String? = client.cached(trackId)
     suspend fun sharp(trackId: String): String? = client.sharp(trackId)
     suspend fun fallback(trackId: String, failedPath: String): String? = client.fallback(trackId, failedPath)
     fun rememberSongId(songId: String, spotifyId: String) = client.rememberSongId(songId, spotifyId)
@@ -57,18 +60,24 @@ internal class SpotifyCanvasClient(
     private val trackPattern = Regex("[A-Za-z0-9]{22}")
     private val filePattern = Regex("[a-fA-F0-9]{32}")
     private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
-    private val misses = mutableMapOf<String, Long>()
-    private val failures = mutableMapOf<String, Long>()
-    private val qualityRetries = mutableMapOf<String, Long>()
-    private val lock = Mutex()
-    private var retryAt = 0L
+    private val misses = ConcurrentHashMap<String, Long>()
+    private val failures = ConcurrentHashMap<String, Long>()
+    private val qualityRetries = ConcurrentHashMap<String, Long>()
+    // Coalesce requests for the same track without queueing playback behind other songs' downloads.
+    private val trackLocks = Array(64) { Mutex() }
+    private fun trackLock(trackId: String): Mutex = trackLocks[trackId.hashCode().ushr(1) % trackLocks.size]
+    private val retryAt = AtomicLong()
     private val directHttp by lazy {
         http.newBuilder().followRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
     }
     private val segmentPool = java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
         Thread(r, "canvas-segments").apply { isDaemon = true }
     }
-    @Volatile private var partialsCleaned = false
+    private val cleanPartials by lazy {
+        val cutoff = clock() - 10 * 60_000L
+        folder.listFiles { file -> file.name.endsWith(".partial") && file.lastModified() < cutoff }
+            ?.forEach { runCatching { it.delete() } }
+    }
 
     /**
      * A song's Spotify track id, once any lyrics source has named it. Kept on disk so the Canvas
@@ -82,15 +91,13 @@ internal class SpotifyCanvasClient(
     fun songId(songId: String?): String? =
         songId?.takeIf { it.isNotBlank() }?.let { diskIndex.getString("song.$it", "") }?.takeIf(trackPattern::matches)
 
+    fun cached(trackId: String): String? = indexedFileId(trackId)?.let(::cachedFile)?.absolutePath
+
     suspend fun find(trackId: String?): String? = withContext(Dispatchers.IO) {
         if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
-        lock.withLock {
-            // A download cut off by closing the app leaves a .partial file behind; clear old ones once.
-            if (!partialsCleaned) {
-                partialsCleaned = true
-                val cutoff = clock() - 10 * 60_000L
-                folder.listFiles { file -> file.name.endsWith(".partial") && file.lastModified() < cutoff }?.forEach { runCatching { it.delete() } }
-            }
+        cached(trackId)?.let { return@withContext it }
+        cleanPartials
+        trackLock(trackId).withLock {
             val known = indexedFileId(trackId)
             known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
             val now = clock()
@@ -109,7 +116,7 @@ internal class SpotifyCanvasClient(
                     // Fall through to SpicyLyrics, which may list a newer canvas for the track.
                 }
             }
-            if (now < retryAt) return@withLock null
+            if (now < retryAt.get()) return@withLock null
             // Only SpicyLyrics saying it has no canvas blocks the track for a while; a failed
             // download (no network, a deleted folder) is retried after a minute.
             var noneListed = false
@@ -137,7 +144,8 @@ internal class SpotifyCanvasClient(
             if (!response.isSuccessful) {
                 com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId: HTTP ${response.code}")
                 val pause = response.header("Retry-After")?.toLongOrNull()?.coerceIn(60, 1800) ?: 60L
-                if (response.code == 429 || response.header("Retry-After") != null) retryAt = now + pause * 1000
+                if (response.code == 429 || response.header("Retry-After") != null)
+                    retryAt.updateAndGet { previous -> maxOf(previous, now + pause * 1000) }
                 else failures[trackId] = now + 60_000L
                 return null
             }
@@ -269,7 +277,7 @@ internal class SpotifyCanvasClient(
 
     /** Reject the exact candidate used by VLC, then bypass the MP4 on the retry. */
     suspend fun fallback(trackId: String, failedPath: String): String? = withContext(Dispatchers.IO) {
-        lock.withLock {
+        trackLock(trackId).withLock {
             val fileId = indexedFileId(trackId) ?: return@withLock null
             val mp4 = File(folder, "$fileId-hq.mp4")
             val manifest = File(folder, "$fileId-hq.ts")
@@ -320,7 +328,7 @@ internal class SpotifyCanvasClient(
     /** Upgrade after the default loop starts, retaining it if the manifest is unavailable. */
     suspend fun sharp(trackId: String): String? = withContext(Dispatchers.IO) {
         if (!trackPattern.matches(trackId)) return@withContext null
-        lock.withLock {
+        trackLock(trackId).withLock {
             val fileId = indexedFileId(trackId) ?: return@withLock null
             if (!hasManifest(trackId)) return@withLock null
             File(folder, "$fileId-hq.ts").takeIf(::usable)?.let { return@withLock it.absolutePath }

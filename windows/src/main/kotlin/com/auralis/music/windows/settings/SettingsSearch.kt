@@ -86,7 +86,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Animated cover source", "Source for animated album artwork", "canvas")
         }
         group("Canvas") {
-            row("Show Canvas in Lyrics", "Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover.", "spotify canvas video")
+            row("Show Canvas in Lyrics", "Use Spotify Canvas on the lyrics stage when animated album artwork is unavailable or turned off.", "spotify canvas video")
             row("Fetch Canvas with your Spotify account", "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account.", "spotify account canvas sign in")
         }
         group("Lyrics appearance") {
@@ -142,11 +142,10 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Show when paused", "Keep the card up while the track is paused.")
             row("Hide details", "Say only that music is playing.", "privacy")
             row("Status text", "What Discord shows next to your name in the member list.")
-            other("App name", "Replaces \"Auralis\" wherever the app name appears.")
             row("Line 1"); row("Line 2")
+            row("Line 3 / artwork hover text")
             row("Album artwork", "Show the current song's cover.")
             row("Provider badge", "Add a small Auralis icon to the artwork.")
-            row("Line 3 / artwork hover text")
             row("Progress bar", "Show elapsed and remaining time while playing.")
             row("Line 1 is clickable", keywords = "link"); row("Line 2 is clickable", keywords = "link")
             row("Album art is clickable", "Opens the album, or the song when no album link is available.", "link")

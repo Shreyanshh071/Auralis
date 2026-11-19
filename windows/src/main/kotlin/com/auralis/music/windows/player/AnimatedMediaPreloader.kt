@@ -11,18 +11,30 @@ import com.auralis.music.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Resolve/download the current and next artwork before the player needs it. Never run a decoder. */
 @Composable
-internal fun PrepareQueuedAnimatedMedia(playback: DesktopPlaybackController?, lyrics: DesktopLyricsController?) {
+internal fun PrepareQueuedAnimatedMedia(
+    playback: DesktopPlaybackController?, lyrics: DesktopLyricsController?, warmDynamic: Boolean
+) {
     if (playback == null) return
     val queue by playback.queue.collectAsState()
     val remote by playback.connectRemote.collectAsState()
     val prefs by CanvasSettings.prefs.collectAsState()
     val current = remote?.track ?: queue.current
     val next = if (remote == null && queue.index >= 0) queue.tracks.getOrNull(queue.index + 1) else null
+    LaunchedEffect(current?.thumbnail, warmDynamic) {
+        if (warmDynamic) current?.thumbnail?.takeIf { it.isNotBlank() }?.let { loadAuraTexture(it) }
+    }
+    LaunchedEffect(next?.thumbnail, warmDynamic) {
+        if (warmDynamic && next?.thumbnail?.isNotBlank() == true) {
+            delay(2_000L)
+            loadAuraTexture(next.thumbnail)
+        }
+    }
     LaunchedEffect(current, prefs) {
         prepare(current, prefs, lyrics?.state?.value?.takeIf { it.trackId == current?.id }?.lyrics?.spotifyTrackId)
     }
@@ -38,13 +50,11 @@ private suspend fun prepare(track: Track?, prefs: CanvasPrefs, hint: String?) {
     try {
         withContext(Dispatchers.IO) {
             withTimeoutOrNull(15_000L) {
-                val canvas = if (prefs.spotifyCanvas) TrackCanvasLookup.find(track, hint) else null
-                if (prefs.enabled) {
-                    CanvasLookup.find(track, prefs.source, preferTall = false)
-                    if (canvas == null) CanvasLookup.find(track, prefs.source, preferTall = true)
+                launch { com.auralis.music.desktop.playback.CanvasVideoEngine.available }
+                if (prefs.enabled) launch {
+                    CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
                 }
-                // Load native video support off the UI thread. No player/hidden video is started.
-                if (canvas != null) com.auralis.music.desktop.playback.CanvasVideoEngine.available
+                if (prefs.spotifyCanvas) launch { TrackCanvasLookup.find(track, hint) }
             }
         }
     } catch (e: CancellationException) { throw e }

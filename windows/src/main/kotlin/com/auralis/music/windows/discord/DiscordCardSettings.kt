@@ -9,14 +9,14 @@ import org.json.JSONObject
 import java.io.File
 
 internal data class DiscordCardSettings(
-    val enabled: Boolean = false, val statusLine: String = "line2", val appName: String = "",
+    val enabled: Boolean = false, val statusLine: String = "line2",
     val line1: String = "title", val line2: String = "artist", val line3: String = "album",
     val cover: Boolean = true, val badge: Boolean = true, val progress: Boolean = true,
     val showPaused: Boolean = false, val hideDetails: Boolean = false,
     val linkLine1: Boolean = false, val linkLine2: Boolean = false, val linkCover: Boolean = false,
     val button1: String = "listen", val button2: String = "app"
 ) {
-    fun json() = JSONObject().put("enabled", enabled).put("statusLine", statusLine).put("appName", appName)
+    fun json() = JSONObject().put("enabled", enabled).put("statusLine", statusLine)
         .put("line1", line1).put("line2", line2).put("line3", line3).put("cover", cover).put("badge", badge)
         .put("progress", progress).put("showPaused", showPaused).put("hideDetails", hideDetails)
         .put("linkLine1", linkLine1).put("linkLine2", linkLine2).put("linkCover", linkCover)
@@ -25,7 +25,7 @@ internal data class DiscordCardSettings(
         fun parse(raw: String): DiscordCardSettings = runCatching {
             val j = JSONObject(raw)
             fun choice(key: String, default: String, options: List<String>) = j.optString(key, default).takeIf { it in options } ?: default
-            DiscordCardSettings(j.optBoolean("enabled"), choice("statusLine", "line2", listOf("app","line1","line2")), j.optString("appName").take(128),
+            DiscordCardSettings(j.optBoolean("enabled"), choice("statusLine", "line2", listOf("app","line1","line2")),
                 choice("line1", "title", listOf("title","artist","album")), choice("line2", "artist", listOf("title","artist","album","artist_album","off")),
                 choice("line3", "album", listOf("title","artist","album","off")), j.optBoolean("cover",true), j.optBoolean("badge",true),
                 j.optBoolean("progress",true), j.optBoolean("showPaused"), j.optBoolean("hideDetails"), j.optBoolean("linkLine1"),

@@ -475,7 +475,6 @@ fun AuralisDesktopApp(
     // The song options sheet, for song rows that hand their menu to the window (search, playlists).
     var menuTrack by remember { mutableStateOf<com.auralis.music.domain.model.Track?>(null) }
     val queue = playback?.queue?.collectAsState()?.value
-    com.auralis.music.windows.player.PrepareQueuedAnimatedMedia(playback, lyrics)
     val playerState = playback?.state?.collectAsState()?.value
     androidx.compose.runtime.LaunchedEffect(queue?.current?.id, playerState, youtubeFallback) {
         val fallback = youtubeFallback ?: return@LaunchedEffect
@@ -542,6 +541,8 @@ fun AuralisDesktopApp(
     }
 
     val appearance by stores.appearance.settingsFlow.collectAsState(stores.appearance.getInitialSettings())
+    com.auralis.music.windows.player.PrepareQueuedAnimatedMedia(playback, lyrics,
+        warmDynamic = appearance.playerBackgroundStyle.equals("Dynamic", ignoreCase = true))
     // One-time move to Spicy Lyrics' player (asked for on 2026-10-11): the Dynamic background and
     // left-aligned lyrics. Later choices in Appearance are kept.
     androidx.compose.runtime.LaunchedEffect(Unit) {

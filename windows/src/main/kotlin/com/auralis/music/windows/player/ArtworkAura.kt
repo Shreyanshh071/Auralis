@@ -3,6 +3,7 @@ package com.auralis.music.windows.player
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.graphicsLayer
@@ -10,20 +11,27 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.scale
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.request.SuccessResult
+import coil3.toBitmap
+import com.auralis.music.ui.components.DesktopArtworkRenderer
 import com.auralis.music.ui.theme.ArtworkPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.Request
 import org.jetbrains.skia.*
+import java.io.File
+import java.net.URI
 import java.awt.image.BufferedImage
-import javax.imageio.ImageIO
 
 /** Image-domain flow inspired by Spicy Lyrics' Kawarp background. Kawarp shader port:
  * preblur a tiny cover once, then warp its coordinates on the GPU.
- * No audio analysis is fabricated: the flow runs at a steady speed.
+ * The full player slows the flow when playback pauses.
  */
 internal enum class AuraPresentation(val brightness: Float, val saturation: Float) {
     FULL_PLAYER(.65f, 2.5f), SIDEBAR(.6f, 2.65f), SHORTCUT(.78f, 1.7f)
@@ -47,22 +55,31 @@ internal fun auraTextureKey(artwork: String): String =
 internal suspend fun loadAuraTexture(artwork: String): ImageBitmap? = withContext(Dispatchers.IO) {
     val url = auraTextureKey(artwork)
     auraTextureLoadMutexes[(url.hashCode() and Int.MAX_VALUE) % auraTextureLoadMutexes.size].withLock {
-        auraTextureCache[url] ?: runCatching {
-            val embedded = com.auralis.music.ui.components.DesktopArtworkRenderer.decodeDataUri(url)
-            val bytes = if (embedded != null) embedded
-            else if (url.startsWith("data:")) null
-            else if (java.io.File(url).isFile) java.io.File(url).readBytes()
-            else if (url.startsWith("file:")) java.io.File(java.net.URI(url)).readBytes()
-            else com.auralis.music.data.network.NetworkClientProvider.okHttpClient
-                .newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    check(response.isSuccessful)
-                    response.body?.bytes()
-                }
-            // Use the app's native decoder: ImageIO silently returns null for WebP covers.
-            bytes?.let { encoded -> Image.makeFromEncoded(encoded).use { decoded ->
-                motionAuraTexture(decoded.toComposeImageBitmap())
-            } }?.also { auraTextureCache[url] = it }
-        }.getOrNull()
+        auraTextureCache[url] ?: run {
+            val context = PlatformContext.INSTANCE
+            val loader = SingletonImageLoader.get(context)
+            for (candidate in listOf(url, artwork).distinct()) {
+                val texture = if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+                    val request = DesktopArtworkRenderer.request(context, candidate, DesktopArtworkRenderer.TILE_PX, crossfade = false)
+                    val result = loader.execute(request) as? SuccessResult ?: continue
+                    withContext(Dispatchers.Default) {
+                        runCatching { motionAuraTexture(result.image.toBitmap().asComposeImageBitmap()) }.getOrNull()
+                    }
+                } else {
+                    runCatching {
+                        val bytes = when {
+                            candidate.startsWith("data:") -> DesktopArtworkRenderer.decodeDataUri(candidate)
+                            candidate.startsWith("file:") -> File(URI(candidate)).readBytes()
+                            else -> File(candidate).readBytes()
+                        }
+                        bytes?.let { Image.makeFromEncoded(it).use { image -> motionAuraTexture(image.toComposeImageBitmap()) } }
+                    }.getOrNull()
+                } ?: continue
+                auraTextureCache[url] = texture
+                return@withLock texture
+            }
+            null
+        }
     }
 }
 
@@ -71,9 +88,9 @@ internal fun rememberAuraCover(artwork: String?, fallbackArtworks: List<String> 
     val url = artwork?.let(::auraTextureKey)
     // Keep the decoded previous song until its replacement is ready.
     val cover = remember { mutableStateOf(url?.let { auraTextureCache[it] }) }
-    LaunchedEffect(url, fallbackArtworks) {
+    LaunchedEffect(artwork, fallbackArtworks) {
         if (url == null) cover.value = null
-        val sources = (listOfNotNull(url) + fallbackArtworks).distinct()
+        val sources = (listOfNotNull(artwork?.takeIf { it.isNotBlank() }) + fallbackArtworks).distinct()
         var attempt = 0
         while (sources.isNotEmpty()) {
             for (source in sources) {
@@ -93,21 +110,38 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
     brightness: Float = presentation.brightness,
     saturation: Float = presentation.saturation,
     motionAura: MotionAura? = null,
-    fallbackArtworks: List<String> = emptyList()) {
+    fallbackArtworks: List<String> = emptyList(),
+    playbackClock: com.auralis.music.data.service.PlaybackClockSource? = null,
+    spotifyTrackId: String? = null, trackDurationSeconds: Long = 0L) {
     val still by rememberAuraCover(artwork, fallbackArtworks)
     val moving = motionAura?.texture?.value
     val cover = moving ?: still
     val time = remember { mutableFloatStateOf(0f) }
+    val zoom = remember { mutableFloatStateOf(1f) }
+    val motion = remember { ArtworkMotionClock() }
     val auraOff = com.auralis.music.windows.dev.PerfFlags.off("aura")
     val visualsActive = com.auralis.music.ui.player.LocalPlaybackVisualsActive.current
-    LaunchedEffect(visualsActive, auraOff) {
+    val analysis = produceState<ArtworkEnergy?>(null, spotifyTrackId, trackDurationSeconds, visualsActive, auraOff) {
+        value = null
+        if (visualsActive && !auraOff) value = DynamicArtworkAnalysis.find(spotifyTrackId, trackDurationSeconds)
+    }
+    LaunchedEffect(visualsActive, auraOff, playbackClock) {
         if (auraOff || !visualsActive) return@LaunchedEffect
         var previous = 0L
         while (true) {
             // Slow colour drift needs 30 updates/s, even on a 120 Hz display.
             kotlinx.coroutines.delay(25L)
             withFrameNanos { now ->
-                if (previous != 0L) time.floatValue += ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
+                if (previous != 0L) {
+                    val elapsed = (now - previous) / 1_000_000_000f
+                    if (playbackClock == null) time.floatValue += elapsed.coerceAtMost(.05f)
+                    else {
+                        val energy = analysis.value?.at(playbackClock.rawPositionMs() / 1000.0 + .6)
+                        motion.step(elapsed, playbackClock.isPlaying(), energy)
+                        time.floatValue = motion.time
+                        zoom.floatValue = motion.scale
+                    }
+                }
                 previous = now
             }
         }
@@ -116,67 +150,69 @@ internal fun ArtworkAura(palette: ArtworkPalette, modifier: Modifier, artwork: S
     // right as it arrives (a flat grey card that popped into colour looked broken). A cover already
     // decoded (cached) shows at once.
     val shortcut = presentation == AuraPresentation.SHORTCUT
+    val fullPlayer = presentation == AuraPresentation.FULL_PLAYER
     val reveal = remember { androidx.compose.animation.core.Animatable(if (cover != null) 1f else 0f) }
     LaunchedEffect(cover != null) {
-        if (cover != null && reveal.value < 1f) reveal.animateTo(1f,
-            androidx.compose.animation.core.tween(SHORTCUT_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        if (cover == null && fullPlayer) reveal.snapTo(0f)
+        else if (cover != null && reveal.value < 1f) {
+            reveal.animateTo(1f, tween(if (fullPlayer) 220 else SHORTCUT_REVEAL_MS,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        }
     }
-    // The first decoded image shows at once. A new one (the next song, or an animated cover's next
-    // colour frame) fades in over the one on screen, which stays fully opaque underneath until the
-    // fade ends: a crossfade dimmed both halfway, so the sidebar pulsed with every video frame.
-    if (cover == null) Box(modifier) {
-        if (presentation == AuraPresentation.FULL_PLAYER && artwork != null) {
-            BlurredArtworkBackground(artwork)
-        } else if (shortcut) {
-            // Waiting for this cover's colours: never a fabricated aura, just a slow sheen.
-            ShortcutLoadingSheen(time)
-        } else {
+    // Keep a painted base under the reveal. Cached textures can draw immediately.
+    Box(modifier) {
+        if (fullPlayer || (cover == null && !shortcut)) {
+            val shade = if (fullPlayer && palette.isDefault) .9f else if (fullPlayer) brightness else .45f
             Canvas(Modifier.fillMaxSize()) {
-                val fallback = listOf(palette.primary, palette.secondary, palette.tertiary)
-                drawRect(Brush.linearGradient(fallback.map { lerp(androidx.compose.ui.graphics.Color.Black, it, .45f) }))
+                val colors = listOf(palette.primary, palette.secondary, palette.tertiary)
+                drawRect(Brush.linearGradient(colors.map { lerp(Color.Black, it, shade) }))
             }
         }
-    } else Box(modifier) {
-      if (shortcut && reveal.value < 1f) ShortcutLoadingSheen(time)
-      AuraLayers(cover, Modifier.fillMaxSize().then(if (!shortcut) Modifier else Modifier
-          .graphicsLayer {
-              val progress = reveal.value
-              alpha = .35f + .65f * progress
-              // Its soft leading edge sweeps across from the right (drawWithContent below). Shifting
-              // the layer as well left a hard edge on the card's left side.
-              compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-          }
-          .drawWithContent {
-              drawContent()
-              val progress = reveal.value
-              if (progress < 1f) {
-                  val feather = size.width * .55f
-                  val edge = size.width - progress * (size.width + feather)
-                  drawRect(Brush.horizontalGradient(
-                      listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black),
-                      startX = edge, endX = edge + feather), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
-              }
-          }), fadeMs = if (moving != null) MOTION_FADE_MS else 1000) { image ->
-        val resources = remember(image, presentation, brightness, saturation) {
-            AuraRenderer(image, presentation, brightness, saturation)
-        }
-        DisposableEffect(resources) { onDispose { resources.close() } }
-        if (auraOff) androidx.compose.foundation.Image(image, null, Modifier.fillMaxSize(),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-        else Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-            // The source is already blurred to 128px. Evaluate the noise on a smaller GPU
-            // layer and upscale it, rather than shading every Retina pixel on every frame.
-            // Video and sharp lyric glyphs remain at the window's native resolution.
-            val scale = if (presentation == AuraPresentation.FULL_PLAYER) .25f else .5f
-            Canvas(Modifier.fillMaxSize(scale).graphicsLayer {
-                scaleX = 1f / scale
-                scaleY = 1f / scale
-                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-            }) {
-                drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
+        if (shortcut && (cover == null || reveal.value < 1f)) ShortcutLoadingSheen(time)
+        if (cover != null) {
+            AuraLayers(cover, Modifier.fillMaxSize().then(if (fullPlayer) Modifier.graphicsLayer { alpha = reveal.value }
+                  else if (!shortcut) Modifier else Modifier
+                  .graphicsLayer {
+                      val progress = reveal.value
+                      alpha = .35f + .65f * progress
+                      // Its soft leading edge sweeps across from the right (drawWithContent below). Shifting
+                      // the layer as well left a hard edge on the card's left side.
+                      compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                  }
+                  .drawWithContent {
+                      drawContent()
+                      val progress = reveal.value
+                      if (progress < 1f) {
+                          val feather = size.width * .55f
+                          val edge = size.width - progress * (size.width + feather)
+                          drawRect(Brush.horizontalGradient(
+                              listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black),
+                              startX = edge, endX = edge + feather), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                      }
+                  }), fadeMs = if (moving != null) MOTION_FADE_MS else 1000) { image ->
+                val resources = remember(image, presentation, brightness, saturation) {
+                    AuraRenderer(image, presentation, brightness, saturation)
+                }
+                DisposableEffect(resources) { onDispose { resources.close() } }
+                if (auraOff) androidx.compose.foundation.Image(image, null, Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                else Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    // The source is already blurred to 128px. Evaluate the noise on a smaller GPU
+                    // layer and upscale it, rather than shading every Retina pixel on every frame.
+                    // Video and sharp lyric glyphs remain at the window's native resolution.
+                    val renderScale = if (presentation == AuraPresentation.FULL_PLAYER) .25f else .5f
+                    Canvas(Modifier.fillMaxSize(renderScale).graphicsLayer {
+                        scaleX = 1f / renderScale
+                        scaleY = 1f / renderScale
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                    }) {
+                        scale(zoom.floatValue) {
+                            drawIntoCanvas { canvas -> resources.draw(canvas.nativeCanvas, size.width, size.height, time.floatValue) }
+                        }
+                    }
+                }
             }
         }
-      }
     }
 }
 
@@ -231,6 +267,7 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
         graphics.drawImage(source, 0, 0, side, side, null); graphics.dispose()
     }
     var pixels = tiny.getRGB(0, 0, side, side, null, 0, side)
+    val shifts = intArrayOf(16, 8, 0)
     fun channel(x: Float, y: Float, shift: Int): Float {
         val cx = x.coerceIn(0f, (side - 1).toFloat()); val cy = y.coerceIn(0f, (side - 1).toFloat())
         val ix = cx.toInt(); val iy = cy.toInt(); val nx = (ix + 1).coerceAtMost(side - 1); val ny = (iy + 1).coerceAtMost(side - 1)
@@ -244,7 +281,7 @@ internal fun auraTexture(source: BufferedImage): ImageBitmap {
         val output = IntArray(pixels.size)
         for (y in 0 until side) for (x in 0 until side) {
             var pixel = 255 shl 24
-            for (shift in intArrayOf(16, 8, 0)) {
+            for (shift in shifts) {
                 val value = (channel(x - offset, y - offset, shift) + channel(x + offset, y - offset, shift) +
                     channel(x - offset, y + offset, shift) + channel(x + offset, y + offset, shift)) * .25f
                 pixel = pixel or (value.toInt() shl shift)

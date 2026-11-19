@@ -118,7 +118,7 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
         val prefs by CanvasSettings.prefs.collectAsState()
         SettingToggle(
             title = "Show Canvas in Lyrics",
-            description = "Play Spotify Canvas on the lyrics stage when available. Animated covers play on the album cover.",
+            description = "Use Spotify Canvas on the lyrics stage when animated album artwork is unavailable or turned off.",
             checked = prefs.spotifyCanvas,
             onChecked = { CanvasSettings.update(prefs.copy(spotifyCanvas = it)) }
         )

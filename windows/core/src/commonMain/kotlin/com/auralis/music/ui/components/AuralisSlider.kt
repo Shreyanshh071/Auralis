@@ -7,6 +7,8 @@
 
 package com.auralis.music.ui.components
 
+import androidx.compose.ui.Alignment
+
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -85,7 +87,8 @@ fun AuralisSlider(
     onTick: () -> Unit = {},
     /** The glass (Slim) capsule's thickness at rest and while hovered or dragged. */
     slimThicknessRest: androidx.compose.ui.unit.Dp = 12.dp,
-    slimThicknessHover: androidx.compose.ui.unit.Dp = 18.dp
+    slimThicknessHover: androidx.compose.ui.unit.Dp = 18.dp,
+    slimTrackSurface: (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? = null
 ) {
     val density = LocalDensity.current
     var isDragging by remember { mutableStateOf(false) }
@@ -232,6 +235,11 @@ fun AuralisSlider(
                     }
                 }
         ) {
+            if (normalizedStyle == "Slim" && slimTrackSurface != null) {
+                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                    slimTrackSurface(slimThickness)
+                }
+            }
             Canvas(
                 modifier = Modifier.matchParentSize()
             ) {
@@ -415,12 +423,12 @@ fun AuralisSlider(
                             androidx.compose.ui.geometry.CornerRadius(radius))
                         val clip = Path().apply { addRoundRect(capsule) }
                         // Frosted track: an even light white (the reference's look), whatever the theme's inactive colour.
-                        drawPath(clip, color = Color.White.copy(alpha = 0.24f))
+                        if (slimTrackSurface == null) drawPath(clip, color = Color.White.copy(alpha = 0.24f))
                         if (playedX > 0f) clipPath(clip) {
                             drawRect(activeTrackColor, topLeft = Offset(0f, top),
                                 size = androidx.compose.ui.geometry.Size(playedX, heightPx))
                         }
-                        drawPath(clip, color = Color.White.copy(alpha = 0.16f),
+                        if (slimTrackSurface == null) drawPath(clip, color = Color.White.copy(alpha = 0.16f),
                             style = androidx.compose.ui.graphics.drawscope.Stroke(width = with(density) { 1.dp.toPx() }))
                     }
 

@@ -23,11 +23,13 @@ import org.jetbrains.skia.EncodedImageFormat
 import kotlin.test.*
 
 class SpicySwellClippingTest {
-    @Test fun fullySungItalicBackingKeepsTheFinalGlyphOverhang() {
-        for (text in listOf("right through", "right through f", "Know")) {
+    @Test fun fullySungWordsKeepOverhangsAndDescenders() {
+        for (text in listOf("right through", "right through f", "Know", "night by", "Dracula")) {
             fun capture(active: Boolean): IntArray {
                 val words = text.split(" ").mapIndexed { index, word ->
-                    LyricWord(word + if (index < text.count { it == ' ' }) " " else "", 1000L + index * 600, 1800, true)
+                    if (word == "Dracula") LyricWord(word, 1000L, 1800L, true, listOf(
+                        LyricWord("Dra", 1000L, 500L), LyricWord("cu", 1500L, 300L), LyricWord("la", 1800L, 1000L)
+                    )) else LyricWord(word + if (index < text.count { it == ' ' }) " " else "", 1000L + index * 600, 1800, true)
                 }
                 val line = LyricLine(1000, text, words = words, isBackground = true)
                 val scene = ImageComposeScene(640, 180, coroutineContext = Dispatchers.Unconfined) {
@@ -35,8 +37,9 @@ class SpicySwellClippingTest {
                         CompositionLocalProvider(com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion provides false) {
                             Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
                                 SpicyLyricsLine(line, words, mutableLongStateOf(6000L),
-                                    TextStyle(fontSize = 48.sp, lineHeight = 56.sp,
-                                        fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold), active)
+                                    TextStyle(fontSize = 48.sp, lineHeight = if (text == "night by") 44.sp else 56.sp,
+                                        fontStyle = if (text == "night by") FontStyle.Normal else FontStyle.Italic,
+                                        fontWeight = FontWeight.Bold), active)
                             }
                         }
                     }
@@ -58,7 +61,10 @@ class SpicySwellClippingTest {
             val rightEdge = reference.indices.filter { (reference[it] and 255) > 128 }.maxOf { it % 640 }
             val edgeInk = reference.indices.filter { it % 640 >= rightEdge - 2 && (reference[it] and 255) > 128 }
             assertTrue(edgeInk.isNotEmpty())
-            assertTrue(edgeInk.all { (animated[it] and 255) > 128 }, "Italic final glyph was clipped: $text")
+            assertTrue(edgeInk.all { (animated[it] and 255) > 128 }, "Final glyph was clipped: $text")
+            val bottomEdge = reference.indices.filter { (reference[it] and 255) > 128 }.maxOf { it / 640 }
+            val bottomInk = reference.indices.filter { it / 640 >= bottomEdge - 2 && (reference[it] and 255) > 128 }
+            assertTrue(bottomInk.all { (animated[it] and 255) > 128 }, "Bottom of the glyph was clipped: $text")
         }
     }
 

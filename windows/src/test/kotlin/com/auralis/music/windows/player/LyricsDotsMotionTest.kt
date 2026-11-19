@@ -75,7 +75,7 @@ class LyricsDotsMotionTest {
         }
     }
 
-    @Test fun dotsMoveEveryFrameWithoutHaloAndFreezeWhenPaused() {
+    @Test fun dotsMoveEveryFrameWithSubtleHaloAndFreezeWhenPaused() {
         val position = mutableLongStateOf(1000L)
         val scene = ImageComposeScene(320, 120, coroutineContext = Dispatchers.Unconfined) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -102,9 +102,10 @@ class LyricsDotsMotionTest {
             val middle = settled()
             File(output, "middle.png").writeBytes(middle)
             val pixels = ImageIO.read(middle.inputStream())
-            // 24 dp circles centred at x=118,160,202. No glow may occupy the gaps.
-            for (x in listOf(98, 138, 140, 180, 182, 222)) for (y in 0 until 120)
-                assertEquals(0, pixels.getRGB(x, y) ushr 24, "No outer halo at ($x,$y)")
+            fun peakAlpha(x: Int) = (0 until pixels.height).maxOf { y -> pixels.getRGB(x, y) ushr 24 }
+            assertTrue(peakAlpha(118) >= 250, "The lit dot stays opaque")
+            val outerGlow = listOf(98, 138, 140, 180, 182, 222).maxOf(::peakAlpha)
+            assertTrue(outerGlow in 1..50, "The halo in the gaps should stay below 20% opacity, got $outerGlow")
             position.longValue = 1000L
             assertContentEquals(File(output, "frame-0.png").readBytes(), settled(), "Seeking back must reset motion")
         } finally { scene.close() }

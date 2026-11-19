@@ -31,6 +31,7 @@ object CanvasVideoEngine {
         clock: com.auralis.music.data.service.PlaybackClockSource? = null,
         frameShortSide: Int = FRAME_SHORT_SIDE,
         loop: Boolean = clock == null,
+        canPause: () -> Boolean = { true },
         onFrame: (ImageBitmap) -> Unit
     ): (() -> Unit)? {
         require(frameShortSide in 1..2160)
@@ -85,8 +86,8 @@ object CanvasVideoEngine {
                         val position = clock.rawPositionMs()
                         if (kotlin.math.abs(player.status().time() - position) > 600) player.controls().setTime(position)
                     }
-                    // Even when the song is already paused, render a frame before holding the loop.
-                    if (!loop || firstFrameShown.get()) player.controls().setPause(!clock.isPlaying())
+                    // Allow the stage to validate the first frame even if the song is paused.
+                    if (!loop || (firstFrameShown.get() && canPause())) player.controls().setPause(!clock.isPlaying())
                 }
                 Thread.sleep(200)
             }

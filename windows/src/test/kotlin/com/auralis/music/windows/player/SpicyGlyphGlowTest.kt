@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
+import com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation
 import com.auralis.music.ui.lyrics.renderers.SpicyLyricsLine
 import com.auralis.music.ui.lyrics.renderers.SpicyLyricsMotion
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,10 @@ import org.jetbrains.skia.Bitmap
 import kotlin.test.*
 
 class SpicyGlyphGlowTest {
+    private val glowDispatcher = SpicyGlowPreparation.dispatcher
+    @BeforeTest fun prepareGlowInline() { SpicyGlowPreparation.dispatcher = Dispatchers.Unconfined }
+    @AfterTest fun restoreGlowDispatcher() { SpicyGlowPreparation.dispatcher = glowDispatcher }
+
     @Test fun emphasizedLettersKeepOpenCountersAtTheBloomPeak() {
         val position = mutableLongStateOf(1550L)
         val word = LyricWord("OOOO", 1000L, 1800L)
@@ -76,7 +81,6 @@ class SpicyGlyphGlowTest {
                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
             val word = LyricWord(text, 1000, 500)
             val line = LyricLine(1000, text, words = listOf(word), endTime = 1500)
-            val pose = SpicyLyricsMotion.pose(1000, 1500, 1250)
             fun scene(reference: Boolean) = ImageComposeScene(400, 180, coroutineContext = Dispatchers.Unconfined) {
                 MaterialTheme { Box(Modifier.fillMaxSize().background(Color.Black).padding(30.dp)) {
                     if (!reference) SpicyLyricsLine(line, line.words, position, style, true)
@@ -86,6 +90,7 @@ class SpicyGlyphGlowTest {
                             modifier = Modifier.fillMaxWidth().drawWithContent {
                                 val paragraph = layout
                                 if (paragraph == null) drawContent() else {
+                                    val pose = SpicyLyricsMotion.pose(1000, 1500, position.longValue)
                                     val pivot = paragraph.getPathForRange(0, text.length).getBounds().center
                                     val lift = pose.liftEm * style.fontSize.toPx()
                                     withTransform({
@@ -131,13 +136,31 @@ class SpicyGlyphGlowTest {
                         val light = actual.getColor(x, y) and 255
                         brightest = maxOf(brightest, light)
                         if (!hasInkNear(x, y, 2) && light > 2) haloPixels++
-                        // The active line's soft bloom reaches about 3 sigma (0.22 em) plus padding past the ink.
-                        if (!hasInkNear(x, y, 52) && light > 2) escaped++
+                        if (!hasInkNear(x, y, 12) && light > 2) escaped++
                     }
                     assertEquals(0, escaped, "Glyph bloom must not turn into a rectangular haze for $text")
                     assertTrue(haloPixels > 10, "Swelling must produce visible bloom around the glyph contour")
                     assertTrue(brightest > 220, "Sung letters must remain bright and sharp")
                 } }
+                position.longValue = 1600L
+                val settledTime = 1_000_000_000L
+                maskScene.render(settledTime).use { reference ->
+                    glowScene.render(settledTime).use { rendered ->
+                        Bitmap.makeFromImage(reference).use { ink ->
+                            Bitmap.makeFromImage(rendered).use { actual ->
+                                var haloPixels = 0
+                                for (y in 2 until ink.height - 2) for (x in 2 until ink.width - 2) {
+                                    if ((actual.getColor(x, y) and 255) <= 2) continue
+                                    val nearInk = (y - 2..y + 2).any { py ->
+                                        (x - 2..x + 2).any { px -> (ink.getColor(px, py) and 255) != 0 }
+                                    }
+                                    if (!nearInk) haloPixels++
+                                }
+                                assertEquals(0, haloPixels, "A fully sung word must lose its halo while the line is active")
+                            }
+                        }
+                    }
+                }
             } finally { maskScene.close(); glowScene.close() }
         }
     }

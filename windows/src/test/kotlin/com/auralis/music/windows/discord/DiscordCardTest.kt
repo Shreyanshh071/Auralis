@@ -18,12 +18,14 @@ class DiscordCardTest {
         discordActivity(t,c,playing,played,20000,200000,1000000)!!
 
     @Test fun allCardSlotsAndLinksFollowSelectedContent() {
-        val p = payload(cfg.copy(appName="Custom app",statusLine="line1",line1="album",line2="artist_album",line3="title",
+        val p = payload(cfg.copy(statusLine="line1",line1="album",line2="artist_album",line3="title",
             linkLine1=true,linkLine2=true,linkCover=true,button1="artist",button2="album"))
-        assertEquals("Custom app",p.getString("name"))
+        assertEquals("Auralis",p.getString("name"))
         assertEquals("Album",p.getString("details"))
         assertEquals("Artist — Album",p.getString("state"))
-        assertEquals(1,p.getInt("status_display_type"))
+        assertEquals(2,p.getInt("status_display_type"))
+        assertEquals(1, payload(cfg.copy(statusLine = "line2")).getInt("status_display_type"))
+        assertEquals(0, payload(cfg.copy(statusLine = "app")).getInt("status_display_type"))
         assertTrue(p.getString("details_url").endsWith("MPRE-album"))
         assertTrue(p.getString("state_url").endsWith("UCartist"))
         assertEquals("Song",p.getJSONObject("assets").getString("large_text"))
@@ -68,7 +70,12 @@ class DiscordCardTest {
     @Test fun persistedControlsMigrateOnceAndResetKeepsEnablePreference() {
         val disk=MemoryDisk();val store=DiscordCardStore(disk)
         store.migrate(true)
-        store.update { cfg.copy(appName="My player",line1="artist",linkLine1=true,hideDetails=true) }
+        store.update {
+            DiscordCardSettings.parse(cfg.copy(line1="artist",linkLine1=true,hideDetails=true)
+                .json().put("appName", "My player").toString())
+        }
+        assertEquals("Auralis", payload(store.settings.value).getString("name"))
+        assertFalse(store.settings.value.json().has("appName"))
         val reopened=DiscordCardStore(disk)
         assertEquals(store.settings.value,reopened.settings.value)
         reopened.migrate(false);assertTrue(reopened.settings.value.enabled)
@@ -94,6 +101,16 @@ class DiscordCardTest {
             withTimeout(5000) { while(sends.isEmpty()) delay(20) }
             assertTrue(transport.attempts>=2)
             assertEquals("Song",JSONObject(sends.first()).getString("details"))
+            assertTrue(JSONObject(sends.first()).has("timestamps"))
+            store.update { it.copy(progress = false) }
+            withTimeout(2000) { while (sends.size < 2) delay(20) }
+            assertFalse(JSONObject(sends[1]).has("timestamps"))
+            store.update { it.copy(progress = true) }
+            withTimeout(2000) { while (sends.size < 3) delay(20) }
+            assertTrue(JSONObject(sends[2]).has("timestamps"))
+            store.update { it.copy(line1 = "artist") }
+            withTimeout(2000) { while (sends.size < 4) delay(20) }
+            assertEquals("Artist", JSONObject(sends[3]).getString("details"))
             store.update { it.copy(enabled=false) }
             withTimeout(3000) { while("clear" !in sends || transport.connected) delay(20) }
             assertFalse(transport.connected)

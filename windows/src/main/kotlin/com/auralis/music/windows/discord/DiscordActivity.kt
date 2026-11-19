@@ -6,6 +6,7 @@ import com.auralis.music.data.network.RecordingMatches
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal const val DISCORD_APP_NAME = "Auralis"
 internal const val AURALIS_URL = "https://github.com/Shreyanshh071/Auralis"
 internal data class DiscordTrack(val track: Track, val artistId: String? = null) {
     private val video get() = if (track.source == TrackSource.LOCAL) null else
@@ -31,13 +32,17 @@ internal data class DiscordTrack(val track: Track, val artistId: String? = null)
 internal fun discordActivity(track: DiscordTrack?, cfg: DiscordCardSettings, playing: Boolean, played: Boolean,
     positionMs: Long, durationMs: Long, nowMs: Long = System.currentTimeMillis()): JSONObject? {
     if (!cfg.enabled || track == null || (!playing && !(cfg.showPaused && played))) return null
-    val name = cfg.appName.trim().ifBlank { "Auralis" }.take(128)
-    val result = JSONObject().put("type", 2).put("name", name)
+    val result = JSONObject().put("type", 2).put("name", DISCORD_APP_NAME)
     if (cfg.hideDetails) return result.put("status_display_type", 0)
     val line1 = if (track.text(cfg.line1) == null) "title" else cfg.line1
     result.put("details", track.text(line1).orEmpty().take(128))
     track.text(cfg.line2)?.let { result.put("state", it.take(128)) }
-    result.put("status_display_type", when (cfg.statusLine) { "app" -> 0; "line1" -> 1; else -> 2 })
+    // Discord uses 1 for State (line 2) and 2 for Details (line 1).
+    result.put("status_display_type", when (cfg.statusLine) {
+        "app" -> 0
+        "line1" -> 2
+        else -> 1
+    })
     if (cfg.linkLine1) track.link(line1)?.let { result.put("details_url", it) }
     if (cfg.linkLine2) track.link(cfg.line2)?.let { result.put("state_url", it) }
     if (cfg.progress && playing && durationMs > 0) {
@@ -49,7 +54,7 @@ internal fun discordActivity(track: DiscordTrack?, cfg: DiscordCardSettings, pla
         val assets = JSONObject().put("large_image",art)
         track.text(cfg.line3)?.let { assets.put("large_text",it.take(128)) }
         if (cfg.linkCover) (track.link("album") ?: track.link("title"))?.let { assets.put("large_url", it) }
-        if (cfg.badge) assets.put("small_image", "https://auralis-self-nu.vercel.app/logo.png").put("small_text",name)
+        if (cfg.badge) assets.put("small_image", "https://auralis-self-nu.vercel.app/logo.png").put("small_text", DISCORD_APP_NAME)
         result.put("assets", assets)
     }
     val buttons = listOf(cfg.button1,cfg.button2).mapNotNull { kind ->

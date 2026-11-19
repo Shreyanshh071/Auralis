@@ -253,6 +253,7 @@ class PlayerScreenOverlayTest {
     fun canvasStagePersistsAcrossLyricsAndQueueTabsWithoutRestartingCanvasSlot() {
         val prefs = CanvasPrefs(enabled = true, source = CanvasSource.AUTO, spotifyCanvas = true)
         assertTrue(shouldShowCanvasStage(prefs, 1200.dp, stagePlayer = true, tabbedPlayer = true))
+        assertTrue(shouldShowCanvasStage(prefs.copy(spotifyCanvas = false), 1200.dp, stagePlayer = true, tabbedPlayer = true))
         assertFalse(shouldShowCanvasStage(prefs, 900.dp, stagePlayer = true, tabbedPlayer = true))
         assertFalse(shouldShowCanvasStage(prefs, 1200.dp, stagePlayer = false, tabbedPlayer = true))
         assertFalse(shouldShowCanvasStage(prefs, 1200.dp, stagePlayer = true, tabbedPlayer = false))

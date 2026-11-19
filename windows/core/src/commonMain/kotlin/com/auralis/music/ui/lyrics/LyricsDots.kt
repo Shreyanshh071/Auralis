@@ -123,7 +123,7 @@ fun LyricsDots(
                 val radius = d / 2f * motion.scales[i].value.coerceAtLeast(0f)
                 if (radius > 0f && alpha > 0f) {
                     val haloRadius = radius * 2.2f
-                    val haloAlpha = alpha * (.25f + .35f * opacity)
+                    val haloAlpha = alpha * (.20f + .28f * opacity)
                     drawCircle(
                         brush = Brush.radialGradient(
                             0f to color.copy(alpha = haloAlpha),

@@ -25,8 +25,10 @@ internal object TrackCanvasLookup {
             .filter { it.value == track.id }
             .mapNotNull { SpicyRecordingMatcher.spotifyId(it.key) }
             .distinct().sorted()
-        return resolver.find(track, lyricsSpotifyId, importedIds)?.also {
-            SpotifyCanvasLookup.rememberSongId(track.id, it.spotifyId)
+        val hint = lyricsSpotifyId ?: SpotifyCanvasLookup.songId(track.id)
+        return resolver.find(track, hint, importedIds)?.let { canvas ->
+            SpotifyCanvasLookup.rememberSongId(track.id, canvas.spotifyId)
+            SpotifyCanvasLookup.cached(canvas.spotifyId)?.let { canvas.copy(path = it) } ?: canvas
         }
     }
 }
@@ -42,10 +44,11 @@ internal class SpotifyCanvasResolver(
     private val cache = linkedMapOf<Key, Cached>()
     private val lock = Mutex()
 
-    suspend fun find(track: Track, lyricsSpotifyId: String?, importedIds: List<String> = emptyList()): ResolvedCanvas? = lock.withLock {
+    suspend fun find(track: Track, lyricsSpotifyId: String?, importedIds: List<String> = emptyList()): ResolvedCanvas? {
         val key = Key(track, lyricsSpotifyId, importedIds.toList())
-        cache[key]?.takeIf { it.until > clock() && (it.canvas == null || File(it.canvas.path).isFile) }
-            ?.let { return@withLock it.canvas }
+        lock.withLock { cache[key] }
+            ?.takeIf { it.until > clock() && (it.canvas == null || File(it.canvas.path).isFile) }
+            ?.let { return it.canvas }
         val tried = linkedSetOf<String>()
         suspend fun ask(id: String?): ResolvedCanvas? {
             val valid = SpicyRecordingMatcher.spotifyId(id) ?: return null
@@ -78,8 +81,10 @@ internal class SpotifyCanvasResolver(
             return null
         }
         val result = resolve()
-        if (cache.size >= 128) cache.remove(cache.keys.first())
-        cache[key] = Cached(result, clock() + if (result == null) 60_000L else 86_400_000L)
-        result
+        lock.withLock {
+            if (cache.size >= 128) cache.remove(cache.keys.first())
+            cache[key] = Cached(result, clock() + if (result == null) 60_000L else 86_400_000L)
+        }
+        return result
     }
 }

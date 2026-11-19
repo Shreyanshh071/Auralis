@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontStyle
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
@@ -219,11 +221,6 @@ internal fun spicyExclusiveSpans(spans: List<LyricsEngine.WordRange>): List<Lyri
     }
 }
 
-/** Subtle light kept on sung text of the active line after each word's swell fades. */
-private const val ACTIVE_RESTING_BLOOM = .15f
-/** Wide soft bloom behind sung ink: blur radius as a fraction of font size, and its strength. */
-private const val ACTIVE_BLOOM_SIGMA = .22f
-private const val ACTIVE_WIDE_BLOOM = .82f
 private const val ACTIVE_RESTING_BRIGHTNESS = .6f
 
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
@@ -255,8 +252,8 @@ private data class SpicyWord(val start: Int, val end: Int, val parts: List<Timed
 private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBounds: Rect,
                               val rtl: Boolean, val from: Int, val to: Int, val row: Int, val letter: Int = -1)
 
-private data class SpicyBloom(val image: ImageBitmap, val origin: Offset,
-                              val wide: ImageBitmap, val wideOrigin: Offset)
+private data class GlowMask(val image: ImageBitmap, val origin: Offset)
+private data class SpicyBloom(val peak: GlowMask, val base: GlowMask? = null)
 /** Where glow masks are blurred. Off the UI thread in the app; pixel tests swap in an inline
  *  dispatcher so a snapshot never depends on whether the background blur finished first. */
 object SpicyGlowPreparation {
@@ -322,7 +319,7 @@ fun SpicyLyricsLine(
     val direction = LocalLayoutDirection.current
     var layout by remember(displayText, style) { mutableStateOf<TextLayoutResult?>(null) }
     var frameNanos by remember { mutableLongStateOf(0L) }
-    val groups = remember(displayText, displayWords) {
+    val groups = remember(displayText, displayWords, style.fontStyle) {
         val spans = LyricsEngine.mapWordsToLineSpans(displayText, displayWords.orEmpty().flatMap { word ->
             val pieces = word.syllables
             // Only use pieces whose ink still matches after spacing/translation repair.
@@ -330,13 +327,29 @@ fun SpicyLyricsLine(
         })
         // A source syllable is an animation unit, even inside a written word.
         // Combining all syllables first loses the motion of a held final syllable.
-        spicyExclusiveSpans(spans).mapNotNull { span ->
+        val parts = spicyExclusiveSpans(spans).mapNotNull { span ->
             var start = span.startIndex
             var end = span.endIndex
             while (start < end && displayText[start].isWhitespace()) start++
             while (end > start && displayText[end - 1].isWhitespace()) end--
-            if (start >= end) null else SpicyWord(start, end, listOf(TimedPart(span, start, end)),
-                SpicyEmphasis.letters(displayText.substring(start, end), span.word.time, span.word.endTime))
+            if (start >= end) null else TimedPart(span, start, end)
+        }
+        if (style.fontStyle == FontStyle.Italic) {
+            // Slanted ink crosses letter and syllable advance boxes. Move contiguous pieces
+            // together, while preserving their original timestamps for the fill sweep.
+            val joined = mutableListOf<MutableList<TimedPart>>()
+            for (part in parts) {
+                val previous = joined.lastOrNull()
+                if (previous != null && previous.last().to == part.from) previous.add(part)
+                else joined.add(mutableListOf(part))
+            }
+            joined.map { SpicyWord(it.first().from, it.last().to, it, emphasizedLetters = null) }
+        } else {
+            parts.map { part ->
+                val word = part.range.word
+                SpicyWord(part.from, part.to, listOf(part),
+                    SpicyEmphasis.letters(displayText.substring(part.from, part.to), word.time, word.endTime))
+            }
         }
     }
     val geometry = remember(layout, groups) {
@@ -376,10 +389,17 @@ fun SpicyLyricsLine(
                             .maxOfOrNull { it.bounds.right }
                         val next = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x > slice.bounds.center.x }
                             .minOfOrNull { it.bounds.left }
-                        Rect(previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - fontPx * .2f),
-                            layout!!.getLineTop(slice.row),
-                            next?.let { (it + slice.bounds.right) / 2 } ?: (slice.bounds.right + fontPx * .2f),
-                            layout!!.getLineBottom(slice.row))
+                        val measured = checkNotNull(layout)
+                        // Tight line-height trims can place real ink beyond the first/last
+                        // layout row. Only internal edges need to fence off neighbouring rows.
+                        val outerGutter = fontPx * .3f
+                        val top = measured.getLineTop(slice.row) - if (slice.row == 0) outerGutter else 0f
+                        val bottom = measured.getLineBottom(slice.row) +
+                            if (slice.row == measured.lineCount - 1) outerGutter else 0f
+                        Rect(previous?.let { (it + slice.bounds.left) / 2 } ?: (slice.bounds.left - outerGutter),
+                            top,
+                            next?.let { (it + slice.bounds.right) / 2 } ?: (slice.bounds.right + outerGutter),
+                            bottom)
             }
         }
     }
@@ -403,16 +423,17 @@ fun SpicyLyricsLine(
         val source = raster
         if (source != null) {
             val fontPx = with(density) { style.fontSize.toPx() }
+            val pixelUnit = with(density) { 1.dp.toPx() }
             // Software mask blur used to block composition at every new phrase.
             // The timed fill/swells draw immediately; glow preparation is cancellable
             // background work and upcoming rows warm it before their first word.
             val prepared = withContext(SpicyGlowPreparation.dispatcher) {
             geometry.mapIndexed { index, slice ->
                 coroutineContext.ensureActive()
-                // Spicy's regular shadow is wider on emphasized letters than words.
-                val sigma = (fontPx * if (slice.letter >= 0) .065f else .045f).coerceAtLeast(1f)
                 val ink = inkMasks[index]
-                fun blurred(sigma: Float): Pair<ImageBitmap, Offset> {
+                fun blurred(shadowRadius: Float): GlowMask {
+                    // CSS shadow blur radius maps to roughly twice the Gaussian sigma.
+                    val sigma = shadowRadius / 2f
                     val padding = kotlin.math.ceil(sigma * 3f + 2f).toInt()
                     val size = Size(kotlin.math.ceil(ink.width + padding * 2).toFloat(),
                         kotlin.math.ceil(ink.height + padding * 2).toFloat())
@@ -423,15 +444,13 @@ fun SpicyLyricsLine(
                             drawImage(source.first, Offset(padding - ink.left - source.second, padding - ink.top - source.second))
                         }
                     }
-                    return blurSpicyGlyphMask(mask, sigma) to Offset(ink.left - padding, ink.top - padding)
+                    return GlowMask(blurSpicyGlyphMask(mask, sigma), Offset(ink.left - padding, ink.top - padding))
                 }
-                val tight = blurred(sigma)
-                // A soft, wide light behind sung ink: the tight shadow alone reads as an outline.
-                val wide = blurred((fontPx * ACTIVE_BLOOM_SIGMA).coerceAtLeast(2f))
-                SpicyBloom(tight.first, tight.second, wide.first, wide.second)
+                if (slice.letter >= 0) SpicyBloom(blurred(fontPx * .17f + pixelUnit))
+                else SpicyBloom(peak = blurred(6f * pixelUnit), base = blurred(4f * pixelUnit))
             }
             }
-            imageLifetime.retain(prepared.map { it.image })
+            imageLifetime.retain(prepared.flatMap { listOfNotNull(it.peak.image, it.base?.image) })
             value = prepared
         }
     }
@@ -547,17 +566,18 @@ fun SpicyLyricsLine(
                         }
                     }
                 }) {
-                    val strength = if (letterPose != null) letterPose.glow else wordPose.glow
-                    // Sung ink on the active line keeps a soft resting light once its swell
-                    // settles, so the highlight reads as lit rather than pale.
+                    val strength = (letterPose?.glow ?: wordPose.glow).coerceIn(0f, 1f)
                     val lit = ((fill + .2f) / 1.2f).coerceIn(0f, 1f)
-                    val bloomAlpha = maxOf(lit * ACTIVE_RESTING_BLOOM,
-                        if (letterPose != null) (strength * .65f).coerceIn(0f, .65f)
-                        else (strength * .55f).coerceIn(0f, .55f))
-                    blooms.getOrNull(index)?.let { bloom ->
-                        val wideAlpha = lit * ACTIVE_WIDE_BLOOM
-                        if (wideAlpha > .001f) drawImage(bloom.wide, bloom.wideOrigin, alpha = wideAlpha)
-                        if (bloomAlpha > .001f) drawImage(bloom.image, bloom.origin, alpha = bloomAlpha)
+                    if (strength > .001f) blooms.getOrNull(index)?.let { bloom ->
+                        if (letterPose != null) {
+                            val tone = .18f + (.94f - .18f) * lit
+                            drawImage(bloom.peak.image, bloom.peak.origin, alpha = .5f * strength * tone)
+                        } else {
+                            // Approximate the moving 4–6 px blur with cached endpoint masks.
+                            val alpha = .35f * strength
+                            bloom.base?.let { drawImage(it.image, it.origin, alpha = alpha * (1f - strength)) }
+                            drawImage(bloom.peak.image, bloom.peak.origin, alpha = alpha * strength)
+                        }
                     }
                     val inkBounds = inkMasks[index]
                     val baseAlpha = if (line.isBackground) 1f else .85f
@@ -638,16 +658,17 @@ private fun DrawScope.drawFill(text: ImageBitmap, origin: Offset, bounds: Rect, 
         val fade = maxOf(bounds.width * .2f, fontPx * .05f)
         val solid = bounds.width * fill
         if (solid > 0f) {
-            if (rtl) clipRect(left = bounds.right - solid) { drawImage(text, origin, alpha = overlay) }
-            else clipRect(right = bounds.left + solid) { drawImage(text, origin, alpha = overlay) }
+            val left = if (rtl) bounds.right - solid else inkBounds.left
+            val right = if (rtl) inkBounds.right else bounds.left + solid
+            clipRect(left, inkBounds.top, right, inkBounds.bottom) { drawImage(text, origin, alpha = overlay) }
         }
         for (step in 0 until 10) {
             val near = solid + step * fade / 10
             val left = if (rtl) bounds.right - near - fade / 10 else bounds.left + near
             val right = left + fade / 10
-            val clippedLeft = maxOf(bounds.left - .5f, left)
-            val clippedRight = minOf(bounds.right + .5f, right)
-            if (clippedRight > clippedLeft) clipRect(left = clippedLeft, right = clippedRight) {
+            val clippedLeft = maxOf(inkBounds.left, left)
+            val clippedRight = minOf(inkBounds.right, right)
+            if (clippedRight > clippedLeft) clipRect(clippedLeft, inkBounds.top, clippedRight, inkBounds.bottom) {
                 drawImage(text, origin, alpha = overlay * (1f - (step + .5f) / 10))
             }
         }
