@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,6 +70,17 @@ private val LargeBadgeShape = RoundedCornerShape(18.dp)
 private val CardShape = RoundedCornerShape(26.dp)
 private val HeaderHeight = 72.dp
 
+// Short pages can reach the bottom before the usual 52.dp title transition finishes.
+// Include bottom content padding when measuring how much scrolling remains.
+private fun LazyListState.settingsHeaderScrollRange(defaultRange: Float): Float {
+    val layout = layoutInfo
+    val last = layout.visibleItemsInfo.lastOrNull() ?: return defaultRange
+    if (firstVisibleItemIndex > 0 || last.index != layout.totalItemsCount - 1) return defaultRange
+    val remaining = (last.offset + last.size + layout.afterContentPadding - layout.viewportEndOffset)
+        .coerceAtLeast(0)
+    return minOf(defaultRange, (firstVisibleItemScrollOffset + remaining).toFloat().coerceAtLeast(1f))
+}
+
 /**
  * The layout every settings page shares: a big header that scrolls away, leaving a small title
  * beside the floating back button, with the list fading out beneath them.
@@ -105,8 +117,9 @@ internal fun SettingsPage(
                     Modifier
                         .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 2.dp)
                         .graphicsLayer {
+                            val fadeOutDistance = listState.settingsHeaderScrollRange(52.dp.toPx()) * (28f / 52f)
                             alpha = if (listState.firstVisibleItemIndex > 0) 0f
-                                else (1f - listState.firstVisibleItemScrollOffset / 28.dp.toPx()).coerceIn(0f, 1f)
+                                else (1f - listState.firstVisibleItemScrollOffset / fadeOutDistance).coerceIn(0f, 1f)
                         }
                 ) {
                     section.icon?.let { icon ->
@@ -157,8 +170,11 @@ internal fun SettingsPage(
                 .statusBarsPadding()
                 .padding(start = 74.dp, end = 20.dp, top = 23.dp)
                 .graphicsLayer {
+                    val range = listState.settingsHeaderScrollRange(52.dp.toPx())
+                    val fadeInStart = range * (28f / 52f)
                     val scrolled = if (listState.firstVisibleItemIndex > 0) 1f
-                        else ((listState.firstVisibleItemScrollOffset - 28.dp.toPx()) / 24.dp.toPx()).coerceIn(0f, 1f)
+                        else ((listState.firstVisibleItemScrollOffset - fadeInStart) / (range - fadeInStart))
+                            .coerceIn(0f, 1f)
                     alpha = scrolled
                     translationY = (1f - scrolled) * 8.dp.toPx()
                 }
