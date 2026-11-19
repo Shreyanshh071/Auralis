@@ -362,11 +362,34 @@ fun AuralisDesktopApp(
         if (youtubePageAccount != null && youtubePageAccount != youtubeState.activeId &&
             (browse.top as? com.auralis.music.desktop.browse.BrowsePage.Album)?.album?.id == youtubePageId) browse.clear()
     }
-    androidx.compose.runtime.LaunchedEffect(playback) { playback?.errors?.collect { showUnavailable(it) } }
     androidx.compose.runtime.LaunchedEffect(together) {
         together.state.map { it.message }.distinctUntilChanged().collect { message -> message?.let { showUnavailable(it) } }
     }
     val platformActions = remember { com.auralis.music.ui.components.DesktopPlatformActions(showUnavailable) }
+    var youtubeFallback by remember(playback) {
+        mutableStateOf<com.auralis.music.desktop.playback.DesktopPlaybackController.YouTubeFallback?>(null)
+    }
+    androidx.compose.runtime.LaunchedEffect(playback) {
+        playback?.errors?.collect { error ->
+            val fallback = error.youtubeFallback
+            if (fallback == null) {
+                showUnavailable(error.message)
+            } else {
+                scope.launch {
+                    snackbar.currentSnackbarData?.dismiss()
+                    val result = snackbar.showSnackbar(
+                        message = error.message,
+                        actionLabel = "Play here",
+                        duration = androidx.compose.material3.SnackbarDuration.Long
+                    )
+                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed &&
+                        playback.queue.value.current?.id == fallback.trackId) {
+                        youtubeFallback = fallback
+                    }
+                }
+            }
+        }
+    }
     val libraryViewModel = remember {
         com.auralis.music.ui.viewmodel.LibraryViewModel(
             libraryRepository = library,
@@ -454,6 +477,12 @@ fun AuralisDesktopApp(
     val queue = playback?.queue?.collectAsState()?.value
     com.auralis.music.windows.player.PrepareQueuedAnimatedMedia(playback, lyrics)
     val playerState = playback?.state?.collectAsState()?.value
+    androidx.compose.runtime.LaunchedEffect(queue?.current?.id, playerState, youtubeFallback) {
+        val fallback = youtubeFallback ?: return@LaunchedEffect
+        if (queue?.current?.id != fallback.trackId || playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING) {
+            youtubeFallback = null
+        }
+    }
     val canShowPlayer = playback != null && lyrics != null && queue?.current != null
 
     val currentToggleLockScreenPreview = androidx.compose.runtime.rememberUpdatedState(onToggleLockScreenPreview)
@@ -581,6 +610,16 @@ fun AuralisDesktopApp(
     val densityScale = (when (appearance.displayDensity) { "Compact (85%)" -> 0.85f; "Large (115%)" -> 1.15f; else -> 1f }) *
         com.auralis.music.windows.settings.DesktopPreferences.store.number("zoom",1.0).toFloat().coerceIn(.75f,1.5f)
     com.auralis.music.ui.theme.AuralisDesktopTheme(appearanceSettings = appearance, artworkPalette = artworkPalette, platformActions = platformActions) {
+        youtubeFallback?.let { fallback ->
+            com.auralis.music.windows.player.YouTubeFallbackDialog(
+                fallback = fallback,
+                onClose = { youtubeFallback = null },
+                onOpenInBrowser = {
+                    if (platformActions.openUrl(fallback.watchUrl)) youtubeFallback = null
+                    else showUnavailable("Couldn't open YouTube in your browser.")
+                },
+            )
+        }
     com.auralis.music.windows.settings.DesktopThemeOverrides {
     val shortcutPinIds by remember(homeViewModel) { homeViewModel.uiState.map { it.pinnedSpeedDialIds }.distinctUntilChanged() }.collectAsState(emptySet())
     val popupGlass = rememberPopupGlassSource()
@@ -847,8 +886,12 @@ fun AuralisDesktopApp(
                                     }
                                 }
                             }, shortcuts = {
+                                val playlistLinks by playlistSync.store.links.collectAsState()
                                 com.auralis.music.windows.home.SidebarShortcuts(homeViewModel, library, playback, browse, compact,
-                                    onOpenPlaylist = { id -> showPlayer = false; browse.clear(); libraryViewModel.selectPlaylist(id); destination = DesktopDestination.LIBRARY },
+                                    playlistLinks = playlistLinks,
+                                    onOpenPlaylist = { playlist ->
+                                        openLibrary("local:${playlist.id}") { libraryViewModel.selectPlaylist(playlist.id, playlist) }
+                                    },
                                     onBrowse = { showPlayer = false },
                                     searchRepository = searchRepository, showMessage = showUnavailable)
                             }, contentBottomInset = if (upNextSize.height > 0.dp) upNextSize.height + 8.dp else 0.dp)

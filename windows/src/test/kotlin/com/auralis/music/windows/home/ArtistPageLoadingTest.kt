@@ -48,7 +48,7 @@ class ArtistPageLoadingTest {
             override suspend fun search(query: String, params: String?) =
                 SearchResults(artists = listOf(artist), songs = listOf(song))
         }
-        YouTubeBackoff.trip()
+        YouTubeBackoff.trip(com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.RATE_LIMITED, retryAfterMs = 60000))
         // Start without a channel ID, as a Familiar Artist with only a portrait does.
         val page = assertNotNull(tube.getArtistPage(artist.copy(id = "")))
         assertEquals(listOf(song), page.topSongs)
@@ -87,7 +87,7 @@ class ArtistPageLoadingTest {
             }
             response
         }.build()
-        com.auralis.music.data.network.YouTubeBackoff.trip()
+        com.auralis.music.data.network.YouTubeBackoff.trip(com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.RATE_LIMITED, retryAfterMs = 60000))
         for (name in listOf("Tame Impala", "TV Girl", "Sidney Gish")) {
             val start = System.nanoTime()
             val page = assertNotNull(InnerTubeClient(http).getArtistPage(Artist("", name)) { preview ->

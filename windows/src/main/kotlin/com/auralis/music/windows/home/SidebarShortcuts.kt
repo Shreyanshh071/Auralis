@@ -11,15 +11,37 @@ import com.auralis.music.ui.viewmodel.HomeViewModel
 import com.auralis.music.desktop.browse.DesktopBrowseState
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.data.network.LocalizedContent
+import com.auralis.music.data.playlistsync.PlaylistSyncLink
+import com.auralis.music.data.playlistsync.PlaylistSyncStore
 import com.auralis.music.ui.components.AlbumOptionsMenu
 import kotlinx.coroutines.launch
+
+private fun SpeedDialItem.localPlaylistId(): String? = when (type) {
+    SpeedDialType.PLAYLIST -> id.removePrefix("playlist-").removePrefix("local:")
+    SpeedDialType.ALBUM -> album?.id?.takeIf { it.startsWith("local:") }?.removePrefix("local:")
+        ?: id.removePrefix("album-").takeIf { it.startsWith("local:") }?.removePrefix("local:")
+    else -> null
+}
+
+internal fun resolveShortcutPlaylist(item: SpeedDialItem, playlists: List<Playlist>, links: List<PlaylistSyncLink>): Playlist? {
+    val id = item.localPlaylistId() ?: return null
+    playlists.firstOrNull { it.id == id }?.let { return it }
+
+    // A shortcut can outlive the imported row when its remote playlist is linked to a local copy.
+    val (service, remoteId) = PlaylistSyncStore.imported(id) ?: return null
+    val linkedIds = links.asSequence()
+        .filter { it.service == service && it.remoteId.removePrefix("VL") == remoteId }
+        .map { it.localId }
+        .toSet()
+    return playlists.singleOrNull { it.id in linkedIds }
+}
 
 /** The same persisted pins used by song, playlist, album and artist menus, visible on every page. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryRepository,
     playback: DesktopPlaybackController?, browse: DesktopBrowseState, collapsed: Boolean,
-    onOpenPlaylist: (String) -> Unit, onBrowse: () -> Unit,
+    playlistLinks: List<PlaylistSyncLink>, onOpenPlaylist: (Playlist) -> Unit, onBrowse: () -> Unit,
     searchRepository: com.auralis.music.domain.repository.SearchRepository, showMessage: (String) -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val playlists by library.getPlaylists().collectAsState(emptyList())
@@ -97,26 +119,34 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
     }
     var menu by remember { mutableStateOf<SpeedDialItem?>(null) }
     val open: (SpeedDialItem) -> Unit = { item ->
-        when (item.type) {
-            SpeedDialType.TRACK -> item.track?.let { playback?.playSingle(it) }
-            SpeedDialType.PLAYLIST -> onOpenPlaylist(item.id.removePrefix("playlist-"))
-            SpeedDialType.ALBUM -> {
-                val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image)
-                if (album.id.startsWith("local:")) onOpenPlaylist(album.id.removePrefix("local:"))
-                else if (item.id.removePrefix("album-").startsWith("local:")) onOpenPlaylist(item.id.removePrefix("album-").removePrefix("local:"))
-                else { onBrowse(); browse.openAlbum(album) }
+        when {
+            item.localPlaylistId() != null -> {
+                val playlist = resolveShortcutPlaylist(item, playlists, playlistLinks)
+                if (playlist != null) onOpenPlaylist(playlist)
+                else showMessage(desktopText("This playlist is no longer in your library."))
             }
-            SpeedDialType.ARTIST -> {
+            item.type == SpeedDialType.TRACK -> item.track?.let { playback?.playSingle(it) }
+            item.type == SpeedDialType.ALBUM -> {
+                val album = item.album ?: PlaylistResult(item.id.removePrefix("album-"), item.name, item.image)
+                onBrowse(); browse.openAlbum(album)
+            }
+            item.type == SpeedDialType.ARTIST -> {
                 onBrowse(); browse.openArtist(Artist(item.id.takeIf { it.startsWith("UC") }.orEmpty(), item.artistQuery ?: item.name, item.image))
             }
             else -> Unit
         }
     }
-    val allCovers = remember(playlists) {
+    val allCovers = remember(playlists, pins, playlistLinks) {
         buildMap {
             playlists.forEach {
                 put("local:${it.id}", it)
                 put(it.id, it)
+            }
+            pins.forEach { pin ->
+                val id = pin.localPlaylistId() ?: return@forEach
+                val playlist = resolveShortcutPlaylist(pin, playlists, playlistLinks) ?: return@forEach
+                put("local:$id", playlist)
+                put(id, playlist)
             }
         }
     }
@@ -131,9 +161,8 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
     // ⋮ opens the same options menu the item has everywhere else (Home, Library), at the ⋮.
     menu?.let { item ->
         val track = item.track
-        val localId = (item.album?.id ?: item.id.removePrefix("album-")).takeIf { it.startsWith("local:") }?.removePrefix("local:")
-            ?: item.id.removePrefix("playlist-").takeIf { item.type == SpeedDialType.PLAYLIST }
-        val localPlaylist = localId?.let { id -> playlists.firstOrNull { it.id == id } }
+        val localId = item.localPlaylistId()
+        val localPlaylist = resolveShortcutPlaylist(item, playlists, playlistLinks)
         val album = item.album
         when {
             item.type == SpeedDialType.TRACK && track != null ->
@@ -143,7 +172,7 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
                 onEditPlaylist = { id, title, desc, cover -> scope.launch { library.updatePlaylist(id, title, desc, cover) } },
                 onAddToQueue = { tracks -> tracks.forEach { playback?.addToQueue(it) } },
                 onDeletePlaylist = { scope.launch { library.deletePlaylist(localPlaylist.id) }; menu = null })
-            item.type == SpeedDialType.ALBUM && album != null -> {
+            item.type == SpeedDialType.ALBUM && album != null && localId == null -> {
                 fun withTracks(action: suspend (List<Track>) -> Unit) { scope.launch {
                     val tracks = runCatching { LocalizedContent.run { searchRepository.getAlbumTracks(album) } }.getOrDefault(emptyList())
                     if (tracks.isNotEmpty()) action(tracks) else showMessage("Couldn't load this album. Please try again.")

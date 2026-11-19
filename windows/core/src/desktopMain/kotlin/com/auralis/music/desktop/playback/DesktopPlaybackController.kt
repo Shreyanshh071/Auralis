@@ -1,5 +1,6 @@
 package com.auralis.music.desktop.playback
 
+import com.auralis.music.domain.model.AudioQuality
 import com.auralis.music.domain.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ensureActive
@@ -17,6 +18,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import com.auralis.music.data.network.YouTubeBackoff
 import com.auralis.music.data.network.YouTubeCooldown
+import com.auralis.music.data.network.RecordingMatches
 
 /**
  * The desktop queue: what is playing, what comes next, and the controls. Like the phone, tapping
@@ -27,8 +29,11 @@ class DesktopPlaybackController(
     private val scope: CoroutineScope,
     private val offlineFile: (String) -> java.io.File? = { com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(it) },
     volumeStore: com.auralis.music.util.KeyValueStore? = null,
-    private val resolveStream: suspend (String) -> String? = DEFAULT_RESOLVE
+    resolveJioSaavn: (suspend (Track) -> String?)? = null,
+    private val resolveStream: suspend (String) -> String? = DEFAULT_RESOLVE,
 ) {
+    private val resolveJioSaavn: (suspend (Track) -> String?)? =
+        resolveJioSaavn ?: if (resolveStream === DEFAULT_RESOLVE) DesktopJioSaavnAudio::find320 else null
     /** Stream lookups with their reasons; tests' plain resolvers are wrapped (null = unknown failure). */
     private val resolveDetailed: suspend (String, RequestPriority) -> ResolutionResult =
         if (resolveStream === DEFAULT_RESOLVE) { id, priority -> DesktopStreamResolver.resolveResult(id, priority) }
@@ -293,8 +298,14 @@ class DesktopPlaybackController(
         set(value) { _shuffleEnabled.value = value }
     private var preloadJob: Job? = null
 
-    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    val errors: SharedFlow<String> = _errors
+    data class YouTubeFallback(val trackId: String, val videoId: String, val startSeconds: Long) {
+        val watchUrl: String get() = "https://www.youtube.com/watch?v=$videoId&t=${startSeconds}s"
+    }
+
+    data class PlaybackError(val message: String, val youtubeFallback: YouTubeFallback? = null)
+
+    private val _errors = MutableSharedFlow<PlaybackError>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val errors: SharedFlow<PlaybackError> = _errors
 
     private val _seekEvents = MutableSharedFlow<Long>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val seekEvents: SharedFlow<Long> = _seekEvents
@@ -308,8 +319,12 @@ class DesktopPlaybackController(
     /** The song being started and when it was asked for, until it sounds (for the log). */
     @Volatile private var startRequested: Pair<String, Long>? = null
 
-    /** The address handed to libVLC for the current song (the relay's, or a downloaded file). */
+    /** The address handed to libVLC for the current song. */
     @Volatile private var currentLocalUrl: String? = null
+    private class JioSaavnFallback(val trackId: String, val youtubeResult: ResolutionResult) {
+        val failureHandled = java.util.concurrent.atomic.AtomicBoolean()
+    }
+    @Volatile private var jioSaavnFallback: JioSaavnFallback? = null
 
     /** The current play intent's allowance, shared by its lookup, relay refreshes and recoveries. */
     @Volatile private var budget: com.auralis.music.data.network.RequestBudget? = null
@@ -370,6 +385,7 @@ class DesktopPlaybackController(
                 val track = _queue.value.current ?: return@launch
                 val local = currentLocalUrl
                 val position = player.positionMs.value
+                if (finishFailedJioSaavn(track, position)) return@launch
                 val upstream = local?.let(LocalStreamRelay::failureFor)
                 if (upstream == null) {
                     // libVLC/decoder/output failed while the source was fine: reopen the same
@@ -589,6 +605,7 @@ class DesktopPlaybackController(
         if (_establishedTrackId.value != track.id) _establishedTrackId.value = null
         lengthTrackId.value = null
         _queue.value = q
+        jioSaavnFallback = null
         resumeAnchor = resumeAtMs.takeIf { it > 0L }?.let { ResumeAnchor(track.id, it, System.nanoTime()) }
         autoRadio.queueChanged()
         loadJob?.cancel()
@@ -603,14 +620,21 @@ class DesktopPlaybackController(
         loadJob = scope.launch {
             _resolving.value = true
             val localAudio = offlineFile(track.id)
+            var fallback: JioSaavnFallback? = null
             val result: ResolutionResult = try {
-                if (localAudio != null) ResolutionResult.Resolved(PlaybackResource(track.id, localAudio.absolutePath, Long.MAX_VALUE))
-                else kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(intentBudget)) { lookUp(track, intentBudget) }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                com.auralis.music.util.Log.w("DesktopPlayback", "Playback lookup failed for ${track.id}: ${e.javaClass.simpleName}")
-                ResolutionResult.Failed(com.auralis.music.data.network.FailureClassifier.classify(e, "resolve"))
+                if (localAudio != null) {
+                    ResolutionResult.Resolved(PlaybackResource(track.id, localAudio.absolutePath, Long.MAX_VALUE))
+                } else {
+                    val youtube = lookUpYouTube(track, intentBudget)
+                    val jioSaavnUrl = when (youtube) {
+                        is ResolutionResult.Failed, is ResolutionResult.Deferred -> lookUpJioSaavn(track)
+                        else -> null
+                    }
+                    if (jioSaavnUrl == null) youtube else {
+                        fallback = JioSaavnFallback(track.id, youtube)
+                        ResolutionResult.Resolved(PlaybackResource.fromUrl(track.id, jioSaavnUrl))
+                    }
+                }
             } finally {
                 _resolving.value = false
             }
@@ -628,17 +652,60 @@ class DesktopPlaybackController(
                     if (_queue.value.current?.id != track.id) return@launch
                 }
                 player.setVolume(_volume.value)
-                // Through the local relay, which fetches the stream in pieces YouTube accepts.
                 val startAt = resumeAnchor?.takeIf { it.trackId == track.id }?.positionMs ?: resumeAtMs
-                val local = if (localAudio != null) url else LocalStreamRelay.register(url, refresh = relayRefresh(track, intentBudget),
-                    tag = com.auralis.music.data.network.YouTubeTraffic.Tag(intentBudget.correlationId, "play", intentBudget))
+                val local = when {
+                    localAudio != null -> url
+                    fallback != null -> LocalStreamRelay.register(url)
+                    else -> LocalStreamRelay.register(url, refresh = relayRefresh(track, intentBudget),
+                        tag = com.auralis.music.data.network.YouTubeTraffic.Tag(intentBudget.correlationId, "play", intentBudget))
+                }
                 currentLocalUrl = local
+                if (fallback != null) {
+                    jioSaavnFallback = fallback
+                    com.auralis.music.util.Log.i("DesktopPlayback", "Selected JioSaavn 320kbps fallback for ${track.id}")
+                }
                 player.play(local, startAt, track.id)
+                if (fallback != null && player.state.value == VlcAudioPlayer.State.ERROR) {
+                    finishFailedJioSaavn(track, startAt)
+                    return@launch
+                }
                 lengthTrackId.value = track.id
                 if (localAudio == null) watchForStall(track)
                 watchProgress(track)
             }
         }
+    }
+
+    private suspend fun lookUpYouTube(track: Track, intentBudget: com.auralis.music.data.network.RequestBudget): ResolutionResult = try {
+        kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(intentBudget)) { lookUp(track, intentBudget) }
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        com.auralis.music.util.Log.w("DesktopPlayback", "Playback lookup failed for ${track.id}: ${error.javaClass.simpleName}")
+        ResolutionResult.Failed(com.auralis.music.data.network.FailureClassifier.classify(error, "resolve"))
+    }
+
+    private suspend fun lookUpJioSaavn(track: Track): String? {
+        if (DesktopStreamResolver.quality !in setOf(AudioQuality.HIGH, AudioQuality.AUTO)) return null
+        return try {
+            resolveJioSaavn?.invoke(track)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            com.auralis.music.util.Log.d("DesktopPlayback", "JioSaavn lookup failed: ${error.javaClass.simpleName}")
+            null
+        }
+    }
+
+    private fun finishFailedJioSaavn(track: Track, positionMs: Long): Boolean {
+        val fallback = jioSaavnFallback ?: return false
+        if (_queue.value.current?.id != track.id || fallback.trackId != track.id) return false
+        if (!fallback.failureHandled.compareAndSet(false, true)) return true
+        val position = resumeAnchor?.takeIf { it.trackId == track.id }?.positionMs ?: positionMs
+        com.auralis.music.util.Log.w("DesktopPlayback", "JioSaavn fallback failed for ${track.id}")
+        player.stop()
+        unavailable(track, fallback.youtubeResult, position)
+        return true
     }
 
     /** The song's stream: its matched upload, or another upload of the recording when that one can't play. */
@@ -700,7 +767,7 @@ class DesktopPlaybackController(
                 }
                 if (!prefetched && played >= PREFETCH_AFTER_MS) {
                     prefetched = true
-                    prefetchNext(track)
+                    if (jioSaavnFallback?.trackId != track.id) prefetchNext(track)
                 }
             }
         }
@@ -769,6 +836,7 @@ class DesktopPlaybackController(
                 val limit = if (lastPosition < 0) START_STALL_MS else PLAY_STALL_MS
                 if ((System.nanoTime() - since) / 1_000_000 < limit) continue
                 val resumeAt = if (lastPosition < 0) 0L else position
+                if (finishFailedJioSaavn(track, resumeAt)) return@launch
                 val local = currentLocalUrl
                 val upstream = local?.let(LocalStreamRelay::failureFor)
                 if (upstream != null && upstream.category.networkWide) {
@@ -839,7 +907,13 @@ class DesktopPlaybackController(
         com.auralis.music.util.Log.w("DesktopPlayback", "Holding ${track.id} at ${positionMs}ms: $failure ${budget ?: ""}")
         pendingResumeMs = positionMs.coerceAtLeast(0L).takeIf { it > 0L }
         resumeAnchor = null
-        _errors.tryEmit(messageFor(track, failure, wait))
+        val fallback = if (category == com.auralis.music.data.network.FailureCategory.VERIFICATION_CHALLENGE) {
+            val videoId = RecordingMatches.getMatchedVideoId(track.id) ?: track.id
+            videoId.takeIf(DesktopPlaybackMatch::isVideoId)?.let {
+                YouTubeFallback(track.id, it, positionMs.coerceAtLeast(0L) / 1000L)
+            }
+        } else null
+        _errors.tryEmit(PlaybackError(messageFor(track, failure, wait), fallback))
     }
 
     private fun failed(track: Track, failure: com.auralis.music.data.network.PlaybackFailure? = null) {
@@ -853,12 +927,12 @@ class DesktopPlaybackController(
                 resumeAnchor?.positionMs ?: 0L)
             return
         }
-        _errors.tryEmit(failure?.let { messageFor(track, it, 0L) } ?: "Couldn't play “${track.title}”")
+        _errors.tryEmit(PlaybackError(failure?.let { messageFor(track, it, 0L) } ?: "Couldn't play “${track.title}”"))
         if (consecutiveFailures < 3 && _queue.value.current?.id == track.id && _queue.value.hasNext) {
             next()
         } else if (consecutiveFailures >= 3) {
             com.auralis.music.util.Log.w("DesktopPlayback", "Stopped skipping after $consecutiveFailures songs in a row failed")
-            _errors.tryEmit("Playback isn't working right now. Check your connection and try again.")
+            _errors.tryEmit(PlaybackError("Playback isn't working right now. Check your connection and try again."))
         }
     }
 
@@ -873,7 +947,7 @@ class DesktopPlaybackController(
             com.auralis.music.data.network.FailureCategory.RATE_LIMITED ->
                 "YouTube is rate limiting requests from this network, so streaming is paused.$retry Your queue and position are kept."
             com.auralis.music.data.network.FailureCategory.VERIFICATION_CHALLENGE ->
-                "YouTube is asking this network to confirm it isn't a bot, so streaming is paused.$retry Downloaded songs still play."
+                "YouTube requires verification to stream this track.$retry Downloaded songs still play."
             com.auralis.music.data.network.FailureCategory.NETWORK_UNAVAILABLE ->
                 "Can't reach YouTube. Check your connection; your queue and position are kept."
             com.auralis.music.data.network.FailureCategory.TRANSIENT ->

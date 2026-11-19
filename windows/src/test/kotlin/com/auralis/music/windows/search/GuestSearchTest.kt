@@ -20,7 +20,7 @@ class GuestSearchTest {
                 .body(json.toResponseBody()).build()
         }.build()
         try {
-            YouTubeBackoff.trip()
+            YouTubeBackoff.trip(com.auralis.music.data.network.PlaybackFailure(com.auralis.music.data.network.FailureCategory.RATE_LIMITED, retryAfterMs = 60000))
             val result = UserSearchRequest.run { InnerTubeClient(client).search("Guest song") }
             assertFalse(result.requestFailed)
             assertEquals("Guest song", result.songs.single().title)

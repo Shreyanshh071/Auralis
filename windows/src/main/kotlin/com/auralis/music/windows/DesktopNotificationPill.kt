@@ -20,12 +20,17 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun DesktopNotificationPillHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
     SnackbarHost(state, modifier) { data ->
-        DesktopNotificationPill(data.visuals.message, onDismiss = data::dismiss)
+        DesktopNotificationPill(data.visuals.message, data.visuals.actionLabel, data::performAction, data::dismiss)
     }
 }
 
 @Composable
-internal fun DesktopNotificationPill(message: String, onDismiss: () -> Unit = {}) {
+internal fun DesktopNotificationPill(
+    message: String,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+    onDismiss: () -> Unit = {}
+) {
     Surface(onClick = onDismiss, shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .96f),
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -36,6 +41,7 @@ internal fun DesktopNotificationPill(message: String, onDismiss: () -> Unit = {}
             Icon(Icons.Rounded.Info, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
             Text(message, Modifier.weight(1f, fill = false), fontSize = 12.5.sp, lineHeight = 18.sp,
                 fontWeight = FontWeight.SemiBold)
+            if (actionLabel != null) TextButton(onClick = onAction) { Text(actionLabel) }
         }
     }
 }

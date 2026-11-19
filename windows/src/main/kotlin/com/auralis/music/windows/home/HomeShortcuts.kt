@@ -96,7 +96,8 @@ internal fun HomeShortcuts(pins: List<SpeedDialItem>, candidates: List<SpeedDial
                         } else ShortcutPhoto(item, photoSize.value.toInt())
                         if (!collapsed) Column(Modifier.weight(1f).padding(horizontal = if (sidebar) 8.dp else 12.dp)) {
                             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
-                            Text(item.album?.author?.let { com.auralis.music.ui.i18n.desktopCollectionCaption(it) } ?: when (item.type) { SpeedDialType.ARTIST -> desktopText("Artist"); SpeedDialType.TRACK -> item.track?.artist ?: desktopText("Song"); else -> desktopText("Playlist") },
+                            val caption = playlist?.let { "Playlist · ${it.tracks.size} songs" } ?: item.album?.author
+                            Text(caption?.let { com.auralis.music.ui.i18n.desktopCollectionCaption(it) } ?: when (item.type) { SpeedDialType.ARTIST -> desktopText("Artist"); SpeedDialType.TRACK -> item.track?.artist ?: desktopText("Song"); else -> desktopText("Playlist") },
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color.White.copy(alpha = .72f))
                         }
                         if (!collapsed) Box {

@@ -48,6 +48,7 @@ dependencies {
     implementation(project(":windows-core"))
     implementation(libs.okhttp)
     implementation(compose.desktop.currentOs)
+    implementation("ca.weblite:webview:1.14.0")
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
     implementation(libs.kotlinx.coroutines.swing)

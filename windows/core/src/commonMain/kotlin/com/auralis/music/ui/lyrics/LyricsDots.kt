@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.unit.Dp
@@ -89,7 +90,7 @@ private class DotMotion {
     }
 }
 
-/** Three clean, solid interlude dots with spline curves and independent spring motion. */
+/** Three glowing interlude dots with spline curves and independent spring motion. */
 @Composable
 fun LyricsDots(
     progress: Float,
@@ -117,8 +118,25 @@ fun LyricsDots(
             for (i in 0 until 3) {
                 // Compact rows remove space below the dots while retaining their lift room above.
                 val centre = Offset(startX + i * (d + g), (if (compact) d else size.height / 2f) + motion.lifts[i].value * d * 2.5f)
-                drawCircle(color.copy(alpha = color.alpha * groupAlpha * motion.opacities[i].value.coerceIn(0f, 1f)),
-                    radius = d / 2f * motion.scales[i].value.coerceAtLeast(0f), center = centre)
+                val opacity = motion.opacities[i].value.coerceIn(0f, 1f)
+                val alpha = color.alpha * groupAlpha * opacity
+                val radius = d / 2f * motion.scales[i].value.coerceAtLeast(0f)
+                if (radius > 0f && alpha > 0f) {
+                    val haloRadius = radius * 2.2f
+                    val haloAlpha = alpha * (.25f + .35f * opacity)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0f to color.copy(alpha = haloAlpha),
+                            .45f to color.copy(alpha = haloAlpha * .65f),
+                            1f to color.copy(alpha = 0f),
+                            center = centre,
+                            radius = haloRadius
+                        ),
+                        radius = haloRadius,
+                        center = centre
+                    )
+                    drawCircle(color.copy(alpha = alpha), radius = radius, center = centre)
+                }
             }
         }
     }

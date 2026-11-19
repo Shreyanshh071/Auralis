@@ -131,9 +131,10 @@ class SpicyGlyphGlowTest {
                         val light = actual.getColor(x, y) and 255
                         brightest = maxOf(brightest, light)
                         if (!hasInkNear(x, y, 2) && light > 2) haloPixels++
-                        if (!hasInkNear(x, y, 14) && light > 2) escaped++
+                        // The active line's soft bloom reaches about 3 sigma (0.22 em) plus padding past the ink.
+                        if (!hasInkNear(x, y, 52) && light > 2) escaped++
                     }
-                    assertEquals(0, escaped, "A tight glyph halo must not turn into a rectangular haze for $text")
+                    assertEquals(0, escaped, "Glyph bloom must not turn into a rectangular haze for $text")
                     assertTrue(haloPixels > 10, "Swelling must produce visible bloom around the glyph contour")
                     assertTrue(brightest > 220, "Sung letters must remain bright and sharp")
                 } }

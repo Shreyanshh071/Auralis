@@ -145,6 +145,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -276,6 +277,7 @@ fun ImmersivePlayerContainer(
     var containerOriginInRoot by remember { mutableStateOf(Offset.Zero) }
     var containerWidthPx by remember { mutableIntStateOf(0) }
     var containerHeightPx by remember { mutableIntStateOf(0) }
+    var scrubberTopInRoot by remember { mutableStateOf<Float?>(null) }
     // How far the deck under the sleeve has tightened so the title stays on the sleeve's faded
     // foot instead of climbing over the cover: 1 = gaps, 2-4 = the shared PlayerFit text steps.
     // Only ever rises for one screen size / font scale / lyric state, so it cannot oscillate.
@@ -377,7 +379,10 @@ fun ImmersivePlayerContainer(
         enableSwipeToChangeSong && currentTab == NowPlayingTab.PLAYER && heroAtRest && !hidePlayerThumbnail
     )
     val heroSwipeBottomPx by rememberUpdatedState(
-        containerHeightPx - controlsHeightPx + with(density) { previewHeight.roundToPx() }
+        // The controls live above the action row and system insets. Deriving this from
+        // their height included part of the seek track in the song-swipe region.
+        // Fail closed until layout reports the actual top of the slider's touch area.
+        scrubberTopInRoot?.minus(containerOriginInRoot.y) ?: 0f
     )
     val onHeroSwipeStartNow by rememberUpdatedState(onHeroSwipeStart)
     val heroSwipeScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -396,7 +401,7 @@ fun ImmersivePlayerContainer(
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    if (!heroSwipeEnabled || down.position.y > heroSwipeBottomPx) return@awaitEachGesture
+                    if (!heroSwipeEnabled || down.position.y >= heroSwipeBottomPx) return@awaitEachGesture
                     var moved = Offset.Zero
                     while (moved.getDistance() < slop) {
                         val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id }
@@ -814,7 +819,12 @@ fun ImmersivePlayerContainer(
                             isPlaying = uiState.isPlaying,
                             sliderStyle = sliderStyle,
                             onScrubbing = onScrubbing,
-                            onSeekTo = onSeekTo
+                            onSeekTo = onSeekTo,
+                            modifier = Modifier
+                                .testTag("immersiveScrubber")
+                                .onGloballyPositioned {
+                                    scrubberTopInRoot = it.positionInRoot().y
+                                }
                         )
 
                         Spacer(Modifier.height(if (deckTight) 6.dp else 18.dp))
@@ -1569,7 +1579,8 @@ private fun ImmersiveScrubber(
     isPlaying: Boolean,
     sliderStyle: String,
     onScrubbing: (Boolean, Long) -> Unit,
-    onSeekTo: (Long) -> Unit
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val posMs = positionState.value
     // Where the finger last was. The position state only reports the scrub point while
@@ -1596,7 +1607,7 @@ private fun ImmersiveScrubber(
         inactiveTrackColor = Color.White.copy(alpha = 0.25f),
         thumbColor = Color.White,
         textColor = Color.White.copy(alpha = 0.55f),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     )
 }
 
