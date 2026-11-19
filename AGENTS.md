@@ -106,7 +106,9 @@ val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
   ```
   *(Note: `settings.gradle.kts` automatically omits Android modules if no Android SDK is detected, allowing desktop-only development on macOS machines).*
 
-  After changing the Android app, run `:app:assembleRelease` and refresh the workspace-root `Auralis-Release.apk` from `android/app/build/outputs/apk/release/app-release.apk`. Deliver the release APK by default.
+  After changing the Android app, run `:app:assembleApkPair`. This builds both variants from the same source and refreshes the workspace-root `Auralis-Release.apk` and `Auralis-Debug.apk`. Deliver the release APK by default.
+
+  Keep only these two APK deliverables; do not keep separate pilot, feature, dated, or versioned APK copies. Gradle's internal build/test outputs are not deliverables. Before deleting an extra APK, verify that any fixes unique to it are included in both canonical builds and run the relevant checks. If its provenance is uncertain, preserve it until its changes are reconciled. Never delete the only copy of a fix just to meet the two-APK limit. Keep signing keys, private data backups, and release mapping files separately.
 
 ---
 

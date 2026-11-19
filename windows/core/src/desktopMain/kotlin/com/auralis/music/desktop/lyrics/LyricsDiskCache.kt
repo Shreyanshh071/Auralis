@@ -88,6 +88,8 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
             put("credits", com.auralis.music.data.parser.SpicyLyricsParser.encodeCredits(data.credits))
             putOpt("spotifyTrackId", data.spotifyTrackId)
             putOpt("fetchedAtMs", data.fetchedAtMs)
+            put("timingConfidence", data.timingConfidence)
+            put("timingSelectionVersion", data.timingSelectionVersion)
             putOpt("plainLyrics", data.plainLyrics)
             putOpt("translatedPlainLyrics", data.translatedPlainLyrics)
             putOpt("translatedLanguage", data.translatedLanguage)
@@ -128,6 +130,8 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
                 credits = com.auralis.music.data.parser.SpicyLyricsParser.decodeCredits(json.optJSONArray("credits")),
                 spotifyTrackId = json.optStringOrNull("spotifyTrackId"),
                 fetchedAtMs = json.optLongOrNull("fetchedAtMs"),
+                timingConfidence = json.optInt("timingConfidence"),
+                timingSelectionVersion = json.optInt("timingSelectionVersion"),
                 plainLyrics = json.optStringOrNull("plainLyrics"),
                 translatedPlainLyrics = json.optStringOrNull("translatedPlainLyrics"),
                 translatedLanguage = json.optStringOrNull("translatedLanguage"),

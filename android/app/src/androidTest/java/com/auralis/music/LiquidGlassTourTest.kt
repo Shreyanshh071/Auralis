@@ -56,6 +56,9 @@ class LiquidGlassTourTest {
             compose.onNodeWithText("Make it yours.").assertIsDisplayed()
             compose.onNodeWithText("Next").performClick()
             compose.mainClock.advanceTimeBy(350)
+            compose.onNodeWithText("Light or dark?").assertIsDisplayed()
+            compose.onNodeWithText("Next").performClick()
+            compose.mainClock.advanceTimeBy(350)
             compose.onNodeWithText("A little more glass.").assertIsDisplayed()
             compose.onNodeWithText("Off (default)").assertIsSelected()
             compose.onAllNodesWithText(com.auralis.music.ui.i18n.str(R.string.quick_picks)).onFirst().assertIsDisplayed()
@@ -78,7 +81,7 @@ class LiquidGlassTourTest {
             compose.waitUntil(5_000) { runBlocking { !store.settingsFlow.first().liquidGlass } }
             compose.mainClock.advanceTimeBy(350)
             compose.onNodeWithText("Off (default)").assertIsSelected()
-            for (title in listOf("Hear every detail.", "Feel every word.", "Take music with you.", "You’re in control.", "Where is your sound?")) {
+            for (title in listOf("Hear every detail.", "Feel every word.", "Discover features.", "You’re in control.", "Join our community.", "Where is your sound?")) {
                 compose.onNodeWithText("Next").performClick()
                 compose.mainClock.advanceTimeBy(350)
                 compose.onNodeWithText(title).assertIsDisplayed()

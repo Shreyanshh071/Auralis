@@ -1,11 +1,36 @@
 package com.auralis.music.ui.onboarding
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -36,7 +61,6 @@ import kotlinx.coroutines.*
 fun ArtistPicker(repository: SearchRepository, onComplete: () -> Unit) {
     val online by ConnectivityMonitor.isOnline.collectAsState()
     val scope = rememberCoroutineScope()
-    val accent = Color(0xFFC6B4FF)
     var artists by remember { mutableStateOf(emptyList<Artist>()) }
     var results by remember { mutableStateOf(emptyList<Artist>()) }
     var picks by remember { mutableStateOf(emptyList<Artist>()) }
@@ -103,64 +127,170 @@ fun ArtistPicker(repository: SearchRepository, onComplete: () -> Unit) {
             } finally { saving = false }
         }
     }
-    Column(Modifier.fillMaxSize().background(Color(0xFF0B0A12)).statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("YOUR SOUND", letterSpacing = 3.sp, color = accent, modifier = Modifier.weight(1f))
-            TextButton(enabled = !saving, onClick = { OnboardingStore.skipPicker(); onComplete() }) { Text("Skip", color = Color.White.copy(alpha = .65f)) }
+    val reduced = LocalReducedMotion.current
+    fun pick(artist: Artist, selected: Boolean) {
+        picks = OnboardingFlow.togglePick(picks, artist)
+        if (!selected && relatedLoading.add(artist.id)) scope.launch {
+            try {
+                val page = withTimeoutOrNull(10_000) { repository.getArtistPage(artist) }
+                if (page != null) {
+                    pages[artist.id] = page
+                    if (artists.none { OnboardingFlow.sameArtist(it, artist) }) artists = listOf(artist) + artists
+                    artists = OnboardingFlow.insertRelated(artists, artist, page.similarArtists)
+                    results = OnboardingFlow.insertRelated(results, artist, page.similarArtists)
+                }
+            } catch (e: CancellationException) { throw e } catch (_: Exception) { relatedLoading.remove(artist.id) }
         }
-        Text("Who do you love?", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        Text("Pick at least 3 artists. Your first Home starts here.", color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(vertical = 12.dp))
-        OutlinedTextField(value = query, onValueChange = { query = it }, enabled = !saving, singleLine = true, label = { Text("Find any artist") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-        if (picks.isNotEmpty()) Text(picks.joinToString(" · ") { it.name }, maxLines = 2, color = accent, modifier = Modifier.padding(vertical = 8.dp))
-        if (!online) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { com.auralis.music.ui.components.OfflineState() }
-        } else if (loading && query.isBlank()) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accent) }
-        } else {
-            notice?.let { Text(it, color = accent, modifier = Modifier.padding(vertical = 8.dp)) }
-            val shown = if (query.isBlank()) artists else results
-            LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 20.dp)) {
-                items(shown.distinctBy { it.id }, key = { it.id }) { artist ->
-                    val selected = picks.any { OnboardingFlow.sameArtist(it, artist) }
-                    ArtistBubble(artist, selected, accent, enabled = !saving) {
-                        picks = OnboardingFlow.togglePick(picks, artist)
-                        if (!selected && relatedLoading.add(artist.id)) scope.launch {
-                            try {
-                                val page = withTimeoutOrNull(10_000) { repository.getArtistPage(artist) }
-                                if (page != null) {
-                                    pages[artist.id] = page
-                                    if (artists.none { OnboardingFlow.sameArtist(it, artist) }) artists = listOf(artist) + artists
-                                    artists = OnboardingFlow.insertRelated(artists, artist, page.similarArtists)
-                                    results = OnboardingFlow.insertRelated(results, artist, page.similarArtists)
+    }
+    // Same backdrop and chrome as the tour, so the picker reads as its last step.
+    TourBackdrop {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("AURALIS", color = PickerInk, letterSpacing = 4.sp, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TourTouchButton("Skip", false, PickerAccent, PickerInk, Modifier.width(72.dp).height(38.dp)) {
+                    if (!saving) { OnboardingStore.skipPicker(); onComplete() }
+                }
+            }
+            Column(Modifier.padding(horizontal = 22.dp)) {
+                Text("Who do you love?", color = PickerInk, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 10.dp))
+                Text("Pick at least ${OnboardingFlow.MIN_PICKS} artists. Your first Home is built from them.",
+                    color = PickerInk.copy(alpha = .6f), fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 6.dp, bottom = 16.dp))
+                PickerSearchField(query, enabled = !saving) { query = it }
+            }
+            // The chosen artists, newest first; tap one to drop it.
+            AnimatedVisibility(picks.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(top = 14.dp)) {
+                    items(picks.reversed(), key = { "pick-" + it.id }) { artist ->
+                        PickedChip(artist, enabled = !saving, modifier = Modifier.animateItem()) { pick(artist, true) }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when {
+                    !online -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { com.auralis.music.ui.components.OfflineState() }
+                    loading && query.isBlank() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = PickerAccent, strokeWidth = 3.dp)
+                    }
+                    else -> {
+                        val shown = (if (query.isBlank()) artists else results).distinctBy { it.id }
+                        LazyVerticalStaggeredGrid(
+                            columns = StaggeredGridCells.Fixed(3),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+                            verticalItemSpacing = 10.dp,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            notice?.let { message ->
+                                item(span = StaggeredGridItemSpan.FullLine, key = "notice") {
+                                    Text(message, color = PickerAccent, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
                                 }
-                            } catch (e: CancellationException) { throw e } catch (_: Exception) { relatedLoading.remove(artist.id) }
+                            }
+                            itemsIndexed(shown, key = { _, artist -> artist.id }) { index, artist ->
+                                val order = picks.indexOfFirst { OnboardingFlow.sameArtist(it, artist) }
+                                // Three heights in rotation give the wall its uneven, poster-like rhythm.
+                                val ratio = when (index % 3) { 0 -> .78f; 1 -> .98f; else -> .86f }
+                                ArtistTile(artist, order, ratio, enabled = !saving, modifier = Modifier.animateItem()) { pick(artist, order >= 0) }
+                            }
                         }
                     }
                 }
             }
+            PickerFooter(picks.size, saving, enabled = online && picks.size >= OnboardingFlow.MIN_PICKS && !saving, onFinish = ::finish)
         }
-        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(progress = { (picks.size / 3f).coerceAtMost(1f) }, color = accent, modifier = Modifier.size(42.dp))
-                Text("${picks.size}", color = Color.White)
-            }
-            Button(onClick = ::finish, enabled = online && picks.size >= 3 && !saving, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.Black), modifier = Modifier.weight(1f).height(54.dp)) {
-                Text(if (saving) "Building your Home…" else "Let's listen")
+    }
+}
+
+private val PickerInk = Color(0xFFF0F2F7)
+private val PickerAccent = Color(0xFFE5CB9E)
+
+@Composable
+private fun PickerSearchField(query: String, enabled: Boolean, onChange: (String) -> Unit) {
+    val shape = RoundedCornerShape(26.dp)
+    Row(Modifier.fillMaxWidth().height(52.dp).clip(shape).background(PickerInk.copy(alpha = .07f))
+        .border(1.dp, PickerInk.copy(alpha = .12f), shape).padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Search, null, tint = PickerInk.copy(alpha = .6f), modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) Text("Search any artist", color = PickerInk.copy(alpha = .45f), fontSize = 15.sp)
+            BasicTextField(query, onChange, enabled = enabled, singleLine = true,
+                textStyle = TextStyle(color = PickerInk, fontSize = 15.sp), cursorBrush = SolidColor(PickerAccent),
+                modifier = Modifier.fillMaxWidth())
+        }
+        if (query.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear search", tint = PickerInk.copy(alpha = .6f),
+            modifier = Modifier.size(20.dp).clickable { onChange("") })
+    }
+}
+
+/** A tall photo tile with the name on a dark fade; picked tiles get an accent ring and their pick number. */
+@Composable
+private fun ArtistTile(artist: Artist, order: Int, ratio: Float, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val reduced = LocalReducedMotion.current
+    val selected = order >= 0
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && !reduced) .94f else 1f,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = if (pressed) .8f else .5f, stiffness = 450f), label = "artist press")
+    val ring by animateDpAsState(if (selected) 3.dp else 0.dp, label = "artist ring")
+    val shape = RoundedCornerShape(22.dp)
+    Box(modifier.fillMaxWidth().aspectRatio(ratio).graphicsLayer { scaleX = scale; scaleY = scale }
+        .clip(shape).background(PickerInk.copy(alpha = .06f))
+        .border(ring, PickerAccent, shape)
+        .clickable(interactions, null, enabled = enabled, onClick = onClick)) {
+        Icon(Icons.Rounded.Person, null, tint = PickerInk.copy(alpha = .18f), modifier = Modifier.size(44.dp).align(Alignment.Center))
+        AsyncImage(model = artist.thumbnail, contentDescription = artist.name, modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent,
+            1f to Color.Black.copy(alpha = .78f))))
+        Text(artist.name, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 9.dp))
+        AnimatedVisibility(selected, enter = fadeIn() + scaleIn(initialScale = .4f), exit = fadeOut() + scaleOut(targetScale = .4f),
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+            Box(Modifier.size(26.dp).clip(CircleShape).background(PickerAccent), contentAlignment = Alignment.Center) {
+                Text("${order + 1}", color = Color(0xFF21192C), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-private fun ArtistBubble(artist: Artist, selected: Boolean, accent: Color, enabled: Boolean, onClick: () -> Unit) {
-    val reduced = LocalReducedMotion.current
-    val scale by animateFloatAsState(if (selected) 1.07f else 1f, animationSpec = androidx.compose.animation.core.tween(if (reduced) 0 else 240), label = "artist pick")
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(enabled = enabled, onClick = onClick)) {
-        Box(Modifier.aspectRatio(1f).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(Color.White.copy(alpha = .08f)).border(if (selected) 3.dp else 0.dp, if (selected) accent else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Person, null, tint = accent.copy(alpha = .3f), modifier = Modifier.size(48.dp))
-            AsyncImage(model = artist.thumbnail, contentDescription = artist.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (selected) Box(Modifier.fillMaxSize().background(accent.copy(alpha = .3f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Check, "Selected", tint = Color.White, modifier = Modifier.size(36.dp)) }
+private fun PickedChip(artist: Artist, enabled: Boolean, modifier: Modifier = Modifier, onRemove: () -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Row(modifier.height(44.dp).clip(shape).background(PickerAccent.copy(alpha = .16f)).border(1.dp, PickerAccent.copy(alpha = .4f), shape)
+        .clickable(enabled = enabled, onClick = onRemove).padding(start = 4.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(36.dp).clip(CircleShape).background(PickerInk.copy(alpha = .08f))) {
+            AsyncImage(model = artist.thumbnail, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
-        Text(artist.name, color = Color.White, maxLines = 2, textAlign = TextAlign.Center, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(artist.name, color = PickerInk, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
+        Spacer(Modifier.width(6.dp))
+        Icon(Icons.Rounded.Close, "Remove ${artist.name}", tint = PickerInk.copy(alpha = .7f), modifier = Modifier.size(16.dp))
+    }
+}
+
+/** Progress toward the minimum as filling segments, then the button. */
+@Composable
+private fun PickerFooter(count: Int, saving: Boolean, enabled: Boolean, onFinish: () -> Unit) {
+    val needed = OnboardingFlow.MIN_PICKS
+    Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(when {
+                count == 0 -> "Pick $needed to start"
+                count < needed -> "${needed - count} more to go"
+                else -> "$count picked · ready"
+            }, color = PickerInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(needed) { index ->
+                    val fill by animateFloatAsState(if (index < count) 1f else .18f, label = "pick progress")
+                    Box(Modifier.width(26.dp).height(5.dp).clip(RoundedCornerShape(3.dp)).background(PickerAccent.copy(alpha = fill)))
+                }
+            }
+        }
+        TourTouchButton(if (saving) "Building…" else "Let’s listen", enabled || saving, PickerAccent, PickerInk,
+            Modifier.width(132.dp).height(50.dp)) { if (enabled) onFinish() }
     }
 }

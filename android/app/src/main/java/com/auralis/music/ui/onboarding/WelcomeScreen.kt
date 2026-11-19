@@ -85,6 +85,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameNanos
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -93,7 +101,7 @@ val ONBOARDING_PEACH = Color(0xFFFFB67A)
 
 /**
  * High-performance, hardware-accelerated dynamic atmospheric mesh background:
- * Fluidly moves signature Auralis brand colors (Warm Amber/Peach, Neon Royal Violet, Coral Rose, Electric Cyan)
+ * Slowly moves warm browns with a little muted gold, over a near-black base.
  * across the canvas with dual non-repeating orbital phases and a deep pitch-black anchor for perfect text readability.
  */
 @Composable
@@ -133,13 +141,13 @@ private fun DynamicAtmosphericMeshBackground(
         label = "pulse"
     )
 
-    // Palette tokens in sync with Auralis signature brand & theme
-    val amberPeach = Color(0xFFFF9E54)
-    val warmAmber = ONBOARDING_PEACH
-    val royalViolet = Color(0xFF7C3AED)
-    val electricIndigo = Color(0xFF8B5CF6)
-    val roseCoral = Color(0xFFF43F5E)
-    val cyanAccent = Color(0xFF06B6D4)
+    // Browns with a touch of gold only; nothing colourful.
+    val amberPeach = Color(0xFF5A3A22)   // brown
+    val warmAmber = Color(0xFF3A2618)    // dark brown
+    val royalViolet = Color(0xFF2A1A10)  // deep brown
+    val electricIndigo = Color(0xFF1F140C)
+    val roseCoral = Color(0xFF6B4527)    // umber
+    val cyanAccent = Color(0xFF8C6A35)   // muted gold
     val deepCanvas = Color(0xFF070806)
 
     Box(
@@ -248,8 +256,101 @@ private fun DynamicAtmosphericMeshBackground(
                 )
             }
     ) {
+        FlowingAuraWaves()
         content(pulse)
     }
+}
+
+/** One soft wave: a curved band whose crest and colours travel right to left. */
+private class WaveRibbon(
+    val baseline: Float,     // fraction of height
+    val amplitude: Float,    // fraction of height
+    val wavelength: Float,   // fraction of width
+    val thickness: Float,    // fraction of height
+    val speed: Float,        // fraction of width per second, leftwards
+    val phase: Float,
+    val colors: List<Color>,
+)
+
+/**
+ * Brown waves with a little gold blended in, layered behind the logo and headline, drifting right to left like the
+ * Windows shortcut aura's sweep, but along curved, gently breathing crests instead of a straight
+ * edge. Soft bands only, no crisp lines. Time is read only in the draw phase.
+ */
+@Composable
+private fun FlowingAuraWaves() {
+    val reduced = com.auralis.music.ui.theme.LocalReducedMotion.current
+    val time = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(reduced) {
+        if (reduced) return@LaunchedEffect
+        var previous = 0L
+        while (true) withFrameNanos { now ->
+            if (previous != 0L) time.floatValue += ((now - previous) / 1_000_000_000f).coerceAtMost(.05f)
+            previous = now
+        }
+    }
+    val ribbons = remember {
+        val brown = Color(0xFF4E3626)
+        val darkBrown = Color(0xFF2B1E16)
+        val gold = Color(0xFFB8893E)
+        val softGold = Color(0xFF8E6A36)
+        val umber = Color(0xFF6B4527)
+        val charcoal = Color(0xFF151312)
+        val black = Color(0xFF060505)
+        // Back to front, from behind the status bar down to the feature pills.
+        listOf(
+            WaveRibbon(.00f, .030f, 1.40f, .110f, .045f, 0.0f, listOf(charcoal, umber, darkBrown)),
+            WaveRibbon(.06f, .035f, 1.10f, .100f, .060f, 1.3f, listOf(brown, softGold, charcoal)),
+            WaveRibbon(.12f, .030f, 1.60f, .110f, .040f, 2.6f, listOf(darkBrown, brown, black)),
+            WaveRibbon(.18f, .040f, 1.20f, .090f, .055f, 3.9f, listOf(umber, gold, brown)),
+            WaveRibbon(.24f, .035f, 1.50f, .100f, .050f, 5.0f, listOf(darkBrown, umber, brown)),
+            WaveRibbon(.30f, .030f, 1.30f, .080f, .065f, 0.7f, listOf(charcoal, brown, softGold)),
+            WaveRibbon(.35f, .025f, 1.70f, .060f, .045f, 2.1f, listOf(black, darkBrown, umber)),
+        )
+    }
+    // RenderEffect blur exists from Android 12; older phones get fainter, unblurred bands.
+    val blurred = android.os.Build.VERSION.SDK_INT >= 31
+    Canvas(Modifier.fillMaxSize().then(if (blurred) Modifier.blur(14.dp, BlurredEdgeTreatment.Unbounded) else Modifier)) {
+        val t = time.floatValue
+        ribbons.forEach { ribbon ->
+            drawPath(ribbonBody(ribbon, t), ribbonBrush(ribbon, t, if (blurred) .85f else .65f))
+        }
+    }
+}
+
+private const val WAVE_STEPS = 56
+
+private fun DrawScope.crestY(ribbon: WaveRibbon, x: Float, t: Float): Float {
+    val k = (2 * PI / (ribbon.wavelength * size.width)).toFloat()
+    val omega = k * ribbon.speed * size.width
+    // sin(kx + ωt) travels towards -x; the slower overtone keeps the crest from looking mechanical.
+    val main = sin(k * x + omega * t + ribbon.phase)
+    val overtone = .35f * sin(2.3f * k * x + 1.6f * omega * t + ribbon.phase * 1.7f)
+    return size.height * (ribbon.baseline + ribbon.amplitude * (main + overtone))
+}
+
+private fun DrawScope.ribbonBody(ribbon: WaveRibbon, t: Float): Path = Path().apply {
+    val k = (2 * PI / (ribbon.wavelength * size.width)).toFloat()
+    for (i in 0..WAVE_STEPS) {
+        val x = size.width * i / WAVE_STEPS
+        val y = crestY(ribbon, x, t)
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    for (i in WAVE_STEPS downTo 0) {
+        val x = size.width * i / WAVE_STEPS
+        // The band breathes: thicker and thinner stretches drift along with the crest.
+        val thick = size.height * ribbon.thickness * (.7f + .3f * sin(.6f * k * x + .8f * k * ribbon.speed * size.width * t + ribbon.phase * 2.3f))
+        lineTo(x, crestY(ribbon, x, t) + thick)
+    }
+    close()
+}
+
+/** The ribbon's colours scroll leftwards at its own speed, mirrored so the loop has no seam. */
+private fun DrawScope.ribbonBrush(ribbon: WaveRibbon, t: Float, alpha: Float): Brush {
+    val span = size.width * 1.2f
+    val offset = -(t * ribbon.speed * size.width) % (2 * span)
+    return Brush.linearGradient(ribbon.colors.map { it.copy(alpha = alpha.coerceIn(0f, 1f)) },
+        start = Offset(offset, 0f), end = Offset(offset + span, 0f), tileMode = TileMode.Mirror)
 }
 
 /**

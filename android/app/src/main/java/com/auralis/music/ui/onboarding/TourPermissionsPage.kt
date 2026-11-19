@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -74,62 +75,53 @@ internal fun TourPermissionsPage(accent: Color, ink: Color, modifier: Modifier =
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Icon(Icons.Rounded.VerifiedUser, null, tint = accent, modifier = Modifier.size(42.dp))
-                Text("A few small permissions.\nYou make the call.", color = ink, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
-            }
+    fun openSettings(intent: Intent) = runCatching { context.startActivity(intent) }
+    val appDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+    val cards = permissions.map { permission ->
+        val granted = remember(revision, permission) {
+            if (permission == TourPermission.NOTIFICATIONS) NotificationManagerCompat.from(context).areNotificationsEnabled()
+            else permission.runtimePermission(api)?.let {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            } ?: true
         }
-        items(permissions, key = { it.name }) { permission ->
-            val granted = remember(revision, permission) {
-                if (permission == TourPermission.NOTIFICATIONS) NotificationManagerCompat.from(context).areNotificationsEnabled()
-                else permission.runtimePermission(api)?.let {
-                    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-                } ?: true
+        val runtime = permission.runtimePermission(api)
+        val needsSettings = granted || runtime == null || (runtime in requested && activity != null &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(activity, runtime))
+        TourCard(
+            icon = when (permission) {
+                TourPermission.NOTIFICATIONS -> Icons.Rounded.NotificationsActive
+                TourPermission.MICROPHONE -> Icons.Rounded.Mic
+                TourPermission.STORAGE -> Icons.Rounded.Download
+            },
+            tile = when (permission) {
+                TourPermission.NOTIFICATIONS -> TourTiles.Pink
+                TourPermission.MICROPHONE -> TourTiles.Lavender
+                TourPermission.STORAGE -> TourTiles.Green
+            },
+            title = permission.title, subtitle = permission.explanation,
+            trailing = TourCardTrailing.Toggle(granted),
+        ) {
+            // Granted permissions can only be withdrawn from system settings.
+            if (needsSettings) openSettings(
+                if (permission == TourPermission.NOTIFICATIONS && api >= 26) {
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                } else appDetails)
+            else if (runtime != null) {
+                requested = ArrayList(requested + runtime)
+                launcher.launch(runtime)
             }
-            val runtime = permission.runtimePermission(api)
-            val needsSettings = runtime == null || (runtime in requested && activity != null &&
-                !ActivityCompat.shouldShowRequestPermissionRationale(activity, runtime))
-            val shape = RoundedCornerShape(22.dp)
-            Column(Modifier.fillMaxWidth().background(ink.copy(alpha = .045f), shape)
-                .border(1.dp, ink.copy(alpha = .12f), shape).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(when (permission) {
-                        TourPermission.NOTIFICATIONS -> Icons.Rounded.NotificationsActive
-                        TourPermission.MICROPHONE -> Icons.Rounded.Mic
-                        TourPermission.STORAGE -> Icons.Rounded.Download
-                    }, null, tint = accent, modifier = Modifier.size(24.dp))
-                    Text(permission.title, color = ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                }
-                Text(permission.explanation, color = ink.copy(alpha = .65f), fontSize = 13.sp, lineHeight = 19.sp)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (granted) "Ready to go" else "Your choice", color = ink.copy(alpha = .5f), fontSize = 11.sp, modifier = Modifier.weight(1f))
-                    TourTouchButton(if (granted) "Allowed ✓" else if (needsSettings) "Settings" else "Allow", granted, accent, ink,
-                        Modifier.width(98.dp).height(44.dp)) {
-                        if (!granted) {
-                            if (needsSettings) {
-                                val intent = if (permission == TourPermission.NOTIFICATIONS && api >= 26) {
-                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                } else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                                context.startActivity(intent)
-                            } else if (runtime != null) {
-                                requested = ArrayList(requested + runtime)
-                                launcher.launch(runtime)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Text("Streaming and background playback are already supported — no extra permission switch. " +
-                "If an app update needs installation access, Auralis will ask when you install it.",
-                color = ink.copy(alpha = .5f), fontSize = 12.sp, lineHeight = 18.sp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp))
         }
     }
+    val installCard = if (api >= 26) {
+        val canInstall = remember(revision) { context.packageManager.canRequestPackageInstalls() }
+        TourCard(Icons.Rounded.Update, TourTiles.Orange, "Install updates",
+            "Lets the built-in updater install new versions of Auralis.",
+            TourCardTrailing.Toggle(canInstall)) {
+            openSettings(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+        }
+    } else null
+    TourCardList(cards + listOfNotNull(installCard), ink, modifier,
+        footer = "Everything here is optional. Streaming and background playback already work without any extra permission.")
 }
 
 private tailrec fun Context.permissionActivity(): Activity? = when (this) {

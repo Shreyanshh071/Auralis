@@ -38,6 +38,7 @@ import com.auralis.music.data.network.YouTubeLocales
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.components.EqualizerBars
 import com.auralis.music.ui.theme.LocalReducedMotion
+import com.auralis.music.ui.theme.effectiveForDrawing
 import com.auralis.music.ui.screens.wrapped.WrappedBackground
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,10 +57,13 @@ fun AppTour(
     val settingsStore = remember { SettingsDataStore(context) }
     val contentStore = remember { ContentSettingsDataStore(context) }
     val appearance by appearanceStore.settingsFlow.collectAsState(AppearanceSettings())
+    // Previews draw exactly what the app draws: reduced effects / battery saver swap the player
+    // background and blurs there, so the raw saved settings showed a background the player no longer uses.
+    val drawnAppearance = appearance.effectiveForDrawing()
     val settings by settingsStore.settingsFlow.collectAsState(PlayerSettings())
     val content by contentStore.settingsFlow.collectAsState(ContentSettings())
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState { 8 }
+    val pager = rememberPagerState { 10 }
     val reduced = LocalReducedMotion.current
     val pageCaches = remember { mutableMapOf<Int, TourPageRenderCache>() }
     var navigationJob by remember { mutableStateOf<Job?>(null) }
@@ -81,10 +85,9 @@ fun AppTour(
     androidx.activity.compose.BackHandler(enabled = hasPreviousPage) { moveTo(pager.settledPage - 1) }
     val ink = Color(0xFFF0F2F7)
     val accent = Color(0xFFE5CB9E)
-    val titles = listOf("Your music. Your Auralis.", "Make it yours.", "A little more glass.", "Hear every detail.", "Feel every word.", "Take music with you.", "You’re in control.", "Where is your sound?")
-    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Compare solid and liquid glass. Scroll behind the dock and mini player, and press the glass controls. Your choice is saved.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Download songs or playlists from their menu. Play them from Library, even without internet.", "Allow what works for you. Everything here is optional, and you can change it later.", "Choose your music region and language. Next, pick your artists.")
-    WrappedBackground(animate = !reduced, cacheRotatingScene = true,
-        rotationDegrees = { intro.rotation }, linesReveal = { intro.lines }, detailsOpacity = { intro.lines }) {
+    val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Light or dark?", "A little more glass.", "Hear every detail.", "Feel every word.", "Discover features.", "You’re in control.", "Join our community.", "Where is your sound?")
+    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Pick how Auralis looks. The preview follows your choice.", "Compare solid and liquid glass. Scroll behind the dock and mini player, and press the glass controls. Your choice is saved.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Everything Auralis has to offer for your music journey.", "Allow what works for you. Everything here is optional, and you can change it later.", "Auralis is open source and grows with its community. Your help makes a difference.", "Choose your music region and language. Next, pick your artists.")
+    TourBackdrop {
         // Capture the same usable window as the full player, before tour chrome takes space.
         // Insets are consumed here once, so the embedded players cannot subtract them again.
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -94,10 +97,10 @@ fun AppTour(
                 Text("AURALIS", color = ink, letterSpacing = 4.sp, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 TourTouchButton("Skip tour", false, accent, ink, Modifier.width(90.dp).height(38.dp), onFinish)
             }
-            // Retain all eight pages: even permission checks and locale controls can
+            // Retain all ten pages: even permission checks and locale controls can
             // otherwise enter the lazy composition window halfway through a slide.
             Box(Modifier.weight(1f)) {
-            HorizontalPager(state = pager, pageSpacing = 0.dp, beyondViewportPageCount = 7,
+            HorizontalPager(state = pager, pageSpacing = 0.dp, beyondViewportPageCount = 9,
                 flingBehavior = PagerDefaults.flingBehavior(pager, snapAnimationSpec = if (reduced) snap() else tween(360, easing = FastOutSlowInEasing)),
                 modifier = Modifier.fillMaxSize().pointerInput(pager) {
                     // Observe the real touch down without consuming it or delaying the
@@ -137,9 +140,13 @@ fun AppTour(
                     Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         when (page) {
                             0 -> TourIntroLogo(intro, Modifier.size(208.dp))
-                            1 -> TourPlayerPreview(appearance, active, playerViewport, Modifier.fillMaxSize())
-                            2 -> TourLiquidGlassPreview(appearance, active, playerViewport, Modifier.fillMaxSize(), homeUiState)
-                            3 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            1 -> TourPlayerPreview(drawnAppearance, active, playerViewport, Modifier.fillMaxSize())
+                            2 -> {
+                                val themePreview = com.auralis.music.ui.screens.rememberThemePreview(appearance)
+                                com.auralis.music.ui.screens.ThemePreviewCard(themePreview, Modifier.fillMaxWidth().height(170.dp))
+                            }
+                            3 -> TourLiquidGlassPreview(appearance, active, playerViewport, Modifier.fillMaxSize(), homeUiState)
+                            4 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 EqualizerBars(isPlaying = active, modifier = Modifier.size(160.dp).graphicsLayer(), color = accent, smoothMotion = true)
                                 val qualityDescription = when (settings.audioQuality) {
                                     AudioQuality.HIGH, AudioQuality.AUTO -> "Best available audio\nBitrate varies by song and source"
@@ -147,9 +154,11 @@ fun AppTour(
                                 }
                                 Text(qualityDescription, color = ink.copy(alpha = .65f), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 26.dp))
                             }
-                            4 -> TourLyricsPreview(appearance, active, Modifier.fillMaxSize())
-                            6 -> TourPermissionsPage(accent, ink, Modifier.fillMaxSize())
-                            else -> Icon(if (page == 5) Icons.Rounded.DownloadDone else Icons.Rounded.Public, null, tint = accent, modifier = Modifier.size(140.dp))
+                            5 -> TourLyricsPreview(drawnAppearance, active, Modifier.fillMaxSize())
+                            6 -> TourFeaturesPage(ink, Modifier.fillMaxSize())
+                            7 -> TourPermissionsPage(accent, ink, Modifier.fillMaxSize())
+                            8 -> TourCommunityPage(ink, Modifier.fillMaxSize())
+                            else -> Icon(Icons.Rounded.Public, null, tint = accent, modifier = Modifier.size(140.dp))
                         }
                     }
                     Spacer(Modifier.height(16.dp))
@@ -158,25 +167,35 @@ fun AppTour(
                             TourChoices(PlayerDesign.entries.map { it.displayName }, appearance.playerDesign, accent, ink, columns = 3) { value -> scope.launch {
                                 appearanceStore.updateSettings(appearance.copy(playerDesign = value, newPlayerDesign = value != "Old player"))
                             } }
-                            Spacer(Modifier.height(8.dp))
-                            TourChoices(listOf("Follow system", "Light Mode", "Dark Mode"), appearance.appTheme, accent, ink, columns = 3) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(appTheme = value)) } }
                         }
-                        2 -> TourChoices(listOf("Off (default)", "On"), if (appearance.liquidGlass) "On" else "Off (default)", accent, ink, columns = 2) { value ->
+                        2 -> {
+                            val themeKeys = listOf("Follow system", "Light Mode", "Dark Mode", "Pure AMOLED Black")
+                            val selectedTheme = when (appearance.appTheme) {
+                                "Light", "Light Mode" -> "Light Mode"
+                                "Dark", "Dark Mode", "Midnight Velvet Dark" -> "Dark Mode"
+                                "AMOLED", "Pure AMOLED Black" -> "Pure AMOLED Black"
+                                else -> "Follow system"
+                            }
+                            TourChoices(themeKeys, selectedTheme, accent, ink, columns = 2,
+                                label = { when (it) { "Follow system" -> "System"; "Light Mode" -> "Light"; "Dark Mode" -> "Dark"; else -> "Pure black" } }) { value ->
+                                scope.launch { appearanceStore.updateSettings(appearance.copy(appTheme = value)) }
+                            }
+                        }
+                        3 -> TourChoices(listOf("Off (default)", "On"), if (appearance.liquidGlass) "On" else "Off (default)", accent, ink, columns = 2) { value ->
                             scope.launch {
                                 appearanceStore.updateSettings(appearance.copy(
                                     liquidGlass = value == "On"
                                 ))
                             }
                         }
-                        3 -> TourChoices(AudioQuality.entries.map { it.displayName }, settings.audioQuality.displayName, accent, ink, columns = 2,
+                        4 -> TourChoices(AudioQuality.entries.map { it.displayName }, settings.audioQuality.displayName, accent, ink, columns = 2,
                             label = { value -> AudioQuality.entries.first { it.displayName == value }.name.lowercase().replaceFirstChar { it.uppercase() } }) { value -> scope.launch { settingsStore.setAudioQuality(AudioQuality.entries.first { it.displayName == value }) } }
-                        4 -> TourChoices(LyricsAnimationMode.entries.map { it.displayName }, appearance.lyricsAnimation, accent, ink, columns = 4,
+                        5 -> TourChoices(LyricsAnimationMode.entries.map { it.displayName }, appearance.lyricsAnimation, accent, ink, columns = 4,
                             label = { when (LyricsAnimationMode.fromDisplayName(it)) {
                                 LyricsAnimationMode.APPLE_MUSIC_V2 -> "Apple V2"
                                 else -> it
                             } }) { value -> scope.launch { appearanceStore.updateSettings(appearance.copy(lyricsAnimation = value)) } }
-                        5 -> Text("Tap ⋮ beside a song → Download", color = ink.copy(alpha = .7f), fontSize = 13.sp)
-                        7 -> {
+                        9 -> {
                             LocaleChoice("Music region", YouTubeLocales.countries, content.contentCountry, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentCountry = value) } } }
                             Spacer(Modifier.height(8.dp))
                             LocaleChoice("Content language", YouTubeLocales.languages, content.contentLanguage, accent, ink) { value -> scope.launch { contentStore.update { it.copy(contentLanguage = value) } } }

@@ -4,11 +4,14 @@ import com.auralis.music.data.network.NetworkClientProvider
 import com.auralis.music.data.network.SpotifyPlaylistImporter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
@@ -19,7 +22,9 @@ internal class SpotifyCanvasClient(
     private val http: OkHttpClient,
     private val folder: File,
     indexFile: File = File(folder, "index.properties"),
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** The signed-in user's Spotify token when they allow Canvas lookups with it; null otherwise. */
+    private val accountToken: (suspend () -> String?)? = null
 ) {
     private companion object {
         private const val MAX_BYTES = 64L * 1024 * 1024
@@ -42,6 +47,189 @@ internal class SpotifyCanvasClient(
         Thread(r, "canvas-segments").apply { isDaemon = true }
     }
     @Volatile private var partialsCleaned = false
+    private val sharpScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val sharpJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String?>>()
+
+    /**
+     * What to play right away: the sharp copy if it is on disk, else the cached default MP4, else
+     * the default MP4's own link to stream. The sharp copy then downloads in the background; wait
+     * for it with [awaitSharp]. Nothing here downloads a whole video before returning.
+     */
+    suspend fun findFast(trackId: String?): String? = withContext(Dispatchers.IO) {
+        if (trackId == null || !trackPattern.matches(trackId)) return@withContext null
+        val listed: Pair<String, String> = lock.withLock {
+            val known = indexedFileId(trackId)
+            if (known != null) {
+                File(folder, "$known-hq.ts").takeIf(::usable)?.let { return@withContext it.absolutePath }
+                val url = diskIndex.getString("url.$trackId", "").orEmpty()
+                return@withLock known to url
+            }
+            val now = clock()
+            if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L) || now < retryAt) return@withContext null
+            var noneListed = false
+            var item = try { listing(trackId, now) { noneListed = true } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId failed: $error")
+                    failures[trackId] = now + 60_000L
+                    null
+                }
+            // SpicyLyrics has no Canvas: ask Spotify with the signed-in account, when the user allows it.
+            if (item == null && noneListed) item = try { accountListing(trackId) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    com.auralis.music.util.Log.w("SpotifyCanvas", "Spotify account Canvas lookup failed: ${error.message}")
+                    null
+                }
+            if (item == null) { if (noneListed) misses[trackId] = now + MISS_RETRY_MS; return@withContext null }
+            item
+        }
+        val (fileId, url) = listed
+        val cachedSmall = File(folder, "$fileId-hq.mp4").takeIf(::usable)
+        val sharp = if (cachedSmall == null || upgradeWorthTrying(fileId)) startSharp(trackId, fileId) else null
+        cachedSmall?.absolutePath ?: url.takeIf(::streamable) ?: sharp?.await()
+    }
+
+    /** The sharp copy started by [findFast], once downloaded; null if it failed or none was started. */
+    suspend fun awaitSharp(trackId: String): String? {
+        val fileId = indexedFileId(trackId) ?: return null
+        File(folder, "$fileId-hq.ts").takeIf(::usable)?.let { return it.absolutePath }
+        return sharpJobs[fileId]?.await()
+    }
+
+    private fun startSharp(trackId: String, fileId: String): kotlinx.coroutines.Deferred<String?> =
+        sharpJobs.getOrPut(fileId) {
+            sharpScope.async {
+                try { downloadViaManifest(trackId, fileId) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    com.auralis.music.util.Log.w("SpotifyCanvas", "Sharp Canvas for $trackId failed: $error")
+                    noteUpgradeFailed(fileId)
+                    null
+                } finally { sharpJobs.remove(fileId) }
+            }
+        }
+
+    private fun streamable(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        return uri.scheme == "https" && uri.host == "canvaz.scdn.co" && uri.userInfo == null &&
+            (uri.port == -1 || uri.port == 443) && uri.path?.endsWith(".cnvs.mp4", ignoreCase = true) == true
+    }
+
+    /**
+     * Spotify's own Canvas service, which only answers a signed-in session, asked with the user's
+     * token (the same request as the PC). Returns (fileId, streamable MP4 link) like [listing].
+     * The token goes to Spotify and nowhere else.
+     */
+    private suspend fun accountListing(trackId: String): Pair<String, String>? {
+        val token = accountToken?.invoke() ?: return null
+        val uri = "spotify:track:$trackId".toByteArray()
+        val entity = byteArrayOf(0x0a) + varint(uri.size) + uri
+        val body = byteArrayOf(0x0a) + varint(entity.size) + entity
+        val bytes = http.newCall(Request.Builder()
+            .url("https://spclient.wg.spotify.com/canvaz-cache/v0/canvases")
+            .header("Authorization", "Bearer $token")
+            .header("Content-Type", "application/x-protobuf")
+            .header("Accept", "application/protobuf")
+            .post(body.toRequestBody("application/x-protobuf".toMediaType()))
+            .build()).execute().use { if (it.isSuccessful) it.body?.bytes() else null } ?: return null
+        val canvas = parseAccountCanvas(bytes) ?: run {
+            com.auralis.music.util.Log.i("SpotifyCanvas", "No Spotify Canvas for $trackId on the account either")
+            return null
+        }
+        diskIndex.putStrings(mapOf(trackId to canvas.fileId, "url.$trackId" to canvas.url))
+        return canvas.fileId to canvas.url
+    }
+
+    private class AccountCanvas(val fileId: String, val url: String)
+
+    /** The first video canvas in Spotify's protobuf reply: its .cnvs.mp4 URL and file id. */
+    private fun parseAccountCanvas(bytes: ByteArray): AccountCanvas? {
+        for (canvas in protoFields(bytes).filter { it.first == 1 }.mapNotNull { it.second as? ByteArray }) {
+            val strings = protoFields(canvas).mapNotNull { (field, value) ->
+                (value as? ByteArray)?.let { field to String(it, Charsets.UTF_8) }
+            }
+            val url = strings.map { it.second }.firstOrNull {
+                it.startsWith("https://canvaz.scdn.co/") && it.endsWith(".cnvs.mp4", ignoreCase = true)
+            } ?: continue
+            val urlId = url.substringAfterLast('/').substringBefore('.')
+            val fileId = strings.firstOrNull { (field, value) -> field != 1 && filePattern.matches(value) && value != urlId }?.second
+            val id = fileId ?: urlId.takeIf(filePattern::matches) ?: return null
+            return AccountCanvas(id.lowercase(), url)
+        }
+        return null
+    }
+
+    private fun protoFields(bytes: ByteArray): List<Pair<Int, Any>> {
+        val out = mutableListOf<Pair<Int, Any>>()
+        var i = 0
+        fun readVarint(): Long {
+            var result = 0L
+            var shift = 0
+            while (i < bytes.size) {
+                val b = bytes[i++].toInt() and 0xff
+                result = result or ((b and 0x7f).toLong() shl shift)
+                if (b and 0x80 == 0) return result
+                shift += 7
+                if (shift > 63) break
+            }
+            return result
+        }
+        while (i < bytes.size) {
+            val key = readVarint()
+            val field = (key shr 3).toInt()
+            when ((key and 7).toInt()) {
+                0 -> out += field to readVarint()
+                1 -> i += 8
+                2 -> {
+                    val length = readVarint().toInt()
+                    if (length < 0 || i + length > bytes.size) return out
+                    out += field to bytes.copyOfRange(i, i + length)
+                    i += length
+                }
+                5 -> i += 4
+                else -> return out
+            }
+        }
+        return out
+    }
+
+    private fun varint(value: Int): ByteArray {
+        var n = value
+        val out = mutableListOf<Byte>()
+        while (true) {
+            val b = n and 0x7f
+            n = n ushr 7
+            if (n != 0) out += (b or 0x80).toByte() else { out += b.toByte(); return out.toByteArray() }
+        }
+    }
+
+    /** SpicyLyrics' listing for [trackId] as (fileId, default MP4 link), recorded in the index. */
+    private fun listing(trackId: String, now: Long, onNoneListed: () -> Unit): Pair<String, String>? {
+        val request = Request.Builder()
+            .url("https://regional.canvasstore.slnode.spicylyrics.org/provider/canvaslist/$trackId")
+            .header("Accept", "application/json").build()
+        val item = http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val pause = response.header("Retry-After")?.toLongOrNull()?.coerceIn(60, 1800) ?: 60L
+                if (response.code == 429 || response.header("Retry-After") != null) retryAt = now + pause * 1000
+                else failures[trackId] = now + 60_000L
+                return null
+            }
+            val data = JSONObject(response.body?.string().orEmpty()).getJSONObject("data")
+            check(data.has(trackId))
+            data.optJSONObject(trackId)
+        }
+        check(item?.has("error") != true)
+        if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+            onNoneListed()
+            return null
+        }
+        val fileId = item.getString("fileId")
+        check(filePattern.matches(fileId))
+        diskIndex.putStrings(mapOf(trackId to fileId, "url.$trackId" to item.optString("url")))
+        return fileId to item.optString("url")
+    }
 
     /**
      * A song's Spotify track id, once any lyrics source has named it. Kept on disk so the Canvas
@@ -65,7 +253,15 @@ internal class SpotifyCanvasClient(
                 folder.listFiles { file -> file.name.endsWith(".partial") && file.lastModified() < cutoff }?.forEach { runCatching { it.delete() } }
             }
             val known = indexedFileId(trackId)
-            known?.let { cachedFile(it)?.let { file -> return@withLock file.absolutePath } }
+            // The manifest's best encode wins; a cached small default MP4 is only kept if the
+            // upgrade cannot be fetched, so earlier low-quality loops improve on their next play.
+            known?.let { id -> File(folder, "$id-hq.ts").takeIf(::usable)?.let { return@withLock it.absolutePath } }
+            if (known != null) File(folder, "$known-hq.mp4").takeIf(::usable)?.let { small ->
+                if (!upgradeWorthTrying(known)) return@withLock small.absolutePath
+                return@withLock try { downloadViaManifest(trackId, known) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { noteUpgradeFailed(known); small.absolutePath }
+            }
             val now = clock()
             if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L)) return@withLock null
             // The video was cleared from disk but its id is still known: fetch it again directly.
@@ -73,8 +269,7 @@ internal class SpotifyCanvasClient(
             // a SpicyLyrics rate limit (retryAt) does not block this.
             if (known != null) {
                 try {
-                    (downloadDirect(diskIndex.getString("url.$trackId", "").orEmpty(), known)
-                        ?: downloadViaManifest(trackId, known)).let { return@withLock it }
+                    bestQuality(trackId, known, diskIndex.getString("url.$trackId", "").orEmpty())?.let { return@withLock it }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -126,9 +321,28 @@ internal class SpotifyCanvasClient(
         check(filePattern.matches(fileId))
         // The direct URL is kept too, so a cleared video can be fetched again without SpicyLyrics.
         diskIndex.putStrings(mapOf(trackId to fileId, "url.$trackId" to item.optString("url")))
-        return cachedFile(fileId)?.absolutePath
-            ?: downloadDirect(item.optString("url"), fileId)
-            ?: downloadViaManifest(trackId, fileId)
+        return cachedFile(fileId)?.absolutePath ?: bestQuality(trackId, fileId, item.optString("url"))
+    }
+
+    /**
+     * Spotify's manifest lists every encode and [downloadViaManifest] takes the sharpest (up to
+     * 1080x1920). The direct .cnvs.mp4 is a small default encode, so it is only the fallback.
+     */
+    private fun bestQuality(trackId: String, fileId: String, directUrl: String): String? =
+        try { downloadViaManifest(trackId, fileId) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            com.auralis.music.util.Log.w("SpotifyCanvas", "HQ manifest for $trackId failed, using the default MP4: $error")
+            noteUpgradeFailed(fileId)
+            downloadDirect(directUrl, fileId)
+        }
+
+    // A manifest that failed is not asked again for a day, so a cached default MP4 plays at once.
+    private fun upgradeWorthTrying(fileId: String): Boolean =
+        (diskIndex.getString("hqfailed.$fileId", "")?.toLongOrNull() ?: 0L) + 86_400_000L < clock()
+
+    private fun noteUpgradeFailed(fileId: String) {
+        runCatching { diskIndex.putStrings(mapOf("hqfailed.$fileId" to clock().toString())) }
     }
 
     /** Reject the exact candidate used by the video player, then bypass the MP4 on the retry. */
@@ -141,7 +355,7 @@ internal class SpotifyCanvasClient(
             // A video decoder can still have the file open while it shuts down.
             runCatching { diskIndex.putStrings(mapOf("rejected.${failed.name}" to failed.lastModified().toString())) }
             runCatching { failed.delete() }
-            if (failed == manifest) return@withLock null
+            if (failed == manifest) return@withLock downloadDirect(diskIndex.getString("url.$trackId", "").orEmpty(), fileId)
             try {
                 downloadViaManifest(trackId, fileId)
             } catch (cancelled: CancellationException) {
@@ -161,7 +375,7 @@ internal class SpotifyCanvasClient(
     }
 
     private fun cachedFile(fileId: String): File? =
-        listOf(File(folder, "$fileId-hq.mp4"), File(folder, "$fileId-hq.ts")).firstOrNull(::usable)
+        listOf(File(folder, "$fileId-hq.ts"), File(folder, "$fileId-hq.mp4")).firstOrNull(::usable)
 
     private fun downloadDirect(url: String, fileId: String): String? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
@@ -273,7 +487,7 @@ internal class SpotifyCanvasClient(
             temporary.outputStream().use { output ->
                 var bytes = 0L
                 for (part in segments) {
-                    val data = part.get(30, TimeUnit.SECONDS)
+                    val data = part.get(12, TimeUnit.SECONDS)
                     bytes += data.size
                     check(bytes <= MAX_BYTES)
                     output.write(data)

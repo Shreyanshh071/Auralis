@@ -507,9 +507,13 @@ fun PlayerBackground(
     isVisible: Boolean = true,
     secondaryArtworkUrl: String? = null,
     swipeFraction: Float = 0f,
-    skipPaletteAnimation: Boolean = false
+    skipPaletteAnimation: Boolean = false,
+    /** The full player's song: while its Spotify Canvas plays, only the Canvas is shown. */
+    canvasTrack: com.auralis.music.domain.model.Track? = null,
+    spotifyTrackId: String? = null
 ) {
     val context = LocalContext.current
+    val canvasUrl = if (isMiniPlayer) null else rememberCanvasBackdrop(canvasTrack, spotifyTrackId)
 
     val isSwiping = (swipeFraction > 0.005f && secondaryArtworkUrl != null) || skipPaletteAnimation
     // If we are actively swiping or skipPaletteAnimation is requested (e.g. direct pager-driven palette),
@@ -525,10 +529,11 @@ fun PlayerBackground(
     val fromStops = remember(blend.from) { gradientStopsOf(blend.from) }
     val toStops = remember(blend.to) { gradientStopsOf(blend.to) }
 
+    androidx.compose.foundation.layout.Box(modifier.clipToBounds()) {
     Crossfade(
         targetState = style,
         animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
-        modifier = modifier.clipToBounds(),
+        modifier = Modifier.fillMaxSize(),
         label = "playerBackgroundStyleCrossfade"
     ) { currentStyle ->
         when (currentStyle) {
@@ -805,6 +810,11 @@ fun PlayerBackground(
                 )
             }
         }
+    }
+    // Drawn over the style, which stays underneath until the Canvas's first frame.
+    if (canvasUrl != null && canvasTrack != null) {
+        CanvasBackdropVideo(canvasTrack.id, canvasUrl, isPlaying, blurred = CanvasBackdrop.panelOpen, modifier = Modifier.fillMaxSize())
+    }
     }
 }
 

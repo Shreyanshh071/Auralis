@@ -368,7 +368,10 @@ fun SpicyLyricsLine(
     val inkMasks = remember(layout, geometry, style, density) {
         val fontPx = with(density) { style.fontSize.toPx() }
         geometry.map { slice ->
-            if (slice.letter >= 0) slice.bounds else {
+            // Advance boxes are not ink bounds: italic end glyphs overhang them.
+            // Give letter masks the same outer gutters as whole-word masks while
+            // retaining shared boundaries between adjacent animation pieces.
+            run {
                         val previous = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x < slice.bounds.center.x }
                             .maxOfOrNull { it.bounds.right }
                         val next = geometry.filter { it !== slice && it.row == slice.row && it.bounds.center.x > slice.bounds.center.x }

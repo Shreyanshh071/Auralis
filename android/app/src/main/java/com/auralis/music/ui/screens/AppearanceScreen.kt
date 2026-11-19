@@ -297,6 +297,17 @@ fun AppearanceScreen(
                     isChecked = settings.animatedCoversWifiOnly,
                     onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
                     )
+
+                    // Same as the PC: when SpicyLyrics has no Canvas, Spotify is asked with the signed-in account.
+                    val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+                    AppearanceSwitchItem(
+                    icon = Icons.Default.Image,
+                    title = "Fetch Canvas with your Spotify account",
+                    subtitle = if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account."
+                        else "Sign in to Spotify from your profile to use this.",
+                    isChecked = settings.spotifyAccountCanvas && spotifySignedIn,
+                    onCheckedChange = { if (spotifySignedIn) update { copy(spotifyAccountCanvas = it) } }
+                    )
                     
                 }
             }

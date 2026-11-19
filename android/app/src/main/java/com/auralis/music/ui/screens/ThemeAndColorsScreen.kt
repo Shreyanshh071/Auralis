@@ -38,6 +38,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.BrightnessMedium
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Contrast
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Palette
@@ -83,36 +96,14 @@ import com.auralis.music.ui.theme.dynamicSurface
 import com.auralis.music.ui.theme.getPaletteById
 import com.auralis.music.ui.theme.isLightColor
 
-/**
- * Polished Theme & Colors Customization Screen.
- *
- * Features:
- * 1. Live Responsive Preview Card:
- *    A large, rounded app mockup displaying real-time responsive color previews
- *    (Header, Hero now-playing block, split content cards, docked mini-player bar).
- *    Reflects the currently playing song's dynamic artwork palette when Dynamic is selected.
- * 2. Visual Theme Mode Selector:
- *    Distinct visual cards for System, Light, Dark, and AMOLED with clear labels
- *    and animated checkmark selection indicators.
- * 3. Horizontally Scrollable Color Palette Selector:
- *    Visual multi-tone swatches for Dynamic (artwork-derived) and Curated Palettes with container
- *    highlights, animated checkmarks, and palette names.
- */
+/** The preview's colours plus whether they describe a dark theme. */
+internal data class ThemePreview(val scheme: ColorScheme, val isDark: Boolean, val isAmoled: Boolean, val isDynamic: Boolean)
+
+/** The colour scheme [settings] produce, for previews (the app theme itself applies them globally). */
 @Composable
-fun ThemeAndColorsScreen(
-    settings: AppearanceSettings,
-    onUpdateSettings: (AppearanceSettings) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+internal fun rememberThemePreview(settings: AppearanceSettings): ThemePreview {
     val context = LocalContext.current
     val systemInDark = isSystemInDarkTheme()
-    val scrollState = rememberScrollState()
-
-    BackHandler(enabled = true) {
-        onBack()
-    }
-
     val currentPalette = remember(settings.colorPalette) {
         getPaletteById(settings.colorPalette)
     }
@@ -227,16 +218,42 @@ fun ThemeAndColorsScreen(
         }
     }
 
-    // The app theme switches light/dark immediately. Draw the mockup from the same
-    // target scheme so its pieces cannot trail behind with an intermediate gray state.
-    val animPreviewBg = activePreviewScheme.background
-    val animPreviewPrimary = activePreviewScheme.primary
-    val animPreviewSecondary = activePreviewScheme.secondary
-    val animPreviewTertiary = activePreviewScheme.tertiary
-    val animPreviewSurfaceContainer = activePreviewScheme.surfaceContainer
+    return ThemePreview(activePreviewScheme, isDark, isAmoled, isDynamic)
+}
+
+/**
+ * Theme & colours, laid out after Vivi Music's theme page: a live preview card on top, then one
+ * grouped list of Theme mode, Colour palette, Pure black, Dynamic theme and Liquid glass.
+ */
+@Composable
+fun ThemeAndColorsScreen(
+    settings: AppearanceSettings,
+    onUpdateSettings: (AppearanceSettings) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scrollState = rememberScrollState()
+
+    BackHandler(enabled = true) {
+        onBack()
+    }
+
+    val preview = rememberThemePreview(settings)
+    val isDark = preview.isDark
+    val isAmoled = preview.isAmoled
+    val isDynamic = preview.isDynamic
+    val accent = preview.scheme.primary
+
+    val sharedArtworkPalette by ArtworkPaletteCache.currentPalette.collectAsState()
+    val hasSongArtwork = sharedArtworkPalette != ArtworkPaletteCache.defaultPalette
+    val dynamicSysScheme = remember(context, isDark) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } else null
+    }
 
     val backgroundColor = MaterialTheme.dynamicBackground
-    val surfaceColor = MaterialTheme.dynamicSurface
     val onBackground = MaterialTheme.dynamicOnBackground
 
     val rootView = androidx.compose.ui.platform.LocalView.current
@@ -259,6 +276,14 @@ fun ThemeAndColorsScreen(
         Unit
     }
 
+    val darkModeSelected = settings.appTheme in setOf("Dark Mode", "Midnight Velvet Dark", "Pure AMOLED Black", "AMOLED", "Dark")
+    val lightModeSelected = settings.appTheme in setOf("Light Mode", "Light")
+    val themeModes = listOf(
+        Triple(str(R.string.system), !darkModeSelected && !lightModeSelected, "Follow system"),
+        Triple(str(R.string.light), lightModeSelected, "Light Mode"),
+        Triple(str(R.string.dark), darkModeSelected, "Dark Mode"),
+    )
+
     com.auralis.music.ui.glass.OptionalGlassPage(
         background = backgroundColor,
         accent = MaterialTheme.dynamicPrimary,
@@ -278,512 +303,82 @@ fun ThemeAndColorsScreen(
                 subtitle = str(R.string.customize_player_interface_palette),
                 modifier = Modifier.padding(bottom = 16.dp)
             )
+
+            ThemePreviewCard(preview, Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(160.dp))
+
+            Spacer(modifier = Modifier.height(32.dp))
+
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // ── 1. LARGE LIVE PREVIEW CARD (APP MOCKUP) ──
-                val isPreviewDark = isDark
-                Box(
-                    modifier = Modifier
-                        .width(220.dp)
-                        .height(290.dp)
-                        .shadow(
-                            elevation = 16.dp,
-                            shape = RoundedCornerShape(26.dp),
-                            ambientColor = Color.Black.copy(alpha = 0.40f),
-                            spotColor = animPreviewPrimary.copy(alpha = 0.30f)
-                        )
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(animPreviewBg)
-                        .border(
-                            BorderStroke(
-                                1.5.dp,
-                                if (isPreviewDark) Color.White.copy(alpha = 0.12f)
-                                else Color.Black.copy(alpha = 0.10f)
-                            ),
-                            RoundedCornerShape(26.dp)
-                        )
-                        .padding(14.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Mockup Header: Pill Search Bar + Action Dot
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(80.dp)
-                                    .height(12.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(animPreviewSecondary.copy(alpha = 0.35f))
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(animPreviewPrimary)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Mockup Hero Now Playing Block
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(82.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            animPreviewPrimary,
-                                            animPreviewPrimary.copy(alpha = 0.85f)
-                                        )
-                                    )
-                                )
-                                .padding(10.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(55.dp)
-                                            .height(8.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color.White.copy(alpha = 0.50f))
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.25f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .width(90.dp)
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(Color.White.copy(alpha = 0.35f))
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Mockup Middle Split Cards (Secondary & Tertiary)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Left Card (Secondary)
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(64.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(animPreviewSecondary.copy(alpha = 0.85f))
-                                    .padding(8.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(36.dp)
-                                            .height(6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color.White.copy(alpha = 0.45f))
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .width(22.dp)
-                                            .height(5.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color.White.copy(alpha = 0.30f))
-                                    )
-                                }
-                            }
-
-                            // Right Card (Tertiary)
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(64.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(animPreviewTertiary.copy(alpha = 0.85f))
-                                    .padding(8.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(36.dp)
-                                            .height(6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color.White.copy(alpha = 0.45f))
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .width(22.dp)
-                                            .height(5.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Color.White.copy(alpha = 0.30f))
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Mockup Docked Mini-Player Bar
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(34.dp)
-                                .clip(RoundedCornerShape(17.dp))
-                                .background(
-                                    if (isPreviewDark) animPreviewSurfaceContainer
-                                    else Color.White
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isPreviewDark) Color.White.copy(alpha = 0.08f)
-                                    else Color.Black.copy(alpha = 0.08f),
-                                    RoundedCornerShape(17.dp)
-                                )
-                                .padding(horizontal = 7.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(RoundedCornerShape(5.dp))
-                                            .background(animPreviewPrimary)
-                                    )
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Box(
-                                            modifier = Modifier
-                                                .width(42.dp)
-                                                .height(5.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(
-                                                    if (isPreviewDark) Color.White.copy(alpha = 0.70f)
-                                                    else Color.Black.copy(alpha = 0.70f)
-                                                )
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .width(26.dp)
-                                                .height(4.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(animPreviewSecondary.copy(alpha = 0.60f))
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .clip(CircleShape)
-                                        .background(animPreviewPrimary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = if (isLightColor(animPreviewPrimary)) Color(0xFF1C1B1F) else Color.White,
-                                        modifier = Modifier.size(11.dp)
-                                    )
+                // Theme mode
+                ThemeGroupItem(0, 5, Icons.Rounded.BrightnessMedium, str(R.string.theme_mode), onBackground) {
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        themeModes.forEachIndexed { index, (label, selected, key) ->
+                            ConnectedToggle(label, selected, index, themeModes.lastIndex, accent, onBackground, Modifier.weight(1f)) {
+                                if (!selected) com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) {
+                                    onUpdateSettings(settings.copy(appTheme = key))
                                 }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // ── 2. THEME MODE SELECTOR ──
-                com.auralis.music.ui.glass.OptionalGlassCard(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
-                    border = null,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp)
-                    ) {
-                        Text(
-                            text = str(R.string.theme_mode),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = onBackground,
-                            fontSize = 17.sp
-                        )
-                        Text(
-                            text = str(R.string.appearance_and_lightness),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = onBackground.copy(alpha = 0.60f)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 1. System
-                            val isSystemSelected = settings.appTheme == "Follow system"
-                            ThemeModeCard(
-                                title = str(R.string.system),
-                                selected = isSystemSelected,
-                                activeColor = animPreviewPrimary,
-                                onClick = { onUpdateSettings(settings.copy(appTheme = "Follow system")) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Sync,
-                                        contentDescription = str(R.string.system_theme),
-                                        tint = onBackground,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            // 2. Light
-                            val isLightSelected = settings.appTheme == "Light Mode"
-                            ThemeModeCard(
-                                title = str(R.string.light),
-                                selected = isLightSelected,
-                                activeColor = animPreviewPrimary,
-                                onClick = { onUpdateSettings(settings.copy(appTheme = "Light Mode")) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                        .border(1.dp, Color(0x33000000), CircleShape)
-                                )
-                            }
-
-                            // 3. Dark
-                            val isDarkSelected = settings.appTheme == "Dark Mode" || settings.appTheme == "Midnight Velvet Dark"
-                            ThemeModeCard(
-                                title = str(R.string.dark),
-                                selected = isDarkSelected,
-                                activeColor = animPreviewPrimary,
-                                onClick = { onUpdateSettings(settings.copy(appTheme = "Dark Mode")) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF22242B))
-                                        .border(1.dp, Color(0x22FFFFFF), CircleShape)
-                                )
-                            }
-
-                            // 4. AMOLED
-                            val isAmoledSelected = settings.appTheme == "Pure AMOLED Black"
-                            ThemeModeCard(
-                                title = "AMOLED",
-                                selected = isAmoledSelected,
-                                activeColor = animPreviewPrimary,
-                                onClick = { onUpdateSettings(settings.copy(appTheme = "Pure AMOLED Black")) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black)
-                                        .border(1.dp, Color(0x33FFFFFF), CircleShape)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // ── 3. HORIZONTALLY SCROLLABLE COLOR PALETTE SELECTOR ──
-                com.auralis.music.ui.glass.OptionalGlassCard(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
-                    border = null,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 18.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                            Text(
-                                text = str(R.string.color_palette),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground,
-                                fontSize = 17.sp
-                            )
-                            Text(
-                                text = str(R.string.accent_harmony_and_button_styling),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = onBackground.copy(alpha = 0.60f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        val paletteScrollState = rememberScrollState()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(paletteScrollState)
-                                .padding(horizontal = 18.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 1. Dynamic Wallpaper / Playing Song Artwork Swatch
-                            val dynamicTop = if (hasSongArtwork) sharedArtworkPalette.primary else (dynamicSysScheme?.primary ?: Color(0xFF6750A4))
-                            val dynamicBottomLeft = if (hasSongArtwork) sharedArtworkPalette.secondary else (dynamicSysScheme?.secondary ?: Color(0xFFD0BCFF))
-                            val dynamicBottomRight = if (hasSongArtwork) sharedArtworkPalette.tertiary else (dynamicSysScheme?.tertiary ?: Color(0xFFCCC2DC))
-
-                            PaletteOptionItem(
-                                title = str(R.string.dynamic),
-                                selected = isDynamic,
-                                activeColor = animPreviewPrimary,
-                                onClick = {
-                                    onUpdateSettings(
-                                        settings.copy(
-                                            colorPalette = "Dynamic",
-                                            dynamicTheme = true
-                                        )
-                                    )
-                                }
-                            ) {
-                                TripleTonePaletteCircle(
-                                    topColor = dynamicTop,
-                                    bottomLeftColor = dynamicBottomLeft,
-                                    bottomRightColor = dynamicBottomRight,
-                                    modifier = Modifier.size(52.dp)
-                                )
-                            }
-
-                            // Curated Palettes (Triple-Tone Split Circles)
-                            CuratedPalettes.forEach { palette ->
-                                val isSelected = !isDynamic && settings.colorPalette == palette.id
-                                PaletteOptionItem(
-                                    title = com.auralis.music.ui.i18n.UiLabels.of(palette.name),
-                                    selected = isSelected,
-                                    activeColor = if (isDark) palette.primaryDark else palette.primaryLight,
-                                    onClick = {
-                                        onUpdateSettings(
-                                            settings.copy(
-                                                colorPalette = palette.id,
-                                                dynamicTheme = false
-                                            )
-                                        )
-                                    }
-                                ) {
-                                    TripleTonePaletteCircle(
-                                        topColor = if (isDark) palette.primaryDark else palette.primaryLight,
-                                        bottomLeftColor = if (isDark) palette.secondaryDark else palette.secondaryLight,
-                                        bottomRightColor = if (isDark) palette.tertiaryDark else palette.tertiaryLight,
-                                        modifier = Modifier.size(52.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // ── 4. LIQUID GLASS ──
-                com.auralis.music.ui.glass.OptionalGlassCard(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = .07f),
-                    border = null,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // Colour palette
+                ThemeGroupItem(1, 5, Icons.Rounded.Palette, str(R.string.color_palette), onBackground) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = isDark) { setLiquidGlass(!glassSwitchOn) }
-                            .graphicsLayer { alpha = if (isDark) 1f else .45f }
-                            .padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = str(R.string.liquid_glass),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = onBackground,
-                                fontSize = 17.sp
-                            )
-                            Text(
-                                text = if (!isDark) {
-    str(R.string.liquid_glass_dark_only)
-} else if (com.auralis.music.ui.glass.isLiquidGlassSupported()) {
-                                    str(R.string.glass_dock_and_mini_player_scrolling_dow)
-                                } else {
-                                    str(R.string.glass_dock_and_mini_player_live_blur_nee)
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = onBackground.copy(alpha = 0.60f)
-                            )
+                        val dynamicTop = if (hasSongArtwork) sharedArtworkPalette.primary else (dynamicSysScheme?.primary ?: Color(0xFF6750A4))
+                        val dynamicLeft = if (hasSongArtwork) sharedArtworkPalette.secondary else (dynamicSysScheme?.secondary ?: Color(0xFFD0BCFF))
+                        val dynamicRight = if (hasSongArtwork) sharedArtworkPalette.tertiary else (dynamicSysScheme?.tertiary ?: Color(0xFFCCC2DC))
+                        PaletteTile(str(R.string.dynamic), isDynamic, accent, onBackground, onClick = {
+                            onUpdateSettings(settings.copy(colorPalette = "Dynamic", dynamicTheme = true))
+                        }) { TripleTonePaletteCircle(dynamicTop, dynamicLeft, dynamicRight, Modifier.size(44.dp)) }
+                        CuratedPalettes.forEach { palette ->
+                            PaletteTile(com.auralis.music.ui.i18n.UiLabels.of(palette.name), !isDynamic && settings.colorPalette == palette.id,
+                                if (isDark) palette.primaryDark else palette.primaryLight, onBackground, onClick = {
+                                    onUpdateSettings(settings.copy(colorPalette = palette.id, dynamicTheme = false))
+                                }) {
+                                TripleTonePaletteCircle(
+                                    topColor = if (isDark) palette.primaryDark else palette.primaryLight,
+                                    bottomLeftColor = if (isDark) palette.secondaryDark else palette.secondaryLight,
+                                    bottomRightColor = if (isDark) palette.tertiaryDark else palette.tertiaryLight,
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        androidx.compose.material3.Switch(
-                            checked = glassSwitchOn && isDark,
-                            enabled = isDark,
-                            onCheckedChange = { setLiquidGlass(it) }
-                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 24.dp)))
+                // Pure black is a dark-theme variant, so turning it on also picks dark.
+                ThemeSwitchItem(2, 5, Icons.Rounded.Contrast, str(R.string.pure_black_mode), str(R.string.pure_black_mode_summary),
+                    checked = isAmoled, enabled = true, accent = accent, onBackground = onBackground) { on ->
+                    com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) {
+                        onUpdateSettings(settings.copy(appTheme = if (on) "Pure AMOLED Black" else "Dark Mode"))
+                    }
+                }
+
+                // Dynamic theme
+                ThemeSwitchItem(3, 5, Icons.Rounded.AutoAwesome, str(R.string.enable_dynamic_theme), str(R.string.enable_dynamic_theme_summary),
+                    checked = isDynamic, enabled = true, accent = accent, onBackground = onBackground) { on ->
+                    onUpdateSettings(if (on) settings.copy(colorPalette = "Dynamic", dynamicTheme = true)
+                        else settings.copy(colorPalette = CuratedPalettes.first().id, dynamicTheme = false))
+                }
+
+                // Liquid glass (dark themes only)
+                ThemeSwitchItem(4, 5, Icons.Rounded.BlurOn, str(R.string.liquid_glass),
+                    if (!isDark) str(R.string.liquid_glass_dark_only)
+                    else if (com.auralis.music.ui.glass.isLiquidGlassSupported()) str(R.string.glass_dock_and_mini_player_scrolling_dow)
+                    else str(R.string.glass_dock_and_mini_player_live_blur_nee),
+                    checked = glassSwitchOn && isDark, enabled = isDark, accent = accent, onBackground = onBackground) { on ->
+                    setLiquidGlass(on)
+                }
             }
+
+            Spacer(modifier = Modifier.padding(bottomChromePadding(gap = 24.dp)))
         }
     }
 }
@@ -791,125 +386,160 @@ fun ThemeAndColorsScreen(
 private const val GlassSwitchSettleMillis = 320L
 
 /**
- * Visual Theme Mode Card Item with distinct container highlight,
- * checkmark indicator, and clear typography.
+ * A small app mockup in the chosen theme: a title pill and action dot over primary, secondary,
+ * tertiary and container swatches. Light and dark swap with a short colour animation.
  */
 @Composable
-private fun ThemeModeCard(
-    title: String,
-    selected: Boolean,
-    activeColor: Color,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.05f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "modeScale"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(62.dp)
-            .scale(scale)
-            .clip(CircleShape)
-            .background(
-                if (selected) activeColor.copy(alpha = 0.12f)
-                else Color.Transparent
-            )
-            .border(
-                BorderStroke(
-                    width = if (selected) 2.5.dp else 1.dp,
-                    color = if (selected) activeColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                ),
-                shape = CircleShape
-            )
-            .tactileBounce()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
+internal fun ThemePreviewCard(preview: ThemePreview, modifier: Modifier = Modifier) {
+    val scheme = preview.scheme
+    val spec = androidx.compose.animation.core.tween<Color>(320)
+    val surface by animateColorAsState(if (preview.isAmoled) Color.Black else scheme.surface, spec, label = "preview surface")
+    val bar by animateColorAsState(if (preview.isDark) Color.White.copy(alpha = .08f) else Color.Black.copy(alpha = .06f), spec, label = "preview bar")
+    val outline by animateColorAsState(if (preview.isDark) Color.White.copy(alpha = .16f) else Color.Black.copy(alpha = .14f), spec, label = "preview outline")
+    val primary by animateColorAsState(scheme.primary, spec, label = "preview primary")
+    val secondary by animateColorAsState(scheme.secondary, spec, label = "preview secondary")
+    val tertiary by animateColorAsState(scheme.tertiary, spec, label = "preview tertiary")
+    val container by animateColorAsState(scheme.primaryContainer.compositeOver(surface), spec, label = "preview container")
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier = modifier.clip(shape).background(surface).border(1.dp, outline, shape).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        content()
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(bar))
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.size(28.dp).background(primary, CircleShape))
+        }
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(2f).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(primary))
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)).background(secondary))
+                Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)).background(tertiary))
+            }
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(container))
+        }
+    }
+}
 
-        // Animated Selection Checkmark Overlay
-        androidx.compose.animation.AnimatedVisibility(
-            visible = selected,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(activeColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = str(R.string.x_selected, title),
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(15.dp)
-                )
+private fun groupShape(index: Int, count: Int): RoundedCornerShape {
+    val top = if (index == 0) 24.dp else 6.dp
+    val bottom = if (index == count - 1) 24.dp else 6.dp
+    return RoundedCornerShape(top, top, bottom, bottom)
+}
+
+/** One row of the grouped list: leading icon, title, then [content] underneath. */
+@Composable
+private fun ThemeGroupItem(index: Int, count: Int, icon: ImageVector, title: String, onBackground: Color,
+    content: @Composable () -> Unit) {
+    com.auralis.music.ui.glass.OptionalGlassCard(
+        shape = groupShape(index, count),
+        color = onBackground.copy(alpha = .07f),
+        border = null,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
+            Icon(icon, null, tint = onBackground, modifier = Modifier.padding(top = 2.dp).size(24.dp))
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = onBackground, fontSize = 17.sp)
+                content()
             }
         }
     }
 }
 
-/**
- * Visual Palette Option Item with triple-tone preview,
- * active ring highlight, and animated center checkmark.
- */
 @Composable
-private fun PaletteOptionItem(
-    title: String,
-    selected: Boolean,
-    activeColor: Color,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
+private fun ThemeSwitchItem(index: Int, count: Int, icon: ImageVector, title: String, summary: String,
+    checked: Boolean, enabled: Boolean, accent: Color, onBackground: Color, onChange: (Boolean) -> Unit) {
+    com.auralis.music.ui.glass.OptionalGlassCard(
+        shape = groupShape(index, count),
+        color = onBackground.copy(alpha = .07f),
+        border = null,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) }
+                .graphicsLayer { alpha = if (enabled) 1f else .45f }
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, null, tint = onBackground, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = onBackground, fontSize = 17.sp)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = onBackground.copy(alpha = .6f))
+            }
+            Spacer(Modifier.width(12.dp))
+            androidx.compose.material3.Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onChange,
+                colors = androidx.compose.material3.SwitchDefaults.colors(
+                    checkedTrackColor = accent,
+                    checkedThumbColor = if (isLightColor(accent)) Color(0xFF2A211C) else Color.White,
+                    checkedIconColor = accent,
+                ),
+                thumbContent = {
+                    Icon(if (checked) Icons.Rounded.Check else Icons.Rounded.Close, null,
+                        modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize))
+                }
+            )
+        }
+    }
+}
+
+/** Connected segmented button: the chosen one becomes a full pill, the rest keep tight joins. */
+@Composable
+private fun ConnectedToggle(label: String, selected: Boolean, index: Int, last: Int, accent: Color, onBackground: Color,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val outer by animateDpAsState(if (selected) 24.dp else 20.dp, label = "toggle outer")
+    val inner by animateDpAsState(if (selected) 24.dp else 6.dp, label = "toggle inner")
+    val start = if (index == 0) outer else inner
+    val end = if (index == last) outer else inner
+    val shape = RoundedCornerShape(start, end, end, start)
+    val fill by animateColorAsState(if (selected) accent else onBackground.copy(alpha = .08f), label = "toggle fill")
+    Box(
+        modifier.height(48.dp).clip(shape).background(fill).tactileBounce()
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) (if (isLightColor(accent)) Color(0xFF2A211C) else Color.White) else onBackground)
+    }
+}
+
+/** Rounded-square palette tile with the three-tone circle and a check over the chosen one. */
+@Composable
+private fun PaletteTile(title: String, selected: Boolean, activeColor: Color, onBackground: Color,
+    onClick: () -> Unit, content: @Composable () -> Unit) {
     val scale by animateFloatAsState(
         targetValue = if (selected) 1.06f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "paletteScale"
     )
-
     Box(
         modifier = Modifier
-            .size(62.dp)
+            .size(68.dp)
             .scale(scale)
-            .clip(CircleShape)
-            .border(
-                BorderStroke(
-                    width = if (selected) 2.5.dp else 1.dp,
-                    color = if (selected) activeColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                ),
-                shape = CircleShape
-            )
-            .tactileBounce()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
+            .clip(RoundedCornerShape(16.dp))
+            .background(onBackground.copy(alpha = if (selected) .14f else .05f))
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         content()
-
-        // Animated Selection Checkmark Overlay
         androidx.compose.animation.AnimatedVisibility(
             visible = selected,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut()
+            enter = fadeIn() + scaleIn(initialScale = .4f),
+            exit = fadeOut() + scaleOut(targetScale = .4f)
         ) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = str(R.string.x_selected, title),
-                tint = if (isLightColor(activeColor)) Color(0xFF1B1D22) else Color.White,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                Modifier.size(24.dp).clip(CircleShape).background(activeColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Check, str(R.string.x_selected, title),
+                    tint = if (isLightColor(activeColor)) Color(0xFF1B1D22) else Color.White, modifier = Modifier.size(14.dp))
+            }
         }
     }
 }

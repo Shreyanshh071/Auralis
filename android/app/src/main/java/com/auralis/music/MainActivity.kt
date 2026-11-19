@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
         val settingsRepository = SettingsRepositoryImpl(settingsDataStore)
         val searchRepository = com.auralis.music.data.repository.CatalogSearchRepository(SearchRepositoryImpl(innerTubeClient, suggestionsClient, com.auralis.music.data.repository.RoomSearchHistoryStore(searchHistoryDao)))
         com.auralis.music.data.local.ImportedLyricsStore.init(applicationContext)
+        com.auralis.music.data.local.LyricsProviderChoices.init(java.io.File(filesDir, "lyrics-provider-choices"))
         val lyricsRepository = LyricsRepositoryImpl(lyricsClient, lyricsDao, db.negativeLyricsDao())
         com.auralis.music.data.download.DownloadMetadataExport.attachLyrics(lyricsRepository)
 

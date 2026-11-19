@@ -62,13 +62,28 @@ data class LyricsProviderPicks(
 /** How long a faster provider's lyrics wait for a Spicy lookup still in flight. */
 internal const val SPICY_WAIT_MS = 5_000L
 
-internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, result: LyricsData?, preferSpicy: Boolean = false): LyricsData? {
+internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, result: LyricsData?): LyricsData? {
     val cachedTier = lyricsTier(cached)
     val displayedTier = lyricsTier(displayed)
     val resultTier = lyricsTier(result)
+    // Explicit source preference precedes word/line tier and duet enrichment.
+    listOfNotNull(result, displayed, cached).firstOrNull {
+        it.provider == LyricsProvider.SPICY_LYRICS && lyricsTier(it) >= 2
+    }?.let { return it }
+    val verified = listOfNotNull(result, displayed, cached).filter { it.timingConfidence > 0 && lyricsTier(it) >= 2 }
+    if (verified.isNotEmpty()) {
+        val topTier = verified.maxOf(::lyricsTier)
+        val top = verified.filter { lyricsTier(it) == topTier }
+        return top.firstOrNull { com.auralis.music.data.network.LyricsClient.hasSpeakerMetadata(it) } ?: top.first()
+    }
+    // A settled/cache/background result must not erase equally timed duet credits.
+    val highestTier = maxOf(cachedTier, displayedTier, resultTier)
+    val duet = listOfNotNull(result, displayed, cached).firstOrNull {
+        lyricsTier(it) == highestTier && com.auralis.music.data.network.LyricsClient.hasSpeakerMetadata(it)
+    }
     val winner = when {
-        preferSpicy && result?.provider == LyricsProvider.SPICY_LYRICS && resultTier >= maxOf(cachedTier, displayedTier) -> result
-        displayed?.provider == LyricsProvider.SPICY_LYRICS && displayedTier >= resultTier && displayedTier >= cachedTier -> displayed
+        result != null && result.timingSelectionVersion > maxOf(cached?.timingSelectionVersion ?: 0, displayed?.timingSelectionVersion ?: 0) &&
+            resultTier >= maxOf(cachedTier, displayedTier) -> result
         // A cached Musixmatch word result is a fallback, not a terminal winner.
         // Let a different word source replace it even though both have the same tier.
         result != null && resultTier == 3 && result.provider != LyricsProvider.MUSIXMATCH &&
@@ -79,7 +94,9 @@ internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, re
         else -> cached ?: result ?: displayed
     }
     // Automatic playback never exposes plain text as a temporary lyric screen.
-    return winner?.takeIf { lyricsTier(it) >= 2 }
+    val selected = if (duet != null && winner != null &&
+        !com.auralis.music.data.network.LyricsClient.hasSpeakerMetadata(winner)) duet else winner
+    return selected?.takeIf { lyricsTier(it) >= 2 }
 }
 
 /** Genuine word starts beat line timestamps beat untimed text. */
@@ -1451,6 +1468,22 @@ class PlayerViewModel(
                 if (isActive()) _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                 return@launch
             }
+            val manualProvider = withContext(Dispatchers.IO) {
+                com.auralis.music.data.local.LyricsProviderChoices.read(track.id, effectiveVideoId, track.title, track.artist, exactDurationMs)
+            }
+            if (manualProvider != null && isActive()) {
+                val selected = try { withContext(Dispatchers.IO) {
+                    if (cached?.provider == manualProvider) cached else lyricsRepository.fetchFromProvider(
+                        manualProvider, track.title, track.artist, effectiveDurationSec, effectiveVideoId,
+                        track.album, track.channelTitle, exactDurationMs, currentSilence)
+                } } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { null }
+                if (selected != null && isActive()) {
+                    _uiState.update { it.copy(lyrics = selected, isLoadingLyrics = false) }
+                    triggerAiTranslation(track, selected, requestId)
+                    return@launch
+                }
+            }
             suspend fun upgradeSpicy(): Boolean {
                 // The source and the animation are separate choices: Spicy leads whichever style is on.
                 if (!isActive()) return false
@@ -1467,7 +1500,7 @@ class PlayerViewModel(
                 }
                 if (upgraded != null && isActive()) {
                     _uiState.update { state -> state.copy(
-                        lyrics = selectSettledLyrics(null, state.lyrics, upgraded, preferSpicy = true),
+                        lyrics = selectSettledLyrics(null, state.lyrics, upgraded),
                         isLoadingLyrics = false) }
                     if (_uiState.value.lyrics === upgraded) triggerAiTranslation(track, upgraded, requestId)
                     return true
@@ -1488,7 +1521,8 @@ class PlayerViewModel(
                 android.os.SystemClock.elapsedRealtime() - spicyStartedAt < SPICY_WAIT_MS
             // Non-Musixmatch word sync can settle from cache. Musixmatch remains
             // visible while the other word sources get one chance to replace it.
-            if (cached != null && lyricsTier(cached) == 3 && cached.provider != LyricsProvider.MUSIXMATCH) {
+            if (cached != null && lyricsTier(cached) == 3 && cached.provider != LyricsProvider.MUSIXMATCH &&
+                cached.timingSelectionVersion >= com.auralis.music.data.network.LyricsTimingConsensus.VERSION) {
                 if (isActive()) {
                     _uiState.update { it.copy(lyrics = cached, isLoadingLyrics = false) }
                     triggerAiTranslation(track, cached, requestId)
@@ -1519,7 +1553,7 @@ class PlayerViewModel(
                         null
                     }
                     if (enriched != null && isActive()) {
-                        _uiState.update { it.copy(lyrics = enriched, isLoadingLyrics = false) }
+                        _uiState.update { it.copy(lyrics = selectSettledLyrics(null, it.lyrics, enriched), isLoadingLyrics = false) }
                         triggerAiTranslation(track, enriched, requestId)
                     }
                 }
@@ -1606,7 +1640,7 @@ class PlayerViewModel(
                 if (isActive()) {
                     _uiState.update { state ->
                         state.copy(
-                            lyrics = if (forceSourceRefresh && lyricsTier(data) >= 2) data else selectSettledLyrics(cached, if (forceSourceRefresh) safeFallback else state.lyrics, data),
+                            lyrics = selectSettledLyrics(cached, state.lyrics, data),
                             isLoadingLyrics = false
                         )
                     }
@@ -1621,7 +1655,7 @@ class PlayerViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 lyricsUpgradeAttempted.remove(trackKey)
                 if (isActive()) {
-                    _uiState.update { it.copy(lyrics = cached.takeIf { lyricsTier(cached) >= 2 } ?: if (forceSourceRefresh) safeFallback else it.lyrics, isLoadingLyrics = false) }
+                    _uiState.update { it.copy(lyrics = selectSettledLyrics(cached, it.lyrics, safeFallback), isLoadingLyrics = false) }
                 }
             }
         }
@@ -1794,6 +1828,8 @@ class PlayerViewModel(
             val effectiveVideoId = com.auralis.music.data.network.AudioStreamResolver.getMatchedVideoId(track.id) ?: track.id
             val effectiveDurationSec = com.auralis.music.data.network.AudioStreamResolver.getEffectiveDurationSec(track.id, track.duration)
             lyricsRepository.useLyrics(data, track.title, track.artist, effectiveDurationSec, effectiveVideoId)
+            com.auralis.music.data.local.LyricsProviderChoices.save(track.id, effectiveVideoId, track.title, track.artist,
+                audioPlayer?.durationMs?.value?.takeIf { it > 0 } ?: effectiveDurationSec * 1000L, data.provider)
         }
     }
 

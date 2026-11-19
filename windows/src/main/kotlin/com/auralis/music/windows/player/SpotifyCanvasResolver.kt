@@ -18,7 +18,17 @@ internal object TrackCanvasLookup {
         SpotifyCanvasResolver(SpotifyCanvasLookup::find, catalog::resolve)
     }
 
-    suspend fun find(track: Track, lyricsSpotifyId: String?): ResolvedCanvas? = resolver.find(track, lyricsSpotifyId)
+    suspend fun find(track: Track, lyricsSpotifyId: String?): ResolvedCanvas? {
+        // Imports already matched these Spotify recordings to the playing YouTube song. Use
+        // that relationship on a fresh install, even when the selected lyrics have no Spotify ID.
+        val importedIds = com.auralis.music.data.network.RecordingMatches.matchedVideoIds.entries
+            .filter { it.value == track.id }
+            .mapNotNull { SpicyRecordingMatcher.spotifyId(it.key) }
+            .distinct().sorted()
+        return resolver.find(track, lyricsSpotifyId, importedIds)?.also {
+            SpotifyCanvasLookup.rememberSongId(track.id, it.spotifyId)
+        }
+    }
 }
 
 /** Canvas belongs to a recording, not to the provider/release that happened to supply its lyrics. */
@@ -27,13 +37,13 @@ internal class SpotifyCanvasResolver(
     private val recording: suspend (LyricsSearchQuery, Set<String>) -> SpicyRecording?,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-    private data class Key(val track: Track, val hint: String?)
+    private data class Key(val track: Track, val hint: String?, val importedIds: List<String>)
     private data class Cached(val canvas: ResolvedCanvas?, val until: Long)
     private val cache = linkedMapOf<Key, Cached>()
     private val lock = Mutex()
 
-    suspend fun find(track: Track, lyricsSpotifyId: String?): ResolvedCanvas? = lock.withLock {
-        val key = Key(track, lyricsSpotifyId)
+    suspend fun find(track: Track, lyricsSpotifyId: String?, importedIds: List<String> = emptyList()): ResolvedCanvas? = lock.withLock {
+        val key = Key(track, lyricsSpotifyId, importedIds.toList())
         cache[key]?.takeIf { it.until > clock() && (it.canvas == null || File(it.canvas.path).isFile) }
             ?.let { return@withLock it.canvas }
         val tried = linkedSetOf<String>()
@@ -45,6 +55,7 @@ internal class SpotifyCanvasResolver(
         suspend fun resolve(): ResolvedCanvas? {
             ask(track.id)?.let { return it }
             ask(lyricsSpotifyId)?.let { return it }
+            for (id in importedIds) ask(id)?.let { return it }
             if (track.title.isBlank() || track.artist.isBlank() || track.duration <= 0) return null
             val query = LyricsSearchQuery(track.title, track.artist, durationSec = track.duration,
                 videoId = track.id, album = track.album, recordingTitle = track.title)

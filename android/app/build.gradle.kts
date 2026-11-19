@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+import java.net.URI
 import java.util.Properties
 
 val envProperties = Properties().apply {
@@ -66,25 +67,20 @@ android {
             "Connect requires a production WSS endpoint. Set connect.realtime.url in the root gradle.properties."
         }
         buildConfigField("String", "CONNECT_REALTIME_URL", "\"$realtimeUrl\"")
-        // Blank while the Cloudflare library rollout is off (docs/library-sync/spec.md, D2): the app
-        // then never contacts the library service and keeps syncing the library through Firestore.
-        val libraryUrl = providers.gradleProperty("library.sync.url").orElse("").get().trim()
-        require(libraryUrl.isEmpty() || (libraryUrl.startsWith("https://") && libraryUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !libraryUrl.contains("staging", ignoreCase = true))) {
-            "library.sync.url must be blank or a production HTTPS endpoint."
+        // Require Cloudflare in every normal APK. Library authority still controls each account's cutover.
+        fun productionSyncUrl(property: String): String {
+            val url = providers.gradleProperty(property).orElse("").get().trim()
+            val uri = runCatching { URI(url) }.getOrNull()
+            require(uri?.scheme == "https" && uri.host != null && uri.rawUserInfo == null &&
+                uri.rawQuery == null && uri.rawFragment == null && uri.path in listOf("", "/") &&
+                !uri.host.contains("staging", ignoreCase = true)) {
+                "$property must point to the production HTTPS Worker origin in root gradle.properties."
+            }
+            return url
         }
-        buildConfigField("String", "LIBRARY_SYNC_URL", "\"$libraryUrl\"")
-        // Account sync for settings (and later listening history): blank keeps them on Firestore.
-        val accountSyncUrl = providers.gradleProperty("account.sync.url").orElse("").get().trim()
-        require(accountSyncUrl.isEmpty() || (accountSyncUrl.startsWith("https://") && accountSyncUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !accountSyncUrl.contains("staging", ignoreCase = true))) {
-            "account.sync.url must be blank or a production HTTPS endpoint."
-        }
-        buildConfigField("String", "ACCOUNT_SYNC_URL", "\"$accountSyncUrl\"")
-        // Listen Together on the Cloudflare room server: blank keeps every room on Firestore.
-        val togetherUrl = providers.gradleProperty("together.sync.url").orElse("").get().trim()
-        require(togetherUrl.isEmpty() || (togetherUrl.startsWith("https://") && togetherUrl.none { it.isWhitespace() || it == '"' || it == '\\' } && !togetherUrl.contains("staging", ignoreCase = true))) {
-            "together.sync.url must be blank or a production HTTPS endpoint."
-        }
-        buildConfigField("String", "TOGETHER_URL", "\"$togetherUrl\"")
+        buildConfigField("String", "LIBRARY_SYNC_URL", "\"${productionSyncUrl("library.sync.url")}\"")
+        buildConfigField("String", "ACCOUNT_SYNC_URL", "\"${productionSyncUrl("account.sync.url")}\"")
+        buildConfigField("String", "TOGETHER_URL", "\"${productionSyncUrl("together.sync.url")}\"")
         buildConfigField("boolean", "SYNC_PILOT", "false")
     }
 
@@ -289,21 +285,36 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
-// Keeps every release on the Desktop, with the mapping file that makes its crash traces readable.
+// Retain release mappings for crash reports without accumulating versioned APK copies.
 val desktopDir = file("${System.getProperty("user.home")}/Desktop")
-val exportReleaseToDesktop = tasks.register<Copy>("exportReleaseToDesktop") {
+val exportReleaseMapping = tasks.register<Copy>("exportReleaseMapping") {
     val version = android.defaultConfig.versionName
     onlyIf { desktopDir.isDirectory }
-    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk")) {
-        rename { "Auralis-$version.apk" }
-    }
     from(layout.buildDirectory.file("outputs/mapping/release/mapping.txt")) {
         rename { "Auralis-$version-mapping.txt" }
     }
     into(desktopDir.resolve("Auralis Release"))
 }
 tasks.matching { it.name == "assembleRelease" }.configureEach {
-    finalizedBy(exportReleaseToDesktop)
+    finalizedBy(exportReleaseMapping)
+}
+
+// Publish the canonical pair only after both builds succeed. Extra feature/pilot APKs must be
+// reconciled before manual cleanup, rather than automatically deleting potentially unique fixes.
+tasks.register("assembleApkPair") {
+    group = "build"
+    description = "Build release and debug APKs and refresh the two workspace deliverables."
+    dependsOn("assembleRelease", "assembleDebug")
+    doLast {
+        val releaseApk = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+        val debugApk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        check(releaseApk.isFile && debugApk.isFile) { "Both APKs must exist before publishing the pair." }
+        project.copy {
+            from(releaseApk) { rename { "Auralis-Release.apk" } }
+            from(debugApk) { rename { "Auralis-Debug.apk" } }
+            into(rootProject.projectDir)
+        }
+    }
 }
 
 val servicesJson = file("google-services.json")

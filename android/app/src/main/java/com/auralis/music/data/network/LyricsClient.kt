@@ -311,6 +311,8 @@ class LyricsClient(
                 isAligned && !bestIsAligned -> true
                 !isAligned && bestIsAligned -> false
                 !isAligned && !bestIsAligned -> false
+                provider == LyricsProvider.SPICY_LYRICS && tier >= TIER_LINE && bestProvider != LyricsProvider.SPICY_LYRICS -> true
+                bestProvider == LyricsProvider.SPICY_LYRICS && bestTier >= TIER_LINE && provider != LyricsProvider.SPICY_LYRICS -> false
                 tier == TIER_WORD && bestTier == TIER_WORD && provider != bestProvider &&
                     (provider == LyricsProvider.MUSIXMATCH || bestProvider == LyricsProvider.MUSIXMATCH) ->
                     bestProvider == LyricsProvider.MUSIXMATCH
@@ -694,7 +696,6 @@ class LyricsClient(
         val raceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         val syncedWinner: LyricsData? = try { coroutineScope {
             val resultChannel = Channel<LyricsCandidate>(capacity = primaryProviders.size * 2)
-            val providerJobMap = mutableMapOf<LyricsProvider, kotlinx.coroutines.Job>()
             val providerJobs = primaryProviders.map { source ->
                 val job = raceScope.launch {
                     try {
@@ -724,7 +725,6 @@ class LyricsClient(
                         )
                     }
                 }
-                providerJobMap[source.provider] = job
                 job
             }
 
@@ -733,31 +733,40 @@ class LyricsClient(
             var bestScore = 0.0
             var bestMasterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH
             var completedCount = 0
+            // Completion is consumed in channel order. A finished job may still have
+            // a duet result queued ahead of its completion marker.
+            val pendingProviders = primaryProviders.map { it.provider }.toMutableSet()
             var graceDeadlineMs = Long.MAX_VALUE
 
             val allValidCandidates = mutableListOf<LyricsCandidate>()
+            val timingCandidates = mutableListOf<LyricsData>()
+            var timingDeadlineMs = Long.MIN_VALUE
+            fun timingPending(): Boolean = bestCandidate?.let { best ->
+                best.provider != LyricsProvider.SPICY_LYRICS && !best.isExactVideoMatch &&
+                    System.currentTimeMillis() < timingDeadlineMs && pendingProviders.any { it != best.provider }
+            } == true
 
             // A speaker-capable provider other than [except] is still answering.
             fun speakerSourcePending(except: LyricsProvider): Boolean =
-                SPEAKER_CAPABLE_PROVIDERS.any { it != except && providerJobMap[it]?.isActive == true }
+                SPEAKER_CAPABLE_PROVIDERS.any { it != except && it in pendingProviders }
 
             while (completedCount < primaryProviders.size) {
-                val betterLyricsActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true
-                val amllActive = providerJobMap[LyricsProvider.AMLL]?.isActive == true
-                val unisonActive = providerJobMap[LyricsProvider.UNISON]?.isActive == true
-                val paxsenixActive = providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true
-                val netEaseActive = providerJobMap[LyricsProvider.NETEASE]?.isActive == true
-                val youLyPlusActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
-                val qqMusicActive = providerJobMap[LyricsProvider.QQMUSIC]?.isActive == true
-                val kuGouActive = providerJobMap[LyricsProvider.KUGOU]?.isActive == true
-                val musixmatchActive = providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
+                val betterLyricsActive = LyricsProvider.BETTER_LYRICS in pendingProviders
+                val amllActive = LyricsProvider.AMLL in pendingProviders
+                val unisonActive = LyricsProvider.UNISON in pendingProviders
+                val paxsenixActive = LyricsProvider.PAXSENIX in pendingProviders
+                val netEaseActive = LyricsProvider.NETEASE in pendingProviders
+                val youLyPlusActive = LyricsProvider.YOULYPLUS in pendingProviders
+                val qqMusicActive = LyricsProvider.QQMUSIC in pendingProviders
+                val kuGouActive = LyricsProvider.KUGOU in pendingProviders
+                val musixmatchActive = LyricsProvider.MUSIXMATCH in pendingProviders
                 val otherWordProviderActive = betterLyricsActive || amllActive || unisonActive || paxsenixActive || netEaseActive || youLyPlusActive || qqMusicActive || kuGouActive
                 val anyWordProviderActive = otherWordProviderActive || musixmatchActive
 
-                val candidate = if (bestCandidate != null) {
+                val candidate = resultChannel.tryReceive().getOrNull() ?: if (bestCandidate != null) {
                     if (bestTier == TIER_WORD) {
                         val bestHasGap = maxInternalGapMs(bestCandidate.lyricsData.lines) > 45_000L
-                        val canBeBeaten = bestHasGap || (bestCandidate.provider == LyricsProvider.MUSIXMATCH && otherWordProviderActive) ||
+                        val canBeBeaten = timingPending() || bestHasGap || (bestCandidate.provider == LyricsProvider.MUSIXMATCH && otherWordProviderActive) ||
                             ((bestCandidate.provider != LyricsProvider.BETTER_LYRICS && bestCandidate.provider != LyricsProvider.AMLL && !bestCandidate.isExactVideoMatch) &&
                             (betterLyricsActive || amllActive || (bestCandidate.provider != LyricsProvider.PAXSENIX && paxsenixActive))) ||
                             // Bounded speaker-metadata enrichment window (see wordSettleDeadline)
@@ -766,7 +775,7 @@ class LyricsClient(
                         if (!canBeBeaten) {
                             break
                         }
-                        val remainingMs = graceDeadlineMs - System.currentTimeMillis()
+                        val remainingMs = maxOf(graceDeadlineMs, if (timingPending()) timingDeadlineMs else Long.MIN_VALUE) - System.currentTimeMillis()
                         if (remainingMs <= 0L) break
                         withTimeoutOrNull(remainingMs) { resultChannel.receive() } ?: break
                     } else {
@@ -775,7 +784,7 @@ class LyricsClient(
                             // None of top word providers are active; settle immediately without waiting.
                             break
                         }
-                        val remainingMs = graceDeadlineMs - System.currentTimeMillis()
+                        val remainingMs = maxOf(graceDeadlineMs, if (timingPending()) timingDeadlineMs else Long.MIN_VALUE) - System.currentTimeMillis()
                         if (remainingMs <= 0L) break
                         withTimeoutOrNull(remainingMs) { resultChannel.receive() } ?: break
                     }
@@ -791,6 +800,7 @@ class LyricsClient(
                 }
 
                 if (candidate.confidence == -1) {
+                    pendingProviders.remove(candidate.provider)
                     completedCount++
                     continue
                 }
@@ -861,6 +871,9 @@ class LyricsClient(
                     val durDelta = if (queryDurationMs > 0L && lyricDurMs > 0L) kotlin.math.abs(queryDurationMs - lyricDurMs) else -1L
                     Log.d(TAG, "[LyricsDiagnostic] Track='$title' Provider=${correctedCand.provider} Tier=$tier WordTiming=${tier == TIER_WORD} DurDelta=${durDelta}ms Score=$score Accepted=true lines=${correctedCand.lyricsData.lines.size} exactVideo=${correctedCand.isExactVideoMatch}")
                     if (score < 0) continue
+                    timingCandidates.add(correctedCand.lyricsData)
+                    if (timingDeadlineMs == Long.MIN_VALUE) timingDeadlineMs = minOf(
+                        System.currentTimeMillis() + LyricsTimingConsensus.SETTLE_MS, t0 + ACTIVE_WORD_PROVIDER_TIMEOUT_MS)
 
                     // Alignment-aware comparison: matching line sync beats mismatched word sync; BetterLyrics / AMLL > NetEase > Musixmatch RichSync
                     val currentBestProvider = bestCandidate?.provider ?: LyricsProvider.LRCLIB
@@ -895,21 +908,21 @@ class LyricsClient(
                             onInterim?.invoke(correctedCand.lyricsData)
                         }
                         if (tier == TIER_LINE) {
-                            val wordProviderActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true ||
-                                providerJobMap[LyricsProvider.AMLL]?.isActive == true ||
-                                providerJobMap[LyricsProvider.UNISON]?.isActive == true ||
-                                providerJobMap[LyricsProvider.PAXSENIX]?.isActive == true ||
-                                providerJobMap[LyricsProvider.NETEASE]?.isActive == true ||
-                                providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true ||
-                                providerJobMap[LyricsProvider.QQMUSIC]?.isActive == true ||
-                                providerJobMap[LyricsProvider.KUGOU]?.isActive == true ||
-                                providerJobMap[LyricsProvider.MUSIXMATCH]?.isActive == true
+                            val wordProviderActive = LyricsProvider.BETTER_LYRICS in pendingProviders ||
+                                LyricsProvider.AMLL in pendingProviders ||
+                                LyricsProvider.UNISON in pendingProviders ||
+                                LyricsProvider.PAXSENIX in pendingProviders ||
+                                LyricsProvider.NETEASE in pendingProviders ||
+                                LyricsProvider.YOULYPLUS in pendingProviders ||
+                                LyricsProvider.QQMUSIC in pendingProviders ||
+                                LyricsProvider.KUGOU in pendingProviders ||
+                                LyricsProvider.MUSIXMATCH in pendingProviders
                             if (wordProviderActive) {
                                 // Give actively running word providers sufficient time to complete genuine
                                 // word sync. YouLy+ alone needs longer on a cold fetch (~9-13s vs its
                                 // typical <1s): the old flat 5.5s cut it off before it could answer,
                                 // settling for line sync moments before word sync would have arrived.
-                                val youLyPlusStillActive = providerJobMap[LyricsProvider.YOULYPLUS]?.isActive == true
+                                val youLyPlusStillActive = LyricsProvider.YOULYPLUS in pendingProviders
                                 graceDeadlineMs = t0 + when {
                                     youLyPlusStillActive -> YouLyPlusLyricsSource.RACE_BUDGET_MS
                                     musixmatchActive -> PROVIDER_TIMEOUT_MS
@@ -927,8 +940,8 @@ class LyricsClient(
                                 provider = correctedCand.provider,
                                 isExactVideoMatch = correctedCand.isExactVideoMatch,
                                 maxGapMs = candMaxGap,
-                                betterLyricsOrAmllActive = providerJobMap[LyricsProvider.BETTER_LYRICS]?.isActive == true ||
-                                    providerJobMap[LyricsProvider.AMLL]?.isActive == true,
+                                betterLyricsOrAmllActive = LyricsProvider.BETTER_LYRICS in pendingProviders ||
+                                    LyricsProvider.AMLL in pendingProviders,
                                 hasSpeakers = candHasSpeakers,
                                 speakerSourcePending = speakerSourcePending(correctedCand.provider),
                                 otherWordProviderActive = otherWordProviderActive,
@@ -939,14 +952,14 @@ class LyricsClient(
 
                     // Only the current best may end the race: a candidate that just lost the
                     // ranking (e.g. an untagged copy of an already speaker-tagged best) must not.
-                    if (bestCandidate === correctedCand && isInstantWinner(
+                    if (bestCandidate === correctedCand && !timingPending() && isInstantWinner(
                             tier, score, masterMatch, correctedCand.provider, correctedCand.isExactVideoMatch, candMaxGap,
                             hasSpeakers = candHasSpeakers,
                             speakerSourcePending = speakerSourcePending(correctedCand.provider)
                         )) {
                         Log.d(TAG, "[INSTANT QUALITY WINNER] ${correctedCand.provider} tier=$tier masterMatch=$masterMatch in ${System.currentTimeMillis() - t0}ms (Score: $score)")
                         providerJobs.forEach { it.cancel() }
-                        return@coroutineScope correctedCand.lyricsData
+                        return@coroutineScope LyricsTimingConsensus.select(correctedCand.lyricsData, timingCandidates)
                     }
                 }
             }
@@ -996,8 +1009,10 @@ class LyricsClient(
                 Log.d(TAG, "[RACE SETTLED] ${it.provider} tier=${tierOf(it.lyricsData)} score=$bestScore in ${System.currentTimeMillis() - t0}ms")
             }
             settledBest?.let { best ->
-                val otherCandidates = allValidCandidates.filter { it.provider != best.provider }.map { it.lyricsData }
-                fillLyricsGaps(best.lyricsData, otherCandidates)
+                val selected = LyricsTimingConsensus.select(best.lyricsData, timingCandidates)
+                val otherCandidates = timingCandidates.filter { it.provider != selected.provider &&
+                    LyricsTimingConsensus.compare(selected, it) >= 0 }
+                fillLyricsGaps(selected, otherCandidates)
             }
         } } finally {
             // Also covers the caller being cancelled (song skipped): stop sources still in flight.

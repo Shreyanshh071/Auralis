@@ -73,7 +73,11 @@ object CanvasVideoEngine {
         player.controls().setRepeat(loop)
         // A completed local canvas needs little read-ahead. Keep network buffering at VLC's
         // normal value for streamed covers; this option only shortens local-file startup.
-        player.media().play(url, ":no-audio", ":file-caching=100")
+        val options = mutableListOf(":no-audio", ":file-caching=100")
+        // Spotify's cached TS segments stall VLC's native TS demuxer on the first picture
+        // while its clock advances. FFmpeg's demuxer handles these local segments correctly.
+        if (java.io.File(url).isFile && url.endsWith(".ts", ignoreCase = true)) options += ":demux=avformat"
+        player.media().play(url, *options.toTypedArray())
         if (clock != null) Thread({
             while (active.get()) {
                 runCatching {

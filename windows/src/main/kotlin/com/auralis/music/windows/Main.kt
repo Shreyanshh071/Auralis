@@ -213,6 +213,7 @@ fun main(args: Array<String>) {
         }
 
         val lyricsDeferred = async {
+            com.auralis.music.data.local.LyricsProviderChoices.init(java.io.File(dataDir, "lyrics-provider-choices"))
             val playback = playbackDeferred.await()
             val lyricsLibrary = libraryDeferred.await()
             playback?.let {

@@ -31,7 +31,7 @@ import com.auralis.music.ui.theme.LocalAppearanceSettings
 
 // Only the video player waits this long after a song change, so skipping through songs never
 // starts one; the cover lookup itself starts at once.
-private const val COVER_SETTLE_MS = 800L
+private const val COVER_SETTLE_MS = 350L
 
 /** Animated cover videos kept on disk, so a replayed song's loop shows without downloading again. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -63,12 +63,12 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
     if (!wifi) return
     // The lookup starts as soon as the song does.
     val source = CanvasSource.from(settings.animatedCoverSource)
-    var video by remember(track.id, track.title, track.artist, track.album, source, spotifyTrackId) { mutableStateOf<CoverVideo?>(null) }
-    LaunchedEffect(track.id, track.title, track.artist, track.album, source, spotifyTrackId) {
-        video = resolveCoverVideo(
-            canvas = { PhoneCanvasLookup.find(context, track, spotifyTrackId) },
-            animatedCover = { CanvasLookup.find(context, track, source) }
-        )
+    var video by remember(track.id, track.title, track.artist, track.album, source) { mutableStateOf<CoverVideo?>(null) }
+    LaunchedEffect(track.id, track.title, track.artist, track.album, source) {
+        // Spotify Canvas belongs to the player background (CanvasBackdrop); the cover shows motion
+        // artwork only, so it never waits for a Canvas search that may take seconds to give up.
+        video = try { CanvasLookup.find(context, track, source)?.let { CoverVideo(it) } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
     }
     // A video player is heavy to start and stop, so skipping through songs never starts one.
     var settled by remember(track.id) { mutableStateOf(false) }
@@ -135,7 +135,9 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
                 )?.copy(attempt = selectedVideo.attempt + 1)
             }
         }
-        LaunchedEffect(isPlaying, foreground, failed) { player.playWhenReady = isPlaying && foreground && !failed }
+        // While the Canvas plays behind the player, this loop pauses under the faded cover.
+        val backdrop = CanvasBackdrop.isShowing(track.id)
+        LaunchedEffect(isPlaying, foreground, failed, backdrop) { player.playWhenReady = isPlaying && foreground && !failed && !backdrop }
         val opacity by animateFloatAsState(if (ready && !failed && visible) 1f else 0f, tween(if (visible) 350 else 180), label = "motionCover")
         AndroidView(
             modifier = modifier.alpha(opacity),
@@ -152,7 +154,7 @@ internal fun AnimatedCover(track: Track?, isPlaying: Boolean, modifier: Modifier
 }
 
 @Composable
-private fun rememberCoverWifiAvailable(onlyWifi: Boolean): Boolean {
+internal fun rememberCoverWifiAvailable(onlyWifi: Boolean): Boolean {
     if (!onlyWifi) return true
     val context = LocalContext.current
     val connectivity = remember(context) { context.getSystemService(ConnectivityManager::class.java) }

@@ -113,7 +113,10 @@ data class LyricsData(
     val credits: List<LyricsCredit> = emptyList(),
     val spotifyTrackId: String? = null,
     /** Original API retrieval time; retained unchanged through cache copies and alignment. */
-    val fetchedAtMs: Long? = null
+    val fetchedAtMs: Long? = null,
+    /** Strong independent cross-source agreement; zero means unverified. */
+    val timingConfidence: Int = 0,
+    val timingSelectionVersion: Int = 0
 ) {
     /**
      * Stated or inferred duration of the lyrics track in milliseconds.

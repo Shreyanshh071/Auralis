@@ -50,6 +50,8 @@
     <string name="saved_to_library">Saved to Library</string>
     <string name="removed_from_library">Removed from Library</string>
     <string name="saved">Saved</string>
+    <string name="saving">SAVING</string>
+    <string name="add_this_song">Start one with this song</string>
     <string name="save">Save</string>
     <string name="share">Share</string>
     <string name="play_next">Play next</string>
@@ -758,6 +760,10 @@
     <string name="accent_harmony_and_button_styling">Accent harmony and button styling</string>
     <string name="dynamic">Dynamic</string>
     <string name="liquid_glass">Liquid glass</string>
+    <string name="pure_black_mode">Pure black mode</string>
+    <string name="pure_black_mode_summary">True black backgrounds in dark mode</string>
+    <string name="enable_dynamic_theme">Enable dynamic theme</string>
+    <string name="enable_dynamic_theme_summary">Colours follow the song that is playing</string>
     <string name="x_selected">%1$s Selected</string>
     <string name="current_version">Current version</string>
     <string name="version_x">Version: %1$s</string>
@@ -1117,13 +1123,13 @@
     <string name="playing_u201c_x_u201d_for_everyone">Playing “%1$s” for everyone</string>
     <string name="couldn_t_reach_the_host_u2014_try_again">Couldn\'t reach the host — try again</string>
     <string name="asked_the_host_to_x">Asked the host to %1$s</string>
+    <string name="room_request_already_waiting">You already have a request waiting. You can send another once the host responds.</string>
     <string name="only_the_host_controls_playback">Only the host controls playback</string>
     <string name="failed_to_create_room">Failed to create room</string>
     <string name="failed_to_join_room">Failed to join room</string>
     <string name="the_host_has_turned_off_adding_songs">The host has turned off adding songs</string>
     <string name="sent_x_to_the_host_for_approval">Sent \"%1$s\" to the host for approval</string>
     <string name="added_x_to_the_room_s_queue">Added \"%1$s\" to the room\'s queue</string>
-    <string name="room_request_already_waiting">You already have a request waiting. You can send another once the host responds.</string>
     <string name="couldn_t_add_x">Couldn\'t add \"%1$s\"</string>
     <string name="couldn_t_load_that_exact_song_here_playi">Couldn\'t load that exact song here — playing our own copy instead</string>
     <string name="notifications_when_new_auralis_releases">Notifications when new Auralis releases and features are available</string>

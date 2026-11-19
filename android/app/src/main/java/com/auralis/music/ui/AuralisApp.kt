@@ -2145,7 +2145,9 @@ fun AuralisApp(
                                 .fillMaxSize()
                                 .hazeSource(state = playerBackdropHazeState, zIndex = 0f),
                             isMiniPlayer = false,
-                            isPlaying = playerUiState.isPlaying
+                            isPlaying = playerUiState.isPlaying,
+                            canvasTrack = currentTrack,
+                            spotifyTrackId = playerUiState.lyrics?.spotifyTrackId
                         )
                     }
                 }
@@ -2258,7 +2260,9 @@ fun AuralisApp(
                                     .then(if (glassEnabled) Modifier.layerBackdrop(playerBackgroundGlass) else Modifier)
                                     .hazeSource(state = playerBackdropHazeState, zIndex = 0f),
                                 isMiniPlayer = false,
-                                isPlaying = playerUiState.isPlaying
+                                isPlaying = playerUiState.isPlaying,
+                                canvasTrack = currentTrack,
+                                spotifyTrackId = playerUiState.lyrics?.spotifyTrackId
                             )
                         }
                         Box(

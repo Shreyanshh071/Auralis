@@ -45,6 +45,10 @@ class DesktopLyricsRepository(
         fun choose(current: LyricsData?, candidate: LyricsData?, preferSpicy: Boolean): LyricsData? {
             if (candidate == null || candidate.lines.isEmpty()) return current
             if (current == null) return candidate
+            if (candidate.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(candidate) >= LyricsClient.TIER_LINE) return candidate
+            if (current.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(current) >= LyricsClient.TIER_LINE) return current
+            if (current.timingConfidence > candidate.timingConfidence) return current
+            if (candidate.timingConfidence > current.timingConfidence) return candidate
             val oldTier = LyricsClient.tierOf(current)
             val newTier = LyricsClient.tierOf(candidate)
             if (oldTier > newTier) return current
@@ -146,6 +150,9 @@ class DesktopLyricsRepository(
             null
         } ?: return null
         if (result.provider != LyricsProvider.SPICY_LYRICS || LyricsClient.tierOf(result) < LyricsClient.TIER_LINE) return null
+        if (!LyricsAlignmentEngine.isAcceptableMasterMatch(result, query.durationMs ?: (query.durationSec ?: 0L) * 1000L,
+                query.title, result.trackName, query.channelTitle, query.videoId, query.audioLeadingSilenceMs,
+                query.artist, result.artistName)) return null
         synchronized(storageLock) {
             val providerKey = "$key-provider-${LyricsProvider.SPICY_LYRICS.name}"
             memory[providerKey] = result; disk?.write(providerKey, result)

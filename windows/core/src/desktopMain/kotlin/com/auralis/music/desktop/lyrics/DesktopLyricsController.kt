@@ -88,6 +88,9 @@ class DesktopLyricsController(
                   unavailable = true; null
               }
             ensureActive()
+            if (result != null && shownTrack?.id == track.id && generation == providerGeneration.get()) {
+                com.auralis.music.data.local.LyricsProviderChoices.save(track.id, videoId, track.title, track.artist, durationMs, provider)
+            }
             _state.update { current ->
                 if (current.trackId != track.id || generation != providerGeneration.get()) current
                 else if (result == null) current.copy(providerStatus = current.providerStatus +
@@ -183,10 +186,10 @@ class DesktopLyricsController(
                 }
             }
             fun startSpicyUpgrade(durationMs: Long) = launch {
-                val preferred = repository.upgradeSpicy(LyricsSearchQuery(track.title, track.artist,
+                val preferred = withTimeoutOrNull(45_000L) { repository.upgradeSpicy(LyricsSearchQuery(track.title, track.artist,
                     durationSec = durationMs / 1000, videoId = videoId, album = track.album,
                     channelTitle = track.channelTitle, durationMs = durationMs,
-                    spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id)))
+                    spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id))) }
                 ensureActive()
                 applyResult(preferred, loading = _state.value.isLoading)
             }
@@ -196,6 +199,17 @@ class DesktopLyricsController(
             val listedLength = remote?.durationMs?.takeIf { it > 0 } ?: durationSec * 1000L
             val lengthMs = listedLength.takeIf { it > 0L }
                 ?: withTimeoutOrNull(8000L) { playback.lengthMs.first { it > 0L } } ?: 0L
+            val manualProvider = com.auralis.music.data.local.LyricsProviderChoices.read(track.id, videoId, track.title, track.artist, lengthMs)
+            if (manualProvider != null) {
+                val selected = try {
+                    if (cached?.provider == manualProvider) cached else repository.fetchProvider(manualProvider,
+                        LyricsSearchQuery(track.title, track.artist, lengthMs / 1000, videoId, track.album,
+                            track.channelTitle, lengthMs, spotifyId = com.auralis.music.data.network.SpicyRecordingMatcher.spotifyId(track.id)))
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { null }
+                ensureActive()
+                if (selected != null) { _state.update { it.copy(lyrics = selected, originalLyrics = null, isLoading = false) }; return@launch }
+            }
             if (preferSpicy) startSpicyUpgrade(lengthMs)
             // Correct provisional alignment when the decoder reports the measured stream.
             if (remote == null && listedLength > 0L) launch {
@@ -215,7 +229,8 @@ class DesktopLyricsController(
                 // Word sync is final. Line sync gets one look for better per session; plain is
                 // looked up on every play, since a slow or failed race can leave synced songs plain.
                 val tier = LyricsClient.tierOf(cached)
-                if (tier >= LyricsClient.TIER_WORD) return@launch
+                if (tier >= LyricsClient.TIER_WORD && cached.timingSelectionVersion >= com.auralis.music.data.network.LyricsTimingConsensus.VERSION) return@launch
+                if (tier >= LyricsClient.TIER_WORD && !upgradeAttempted.add(videoId.lowercase())) return@launch
                 if (tier == LyricsClient.TIER_LINE && !upgradeAttempted.add(videoId.lowercase())) return@launch
             }
             val final = repository.fetch(

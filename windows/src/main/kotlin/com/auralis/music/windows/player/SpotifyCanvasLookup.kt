@@ -33,6 +33,7 @@ internal object SpotifyCanvasLookup {
     }
 
     suspend fun find(trackId: String?): String? = client.find(trackId)
+    suspend fun sharp(trackId: String): String? = client.sharp(trackId)
     suspend fun fallback(trackId: String, failedPath: String): String? = client.fallback(trackId, failedPath)
     fun rememberSongId(songId: String, spotifyId: String) = client.rememberSongId(songId, spotifyId)
     fun songId(songId: String?): String? = client.songId(songId)
@@ -58,6 +59,7 @@ internal class SpotifyCanvasClient(
     private val diskIndex by lazy { PropertiesFileKeyValueStore(File(folder, "index.properties"), synchronous = true) }
     private val misses = mutableMapOf<String, Long>()
     private val failures = mutableMapOf<String, Long>()
+    private val qualityRetries = mutableMapOf<String, Long>()
     private val lock = Mutex()
     private var retryAt = 0L
     private val directHttp by lazy {
@@ -99,7 +101,8 @@ internal class SpotifyCanvasClient(
             if (known != null) {
                 try {
                     (downloadDirect(diskIndex.getString("url.$trackId", "").orEmpty(), known)
-                        ?: downloadViaManifest(trackId, known)).let { return@withLock it }
+                        ?: if (hasManifest(trackId)) downloadViaManifest(trackId, known) else null)
+                        ?.let { return@withLock it }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -143,18 +146,23 @@ internal class SpotifyCanvasClient(
             data.optJSONObject(trackId)
         }
         check(item?.has("error") != true)
-        if (item == null || item.optString("type") !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM")) {
+        if (item == null || item.optString("type").let { it.isNotBlank() && it !in setOf("VIDEO", "VIDEO_LOOPING", "VIDEO_LOOPING_RANDOM") }) {
             com.auralis.music.util.Log.i("SpotifyCanvas", "No video canvas for $trackId")
             onNoneListed()
             return null
         }
-        val fileId = item.getString("fileId")
-        check(filePattern.matches(fileId))
+        val url = item.optString("url")
+        val manifestId = item.optString("fileId").takeIf(filePattern::matches)?.lowercase()
+        // The public provider can return just url/type/uri. The MP4 URL's hash is a cache
+        // identity, not necessarily Spotify's manifest file ID; never require or conflate them.
+        val fileId = manifestId ?: directCacheId(url)
+        checkNotNull(fileId) { "Canvas response has neither a valid file ID nor a playable URL" }
         // The direct URL is kept too, so a cleared video can be fetched again without SpicyLyrics.
-        diskIndex.putStrings(mapOf(trackId to fileId, "url.$trackId" to item.optString("url")))
+        diskIndex.putStrings(mapOf(trackId to fileId, "url.$trackId" to url,
+            "manifest.$trackId" to (manifestId != null).toString()))
         return cachedFile(fileId)?.absolutePath
-            ?: downloadDirect(item.optString("url"), fileId)
-            ?: downloadViaManifest(trackId, fileId)
+            ?: downloadDirect(url, fileId)
+            ?: if (manifestId != null) downloadViaManifest(trackId, manifestId) else null
     }
 
     /**
@@ -179,7 +187,8 @@ internal class SpotifyCanvasClient(
                 com.auralis.music.util.Log.i("SpotifyCanvas", "No Spotify Canvas for $trackId on the account either")
                 return null
             }
-            diskIndex.putStrings(mapOf(trackId to canvas.fileId, "url.$trackId" to canvas.url))
+            diskIndex.putStrings(mapOf(trackId to canvas.fileId, "url.$trackId" to canvas.url,
+                "manifest.$trackId" to canvas.realFileId.toString()))
             cachedFile(canvas.fileId)?.absolutePath
                 ?: downloadDirect(canvas.url, canvas.fileId)
                 ?: if (canvas.realFileId) downloadViaManifest(trackId, canvas.fileId) else null
@@ -268,7 +277,8 @@ internal class SpotifyCanvasClient(
             // A Windows decoder can still have the file open while it shuts down.
             runCatching { diskIndex.putStrings(mapOf("rejected.${failed.name}" to failed.lastModified().toString())) }
             runCatching { failed.delete() }
-            if (failed == manifest) return@withLock null
+            if (failed == manifest) return@withLock mp4.takeIf(::usable)?.absolutePath
+            if (!hasManifest(trackId)) return@withLock null
             try {
                 downloadViaManifest(trackId, fileId)
             } catch (cancelled: CancellationException) {
@@ -282,18 +292,55 @@ internal class SpotifyCanvasClient(
     private fun indexedFileId(trackId: String): String? =
         diskIndex.getString(trackId, "")?.takeIf(filePattern::matches)
 
+    // Existing indexes stored real manifest IDs before URL-only discovery was supported.
+    private fun hasManifest(trackId: String): Boolean = diskIndex.getString("manifest.$trackId", "true") != "false"
+
+    private fun directUri(url: String): URI? = runCatching { URI(url) }.getOrNull()?.takeIf {
+        it.scheme == "https" && it.host == "canvaz.scdn.co" && it.userInfo == null &&
+            (it.port == -1 || it.port == 443) && it.path?.endsWith(".cnvs.mp4", ignoreCase = true) == true
+    }
+
+    private fun directCacheId(url: String): String? {
+        val uri = directUri(url) ?: return null
+        val name = uri.path.substringAfterLast('/').substringBefore('.')
+        return name.takeIf(filePattern::matches)?.lowercase()
+            ?: java.security.MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
+                .take(16).joinToString("") { "%02x".format(it) }
+    }
+
     private fun usable(file: File): Boolean {
         return file.isFile && file.length() in MIN_CACHE_BYTES..MAX_BYTES &&
             diskIndex.getString("rejected.${file.name}", "") != file.lastModified().toString()
     }
 
     private fun cachedFile(fileId: String): File? =
-        listOf(File(folder, "$fileId-hq.mp4"), File(folder, "$fileId-hq.ts")).firstOrNull(::usable)
+        // The MP4 is the provider's default encode; the TS is the highest manifest profile.
+        listOf(File(folder, "$fileId-hq.ts"), File(folder, "$fileId-hq.mp4")).firstOrNull(::usable)
+
+    /** Upgrade after the default loop starts, retaining it if the manifest is unavailable. */
+    suspend fun sharp(trackId: String): String? = withContext(Dispatchers.IO) {
+        if (!trackPattern.matches(trackId)) return@withContext null
+        lock.withLock {
+            val fileId = indexedFileId(trackId) ?: return@withLock null
+            if (!hasManifest(trackId)) return@withLock null
+            File(folder, "$fileId-hq.ts").takeIf(::usable)?.let { return@withLock it.absolutePath }
+            val now = clock()
+            if (now < (qualityRetries[fileId] ?: 0L)) return@withLock null
+            try {
+                downloadViaManifest(trackId, fileId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Reopening the player or changing its layout must not hammer a failed endpoint.
+                qualityRetries[fileId] = now + 60 * 60_000L
+                com.auralis.music.util.Log.w("SpotifyCanvas", "Quality upgrade unavailable for $trackId: ${error.message}")
+                null
+            }
+        }
+    }
 
     private fun downloadDirect(url: String, fileId: String): String? {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return null
-        if (uri.scheme != "https" || uri.host != "canvaz.scdn.co" || uri.userInfo != null ||
-            (uri.port != -1 && uri.port != 443) || uri.path?.endsWith(".cnvs.mp4", ignoreCase = true) != true) return null
+        if (directUri(url) == null) return null
         val target = File(folder, "$fileId-hq.mp4")
         // The folder may have been deleted while the app runs (clearing the cache by hand).
         folder.mkdirs()

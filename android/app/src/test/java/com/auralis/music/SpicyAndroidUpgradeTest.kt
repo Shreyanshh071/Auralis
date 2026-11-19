@@ -6,11 +6,63 @@ import com.auralis.music.data.repository.LyricsRepositoryImpl
 import com.auralis.music.domain.model.*
 import com.auralis.music.ui.viewmodel.selectSettledLyrics
 import io.mockk.mockk
+import io.mockk.coEvery
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 
 class SpicyAndroidUpgradeTest {
+    @Test fun duetEnrichmentDoesNotReplaceCachedSpicy() = runBlocking {
+        val spicy = lyrics(LyricsProvider.SPICY_LYRICS)
+        val duet = lyrics(LyricsProvider.PAXSENIX).let { data -> data.copy(
+            lines = data.lines.mapIndexed { index, line -> line.copy(agent = if (index % 2 == 0) "v1" else "v2") }) }
+        val client = mockk<LyricsClient>()
+        coEvery { client.getLyrics(any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns duet
+        val repo = LyricsRepositoryImpl(client, spicyEnabled = { true })
+        repo.useLyrics(spicy, "Fixture", "Artist", 180, "abcdefghijk")
+        assertNull(repo.enrichSpeakerMetadata("Fixture", "Artist", 180, "abcdefghijk",
+            durationMs = 180000))
+        assertEquals(spicy, repo.cached())
+    }
+
+    @Test fun slowerNormalLookupCannotOverwriteSpicyThatFinishedFirst() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val client = mockk<LyricsClient>()
+        val other = lyrics(LyricsProvider.BETTER_LYRICS)
+        coEvery { client.getLyrics(any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            other
+        }
+        val spicy = lyrics(LyricsProvider.SPICY_LYRICS)
+        val repo = LyricsRepositoryImpl(client, spicyEnabled = { true }, spicyLookup = { spicy })
+        val normal = async { repo.getLyrics("Fixture", "Artist", 180, "abcdefghijk", forceRefresh = true,
+            durationMs = 180000) }
+        started.await()
+        assertEquals(spicy, repo.upgrade())
+        release.complete(Unit)
+        assertEquals(spicy, normal.await())
+        assertEquals(spicy, repo.cached())
+    }
+
+    @Test fun automaticSelectionPreservesDuetCreditsUnlessSpicyIsAvailable() {
+        val solo = lyrics(LyricsProvider.BETTER_LYRICS)
+        val duet = solo.copy(provider = LyricsProvider.PAXSENIX,
+            lines = solo.lines.mapIndexed { index, line -> line.copy(agent = if (index % 2 == 0) "v1" else "v2") })
+        val spicy = lyrics(LyricsProvider.SPICY_LYRICS)
+        assertSame(spicy, LyricsRepositoryImpl.chooseSpicy(duet, spicy))
+        assertSame(spicy, selectSettledLyrics(duet, duet, spicy))
+        assertSame(duet, selectSettledLyrics(solo, solo, duet))
+        assertSame(spicy, selectSettledLyrics(spicy, spicy, duet))
+        assertSame(duet, selectSettledLyrics(null, duet, solo))
+        val spicyDuet = duet.copy(provider = LyricsProvider.SPICY_LYRICS)
+        assertSame(spicyDuet, LyricsRepositoryImpl.chooseSpicy(solo, spicyDuet))
+        assertSame(spicyDuet, selectSettledLyrics(duet, duet, spicyDuet))
+        val lineDuet = duet.copy(syncType = SyncType.LINE_SYNC, lines = duet.lines.map { it.copy(words = null) })
+        assertSame(solo, selectSettledLyrics(solo, solo, lineDuet))
+    }
+
     private fun lyrics(provider: LyricsProvider) = LyricsData(SyncType.RICHSYNC,
         (0..3).map { i -> LyricLine(1000L + i * 3000, "Hello world", words = listOf(
             LyricWord("Hello ", 1000L + i * 3000, 800), LyricWord("world", 2000L + i * 3000, 700)),
@@ -38,7 +90,7 @@ class SpicyAndroidUpgradeTest {
         release.complete(Unit)
         assertEquals(spicy, result.await())
         assertEquals(spicy, repo.cached())
-        assertEquals(spicy, selectSettledLyrics(null, fallback, spicy, preferSpicy = true))
+        assertEquals(spicy, selectSettledLyrics(null, fallback, spicy))
     }
 
     @Test fun disabledAndUnavailableProvidersKeepCacheAndFailedLookupsCanRetry() = runBlocking {
@@ -68,15 +120,28 @@ class SpicyAndroidUpgradeTest {
         assertNotNull(repo.upgrade()); assertEquals(2, calls)
     }
 
-    @Test fun lineOnlySpicyCannotDowngradeWordTimingAndOrdinaryStylesKeepTheirSelection() {
+    @Test fun syncedSpicyTakesPriorityOverWordTimingForEveryStyle() {
         val word = lyrics(LyricsProvider.BETTER_LYRICS)
         val spicy = lyrics(LyricsProvider.SPICY_LYRICS)
         val line = spicy.copy(syncType = SyncType.LINE_SYNC, lines = spicy.lines.map { it.copy(words = null) })
-        assertSame(word, LyricsRepositoryImpl.chooseSpicy(word, line))
+        assertSame(line, LyricsRepositoryImpl.chooseSpicy(word, line))
         assertSame(spicy, LyricsRepositoryImpl.chooseSpicy(word, spicy))
-        assertSame(word, selectSettledLyrics(word, word, spicy))
-        assertSame(spicy, selectSettledLyrics(word, word, spicy, preferSpicy = true))
+        assertSame(spicy, selectSettledLyrics(word, word, spicy))
+        assertSame(spicy, selectSettledLyrics(word, word, spicy))
         assertSame(spicy, selectSettledLyrics(null, spicy, word))
+        assertSame(line, selectSettledLyrics(word, word, line))
+        assertSame(line, selectSettledLyrics(null, line, word))
+        assertSame(line, selectSettledLyrics(line, word, word))
+        val plain = line.copy(syncType = SyncType.PLAIN, lines = line.lines.map { it.copy(time = 0L) })
+        assertSame(word, selectSettledLyrics(word, word, plain))
+        assertSame(word, LyricsRepositoryImpl.chooseSpicy(word, plain))
+        assertTrue(LyricsClient.outranks(LyricsClient.TIER_LINE, 100.0, LyricsClient.TIER_WORD, 200.0,
+            provider = LyricsProvider.SPICY_LYRICS, bestProvider = LyricsProvider.BETTER_LYRICS))
+        assertFalse(LyricsClient.outranks(LyricsClient.TIER_WORD, 200.0, LyricsClient.TIER_LINE, 100.0,
+            provider = LyricsProvider.BETTER_LYRICS, bestProvider = LyricsProvider.SPICY_LYRICS))
+        assertFalse(LyricsClient.outranks(LyricsClient.TIER_WORD, 200.0, LyricsClient.TIER_LINE, 100.0,
+            masterMatch = com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH,
+            provider = LyricsProvider.SPICY_LYRICS, bestProvider = LyricsProvider.BETTER_LYRICS))
     }
 
     @Test fun nestedSourceTimingsAndBackingFlagsSurviveRoomAndSpellingRepair() {

@@ -205,10 +205,25 @@ class LyricsSpeakerSelectionTest {
 
     // ── Full race with mocked providers ──
 
+    @Test
+    fun `completed providers with queued duet results are still considered`() = runBlocking {
+        val client = raceClient(
+            betterLyrics = 100L to lyrics(LyricsProvider.BETTER_LYRICS, true, soloV1),
+            paxsenix = 250L to lyrics(LyricsProvider.PAXSENIX, true, duet)
+        )
+        val winner = client.getLyrics("Agar Tum Saath Ho", "Alka Yagnik & Arijit Singh",
+            durationMs / 1000, null, "Tamasha", null, durationMs,
+            onInterim = { if (it.provider == LyricsProvider.BETTER_LYRICS) Thread.sleep(400L) })!!
+        assertEquals(LyricsProvider.PAXSENIX, winner.provider)
+        assertTrue(LyricsClient.hasSpeakerMetadata(winner))
+    }
+
     private fun raceClient(
         betterLyrics: Pair<Long, LyricsData?>,
         paxsenix: Pair<Long, LyricsData?>,
-        lrcLib: Pair<Long, LyricsData?> = 30L to lyrics(LyricsProvider.LRCLIB, false, untagged)
+        lrcLib: Pair<Long, LyricsData?> = 30L to lyrics(LyricsProvider.LRCLIB, false, untagged),
+        netEase: Pair<Long, LyricsData?> = 10L to null,
+        kuGou: Pair<Long, LyricsData?> = 10L to null
     ): LyricsClient {
         fun <T : LyricsSource> source(mock: T, provider: LyricsProvider, answer: Pair<Long, LyricsData?>): T {
             every { mock.provider } returns provider
@@ -226,8 +241,9 @@ class LyricsSpeakerSelectionTest {
             paxsenixSource = source(mockk(), LyricsProvider.PAXSENIX, paxsenix),
             lrcLibSource = source(mockk(), LyricsProvider.LRCLIB, lrcLib),
             jioSaavnSource = source(mockk(), LyricsProvider.JIOSAAVN, none),
-            netEaseSource = source(mockk(), LyricsProvider.NETEASE, none),
-            kuGouSource = source(mockk(), LyricsProvider.KUGOU, none),
+            netEaseSource = source(mockk(), LyricsProvider.NETEASE, netEase),
+            kuGouSource = source(mockk(), LyricsProvider.KUGOU, kuGou),
+            qqMusicSource = source(mockk(), LyricsProvider.QQMUSIC, none),
             musixmatchSource = source(mockk(), LyricsProvider.MUSIXMATCH, none),
             geniusSource = source(mockk(), LyricsProvider.GENIUS, none),
             ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, none),
@@ -238,6 +254,22 @@ class LyricsSpeakerSelectionTest {
 
     private suspend fun LyricsClient.race() =
         getLyrics("Agar Tum Saath Ho", "Alka Yagnik & Arijit Singh", durationMs / 1000, null, "Tamasha", null, durationMs)
+
+    @Test fun `race replaces drifting priority winner with corroborated KuGou timing`() = runBlocking {
+        fun unique(provider: LyricsProvider, word: Boolean, shift: Long = 0) =
+            lyrics(provider, word, untagged).let { data -> data.copy(lines = data.lines.mapIndexed { index, line ->
+                line.copy(text = "alpha beta gamma verse $index", time = line.time + shift,
+                    words = line.words?.map { it.shiftedBy(shift) }, endTime = line.endTime?.plus(shift))
+            }) }
+        val client = raceClient(100L to unique(LyricsProvider.BETTER_LYRICS, true, 4000), 20L to null,
+            lrcLib = 200L to unique(LyricsProvider.LRCLIB, false),
+            netEase = 250L to unique(LyricsProvider.NETEASE, false),
+            kuGou = 350L to unique(LyricsProvider.KUGOU, true))
+        val result = client.race()!!
+        assertEquals(LyricsProvider.KUGOU, result.provider)
+        assertEquals(1, result.timingConfidence)
+        assertEquals(12_000L, result.lines.first().time)
+    }
 
     @Test
     fun `race prefers the speaker-tagged copy that arrives shortly after an untagged instant winner`() = runBlocking {

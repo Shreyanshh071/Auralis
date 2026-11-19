@@ -300,7 +300,8 @@ private fun NowPlayingDynamicBackground(
         extractedColors = committedPalette,
         modifier = modifier,
         isMiniPlayer = false,
-        isPlaying = isPlaying
+        isPlaying = isPlaying,
+        canvasTrack = activeTrack
     )
 }
 
@@ -441,6 +442,11 @@ fun NowPlayingModal(
     }
 
     var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(NowPlayingTab.PLAYER) }
+    // Lyrics and Queue (in every design) put the Canvas behind them blurred.
+    androidx.compose.runtime.DisposableEffect(currentTab) {
+        CanvasBackdrop.panelOpen = currentTab != NowPlayingTab.PLAYER
+        onDispose { CanvasBackdrop.panelOpen = false }
+    }
 
     val downloadLyricsChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedLyricsChoices.collectAsState()
     val downloadedIdsForLyrics by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
@@ -809,6 +815,19 @@ fun NowPlayingModal(
         }
     }
 
+    // The real player's backdrop (drawn by AuralisApp) always follows the artwork, whatever the accent
+    // palette. Previews that draw their own backdrop (the tour) do the same, or they showed a flat
+    // accent-coloured background the player no longer has.
+    var artworkBackgroundPalette by remember(activeTrack.id) {
+        mutableStateOf(com.auralis.music.ui.theme.ArtworkPaletteCache.getOrCreatePalette(context, activeTrack))
+    }
+    LaunchedEffect(activeTrack.id, activeTrack.thumbnail, renderBackground) {
+        if (!renderBackground) return@LaunchedEffect
+        val palette = com.auralis.music.ui.theme.ArtworkPaletteCache.extractPalette(
+            context = context, key = activeTrack.id, artworkUrl = activeTrack.thumbnail)
+        if (!palette.isDefault) artworkBackgroundPalette = palette
+    }
+
     val extractedColors = remember(isDynamicAccent, activeTrackPalette, sharedPalette, appearance.colorPalette) {
         if (!isDynamicAccent) {
             // Static Accent Palette: artwork has ZERO effect on the background/theme
@@ -984,7 +1003,7 @@ fun NowPlayingModal(
             NowPlayingDynamicBackground(
                 style = playerBgStyle,
                 activeTrack = activeTrack,
-                committedPalette = extractedColors,
+                committedPalette = artworkBackgroundPalette.takeIf { !it.isDefault } ?: extractedColors,
                 isPlaying = uiState.isPlaying,
                 modifier = Modifier
                     .fillMaxSize()
@@ -1724,7 +1743,7 @@ fun NowPlayingModal(
                                     val isSharedArtworkActive = (page == (pendingTargetIndex ?: currentTrackIndex) && pageTrack.id == activeTrack.id)
                                     key(pageTrack.id) {
                                         Box(
-                                            modifier = pageDepthModifier,
+                                            modifier = pageDepthModifier.hiddenWhileCanvasBackdrop(pageTrack.id),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             ArtworkCard(

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +23,45 @@ import org.jetbrains.skia.EncodedImageFormat
 import kotlin.test.*
 
 class SpicySwellClippingTest {
+    @Test fun fullySungItalicBackingKeepsTheFinalGlyphOverhang() {
+        for (text in listOf("right through", "right through f", "Know")) {
+            fun capture(active: Boolean): IntArray {
+                val words = text.split(" ").mapIndexed { index, word ->
+                    LyricWord(word + if (index < text.count { it == ' ' }) " " else "", 1000L + index * 600, 1800, true)
+                }
+                val line = LyricLine(1000, text, words = words, isBackground = true)
+                val scene = ImageComposeScene(640, 180, coroutineContext = Dispatchers.Unconfined) {
+                    MaterialTheme {
+                        CompositionLocalProvider(com.auralis.music.ui.lyrics.LocalLyricsGlyphMotion provides false) {
+                            Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
+                                SpicyLyricsLine(line, words, mutableLongStateOf(6000L),
+                                    TextStyle(fontSize = 48.sp, lineHeight = 56.sp,
+                                        fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold), active)
+                            }
+                        }
+                    }
+                }
+                return try {
+                    repeat(10) { scene.render(it * 16_666_667L).close() }
+                    scene.render(11 * 16_666_667L).use { image ->
+                        val folder = java.io.File("build/screens/spicy-italic-overhang").apply { mkdirs() }
+                        java.io.File(folder, "${text.replace(' ', '-')}-${active}.png").writeBytes(
+                            image.encodeToData(EncodedImageFormat.PNG)!!.use { it.bytes })
+                        Bitmap.makeFromImage(image).use { bitmap ->
+                            IntArray(bitmap.width * bitmap.height) { bitmap.getColor(it % bitmap.width, it / bitmap.width) }
+                        }
+                    }
+                } finally { scene.close() }
+            }
+            val reference = capture(false)
+            val animated = capture(true)
+            val rightEdge = reference.indices.filter { (reference[it] and 255) > 128 }.maxOf { it % 640 }
+            val edgeInk = reference.indices.filter { it % 640 >= rightEdge - 2 && (reference[it] and 255) > 128 }
+            assertTrue(edgeInk.isNotEmpty())
+            assertTrue(edgeInk.all { (animated[it] and 255) > 128 }, "Italic final glyph was clipped: $text")
+        }
+    }
+
     // Blur glow masks inline, so whether a glow is drawn never depends on a background thread.
     private val glowDispatcher = com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation.dispatcher
     @BeforeTest fun prepareGlowInline() { com.auralis.music.ui.lyrics.renderers.SpicyGlowPreparation.dispatcher = Dispatchers.Unconfined }

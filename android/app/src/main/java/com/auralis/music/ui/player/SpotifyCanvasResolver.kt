@@ -19,9 +19,14 @@ internal object PhoneCanvasLookup {
         private val http = NetworkClientProvider.okHttpClient.newBuilder()
             .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS).build()
         val client = SpotifyCanvasClient(http, File(context.cacheDir, "spotify-canvas"),
-            indexFile = File(context.filesDir, "spotify-canvas-index.properties"))
+            indexFile = File(context.filesDir, "spotify-canvas-index.properties"),
+            accountToken = {
+                // Settings > Appearance > "Fetch Canvas with your Spotify account", signed in only.
+                if (CanvasAccount.enabled && com.auralis.music.data.network.SpotifySession.signedIn.value)
+                    com.auralis.music.data.network.SpotifySession.getValidAccessToken() else null
+            })
         private val catalog = SpicyAlbumCatalog(http)
-        val resolver = SpotifyCanvasResolver(client::find, catalog::resolve)
+        val resolver = SpotifyCanvasResolver(client::findFast, catalog::resolve)
     }
     private fun get(context: android.content.Context): Lookup = instance ?: synchronized(this) {
         instance ?: Lookup(context.applicationContext).also { instance = it }
@@ -37,6 +42,10 @@ internal object PhoneCanvasLookup {
                 lookup.client.rememberSongId(track.id, it.spotifyId)
             }
         }
+    /** The sharp copy downloading for [spotifyId] (started by the lookup), once it is on disk. */
+    suspend fun awaitSharp(context: android.content.Context, spotifyId: String): String? =
+        runCatching { get(context).client.awaitSharp(spotifyId) }.getOrNull()
+
     suspend fun fallback(context: android.content.Context, canvas: ResolvedCanvas): ResolvedCanvas? {
         val client = get(context).client
         val path = if (!File(canvas.path).isFile) client.find(canvas.spotifyId)
@@ -58,7 +67,7 @@ internal class SpotifyCanvasResolver(
 
     suspend fun find(track: Track, lyricsSpotifyId: String?): ResolvedCanvas? = lock.withLock {
         val key = Key(track, lyricsSpotifyId)
-        cache[key]?.takeIf { it.until > clock() && (it.canvas == null || File(it.canvas.path).isFile) }
+        cache[key]?.takeIf { it.until > clock() && (it.canvas == null || it.canvas.path.startsWith("https://") || File(it.canvas.path).isFile) }
             ?.let { return@withLock it.canvas }
         val tried = linkedSetOf<String>()
         suspend fun ask(id: String?): ResolvedCanvas? {

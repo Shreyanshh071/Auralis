@@ -56,6 +56,36 @@ class SpotifyCanvasResolverTest {
     }
 
     @Test
+    fun freshInstallUsesImportedSpotifyRecordingWithoutLyricsOrCatalogue() = runBlocking {
+        val lookedUp = mutableListOf<String>()
+        val resolver = SpotifyCanvasResolver({
+            lookedUp += it
+            if (it == singleId) "/imported.mp4" else null
+        }, { _, _ -> error("The imported recording already identifies this song") })
+        assertEquals(ResolvedCanvas(singleId, "/imported.mp4"), resolver.find(track, null, listOf(singleId)))
+        assertEquals(listOf(singleId), lookedUp)
+    }
+
+    @Test
+    fun importFinishingInvalidatesEarlierMissingCanvas() = runBlocking {
+        val resolver = SpotifyCanvasResolver({ if (it == singleId) "/imported.mp4" else null }, { _, _ -> null })
+        assertNull(resolver.find(track, null))
+        assertEquals(ResolvedCanvas(singleId, "/imported.mp4"), resolver.find(track, null, listOf(singleId)))
+    }
+
+    @Test
+    fun importedReleaseCanSupplyCanvasWhenLyricsReleaseHasNone() = runBlocking {
+        val lookedUp = mutableListOf<String>()
+        val resolver = SpotifyCanvasResolver({
+            lookedUp += it
+            if (it == singleId) "/single.mp4" else null
+        }, { _, _ -> error("No external catalogue needed") })
+        assertEquals(ResolvedCanvas(singleId, "/single.mp4"),
+            resolver.find(track, lyricsId, listOf(lyricsId, singleId)))
+        assertEquals(listOf(lyricsId, singleId), lookedUp)
+    }
+
+    @Test
     fun missesExpireAndCancellationIsNotRememberedAsNoCanvas() = runBlocking {
         var now = 1000L
         var available = false

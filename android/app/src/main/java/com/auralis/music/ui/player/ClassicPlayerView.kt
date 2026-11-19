@@ -443,6 +443,7 @@ fun ClassicPlayerView(
                                             )
                                         }
                                     }
+                                    .hiddenWhileCanvasBackdrop(pageTrack.id)
                                     .graphicsLayer {
                                         shape = artworkShape
                                         shadowElevation = if (coverAtRest) 14.dp.toPx() else 0f
@@ -484,6 +485,7 @@ fun ClassicPlayerView(
                 } else {
                     Box(
                         modifier = Modifier
+                            .hiddenWhileCanvasBackdrop(displayedTrack.id)
                             .fillMaxWidth()
                             .aspectRatio(1f)
                             .shadow(

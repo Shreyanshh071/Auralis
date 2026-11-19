@@ -35,15 +35,38 @@ class SpotifyCanvasLookupTest {
             when (chain.request().url.host) {
                 "regional.canvasstore.slnode.spicylyrics.org" -> response(chain, answer(first).toByteArray())
                 "canvaz.scdn.co" -> response(chain, mp4)
-                else -> error("A valid small canvas must not require a Spotify manifest")
+                // The sharper manifest encode is tried first; when it is unavailable the default MP4 is used.
+                else -> error("No manifest in this test")
             }
         }.build()
         try {
             val path = assertNotNull(SpotifyCanvasClient(http, folder).find(first))
             assertContentEquals(mp4, java.io.File(path).readBytes())
             assertEquals(path, SpotifyCanvasClient(http, folder).find(first))
-            assertEquals(2, requests.size, "The next app session should use the downloaded canvas")
+            // Provider, the failed HQ attempt, the MP4; the next session neither downloads nor retries HQ.
+            assertEquals(3, requests.size, "The next app session should use the downloaded canvas")
             assertFalse(folder.listFiles().orEmpty().any { it.name.endsWith("partial") })
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test
+    fun fastLookupStreamsTheDefaultLoopWithoutDownloadingFirst() = runBlocking {
+        val folder = Files.createTempDirectory("canvas-test").toFile()
+        val downloads = java.util.concurrent.atomic.AtomicInteger()
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            when (chain.request().url.host) {
+                "regional.canvasstore.slnode.spicylyrics.org" -> response(chain, answer(first).toByteArray())
+                "canvaz.scdn.co" -> { downloads.incrementAndGet(); response(chain, ByteArray(120_000) { 1 }) }
+                else -> error("No manifest in this test")
+            }
+        }.build()
+        try {
+            val client = SpotifyCanvasClient(http, folder)
+            // The link comes back for the player to stream; the sharp copy is fetched in the background.
+            assertEquals(url, client.findFast(first))
+            assertEquals(0, downloads.get())
+            // Its manifest fails here, so there is no sharp copy and the stream stays.
+            assertNull(client.awaitSharp(first))
         } finally { folder.deleteRecursively() }
     }
 
@@ -107,7 +130,7 @@ class SpotifyCanvasLookupTest {
             response(chain, byteArrayOf(), 429, "120")
         }.build()
         try {
-            val client = SpotifyCanvasClient(http, folder) { now }
+            val client = SpotifyCanvasClient(http, folder, clock = { now })
             assertNull(client.find(first))
             assertNull(client.find(second))
             assertEquals(1, count)

@@ -1,21 +1,10 @@
 package com.auralis.music.windows.player
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import com.auralis.music.data.service.PlaybackClockSource
 import com.auralis.music.domain.model.Track
 import com.auralis.music.util.Log
@@ -338,10 +327,17 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
             // at their own square size; with neither, the still artwork() underneath stays.
             if (canvasOnly) {
                 val spotify = TrackCanvasLookup.find(track, spotifyCanvasId)
+                    // A Canvas already found to be only the cover on a blur never plays again.
+                    ?.takeUnless { CoverOnlyCanvas.verdict(it.spotifyId) == true }
                 resolvedSpotifyId = spotify?.spotifyId
                 url = spotify?.path
                 Log.i("AnimatedCovers", "Stage for '${track.title}' (Spotify ${spotify?.spotifyId ?: spotifyCanvasId}): ${url ?: "no Spotify Canvas"}")
                 if (url == null) latestStageUnavailable?.invoke()
+                // Start the existing loop immediately, then replace the default encode with
+                // Spotify's highest-resolution manifest profile when one is available.
+                if (spotify != null) SpotifyCanvasLookup.sharp(spotify.spotifyId)
+                    ?.takeIf { it != spotify.path && url != null && CoverOnlyCanvas.verdict(spotify.spotifyId) != true }
+                    ?.let { url = it }
             } else {
                 url = CanvasLookup.find(track, prefs.source)?.let { CanvasLookup.playable(it) }
                 Log.i("AnimatedCovers", "Cover for '${track.title}': ${url ?: "still artwork"}")
@@ -356,6 +352,21 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
         if (video != null && com.auralis.music.ui.player.LocalPlaybackVisualsActive.current) key(track?.id, video) {
             var frame by remember { mutableStateOf<ImageBitmap?>(null) }
             val firstFrame = remember { CompletableDeferred<Boolean>() }
+            // First play of a stage Canvas: hold its frames for a second and compare them with the
+            // song's cover, so a Canvas that is only that cover on a blur is never shown.
+            val checkId = resolvedSpotifyId?.takeIf { canvasOnly && CoverOnlyCanvas.verdict(it) == null }
+            val coverPixels = remember { java.util.concurrent.atomic.AtomicReference<IntArray?>(null) }
+            val coverPending = remember(checkId) { java.util.concurrent.atomic.AtomicBoolean(checkId != null) }
+            val gate = remember(checkId) { CoverOnlyGate(checkId, coverPixels, coverPending) }
+            var coverOnly by remember { mutableStateOf(false) }
+            if (checkId != null) LaunchedEffect(checkId) {
+                try {
+                    coverPixels.set(withContext(Dispatchers.IO) { CoverOnlyCanvas.coverPixels(checkId, track?.thumbnail) })
+                } finally { coverPending.set(false) }
+            }
+            LaunchedEffect(coverOnly) {
+                if (coverOnly) { url = null; latestStageUnavailable?.invoke() }
+            }
             LaunchedEffect(video, motionAura, canvasOnly, playbackClock) {
                 val active = java.util.concurrent.atomic.AtomicBoolean(true)
                 var stop: (() -> Unit)? = null
@@ -368,9 +379,11 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                                 if (active.get()) {
                                     // Stage slots require ~9:16 portrait video (allowing slight VLC macroblock padding).
                                     if (!canvasOnly || isStageCanvasAspect(it.width, it.height)) {
-                                        if (firstFrame.complete(true) || frame != null) {
-                                            frame = it
-                                            motionAura?.offer(it)
+                                        val accepted = firstFrame.complete(true) || frame != null || gate.checking
+                                        if (accepted) when (gate.allow(it)) {
+                                            true -> { frame = it; motionAura?.offer(it) }
+                                            false -> Unit
+                                            null -> coverOnly = true
                                         }
                                     } else firstFrame.complete(false)
                                 }
@@ -400,30 +413,60 @@ internal fun AnimatedCover(track: Track?, modifier: Modifier = Modifier,
                     Log.i("AnimatedCovers", "Spotify Canvas playing after ${System.currentTimeMillis() - started}ms: $video")
                 }
             }
-            val shown by animateFloatAsState(if (frame != null) 1f else 0f, tween(450), label = "canvasFadeIn")
-            frame?.let { bitmap ->
-                val edgeBlend = if (canvasOnly) Modifier
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            // A long, eased fade straight into the background colours (taken from this
-                            // video), with no dark band and no hard seam.
-                            Brush.horizontalGradient(
-                                .62f to Color.Black,
-                                .72f to Color.Black.copy(alpha = .88f),
-                                .80f to Color.Black.copy(alpha = .62f),
-                                .88f to Color.Black.copy(alpha = .32f),
-                                .95f to Color.Black.copy(alpha = .10f),
-                                1f to Color.Transparent
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    } else Modifier
-                Image(bitmap, null, Modifier.matchParentSize().alpha(shown).then(edgeBlend),
-                    contentScale = ContentScale.Crop,
-                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
-            }
+            CanvasVideoFrame(frame, canvasOnly)
         }
+    }
+}
+
+
+/**
+ * Decides, from a stage Canvas's own frames, whether it is only the cover on a blur. [allow] says
+ * per frame: true = show it, false = hold it (still checking), null = cover-only, never show.
+ * Frames are sampled at about 1, 2, 3 and 4 s of playback and averaged. A first frame that is
+ * clearly not the cover ends the check at once. Wait for artwork loading before judging the
+ * Canvas: a fresh install can take longer than 1.5 s to download the reference cover.
+ */
+internal class CoverOnlyGate(
+    private val spotifyId: String?,
+    private val cover: java.util.concurrent.atomic.AtomicReference<IntArray?>,
+    private val coverPending: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+    private val nowMs: () -> Long = System::currentTimeMillis
+) {
+    @Volatile var checking = spotifyId != null
+        private set
+    private var start = 0L
+    private var blocked = false
+    private val scores = mutableListOf<Double>()
+
+    fun allow(frame: ImageBitmap): Boolean? {
+        if (blocked) return null
+        if (!checking || spotifyId == null) return true
+        val coverPixels = cover.get()
+        // A slow reference-art download is not evidence that this Canvas is unavailable.
+        if (coverPixels == null && coverPending.get()) return false
+        val now = nowMs()
+        if (start == 0L) start = now
+        val elapsed = now - start
+        if (coverPixels == null) {
+            // Without the album art the Canvas cannot be checked, so it is not shown.
+            if (elapsed < 1500) return false
+            checking = false
+            blocked = true
+            return null
+        }
+        // Next sample due at 1 s, 2 s, 3 s, 4 s.
+        val due = (scores.size + 1) * 1000L
+        if (elapsed < due) return false
+        scores += CoverOnlyCanvas.bestMatch(CoverOnlyCanvas.framePixels(frame), CoverOnlyCanvas.FRAME_WIDTH,
+            CoverOnlyCanvas.FRAME_HEIGHT, coverPixels, CoverOnlyCanvas.COVER_SIDE, CoverOnlyCanvas.COVER_SIDE)
+        if (scores.size == 1 && scores[0] < CoverOnlyCanvas.REAL_FIRST) return decide(false)
+        if (scores.size < 4) return false
+        return decide(CoverOnlyCanvas.isCoverOnly(scores))
+    }
+
+    private fun decide(coverOnly: Boolean): Boolean? {
+        checking = false
+        CoverOnlyCanvas.remember(spotifyId!!, coverOnly)
+        return if (coverOnly) null else true
     }
 }
