@@ -4,11 +4,13 @@ import com.auralis.music.data.network.InnerTubeClient
 import com.auralis.music.data.network.LyricsClient
 import com.auralis.music.data.network.UserSearchRequest
 import com.auralis.music.data.network.YouTubePlaylistImporter
+import com.auralis.music.desktop.playback.DesktopJioSaavnAudio
 import com.auralis.music.desktop.playback.DesktopPlaybackMatch
 import com.auralis.music.desktop.playback.DesktopStreamResolver
 import com.auralis.music.desktop.playback.LocalStreamRelay
 import com.auralis.music.domain.model.LyricsData
 import com.auralis.music.domain.model.Track
+import com.auralis.music.util.Log
 import java.io.IOException
 
 /** A playlist or album in a link, and the song the link pointed at, if any. */
@@ -100,13 +102,30 @@ class AuralisCatalog {
         val direct = DesktopStreamResolver.resolveResult(track.id)
         val (id, url) = direct.url?.let { track.id to it }
             // Another upload only helps a restricted or missing video, not a refused network.
-            ?: if (direct is com.auralis.music.desktop.playback.ResolutionResult.Failed && direct.failure.category.alternateMayHelp)
-                DesktopPlaybackMatch.alternative(track, track.id) { DesktopStreamResolver.resolve(it) } ?: return null
-            else return null
+            ?: (if (direct is com.auralis.music.desktop.playback.ResolutionResult.Failed && direct.failure.category.alternateMayHelp)
+                DesktopPlaybackMatch.alternative(track, track.id) { DesktopStreamResolver.resolve(it) } else null)
+            // YouTube refusing this IP ("confirm you're not a bot") blocks every upload alike;
+            // the same recording from JioSaavn still plays, as the desktop app falls back.
+            ?: return jioSaavn(track)?.let { LocalStreamRelay.register(it) }
         return LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(id, it.failedUrl, it.failure) })
     }
 
+    private suspend fun jioSaavn(track: Track): String? = try {
+        // Playlist imports give every song the playlist's name as its album. The real album lets
+        // the matcher accept the album cut when only YouTube credits the feature (Flashing Lights).
+        val album = runCatching { innerTube.getQueue(listOf(track.id)).firstOrNull()?.album }
+            .getOrNull()?.takeIf(String::isNotBlank)
+        DesktopJioSaavnAudio.find320(album?.let { track.copy(album = it) } ?: track)
+            ?.also { Log.i(TAG, "Playing ${track.id} from JioSaavn") }
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.w(TAG, "JioSaavn lookup failed for ${track.id}: ${error.javaClass.simpleName}")
+        null
+    }
+
     companion object {
+        private const val TAG = "AuralisCatalog"
         private val VIDEO_LINK = Regex("""(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})""")
         private val YOUTUBE_LINK = Regex("""(?:https?://)?(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)/\S+""", RegexOption.IGNORE_CASE)
 

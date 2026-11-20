@@ -16,8 +16,8 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.abs
 
-/** The desktop counterpart of Android's JioSaavnAudio adapter. */
-internal object DesktopJioSaavnAudio {
+/** The desktop counterpart of Android's JioSaavnAudio adapter. Public for the Discord bot. */
+object DesktopJioSaavnAudio {
     private const val LOOKUP_TIMEOUT_MS = 3_000L
     private val api = "https://www.jiosaavn.com/api.php".toHttpUrl()
     private val rendition = Regex("_(48|96|160|320)\\.(mp4|aac|mp3)$", RegexOption.IGNORE_CASE)
@@ -87,10 +87,14 @@ internal object DesktopJioSaavnAudio {
     private fun recording(song: JSONObject): Recording? {
         val id = song.optString("id").takeIf(String::isNotBlank) ?: return null
         val info = song.optJSONObject("more_info") ?: return null
-        val artists = info.optJSONObject("artistMap")?.optJSONArray("primary_artists")
-        val names = (0 until (artists?.length() ?: 0)).mapNotNull {
-            artists?.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank)
-        }
+        // Features ("Like Him" with Lola Young) are listed apart from the primary artists; without
+        // them the matcher reads a credited feature as missing and rejects the right recording.
+        val names = listOf("primary_artists", "featured_artists").flatMap { role ->
+            val artists = info.optJSONObject("artistMap")?.optJSONArray(role)
+            (0 until (artists?.length() ?: 0)).mapNotNull {
+                artists?.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank)
+            }
+        }.distinct()
         return Recording(
             Track(id = id, title = unescape(song.optString("title")), artist = unescape(names.joinToString(", ")),
                 album = unescape(info.optString("album")).takeIf(String::isNotBlank), duration = info.optLong("duration")),

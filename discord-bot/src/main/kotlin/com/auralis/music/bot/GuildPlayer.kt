@@ -226,8 +226,12 @@ class GuildPlayer(
         })
     }
 
+    /** Songs that failed back to back; a long run means every song will, so the queue stops. */
+    private var failuresInARow = 0
+
     @Synchronized private fun start(item: QueuedTrack, track: AudioTrack, generation: Long) {
         if (generation != this.generation) return
+        failuresInARow = 0
         lastPlayed = item
         track.userData = item
         audio.playTrack(track)
@@ -236,6 +240,13 @@ class GuildPlayer(
 
     @Synchronized private fun failed(item: QueuedTrack, generation: Long) {
         if (generation != this.generation) return
+        if (++failuresInARow >= MAX_FAILURES_IN_A_ROW) {
+            failuresInARow = 0
+            stop()
+            messages.say("⛔ Couldn't play $MAX_FAILURES_IN_A_ROW songs in a row, so I stopped the queue. " +
+                "YouTube is probably blocking me for now; try again in a little while.")
+            return
+        }
         messages.say("⚠️ Couldn't play **${item.track.title.escapedMarkdown()}**, skipping it.")
         advance(skipped = true)
     }
@@ -265,5 +276,6 @@ class GuildPlayer(
         const val TAG = "GuildPlayer"
         const val IDLE_LEAVE_MS = 5 * 60_000L
         const val RADIO_BATCH = 14
+        const val MAX_FAILURES_IN_A_ROW = 3
     }
 }
