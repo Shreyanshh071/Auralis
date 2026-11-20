@@ -2870,20 +2870,21 @@ fun AuralisApp(
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Tonal rounded square with a sound wave in a viewfinder: reads as
-                            // "identify this song", not "voice search" like the old mic did.
+                            // Sound wave in a viewfinder: reads as "identify this song". Same fixed
+                            // dark chip as Shuffle below so both match on every theme.
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     painter = androidx.compose.ui.res.painterResource(R.drawable.ic_song_recognition),
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(22.dp)
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
