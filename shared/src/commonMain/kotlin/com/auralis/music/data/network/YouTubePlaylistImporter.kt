@@ -18,6 +18,7 @@ class YouTubePlaylistImporter(
     private val client: OkHttpClient = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .addInterceptor(com.auralis.music.data.network.YouTubeSession.cookieRefresh)
         .build()
 ) {
     companion object {

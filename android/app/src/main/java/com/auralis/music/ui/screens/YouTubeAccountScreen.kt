@@ -239,14 +239,22 @@ private fun YouTubeSignInWebView(onSignedIn: () -> Unit, onCancel: () -> Unit) {
             factory = { ctx ->
                 CookieManager.getInstance().setAcceptCookie(true)
                 WebView(ctx).apply {
-                    // Login is a form, so avoid Chromium/GPU layer flicker on affected devices.
-                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    // Hardware drawing: the old software layer redrew the whole page on every frame
+                    // of Google's spinners and kept flashing. The Dialog window already keeps this
+                    // WebView out of the page's animated/backdrop layers.
                     setBackgroundColor(android.graphics.Color.rgb(16, 16, 16))
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
                     }
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    // Without these, WebView ignores Google's mobile viewport and autosizes some text
+                    // up and leaves the rest (Create account, language, footer) tiny.
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.layoutAlgorithm = android.webkit.WebSettings.LayoutAlgorithm.NORMAL
+                    settings.setSupportZoom(false)
+                    settings.builtInZoomControls = false
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -359,7 +367,7 @@ private fun fetchAccountLabel(): String = try {
         .header("Referer", "$origin/")
         .apply { YouTubeSession.authHeaders(origin).forEach { (k, v) -> header(k, v) } }
         .build()
-    OkHttpClient().newCall(request).execute().use { resp ->
+    OkHttpClient.Builder().addInterceptor(YouTubeSession.cookieRefresh).build().newCall(request).execute().use { resp ->
         val json = JSONObject(resp.body?.string().orEmpty())
         val header = json.optJSONArray("actions")?.optJSONObject(0)
             ?.optJSONObject("openPopupAction")?.optJSONObject("popup")

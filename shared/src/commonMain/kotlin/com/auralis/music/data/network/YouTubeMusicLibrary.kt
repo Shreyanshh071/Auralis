@@ -36,6 +36,7 @@ object YouTubeMusicLibrary {
     val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .addInterceptor(com.auralis.music.data.network.YouTubeSession.cookieRefresh)
         .build()
 
     /** Headers that make a music.youtube.com request count as the signed-in user; empty when signed out. */

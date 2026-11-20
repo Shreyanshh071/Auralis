@@ -25,6 +25,7 @@ object YouTubeShortsFilter {
         .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
         .callTimeout(3, TimeUnit.SECONDS)
+        .addInterceptor(com.auralis.music.data.network.YouTubeSession.cookieRefresh)
         .build()
 
     fun hasShortsMarker(item: JSONObject): Boolean {

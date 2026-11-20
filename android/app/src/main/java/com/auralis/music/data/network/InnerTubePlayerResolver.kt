@@ -26,6 +26,7 @@ object InnerTubePlayerResolver {
         .connectTimeout(3000, TimeUnit.MILLISECONDS)
         .readTimeout(3000, TimeUnit.MILLISECONDS)
         .followRedirects(true)
+        .addInterceptor(com.auralis.music.data.network.YouTubeSession.cookieRefresh)
         .build()
 
     suspend fun resolveStream(videoId: String): String? = withContext(Dispatchers.IO) {

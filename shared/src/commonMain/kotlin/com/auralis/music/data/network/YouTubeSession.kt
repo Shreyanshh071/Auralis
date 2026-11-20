@@ -113,6 +113,45 @@ object YouTubeSession {
         _signedIn.value = false
     }
 
+    /**
+     * YouTube rotates parts of the login (SIDCC, the PSIDTS/PSIDCC pairs) on its responses, the way
+     * a browser keeps them fresh. Saving the cookie once at sign-in let it go stale until YouTube
+     * treated the app as signed out. This copies those new values into the saved session. Deletions
+     * are ignored: only signing out here ends the session.
+     */
+    val cookieRefresh: okhttp3.Interceptor = okhttp3.Interceptor { chain ->
+        val request = chain.request()
+        val response = chain.proceed(request)
+        val sent = request.header("Cookie")
+        if (!sent.isNullOrBlank() && sent == cookie && isYouTubeHost(request.url.host)) {
+            absorbSetCookies(okhttp3.Cookie.parseAll(request.url, response.headers))
+        }
+        response
+    }
+
+    private fun isYouTubeHost(host: String) = host == "youtube.com" || host.endsWith(".youtube.com")
+
+    /** Merges fresh values for cookies YouTube sent back; true when the saved session changed. */
+    @Synchronized
+    fun absorbSetCookies(fresh: List<okhttp3.Cookie>, now: Long = System.currentTimeMillis()): Boolean {
+        if (!hasAuthCookies(cookie)) return false
+        val updated = mergeCookies(cookie, fresh, now)
+        if (updated == cookie) return false
+        cookie = updated
+        prefs?.putStrings(mapOf(KEY_COOKIE to updated))
+        return true
+    }
+
+    /** [current] with each live cookie in [fresh] replaced or added; expired or blank ones change nothing. */
+    fun mergeCookies(current: String, fresh: List<okhttp3.Cookie>, now: Long): String {
+        val jar = LinkedHashMap(parseCookies(current))
+        for (c in fresh) {
+            if (c.value.isBlank() || c.expiresAt <= now) continue
+            jar[c.name] = c.value
+        }
+        return jar.entries.joinToString("; ") { "${it.key}=${it.value}" }
+    }
+
     /** "12345||" or "12345||67890" -> "12345": the part YouTube binds tokens to. */
     fun normalizeDataSyncId(raw: String): String = raw.substringBefore("||").trim()
 

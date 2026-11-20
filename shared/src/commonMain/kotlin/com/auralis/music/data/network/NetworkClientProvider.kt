@@ -24,6 +24,7 @@ object NetworkClientProvider {
                     .build()
                 chain.proceed(request)
             }
+            .addInterceptor(YouTubeSession.cookieRefresh)
             .build()
     }
 
