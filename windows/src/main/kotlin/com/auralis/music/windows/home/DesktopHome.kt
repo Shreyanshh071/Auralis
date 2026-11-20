@@ -13,6 +13,7 @@ import com.auralis.music.ui.components.LocalPlatformActions
 import com.auralis.music.ui.viewmodel.HomeViewModel
 import com.auralis.music.windows.library.DesktopTrackMenu
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 /** Desktop presentation over the existing recommendation engine; Android's Home stays unchanged. */
 @Composable
@@ -50,7 +51,9 @@ internal fun DesktopHome(
     val subscriptions = remember { ArtistSubscriptions() }
     val favorites by library.getFavoriteTracks().collectAsState(emptyList())
     val favoriteIds = remember(favorites) { favorites.map { it.id }.toSet() }
-    val rawState by viewModel.uiState.collectAsState()
+    val rawState by produceState(com.auralis.music.ui.viewmodel.HomeUiState(speedDialPages = emptyList()), viewModel) {
+        viewModel.uiState.collect { state -> value = com.auralis.music.desktop.home.musicHomeState(state) }
+    }
     val queue = playback?.queue?.collectAsState()?.value
     val playing = playback?.state?.collectAsState()?.value == VlcAudioPlayer.State.PLAYING
     var menuTrack by remember { mutableStateOf<Track?>(null) }

@@ -26,6 +26,7 @@ internal data class YouTubeScope(val version: String = "1.20250101.01.00", val a
 internal class YouTubeMusicClient(
     cookie: String = YouTubeSession.authHeaders(ORIGIN)["Cookie"].orEmpty(),
     authUser: String = "0",
+    private val trackFilter: suspend (List<Track>) -> List<Track> = com.auralis.music.data.network.YouTubeShortsFilter::filter,
     private val transport: ((String, JSONObject?, Map<String, String>) -> String)? = null
 ) {
     @Volatile private var cookie: String = cookie
@@ -196,7 +197,7 @@ internal class YouTubeMusicClient(
             val body = if (token == null) JSONObject().put("browseId", if (playlist.id.startsWith("VL")) playlist.id else "VL${playlist.id}")
                 else JSONObject().put("continuation", token)
             val page = post("browse", body)
-            parseYouTubeTracks(page).forEach { values[it.id] = it }
+            trackFilter(parseYouTubeTracks(page)).forEach { values[it.id] = it }
             onPage(values.values.toList())
             token = youtubePlaylistContinuation(page)?.takeIf { seen.add(it) }
             kotlin.coroutines.coroutineContext.ensureActive()

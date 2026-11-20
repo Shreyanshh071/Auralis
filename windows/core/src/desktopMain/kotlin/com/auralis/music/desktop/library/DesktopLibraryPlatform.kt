@@ -6,6 +6,8 @@ import com.auralis.music.ui.viewmodel.LibraryPlatform
 import com.auralis.music.util.KeyValueStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import com.auralis.music.data.network.YouTubeShortsFilter
 
 /**
  * [LibraryPlatform] on desktop: persistent offline downloads, the Library's saved flags in [flags],
@@ -16,10 +18,10 @@ class DesktopLibraryPlatform(
     private val showMessage: (String) -> Unit
 ) : LibraryPlatform {
     private val downloads get() = DesktopDownloads.instance
-    override val downloadedTracks: Flow<List<Track>> get() = downloads.tracks
+    override val downloadedTracks: Flow<List<Track>> get() = downloads.tracks.map { YouTubeShortsFilter.filter(it) }
     override val downloadJobs: Flow<List<PlaylistDownloadJob>> get() = downloads.jobs
-    override fun jobTracks(jobId: String): List<Track> = downloads.groupTracks(jobId)
-    override fun downloadedJobTracks(jobId: String): List<Track> = downloads.groupTracks(jobId, true)
+    override fun jobTracks(jobId: String): List<Track> = YouTubeShortsFilter.filterCached(downloads.groupTracks(jobId))
+    override fun downloadedJobTracks(jobId: String): List<Track> = YouTubeShortsFilter.filterCached(downloads.groupTracks(jobId, true))
     override fun removePlaylistDownloads(jobId: String) = downloads.removeGroup(jobId)
     override fun retryPlaylistDownload(jobId: String) = downloads.retry(jobId)
     override fun removeDownload(trackId: String) = downloads.removeTrack(trackId)

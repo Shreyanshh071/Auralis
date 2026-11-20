@@ -73,6 +73,11 @@ Its anonymous fallback may be unavailable or rejected by Spotify; a signed-in
 Spotify session or working configured Spotify developer credentials may be needed.
 A Spicy Lyrics key does not grant Spotify API access. If metadata search is
 unavailable, the adapter returns no candidate and other lyrics providers continue.
+Desktop's public catalogue fallback also searches recording title and artist when
+the playing item has no album. Release links are discovery hints only: the Spotify
+album embed must still supply a matching title, artist, version and measured
+duration before a lyrics request. Album-less misses are cached per song; temporary
+catalogue failures respect backoff without becoming cached empty search results.
 
 ## Matching and timing
 

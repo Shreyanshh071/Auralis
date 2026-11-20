@@ -130,6 +130,10 @@ fun AuralisDesktopApp(
     /** Bumped when immersive mode steps back to the player. */
     playerRequests: Int = 0,
 ) {
+    val musicLibrary = remember(library) { com.auralis.music.desktop.library.MusicLibraryRepository(library) }
+    val musicSearch = remember(searchRepository) { com.auralis.music.desktop.library.MusicSearchRepository(searchRepository) }
+    val musicHistory = remember(history) { com.auralis.music.desktop.library.MusicHistoryRepository(history) }
+    val musicHome = remember(homePlatform) { com.auralis.music.desktop.home.MusicHomePlatform(homePlatform) }
     var showPlayer by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(playerRequests) {
         if (playerRequests > 0 && playback?.queue?.value?.current != null) showPlayer = true
@@ -162,8 +166,8 @@ fun AuralisDesktopApp(
     }
     var destination by remember { mutableStateOf(DesktopDestination.HOME) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(searchRepository, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
-    val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(searchRepository, scope) }
+    val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(musicSearch, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
+    val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(musicSearch, scope) }
     val languageChanges by com.auralis.music.data.network.ContentSettingsSource.languageChanges.collectAsState()
     androidx.compose.runtime.LaunchedEffect(languageChanges) {
         if (languageChanges > 0) {
@@ -246,7 +250,7 @@ fun AuralisDesktopApp(
     var youtubePageId by remember { mutableStateOf<String?>(null) }
     // Albums & singles that follow what the listener plays (see TasteReleases).
     // Background lookups queue behind one paced gate (a launch burst got the network blocked).
-    val backgroundSearch = remember(searchRepository) { com.auralis.music.windows.home.PacedSearchRepository(searchRepository) }
+    val backgroundSearch = remember(musicSearch) { com.auralis.music.windows.home.PacedSearchRepository(musicSearch) }
     // Artists followed from a song's credits (and some imports) are saved without a photo, so the
     // Library showed a blank avatar for them: fill each one in once from its artist page.
     androidx.compose.runtime.LaunchedEffect(library, backgroundSearch) {
@@ -267,7 +271,7 @@ fun AuralisDesktopApp(
     val tasteReleases = remember { com.auralis.music.windows.home.TasteReleases(listeningStats, backgroundSearch, scope).also { it.start() } }
     val tasteShelf by tasteReleases.shelf.collectAsState()
     // Quick picks: most played in the last 30 days (all time when that's too few), by plays then time.
-    val allListens by listeningStats.listens.collectAsState()
+    val allListens by com.auralis.music.windows.library.musicListens(listeningStats)
     val quickPicks = remember(allListens) {
         fun ranked(listens: List<com.auralis.music.desktop.library.DesktopListeningStats.Listen>) =
             listens.groupBy { com.auralis.music.desktop.library.DesktopListeningStats.songKey(it.track) }.values
@@ -330,10 +334,10 @@ fun AuralisDesktopApp(
     val homeAccountPresentation = remember { com.auralis.music.windows.home.HomeAccountPresentation() }
     val homeViewModel = remember {
         com.auralis.music.ui.viewmodel.HomeViewModel(
-            historyRepository = history,
+            historyRepository = musicHistory,
             searchRepository = backgroundSearch,
-            platform = homePlatform,
-            libraryRepository = library
+            platform = musicHome,
+            libraryRepository = musicLibrary
         )
     }
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
@@ -397,8 +401,8 @@ fun AuralisDesktopApp(
     }
     val libraryViewModel = remember {
         com.auralis.music.ui.viewmodel.LibraryViewModel(
-            libraryRepository = library,
-            historyRepository = history,
+            libraryRepository = musicLibrary,
+            historyRepository = musicHistory,
             statsRepository = com.auralis.music.desktop.library.DesktopStatsRepository(listeningStats),
             platform = com.auralis.music.desktop.library.DesktopLibraryPlatform(libraryFlags, showUnavailable)
         )
@@ -649,7 +653,7 @@ fun AuralisDesktopApp(
             if (lyrics != null) ({ showLyricsProviders = true }) else null,
         com.auralis.music.ui.library.LocalPlaylistCreation provides { request -> playlistCreationRequest = request; showCreatePlaylist = true },
         com.auralis.music.ui.library.LocalImportSyncChoice provides importSyncChoice,
-        com.auralis.music.windows.player.LocalPlayerPlaylists provides library,
+        com.auralis.music.windows.player.LocalPlayerPlaylists provides musicLibrary,
         com.auralis.music.ui.library.LocalPlaylistSync provides { playlist -> syncPlaylistId = playlist.id },
         com.auralis.music.ui.components.LocalGlassDialogHost provides { dismiss, content -> GlassDialog(dismiss, content) },
         com.auralis.music.windows.library.LocalMenuInvocationAnchor provides menuInvocation,
@@ -712,8 +716,8 @@ fun AuralisDesktopApp(
             discordControl as? com.auralis.music.windows.discord.WindowsDiscordPresence) { showDiscord = false }
         if (showSettings) com.auralis.music.windows.settings.DesktopSettingsDialog(
             stores = stores,
-            history = history,
-            search = searchRepository,
+            history = musicHistory,
+            search = musicSearch,
             hasActiveTrack = queue?.current != null,
             discordControl = discordControl,
             onDismiss = { showSettings = false }
@@ -902,13 +906,13 @@ fun AuralisDesktopApp(
                                 }
                             }, shortcuts = {
                                 val playlistLinks by playlistSync.store.links.collectAsState()
-                                com.auralis.music.windows.home.SidebarShortcuts(homeViewModel, library, playback, browse, compact,
+                                com.auralis.music.windows.home.SidebarShortcuts(homeViewModel, musicLibrary, playback, browse, compact,
                                     playlistLinks = playlistLinks,
                                     onOpenPlaylist = { playlist ->
                                         openLibrary("local:${playlist.id}") { libraryViewModel.selectPlaylist(playlist.id, playlist) }
                                     },
                                     onBrowse = { showPlayer = false },
-                                    searchRepository = searchRepository, showMessage = showUnavailable)
+                                    searchRepository = musicSearch, showMessage = showUnavailable)
                             }, contentBottomInset = if (upNextSize.height > 0.dp) upNextSize.height + 8.dp else 0.dp)
                         }
                     }
@@ -931,12 +935,12 @@ fun AuralisDesktopApp(
                         // Each page keeps its saved state (scroll included) while another is shown,
                         // so Back returns exactly where the page was left.
                         pageStates.SaveableStateProvider(if (page == BrowseRoute) "browse" else (page as DesktopDestination).name) {
-                        if (page == BrowseRoute) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, library, onBack = ::previousPage)
+                        if (page == BrowseRoute) com.auralis.music.windows.browse.BrowsePages(browse, playback, showUnavailable, libraryViewModel, musicLibrary, onBack = ::previousPage)
                         else when (page as DesktopDestination) {
                             DesktopDestination.HOME -> com.auralis.music.windows.home.DesktopHome(
                                 viewModel = homeViewModel,
-                                library = library,
-                                searchRepository = searchRepository,
+                                library = musicLibrary,
+                                searchRepository = musicSearch,
                                 playback = playback,
                                 browse = browse,
                                 playlistLinks = playlistSync.store.links.collectAsState().value,
@@ -988,7 +992,7 @@ fun AuralisDesktopApp(
                                 onTypingChange = { typing = it }
                             )
                             DesktopDestination.HISTORY -> {
-                                val entries by history.getHistory().collectAsState(emptyList())
+                                val entries by musicHistory.getHistory().collectAsState(emptyList())
                                 com.auralis.music.windows.history.HistorySheet(
                                     history = entries, currentTrack = queue?.current,
                                     isPlaying = playerState == com.auralis.music.desktop.playback.VlcAudioPlayer.State.PLAYING,
@@ -1014,8 +1018,8 @@ fun AuralisDesktopApp(
                                 account = account,
                                 stores = stores,
                                 libraryViewModel = libraryViewModel,
-                                history = history,
-                                search = searchRepository,
+                                history = musicHistory,
+                                search = musicSearch,
                                 hasActiveTrack = queue?.current != null,
                                 onDismiss = ::previousPage
                             )
@@ -1033,7 +1037,7 @@ fun AuralisDesktopApp(
                             DesktopDestination.LIBRARY -> com.auralis.music.windows.library.DesktopLibrary(
                                 viewModel = libraryViewModel,
                                 homeViewModel = homeViewModel,
-                                library = library,
+                                library = musicLibrary,
                                 playback = playback,
                                 browse = browse,
                                 onOpenProfile = { destination = DesktopDestination.PROFILE },
@@ -1048,7 +1052,7 @@ fun AuralisDesktopApp(
                         menuTrack?.let { track ->
                             com.auralis.music.windows.library.DesktopTrackMenu(
                                 track = track,
-                                library = library,
+                                library = musicLibrary,
                                 playback = playback,
                                 browse = browse,
                                 homeViewModel = homeViewModel,
@@ -1095,7 +1099,7 @@ fun AuralisDesktopApp(
                                     onExpand = { playerPanel = com.auralis.music.windows.player.PlayerPanel.LYRICS; showPlayer = true },
                                     modifier = panelModifier, palette = artworkPalette,
                                     onCollapse = { rightCollapsed = true },
-                                    library = library,
+                                    library = musicLibrary,
                                     onOpenQueue = { sidePanel = com.auralis.music.windows.player.SidePanel.QUEUE },
                                     onOpenArtist = { showPlayer = false; browse.openArtist(it) }, mainPlayerOpen = showPlayer)
                         }
@@ -1130,7 +1134,7 @@ fun AuralisDesktopApp(
             }
             if (destination == DesktopDestination.WRAPPED) {
                 Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)) {
-                    com.auralis.music.windows.wrapped.DesktopWrappedPage(listeningStats, library, backgroundSearch,
+                    com.auralis.music.windows.wrapped.DesktopWrappedPage(listeningStats, musicLibrary, backgroundSearch,
                         onClose = ::previousPage)
                 }
             }

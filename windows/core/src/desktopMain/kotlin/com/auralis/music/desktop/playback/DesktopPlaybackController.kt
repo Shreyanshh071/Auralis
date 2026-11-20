@@ -15,6 +15,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.asContextElement
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
 import com.auralis.music.data.network.YouTubeBackoff
 import com.auralis.music.data.network.YouTubeCooldown
@@ -30,8 +34,34 @@ class DesktopPlaybackController(
     private val offlineFile: (String) -> java.io.File? = { com.auralis.music.desktop.library.DesktopDownloads.instance.localFile(it) },
     volumeStore: com.auralis.music.util.KeyValueStore? = null,
     resolveJioSaavn: (suspend (Track) -> String?)? = null,
+    private val filterTracks: suspend (List<Track>) -> List<Track> = com.auralis.music.data.network.YouTubeShortsFilter::filter,
     private val resolveStream: suspend (String) -> String? = DEFAULT_RESOLVE,
 ) {
+    private var admissionJob: Job? = null
+    private var selectionJob: Job? = null
+    private var connectAdmissionJob: Job? = null
+    @Volatile private var connectAdmissionPlay = false
+    @Volatile private var connectAdmissionPending = false
+    private var roomAdmissionJob: Job? = null
+    private val queueEdits = Mutex()
+    private fun admissionContext() = applyingConnect.asContextElement(applyingConnect.get()) + applyingRoom.asContextElement(applyingRoom.get())
+    private fun admit(tracks: List<Track>, action: (List<Track>) -> Unit): Job = scope.launch(
+        admissionContext(),
+        start = CoroutineStart.UNDISPATCHED
+    ) {
+        val allowed = filterTracks(tracks)
+        ensureActive()
+        action(allowed)
+    }
+
+    /** Keep occurrence order, current position and listened markers after removing blocked videos. */
+    private fun Queue.playable(allowed: List<Track>): Queue {
+        val ids = allowed.map { it.id }.toSet()
+        val indices = tracks.indices.filter { tracks[it].id in ids }
+        val selected = indices.firstOrNull { it >= index }
+        return Queue(indices.map { tracks[it] }, selected?.let { indices.indexOf(it) } ?: -1,
+            indices.indices.filter { indices[it] in listenedIndices }.toSet())
+    }
     private val resolveJioSaavn: (suspend (Track) -> String?)? =
         resolveJioSaavn ?: if (resolveStream === DEFAULT_RESOLVE) DesktopJioSaavnAudio::find320 else null
     /** Stream lookups with their reasons; tests' plain resolvers are wrapped (null = unknown failure). */
@@ -89,7 +119,7 @@ class DesktopPlaybackController(
             if (value) autoRadio.queueChanged() else autoRadio.cancelPending()
         }
     private val autoRadio = DesktopAutoRadio(scope, { _queue.value },
-        { autoLoadMore && roomControl == null && _repeatMode.value == RepeatMode.OFF }, { radioCandidates(it) },
+        { autoLoadMore && roomControl == null && _repeatMode.value == RepeatMode.OFF }, { filterTracks(radioCandidates(it)) },
         { batch -> _queue.update { q -> q.copy(tracks = q.tracks + batch.filter { song -> q.tracks.none { it.id == song.id } }) } },
         { if (_queue.value.hasNext) next() })
     private val _session = MutableStateFlow(0L)
@@ -136,12 +166,32 @@ class DesktopPlaybackController(
     private val _connectRemote = MutableStateFlow<com.auralis.music.data.connect.ConnectRemoteView?>(null)
     /** The session another device is playing, shown here silently; null when this PC is the output. */
     val connectRemote: StateFlow<com.auralis.music.data.connect.ConnectRemoteView?> = _connectRemote.asStateFlow()
+    private var remoteAdmissionJob: Job? = null
+    private var remoteIndices = emptyList<Int>()
+    private fun remoteIndex(index: Int) = if (_connectRemote.value != null) remoteIndices.getOrElse(index) { index } else index
 
     /** Shows [view] (or stops showing it): the queue on screen mirrors the other device's queue. */
     fun showRemote(view: com.auralis.music.data.connect.ConnectRemoteView?) {
+        remoteAdmissionJob?.cancel()
+        if (view == null || roomControl != null) {
+            _connectRemote.value = null
+            remoteIndices = emptyList()
+            return
+        }
+        remoteAdmissionJob = admit(view.queue + view.track) { allowed ->
+            val ids = allowed.map { it.id }.toSet()
+            remoteIndices = view.queue.indices.filter { view.queue[it].id in ids }
+            if (view.track.id !in ids) {
+                _connectRemote.value = null
+                _queue.value = Queue()
+            } else showAllowedRemote(view.copy(queue = remoteIndices.map { view.queue[it] }, index = remoteIndices.indexOf(view.index)))
+        }
+    }
+
+    private fun showAllowedRemote(view: com.auralis.music.data.connect.ConnectRemoteView) {
         // In a Listen Together room the room's playback is shown, never the account's session.
-        _connectRemote.value = view?.takeIf { roomControl == null }
-        if (view == null || roomControl != null) return
+        _connectRemote.value = view.takeIf { roomControl == null }
+        if (roomControl != null) return
         val current = _queue.value
         if (current.tracks != view.queue || current.index != view.index) {
             _queue.value = Queue(view.queue, view.index.coerceIn(-1, view.queue.lastIndex))
@@ -170,11 +220,33 @@ class DesktopPlaybackController(
     /** Connect: replaces the queue; starts at [positionMs] when [play], otherwise waits silently there. */
     fun connectLoad(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean) {
         if (index !in tracks.indices) return
+        selectionJob?.cancel()
+        admissionJob?.cancel()
+        loadJob?.cancel()
+        connectAdmissionJob?.cancel()
+        connectAdmissionPlay = play
+        connectAdmissionPending = true
+        // Hold the transfer bookmark while metadata is checked, without displaying
+        // an unchecked video or reporting zero back to the sending device.
+        pendingResumeMs = positionMs.coerceAtLeast(0L)
+        resumeAnchor = null
+        _resolving.value = play
+        connectAdmissionJob = admit(tracks) { allowed ->
+            connectAdmissionPending = false
+            val queue = Queue(tracks, index).playable(allowed)
+            if (queue.current == null) {
+                player.stop(); _queue.value = Queue(); pendingResumeMs = null; _resolving.value = false
+            } else connectLoadAllowed(queue.tracks, queue.index,
+                if (queue.current?.id == tracks[index].id) pendingResumeMs ?: positionMs else 0L, connectAdmissionPlay)
+        }
+    }
+
+    private fun connectLoadAllowed(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean) {
         autoRadio.reset(false)
         consecutiveFailures = 0
         if (play) {
             pendingResumeMs = null
-            load(Queue(tracks, index), resumeAtMs = positionMs.coerceAtLeast(0L))
+            loadAllowed(Queue(tracks, index), resumeAtMs = positionMs.coerceAtLeast(0L), isRetry = false)
         } else {
             loadJob?.cancel(); preloadJob?.cancel(); stallJob?.cancel(); progressJob?.cancel()
             _resolving.value = false
@@ -188,6 +260,10 @@ class DesktopPlaybackController(
 
     /** Connect: stop making sound now (also stops a song that is still being fetched from starting). */
     fun connectSilence() {
+        connectAdmissionPlay = false
+        admissionJob?.cancel()
+        selectionJob?.cancel()
+        _resolving.value = false
         if (loadJob?.isActive == true) {
             val position = resumePosition() ?: player.clock.rawPositionMs()
             loadJob?.cancel()
@@ -200,6 +276,11 @@ class DesktopPlaybackController(
 
     /** Connect: play from where this PC is (or where a silently loaded song waits). */
     fun connectPlay() {
+        if (connectAdmissionPending) {
+            connectAdmissionPlay = true
+            _resolving.value = true
+            return
+        }
         when (player.state.value) {
             VlcAudioPlayer.State.PAUSED -> player.resume()
             VlcAudioPlayer.State.PLAYING, VlcAudioPlayer.State.BUFFERING -> Unit
@@ -231,16 +312,24 @@ class DesktopPlaybackController(
     }
 
     fun syncRoomQueue(tracks: List<Track>, index: Int) {
-        if (index in tracks.indices && tracks[index].id == _queue.value.current?.id) _queue.value = _queue.value.copy(tracks = tracks, index = index)
+        roomAdmissionJob?.cancel()
+        roomAdmissionJob = admit(tracks) { allowed ->
+            val queue = Queue(tracks, index).playable(allowed)
+            if (queue.current?.id == _queue.value.current?.id) _queue.value = queue
+        }
     }
 
     /** Restores the previous playback queue on app launch in idle state without auto-starting playback. */
     fun restoreQueue(tracks: List<Track>, index: Int = 0) {
         if (tracks.isEmpty() || index !in tracks.indices) return
+        admissionJob?.cancel()
+        admissionJob = admit(tracks) { allowed -> restorePlayableQueue(Queue(tracks, index).playable(allowed)) }
+    }
+
+    private fun restorePlayableQueue(queue: Queue) {
         if (_queue.value.current == null && player.state.value == VlcAudioPlayer.State.IDLE) {
-            // Idle: no stream lookup, no media request and no video lookup until play is pressed.
-            // Every launch used to ask YouTube for the restored song whether or not it was played.
-            _queue.value = Queue(tracks = tracks, index = index)
+            // Metadata admission never resolves or starts an audio stream.
+            _queue.value = queue
         }
     }
 
@@ -283,7 +372,7 @@ class DesktopPlaybackController(
         override fun rawPositionMs(): Long = _connectRemote.value?.positionAt(System.currentTimeMillis()) ?: resumePosition() ?: player.clock.rawPositionMs()
         override fun isPlaying(): Boolean = _connectRemote.value?.let { it.playing && !it.buffering } ?: (resumePosition() == null && player.clock.isPlaying())
         override fun speed(): Float = if (_connectRemote.value != null) 1f else player.clock.speed()
-        override fun isBuffering(): Boolean = _connectRemote.value?.buffering ?: ((resumePosition() != null && pendingResumeMs == null) || player.clock.isBuffering())
+        override fun isBuffering(): Boolean = _connectRemote.value?.buffering ?: (_resolving.value || (resumePosition() != null && pendingResumeMs == null) || player.clock.isBuffering())
     }
     @Volatile var preloadNext: Boolean = true
     fun setRate(rate: Float) = player.setRate(rate)
@@ -419,6 +508,15 @@ class DesktopPlaybackController(
     fun playSingle(track: Track) = playFrom(track, listOf(track), automatic = true)
 
     fun playFrom(track: Track, list: List<Track>, automatic: Boolean = list.size <= 1) {
+        connectAdmissionJob?.cancel()
+        connectAdmissionPending = false
+        selectionJob?.cancel()
+        selectionJob = admit(list.ifEmpty { listOf(track) }) { allowed ->
+            if (allowed.any { it.id == track.id }) playAllowed(track, allowed, automatic)
+        }
+    }
+
+    private fun playAllowed(track: Track, list: List<Track>, automatic: Boolean) {
         if (intercepted("play_track", track)) return
         if (connect(com.auralis.music.data.connect.ConnectIntent.Load(list.ifEmpty { listOf(track) }, list.indexOfFirst { it.id == track.id }.coerceAtLeast(0)))) return
         autoRadio.reset(automatic)
@@ -507,6 +605,12 @@ class DesktopPlaybackController(
 
     /** Puts [track] right after the playing song (or plays it when nothing is queued). */
     fun playNext(track: Track) {
+        scope.launch(admissionContext(), start = CoroutineStart.UNDISPATCHED) { queueEdits.withLock {
+            if (filterTracks(listOf(track)).isNotEmpty()) enqueueAllowedNext(track)
+        } }
+    }
+
+    private fun enqueueAllowedNext(track: Track) {
         if (intercepted("recommend", track)) return
         if (connect(com.auralis.music.data.connect.ConnectIntent.PlayNext(track))) return
         val q = _queue.value
@@ -520,6 +624,12 @@ class DesktopPlaybackController(
 
     /** Adds [track] to the end of the queue (or plays it when nothing is queued). */
     fun addToQueue(track: Track) {
+        scope.launch(admissionContext(), start = CoroutineStart.UNDISPATCHED) { queueEdits.withLock {
+            if (filterTracks(listOf(track)).isNotEmpty()) enqueueAllowed(track)
+        } }
+    }
+
+    private fun enqueueAllowed(track: Track) {
         if (intercepted("recommend", track)) return
         if (connect(com.auralis.music.data.connect.ConnectIntent.Add(track))) return
         val q = _queue.value
@@ -533,7 +643,7 @@ class DesktopPlaybackController(
         val q = _queue.value
         if (index !in q.tracks.indices) return
         if (intercepted("play_track", q.tracks[index])) return
-        if (connect(com.auralis.music.data.connect.ConnectIntent.PlayIndex(index, q.tracks[index].id))) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.PlayIndex(remoteIndex(index), q.tracks[index].id))) return
         consecutiveFailures = 0
         pendingResumeMs = null
         val withCurrentHeard = if (q.current != null) q.copy(listenedIndices = q.listenedIndices + q.index) else q
@@ -545,7 +655,7 @@ class DesktopPlaybackController(
     fun removeAt(index: Int) {
         if (!applyingRoom.get() && roomQueueEdit?.invoke(index, null) == true) return
         if (intercepted("edit_queue")) return
-        _queue.value.tracks.getOrNull(index)?.let { if (connect(com.auralis.music.data.connect.ConnectIntent.Remove(index, it.id))) return }
+        _queue.value.tracks.getOrNull(index)?.let { if (connect(com.auralis.music.data.connect.ConnectIntent.Remove(remoteIndex(index), it.id))) return }
         val q = _queue.value
         if (index !in q.tracks.indices || index == q.index) return
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
@@ -557,7 +667,7 @@ class DesktopPlaybackController(
     fun moveAt(from: Int, to: Int) {
         if (!applyingRoom.get() && roomQueueEdit?.invoke(from, to) == true) return
         if (intercepted("edit_queue")) return
-        if (connect(com.auralis.music.data.connect.ConnectIntent.Move(from, to))) return
+        if (connect(com.auralis.music.data.connect.ConnectIntent.Move(remoteIndex(from), remoteIndex(to)))) return
         val q = _queue.value
         if (from !in q.tracks.indices || to !in q.tracks.indices || from == to) return
         val order = q.tracks.indices.toMutableList().apply { add(to, removeAt(from)) }
@@ -582,6 +692,12 @@ class DesktopPlaybackController(
     }
 
     fun release() {
+        connectAdmissionJob?.cancel()
+        connectAdmissionPending = false
+        admissionJob?.cancel()
+        selectionJob?.cancel()
+        remoteAdmissionJob?.cancel()
+        roomAdmissionJob?.cancel()
         autoRadio.reset(false)
         preloadJob?.cancel()
         loadJob?.cancel()
@@ -591,6 +707,19 @@ class DesktopPlaybackController(
     }
 
     private fun load(requested: Queue, resumeAtMs: Long = 0L, isRetry: Boolean = false) {
+        connectAdmissionJob?.cancel()
+        connectAdmissionPending = false
+        admissionJob?.cancel()
+        loadJob?.cancel()
+        admissionJob = admit(requested.tracks) { allowed ->
+            val playable = requested.playable(allowed)
+            if (playable.current != null) loadAllowed(playable,
+                if (playable.current?.id == requested.current?.id) resumeAtMs else 0L, isRetry)
+            else { player.stop(); _queue.value = Queue() }
+        }
+    }
+
+    private fun loadAllowed(requested: Queue, resumeAtMs: Long, isRetry: Boolean) {
         val current = _queue.value
         // The queue plays in its own order: next, previous and jumps never move songs.
         val q = requested

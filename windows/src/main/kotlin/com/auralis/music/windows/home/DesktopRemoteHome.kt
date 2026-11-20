@@ -52,7 +52,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                     val cached = withContext(Dispatchers.Default) {
                         val home = saved.optJSONObject("home")?.let(::parseRemoteHome).orEmpty()
                         val recents = saved.optJSONObject("history")?.let(::parseRemoteHistory).orEmpty()
-                        home to recents
+                        filterHomeShelves(home) to com.auralis.music.data.network.YouTubeShortsFilter.filter(recents)
                     }
                     if (version == generation) mutable.value = mutable.value.copy(shelves = cached.first, recents = cached.second)
                 }
@@ -66,7 +66,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                             val root = api.browseHome()
                             withContext(Dispatchers.IO) { if (version == generation && key != null) cache.write(key, "home", root) }
                             // Parsing a whole feed took ~100ms; keep it off the UI thread at startup.
-                            val (shelves, token) = withContext(Dispatchers.Default) { parseRemoteHome(root) to remoteHomeContinuation(root) }
+                            val (shelves, token) = withContext(Dispatchers.Default) { filterHomeShelves(parseRemoteHome(root)) to remoteHomeContinuation(root) }
                             if (version == generation) mutable.value = mutable.value.copy(shelves = shelves, token = token, loading = false)
                         } catch (e: CancellationException) { throw e }
                         catch (_: Exception) { if (version == generation) mutable.value = mutable.value.copy(loading = false, error = "Couldn't load your YouTube Home. Try again.") }
@@ -74,7 +74,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
                     launch {
                         try {
                             val root = api.browseHome("FEmusic_history")
-                            val tracks = withContext(Dispatchers.Default) { parseRemoteHistory(root) }
+                            val tracks = withContext(Dispatchers.Default) { com.auralis.music.data.network.YouTubeShortsFilter.filter(parseRemoteHistory(root)) }
                             if (version == generation) {
                                 mutable.value = mutable.value.copy(recents = tracks)
                                 withContext(Dispatchers.IO) { if (key != null) cache.write(key, "history", root) }
@@ -105,7 +105,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
         pages.mapIndexed { index, browseId -> launch {
             try {
                 val root = api.browseHome(browseId)
-                val shelves = withContext(Dispatchers.Default) { parseRemoteHome(root) }
+                val shelves = withContext(Dispatchers.Default) { filterHomeShelves(parseRemoteHome(root)) }
                 if (version != generation) return@launch
                 results[index] = shelves
                 if (index == 0) mutable.value = mutable.value.copy(token = remoteHomeContinuation(root))
@@ -127,7 +127,7 @@ internal class DesktopRemoteHome(private val scope: CoroutineScope) {
             val root = api.browseHome(continuation = next)
             if (version != generation) return
             consumed += next
-            val page = withContext(Dispatchers.Default) { parseRemoteHome(root) }
+            val page = withContext(Dispatchers.Default) { filterHomeShelves(parseRemoteHome(root)) }
             val known = mutable.value.shelves.map { it.id }.toSet()
             val fresh = page.filter { it.id !in known }
             mutable.value = mutable.value.copy(shelves = mutable.value.shelves + fresh, loadingMore = false,
@@ -153,6 +153,7 @@ private fun homeText(node: JSONObject?): String = node?.optString("simpleText")?
 internal fun parseRemoteHistory(root: JSONObject): List<Track> {
     val tracks = mutableListOf<Track>()
     youtubeNodes(root, "musicResponsiveListItemRenderer").forEach {
+        if (com.auralis.music.data.network.YouTubeShortsFilter.hasShortsMarker(it)) return@forEach
         InnerTubeClient().parseMusicListItem(it, tracks, mutableListOf(), mutableListOf(), mutableListOf())
     }
     return com.auralis.music.domain.recommendations.TrackDeduplicator.deduplicateTracks(
@@ -182,6 +183,7 @@ internal fun parseRemoteHome(root: JSONObject): List<DesktopHomeShelf> = homeRen
     val parser = InnerTubeClient()
     for (i in 0 until contents.length()) {
         val row = contents.optJSONObject(i) ?: continue
+        if (com.auralis.music.data.network.YouTubeShortsFilter.hasShortsMarker(row)) continue
         val beforeTracks = tracks.size; val beforeAlbums = albums.size
         row.optJSONObject("musicResponsiveListItemRenderer")?.let { parser.parseMusicListItem(it, tracks, mutableListOf(), albums, albums) }
         row.optJSONObject("musicTwoRowItemRenderer")?.let { two ->
@@ -205,4 +207,13 @@ internal fun parseRemoteHome(root: JSONObject): List<DesktopHomeShelf> = homeRen
     }
     if (order.isEmpty()) null else DesktopHomeShelf("$title:${order.joinToString("|")}", title,
         homeText(header?.optJSONObject("strapline")).takeIf(String::isNotBlank), tracks.distinctBy { it.id }, albums.distinctBy { it.id }, order.distinct())
+}
+
+internal suspend fun filterHomeShelves(shelves: List<DesktopHomeShelf>,
+    filter: suspend (List<Track>) -> List<Track> = com.auralis.music.data.network.YouTubeShortsFilter::filter
+): List<DesktopHomeShelf> {
+    val ids = filter(shelves.flatMap { it.tracks }.distinctBy { it.id }).map { it.id }.toSet()
+    return shelves.map { shelf -> shelf.copy(tracks = shelf.tracks.filter { it.id in ids },
+        order = shelf.order.filter { !it.startsWith("track:") || it.removePrefix("track:") in ids })
+    }.filter { it.tracks.isNotEmpty() || it.albums.isNotEmpty() }
 }

@@ -15,6 +15,7 @@ import com.auralis.music.data.playlistsync.PlaylistSyncLink
 import com.auralis.music.data.playlistsync.PlaylistSyncStore
 import com.auralis.music.ui.components.AlbumOptionsMenu
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 private fun SpeedDialItem.localPlaylistId(): String? = when (type) {
     SpeedDialType.PLAYLIST -> id.removePrefix("playlist-").removePrefix("local:")
@@ -46,7 +47,11 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
     playback: DesktopPlaybackController?, browse: DesktopBrowseState, collapsed: Boolean,
     playlistLinks: List<PlaylistSyncLink>, onOpenPlaylist: (Playlist) -> Unit, onBrowse: () -> Unit,
     searchRepository: com.auralis.music.domain.repository.SearchRepository, showMessage: (String) -> Unit) {
-    val state by viewModel.uiState.collectAsState()
+    val state by androidx.compose.runtime.produceState(
+        com.auralis.music.ui.viewmodel.HomeUiState(speedDialPages = emptyList()), viewModel
+    ) {
+        viewModel.uiState.collect { value = com.auralis.music.desktop.home.musicHomeState(it) }
+    }
     val playlists by library.getPlaylists().collectAsState(emptyList())
     val artists by library.getSavedArtists().collectAsState(emptyList())
     val savedAlbums by library.getSavedAlbums().collectAsState(emptyList())

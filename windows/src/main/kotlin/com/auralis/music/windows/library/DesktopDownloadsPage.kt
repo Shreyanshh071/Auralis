@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.compose.foundation.BorderStroke
@@ -47,7 +48,12 @@ import com.auralis.music.desktop.playback.DesktopPlaybackController
 @Composable
 internal fun DesktopDownloadsPage(playback: DesktopPlaybackController?, back: () -> Unit,
     downloads: DesktopDownloads = DesktopDownloads.instance, playlists: List<com.auralis.music.domain.model.Playlist> = emptyList()) {
-    val entries by downloads.entries.collectAsState()
+    val entries by produceState(emptyList<DesktopDownloads.Entry>(), downloads) {
+        downloads.entries.collectLatest { all ->
+            val ids = com.auralis.music.data.network.YouTubeShortsFilter.filter(all.map { it.track }.distinctBy { it.id }).map { it.id }.toSet()
+            value = all.filter { it.track.id in ids }
+        }
+    }
     val directory by downloads.rootDirectory.collectAsState()
     val scope = rememberCoroutineScope()
     var choosingDirectory by remember { mutableStateOf(false) }

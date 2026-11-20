@@ -22,14 +22,18 @@ class SpicyAlbumCatalog(private val client: OkHttpClient,
         private var lastMetadataRequestNanos = 0L
     }
     private data class Cached(val tracks: List<SpicyRecording>, val until: Long)
-    private val cache = linkedMapOf<Pair<String, String>, Cached>()
+    private val cache = linkedMapOf<List<String>, Cached>()
     private val lookupLock = Mutex()
     private var blockedUntil = 0L
 
     suspend fun resolve(query: LyricsSearchQuery, excludedIds: Set<String> = emptySet()): SpicyRecording? = lookupLock.withLock {
-        val album = query.album?.substringBefore('(')?.trim()?.takeIf { it.isNotBlank() } ?: return@withLock null
+        val album = query.album?.substringBefore('(')?.trim()?.takeIf { it.isNotBlank() }
         if (query.artist.isBlank() || (query.durationMs ?: (query.durationSec ?: 0) * 1000) <= 0) return@withLock null
-        val key = album.lowercase() to query.artist.lowercase()
+        if (album == null && query.title.isBlank()) return@withLock null
+        // An album cache contains its whole track list. A recording search is scoped to
+        // one song, so unrelated album-less songs must never share its negative result.
+        val key = listOf(if (album == null) "recording" else "album",
+            (album ?: query.recordingTitle ?: query.title).lowercase(), query.artist.lowercase())
         cache[key]?.takeIf { it.until > clock() }?.let { entry ->
             if (entry.tracks.isEmpty()) return@withLock null
             entry.tracks.firstOrNull { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }?.let { return@withLock it }
@@ -38,14 +42,29 @@ class SpicyAlbumCatalog(private val client: OkHttpClient,
         val tracks = mutableListOf<SpicyRecording>()
         try {
             fun quote(value: String) = "\"" + value.replace('"', ' ').replace('\\', ' ') + "\""
-            val search = "https://musicbrainz.org/ws/2/release/".toHttpUrl().newBuilder()
-                .addQueryParameter("query", "release:${quote(album)} AND artist:${quote(query.artist)}")
+            val entity = if (album == null) "recording" else "release"
+            val term = if (album == null) "recording:${quote(query.recordingTitle ?: query.title)}" else "release:${quote(album)}"
+            val search = "https://musicbrainz.org/ws/2/$entity/".toHttpUrl().newBuilder()
+                .addQueryParameter("query", "$term AND artist:${quote(query.artist)}")
                 .addQueryParameter("fmt", "json").addQueryParameter("limit", "100").build()
-            val releases = JSONObject(metadata(search.toString())).optJSONArray("releases")
-            val digital = (0 until (releases?.length() ?: 0)).mapNotNull { releases?.optJSONObject(it) }
+            val result = JSONObject(metadata(search.toString()))
+            val releases = if (album != null) {
+                val items = result.optJSONArray("releases")
+                (0 until (items?.length() ?: 0)).mapNotNull { items?.optJSONObject(it) }
+            } else {
+                val recordings = result.optJSONArray("recordings")
+                (0 until (recordings?.length() ?: 0)).flatMap { index ->
+                    val items = recordings?.optJSONObject(index)?.optJSONArray("releases")
+                    (0 until (items?.length() ?: 0)).mapNotNull { items?.optJSONObject(it) }
+                }.distinctBy { it.optString("id") }
+            }
+            val digital = releases
                 .filter { release ->
                     val media = release.optJSONArray("media")
-                    (0 until (media?.length() ?: 0)).any { media?.optJSONObject(it)?.optString("format") == "Digital Media" }
+                    // Recording search can omit media formats; release relationships
+                    // are only discovery hints and Spotify metadata is verified below.
+                    (album == null && (media == null || media.length() == 0)) ||
+                        (0 until (media?.length() ?: 0)).any { media?.optJSONObject(it)?.optString("format") == "Digital Media" }
                 }.sortedByDescending { it.optString("country") == "XW" }.take(5)
             val albums = mutableSetOf<String>()
             for (release in digital) {
@@ -64,7 +83,12 @@ class SpicyAlbumCatalog(private val client: OkHttpClient,
                 if (tracks.any { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }) break
             }
         } catch (e: CancellationException) { throw e }
-          catch (e: Exception) { com.auralis.music.util.Log.w("SpicyCatalog", "Album metadata failed: ${e.javaClass.simpleName}") }
+          catch (e: Exception) {
+              com.auralis.music.util.Log.w("SpicyCatalog", "Album metadata failed: ${e.javaClass.simpleName}")
+              // A failed request is not proof of a catalogue miss. In particular,
+              // do not hide a successful earlier release behind a five-minute miss.
+              return@withLock tracks.firstOrNull { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }
+          }
         if (cache.size >= 64) cache.clear()
         cache[key] = Cached(tracks, clock() + if (tracks.isEmpty()) 300_000 else 86_400_000)
         tracks.firstOrNull { it.id !in excludedIds && SpicyRecordingMatcher.matches(query, it) }.also {

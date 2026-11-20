@@ -134,7 +134,7 @@ fun ListeningStatsPage(
      */
     onClearAllDevices: (suspend () -> Unit)? = null
 ) {
-    val events by stats.listens.collectAsState()
+    val events by com.auralis.music.windows.library.musicListens(stats)
     val clearScope = rememberCoroutineScope()
     var option by remember { mutableStateOf(StatsOption.CONTINUOUS) }
     var chip by remember { mutableStateOf(0) }

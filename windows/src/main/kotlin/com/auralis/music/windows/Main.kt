@@ -215,6 +215,8 @@ fun main(args: Array<String>) {
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
 
         val libraryDeferred = async {
+            com.auralis.music.data.network.YouTubeShortsFilter.classificationStore =
+                PropertiesFileKeyValueStore(java.io.File(dataDir, "youtube-video-classifications.properties"))
             com.auralis.music.desktop.library.DesktopLibraryRepository(java.io.File(dataDir, "library.json"))
         }
 

@@ -97,6 +97,22 @@ class YouTubeLibraryTest {
         assertEquals("My playlist", parseYouTubePlaylists(json).single().title)
     }
 
+    @Test fun playlistPagesAreClassifiedBeforeTheyArePublishedOrReturnedForPlayback() = runBlocking {
+        val checked = mutableListOf<String>()
+        val api = YouTubeMusicClient(cookie, trackFilter = { tracks ->
+            checked += tracks.map { it.id }
+            tracks.filterNot { it.id == "short" }
+        }) { _, body, _ ->
+            if (body!!.has("browseId")) """{"musicPlaylistShelfRenderer":{"contents":[${track("song")},${track("short")}],"continuations":[{"nextContinuationData":{"continuation":"next"}}]}}"""
+            else """{"musicPlaylistShelfContinuation":{"contents":[${track("short")},${track("interlude")}]}}"""
+        }
+        val pages = mutableListOf<List<String>>()
+        val tracks = api.tracks(PlaylistResult("VLmixed", "Mixed playlist")) { page -> pages += page.map { it.id } }
+        assertEquals(listOf(listOf("song"), listOf("song", "interlude")), pages)
+        assertEquals(listOf("song", "interlude"), tracks.map { it.id })
+        assertEquals(listOf("song", "short", "short", "interlude"), checked)
+    }
+
     @Test fun savedAccountsAreProtectedAndTheirPlaylistCachesStaySeparate() {
         val directory = Files.createTempDirectory("auralis-youtube-accounts-test").toFile()
         val file = java.io.File(directory, "accounts.properties")

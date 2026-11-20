@@ -6,6 +6,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,9 +16,32 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** Filters short-form videos at import time without rejecting short audio recordings by duration alone. */
+/** Shared desktop admission check for lists and playback; duration alone never rejects a song. */
 object YouTubeShortsFilter {
+    @Volatile var classificationStore: com.auralis.music.util.KeyValueStore? = null
+    private val checks = Array(64) { kotlinx.coroutines.sync.Mutex() }
+    private val requestLimit = Semaphore(4)
+    private val recent = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Boolean>>()
+    private const val CLASSIFICATION_TTL_MS = 7L * 86_400_000L
     private const val MAX_SHORT_SECONDS = 180L
+    private val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
+
+    private fun needsMetadata(track: Track) = track.duration <= MAX_SHORT_SECONDS &&
+        videoIdPattern.matches(track.id) && track.source == com.auralis.music.domain.model.TrackSource.YOUTUBE
+
+    private fun cachedRejection(id: String): Boolean? {
+        val now = System.currentTimeMillis()
+        recent[id]?.takeIf { it.second || it.first > now }?.let { return it.second }
+        val saved = classificationStore?.getString(id, "").orEmpty().split('|')
+        val until = saved.firstOrNull()?.toLongOrNull() ?: return null
+        if (saved.size != 2 || saved[1] !in setOf("true", "false") || (until <= now && saved[1] != "true")) return null
+        return saved[1].toBoolean().also { recent[id] = until to it }
+    }
+
+    /** Synchronous cached previews omit unchecked videos until the live check completes. */
+    fun filterCached(tracks: List<Track>): List<Track> = tracks.filter {
+        if (needsMetadata(it)) cachedRejection(it.id) == false else cachedRejection(it.id) != true
+    }
     private val cutoffDate = "2024-10-15"
     private val nonMusicCategories = setOf(
         "gaming", "sports", "news & politics", "comedy", "education", "science & technology",
@@ -124,16 +150,35 @@ object YouTubeShortsFilter {
         return seconds <= 60L || uploadDate >= cutoffDate
     }
 
-    suspend fun filter(tracks: List<Track>): List<Track> = coroutineScope {
-        val limit = Semaphore(4)
-        val rejectedIds = tracks.asSequence().filter { it.duration <= MAX_SHORT_SECONDS }
+    suspend fun filter(tracks: List<Track>): List<Track> {
+        if (tracks.none { needsMetadata(it) && cachedRejection(it.id) == null }) return filterCached(tracks)
+        return withContext(Dispatchers.IO) { coroutineScope {
+        val updates = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val rejectedIds = tracks.asSequence().filter {
+            needsMetadata(it)
+        }
             .distinctBy { it.id }.map { track ->
             async {
-                val player = limit.withPermit { fetchPlayer(track.id) }
-                if (isShortOrNonMusic(track, player)) track.id else null
+                val rejected = checks[(track.id.hashCode() and Int.MAX_VALUE) % checks.size].withLock {
+                    cachedRejection(track.id)?.let { return@withLock it }
+                    val now = System.currentTimeMillis()
+                    val player = requestLimit.withPermit { fetchPlayer(track.id) }
+                    val value = isShortOrNonMusic(track, player)
+                    // Authentication/network failures are not a verified music classification.
+                    val verified = player?.optJSONObject("videoDetails")?.optString("videoId") == track.id &&
+                        player.optJSONObject("microformat")?.optJSONObject("playerMicroformatRenderer") != null
+                    val until = now + if (verified) CLASSIFICATION_TTL_MS else 30_000L
+                    if (recent.size >= 4096) recent.clear()
+                    recent[track.id] = until to value
+                    if (verified) updates[track.id] = "$until|$value"
+                    value
+                }
+                if (rejected) track.id else null
             }
         }.toList().awaitAll().filterNotNull().toSet()
-        tracks.filterNot { it.id in rejectedIds }
+        if (updates.isNotEmpty()) classificationStore?.putStrings(updates)
+        tracks.filterNot { it.id in rejectedIds || cachedRejection(it.id) == true }
+    } }
     }
 
     private fun fetchPlayer(videoId: String): JSONObject? = try {

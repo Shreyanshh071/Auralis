@@ -33,7 +33,7 @@ internal fun wrappedState(events: List<DesktopListeningStats.Listen>, year: Int,
 @Composable
 internal fun DesktopWrappedPage(stats: DesktopListeningStats, library: LibraryRepository,
     search: com.auralis.music.domain.repository.SearchRepository?, onClose: () -> Unit) {
-    val events by stats.listens.collectAsState()
+    val events by com.auralis.music.windows.library.musicListens(stats)
     val year = LocalDate.now().year
     val summary = remember(events, year) { wrappedState(events, year) }
     val photos = remember { mutableStateMapOf<String, String?>() }

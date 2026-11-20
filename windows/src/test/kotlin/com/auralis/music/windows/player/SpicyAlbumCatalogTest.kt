@@ -10,6 +10,16 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import kotlin.test.*
 
 class SpicyAlbumCatalogTest {
+    @Test fun liveAlbumlessRecordingResolvesWhileSpotifySearchIsUnavailable() = runBlocking {
+        org.junit.Assume.assumeTrue(System.getenv("AURALIS_LIVE_SPICY_ALBUMLESS") == "1")
+        val result = assertNotNull(SpicyLyricsSource(spotifyToken = { null }).search(
+            LyricsSearchQuery("Self Aware", "Temper City", 180, "R-hYM3BqTbA",
+                durationMs = 180761, reportFailures = true)))
+        assertEquals(LyricsProvider.SPICY_LYRICS, result.provider)
+        assertTrue(result.lyricsData.lines.isNotEmpty())
+        println("Album-less recording resolved: Self Aware (${result.syncType}; verified recording metadata)")
+    }
+
     private val albumId = "abcdefghijklmnopqrstuv"
     private val trackId = "zyxwvutsrqponmlkjihgfe"
     private fun album(duration: Long = 180000, uri: String = "spotify:album:$albumId") = """
