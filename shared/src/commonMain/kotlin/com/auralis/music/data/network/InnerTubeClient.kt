@@ -1069,24 +1069,16 @@ open class InnerTubeClient(
     suspend fun getArtistPage(artist: Artist): ArtistPage? = withContext(Dispatchers.IO) {
         var resolvedArtist = artist
         try {
-            var effectiveChannelId = artist.id
+            // The channel songs link for this name beats any search: see ArtistChannels.
+            var effectiveChannelId = ArtistChannels.resolve(artist).id
 
             // If channelId is not a real YouTube channel ID, search to resolve it
             if (!effectiveChannelId.startsWith("UC")) {
-                val matcher = com.auralis.music.domain.search.SearchQueryMatcher
-                // "Juice WRLD" also matches "BABY juice WRLD" (66 subscribers) by containment, and
-                // the artist filter can list such an account first: a channel named exactly like the
-                // artist wins, and among equal names the most subscribed one is the official artist.
-                fun pick(candidates: List<Artist>): Artist? {
-                    val channels = candidates.filter { it.id.startsWith("UC") }
-                    val exact = channels.filter { matcher.normalize(it.name) == matcher.normalize(artist.name) }
-                    return exact.maxByOrNull { followerCount(it.subscribers) }
-                        ?: channels.filter { matcher.isAuthorMatch(it.name, artist.name) }
-                            .maxByOrNull { followerCount(it.subscribers) }
-                }
                 val filtered = search(artist.name, FILTER_ARTISTS).artists
+                val matcher = com.auralis.music.domain.search.SearchQueryMatcher
                 val exactInFilter = filtered.any { it.id.startsWith("UC") && matcher.normalize(it.name) == matcher.normalize(artist.name) }
-                val match = if (exactInFilter) pick(filtered) else pick(filtered + search(artist.name).artists)
+                val match = if (exactInFilter) ArtistChannels.pick(artist.name, filtered)
+                    else ArtistChannels.pick(artist.name, filtered + search(artist.name).artists)
                 if (match != null) {
                     effectiveChannelId = match.id
                     resolvedArtist = match

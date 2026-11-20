@@ -467,7 +467,9 @@ fun AuralisApp(
         searchViewModelState?.closeRecognitionModal()
     }
 
-    fun openArtistDetail(artist: com.auralis.music.domain.model.Artist) {
+    fun openArtistDetail(input: com.auralis.music.domain.model.Artist) {
+        // A name YouTube linked on a song opens that channel directly, never a name search's guess.
+        val artist = com.auralis.music.data.network.ArtistChannels.resolve(input)
         // A song credit like "benny blanco & Juice WRLD" is several artists: let the user pick one
         // instead of opening whichever channel a search for the whole credit finds.
         if (!artist.id.startsWith("UC")) {
@@ -2693,7 +2695,15 @@ fun AuralisApp(
                                 onOpenArtist = {
                                     val track = playerUiState.currentTrack ?: audioPlayerTrack
                                     if (track != null) {
-                                        openArtistDetail(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
+                                        // The song's own artist links carry each channel: use them.
+                                        val linked = track.artists
+                                            .filterNot { com.auralis.music.domain.stats.ArtistCredits.isLabel(it.name) }
+                                            .map { com.auralis.music.domain.model.Artist(id = it.channelId.orEmpty(), name = it.name) }
+                                        when {
+                                            linked.size == 1 -> openArtistDetail(linked.single())
+                                            linked.size > 1 -> artistChoices = linked
+                                            else -> openArtistDetail(com.auralis.music.domain.model.Artist(id = "", name = track.artist))
+                                        }
                                     }
                                 },
                                 onAddToPlaylist = {

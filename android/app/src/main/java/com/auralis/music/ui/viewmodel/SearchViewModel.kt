@@ -127,9 +127,19 @@ class SearchViewModel(
     /** Lowercase artist name to Apple Music photo. Blank while looking, or when Apple has none. */
     private val applePhotos = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private fun artistPageRequest(artist: Artist): kotlinx.coroutines.Deferred<ArtistPage?> {
+    /**
+     * A saved page is only good for [artist] when it is that artist's channel: pages are kept by
+     * name, and a name once resolved to the wrong same-named channel must not keep opening it.
+     */
+    private fun ArtistPage?.fits(artist: Artist): ArtistPage? =
+        this?.takeIf { !artist.id.startsWith("UC") || it.artist.id == artist.id }
+
+    private fun artistPageRequest(input: Artist): kotlinx.coroutines.Deferred<ArtistPage?> {
+        // Songs link each artist's real channel; use it instead of searching the name.
+        val artist = com.auralis.music.data.network.ArtistChannels.resolve(input)
         val key = artist.name.lowercase()
-        artistRequests[key]?.let { return it }
+        val requestKey = if (artist.id.startsWith("UC")) artist.id else key
+        artistRequests[requestKey]?.let { return it }
         val request = viewModelScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             val page = try {
                 withTimeout(12_000L) {
@@ -146,8 +156,8 @@ class SearchViewModel(
             }
             page
         }
-        artistRequests[key] = request
-        request.invokeOnCompletion { artistRequests.remove(key, request) }
+        artistRequests[requestKey] = request
+        request.invokeOnCompletion { artistRequests.remove(requestKey, request) }
         request.start()
         return request
     }
@@ -155,8 +165,9 @@ class SearchViewModel(
     /** A song's menu has "View artist": fetch the page and its photo now, so opening it is instant. */
     fun preloadArtist(name: String) {
         val key = name.lowercase()
-        if (name.isBlank() || artistPages[key] != null || artistRequests[key] != null) return
-        val request = artistPageRequest(Artist(id = "yt:$name", name = name))
+        val artist = com.auralis.music.data.network.ArtistChannels.resolve(Artist(id = "yt:$name", name = name))
+        if (name.isBlank() || artistPages[key].fits(artist) != null) return
+        val request = artistPageRequest(artist)
         viewModelScope.launch {
             val photo = request.await()?.let { it.bannerUrl ?: it.artist.thumbnail }
             if (context != null && !photo.isNullOrBlank()) {
@@ -179,7 +190,7 @@ class SearchViewModel(
                 ?: Artist(id = "yt:$name", name = name)
         } + results.artists
         artists.distinctBy { it.name.lowercase() }.take(2).forEach { artist ->
-            if (artistPages[artist.name.lowercase()] == null) artistPageRequest(artist)
+            if (artistPages[artist.name.lowercase()].fits(com.auralis.music.data.network.ArtistChannels.resolve(artist)) == null) artistPageRequest(artist)
         }
     }
 
@@ -505,7 +516,9 @@ class SearchViewModel(
         }
     }
 
-    fun openArtist(artist: Artist, resetStack: Boolean = false) {
+    fun openArtist(input: Artist, resetStack: Boolean = false) {
+        // A song's artist opens the channel YouTube links for it, never a same-named lookalike.
+        val artist = com.auralis.music.data.network.ArtistChannels.resolve(input)
         val isKanye = artist.name.equals("Kanye West", ignoreCase = true) || artist.name.equals("Ye", ignoreCase = true)
         val defaultKanyeThumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg/1280px-Kanye_West_at_the_2009_Tribeca_Film_Festival_%28crop_2%29.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail"
         val verifiedBanner = when {
@@ -513,7 +526,7 @@ class SearchViewModel(
             artist.id.startsWith("UC") && !artist.thumbnail.isNullOrBlank() && !artist.thumbnail!!.contains("i.ytimg.com") && !artist.thumbnail!!.contains("IFlc3sf6sHV3TAZ_5vhyHQiKb9D4AdSlDkiTSgsRiicnzLASXwVr1n22EEg6Vtd2XBlyJslm8xlYiA") -> artist.thumbnail
             else -> null
         }
-        val cachedPage = artistPages[artist.name.lowercase()]?.withKnownPhoto()
+        val cachedPage = artistPages[artist.name.lowercase()].fits(artist)?.withKnownPhoto()
         val initialPage = cachedPage ?: ArtistPage(
             artist = artist.copy(thumbnail = verifiedBanner ?: artist.thumbnail), bannerUrl = verifiedBanner)
         val newEntry = ExploreDetail.Artist(artistPage = initialPage, isLoading = cachedPage == null)
@@ -535,13 +548,14 @@ class SearchViewModel(
             return
         }
         viewModelScope.launch {
-            val stored = browseCache?.artist(artist.name)
+            val stored = browseCache?.artist(artist.name).fits(artist)
             if (stored != null) {
                 showArtistPage(artist, stored)
                 upgradeArtistPhoto(stored)
             }
-            val knownChannel = stored?.artist?.id?.takeIf { !artist.id.startsWith("UC") && it.startsWith("UC") }
-            val page = artistPageRequest(if (knownChannel != null) artist.copy(id = knownChannel) else artist).await()
+            // The stored page's channel isn't reused for a name-only artist: it may be an earlier
+            // wrong pick, and the lookup now prefers the real artist over a same-named account.
+            val page = artistPageRequest(artist).await()
             showArtistPage(artist, page ?: stored ?: initialPage)
             page?.let {
                 preloadAlbums(it)

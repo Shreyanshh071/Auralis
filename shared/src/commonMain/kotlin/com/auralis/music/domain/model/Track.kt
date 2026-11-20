@@ -92,7 +92,7 @@ object TrackArtists {
                 val name = o?.optString("n")?.trim().orEmpty()
                 if (name.isBlank()) null
                 else TrackArtist(name, o?.optString("c")?.takeIf { it.isNotBlank() })
-            }.take(MAX_ARTISTS)
+            }.take(MAX_ARTISTS).also(com.auralis.music.data.network.ArtistChannels::learn)
         } catch (_: Exception) {
             emptyList()
         }

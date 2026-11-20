@@ -51,6 +51,7 @@ object ArtistRuns {
                 // YouTube linked this whole name as one artist: remember it if it holds a separator.
                 ArtistCredits.learn(name)
                 artists += TrackArtist(name, browseId)
+                ArtistChannels.learn(name, browseId)
             } else {
                 if (SEPARATOR_ONLY.matches(text)) continue
                 val plain = text.replace(EDGE_GLUE, "")
