@@ -39,8 +39,14 @@ private const val DEVELOPER_GITHUB_URL = "https://github.com/Shreyanshh071"
 private const val DEVELOPER_AVATAR_URL = "https://avatars.githubusercontent.com/u/319473344?v=4"
 private const val BUY_ME_A_CHAI_URL = "https://buymeachai.in/shreyanshh071"
 private const val DEVELOPER_DISCORD_URL = "https://discordapp.com/users/1494604092083802263"
-private const val CONTRIBUTOR_GITHUB_URL = "https://github.com/IshaanThakur09"
-private const val CONTRIBUTOR_AVATAR_URL = "https://github.com/IshaanThakur09.png"
+/** GitHub login and, when set, a display-name string; the avatar and link come from the login. */
+private data class Contributor(val login: String, val nameRes: Int? = null)
+
+private val CONTRIBUTORS = listOf(
+    Contributor("IshaanThakur09", R.string.ishaan_thakur),
+    Contributor("sharthak-sev"),
+    Contributor("blitzuu"),
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -383,6 +389,7 @@ fun AboutScreen(
                     )
                 }
 
+                CONTRIBUTORS.forEach { person ->
                 // Contributor Card
                 com.auralis.music.ui.glass.OptionalGlassCard(
                     shape = RoundedCornerShape(24.dp),
@@ -406,7 +413,7 @@ fun AboutScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             ArtworkCard(
-                                url = CONTRIBUTOR_AVATAR_URL,
+                                url = "https://github.com/${person.login}.png",
                                 modifier = Modifier.fillMaxSize(),
                                 cornerRadius = 36.dp
                             )
@@ -416,7 +423,7 @@ fun AboutScreen(
 
                         // Contributor Name
                         Text(
-                            text = str(R.string.ishaan_thakur),
+                            text = person.nameRes?.let { str(it) } ?: person.login,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = onBackground,
@@ -442,10 +449,11 @@ fun AboutScreen(
                         ) {
                             CircularActionDrawableButton(
                                 drawableRes = R.drawable.ic_github,
-                                onClick = { openUrl(CONTRIBUTOR_GITHUB_URL) }
+                                onClick = { openUrl("https://github.com/${person.login}") }
                             )
                         }
                     }
+                }
                 }
             }
         }
