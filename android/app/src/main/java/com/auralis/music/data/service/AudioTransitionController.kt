@@ -36,13 +36,21 @@ internal class AudioTransitionController(
     private var attempted = false
     private var cueMs = 0L
     private var baseVolume = 1f
+    private var outgoingEnded = false
     var isHandoff = false
         private set
     val isMixing: Boolean get() = job != null
 
     private val primaryListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady) cancel()
+            if (playWhenReady) return
+            // pauseAtEndOfMediaItems firing a few ms before the fade loop finishes is the outgoing
+            // song ending, not the user pausing: hand off instead of dropping the incoming audio.
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && job != null && !isHandoff) {
+                outgoingEnded = true
+                return
+            }
+            cancel()
         }
         override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
             if (playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE) cancel()
@@ -128,8 +136,10 @@ internal class AudioTransitionController(
                 player.play()
                 var last = nanoTime()
                 var elapsed = 0L
+                outgoingEnded = false
                 while (elapsed < fadeMs) {
                     delay(16)
+                    if (outgoingEnded && eligible() && player.playWhenReady) break
                     if (!eligible() || !primary.playWhenReady || !player.playWhenReady ||
                         primary.currentMediaItem?.mediaId != outgoingId || primary.playbackParameters != baseRate) return@launch
                     if (primary.playbackState != Player.STATE_READY || player.playbackState != Player.STATE_READY ||
@@ -147,6 +157,9 @@ internal class AudioTransitionController(
                     )
                     applyFilters(plan, p)
                 }
+                // Finish the curve even if the outgoing song ended a frame early.
+                player.volume = baseVolume
+                player.playbackParameters = baseRate
                 // Keep the incoming decoder audible until the stable session player is ready.
                 isHandoff = true
                 primaryFilter.open()
@@ -158,22 +171,45 @@ internal class AudioTransitionController(
                 primary.seekTo(nextIndex, player.currentPosition)
                 primary.play()
                 onTransition(next, player.currentPosition)
+                fun valid() = eligible() && primary.playWhenReady && primary.currentMediaItem?.mediaId == incomingId
                 suspend fun ready(): Boolean = withTimeoutOrNull(8_000L) {
                     while (primary.playbackState != Player.STATE_READY || !primary.isPlaying) {
-                        if (!eligible() || !primary.playWhenReady || primary.currentMediaItem?.mediaId != incomingId) return@withTimeoutOrNull false
+                        if (!valid()) return@withTimeoutOrNull false
                         delay(20)
                     }
                     true
                 } ?: false
-                if (!ready()) return@launch
-                if (kotlin.math.abs(primary.currentPosition - player.currentPosition) > 60L) {
-                    primary.seekTo(player.currentPosition)
-                    if (!ready()) return@launch
+                suspend fun drift(): Long? {
+                    // The audio clock reports the seek position until the AudioTrack is really running.
+                    delay(HANDOFF_SETTLE_MS)
+                    val samples = LongArray(5)
+                    for (i in samples.indices) {
+                        if (!valid()) return null
+                        samples[i] = player.currentPosition - primary.currentPosition
+                        if (i < samples.lastIndex) delay(16)
+                    }
+                    return AudioTransitionPolicy.medianDrift(samples)
                 }
+                if (!ready()) return@launch
+                // The first seek always lands behind the overlap decoder by however long the session
+                // player took to become ready (the overlap kept playing meanwhile). Re-seek with a
+                // measured lead until both decoders play the same audio before any gain moves, or
+                // the swap is heard as a stutter/repeated word.
+                var drift = drift() ?: return@launch
+                var lead = 0L
+                var realigns = 0
+                while (!AudioTransitionPolicy.handoffAligned(drift) && realigns < AudioTransitionPolicy.HANDOFF_MAX_REALIGNS) {
+                    lead = AudioTransitionPolicy.nextHandoffLead(lead, drift)
+                    primary.seekTo(player.currentPosition + lead)
+                    if (!ready()) return@launch
+                    drift = drift() ?: return@launch
+                    realigns++
+                }
+                val swapNs = AudioTransitionPolicy.handoffSwapMs(drift) * 1_000_000f
                 val handoffStart = nanoTime()
                 while (true) {
-                    if (!eligible() || !primary.playWhenReady || primary.currentMediaItem?.mediaId != incomingId) return@launch
-                    val p = ((nanoTime() - handoffStart) / 160_000_000f).coerceIn(0f, 1f)
+                    if (!valid()) return@launch
+                    val p = ((nanoTime() - handoffStart) / swapNs).coerceIn(0f, 1f)
                     // These are the same recording; complementary linear gains avoid a volume boost.
                     primary.volume = baseVolume * p
                     player.volume = baseVolume * (1f - p)
@@ -218,6 +254,7 @@ internal class AudioTransitionController(
         incoming = null
         incomingFilter = null
         isHandoff = false
+        outgoingEnded = false
         primary.pauseAtEndOfMediaItems = false
         primaryFilter.open()
         if (secondary != null) {
@@ -236,5 +273,9 @@ internal class AudioTransitionController(
     fun stopAnalysis() {
         analyzer?.close()
         analyzer = null
+    }
+
+    private companion object {
+        const val HANDOFF_SETTLE_MS = 100L
     }
 }

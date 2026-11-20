@@ -255,4 +255,93 @@ class AudioTransitionsTest {
         assertEquals(AutoMixStyle.GAPLESS, gapless.style)
         assertEquals(0L, gapless.fadeMs)
     }
+
+    /** Session player that freezes at its seek target for [latency] ms, then plays in real time. */
+    private class SeekingSession(val f: Fixture, val scope: TestScope) {
+        val now get() = scope.testScheduler.currentTime
+        var seekAt = 0L
+        var target = 0L
+        var latency = 0L
+        var seeks = 0
+        var playStartedAt = -1L
+        var pwr = true
+        /** Drift between the two decoders each time the session player becomes audible again. */
+        val audibleDrift = mutableListOf<Long>()
+        val incomingPosition get() = if (playStartedAt < 0) 0L else now - playStartedAt
+        val sessionPosition get() = when {
+            f.index == 0 -> f.position
+            now < seekAt + latency -> target
+            else -> target + (now - seekAt - latency)
+        }
+
+        init {
+            every { f.secondary.play() } answers { playStartedAt = now }
+            every { f.secondary.currentPosition } answers { incomingPosition }
+            every { f.primary.currentPosition } answers { sessionPosition }
+            every { f.primary.playWhenReady } answers { pwr }
+            every { f.primary.play() } answers { pwr = true }
+            every { f.primary.playbackState } answers {
+                if (f.index == 1 && now < seekAt + latency) Player.STATE_BUFFERING else Player.STATE_READY
+            }
+            // A cross-item seek rebuffers; an in-buffer correction only resets the renderers.
+            every { f.primary.seekTo(1, any()) } answers {
+                f.index = 1; f.currentItem = f.incomingItem; target = secondArg(); seekAt = now; latency = 420; seeks++
+            }
+            every { f.primary.seekTo(any<Long>()) } answers { target = firstArg(); seekAt = now; latency = 130; seeks++ }
+            every { f.primary.volume = any() } answers {
+                val v = firstArg<Float>()
+                if (f.index == 1 && f.volume == 0f && v > 0f) audibleDrift += incomingPosition - sessionPosition
+                f.volume = v
+            }
+        }
+    }
+
+    @Test fun handoffRealignsSessionPlayerBeforeItBecomesAudible() = runTest {
+        val f = Fixture(this)
+        val s = SeekingSession(f, this)
+        f.tick(); runCurrent(); advanceTimeBy(8_000); runCurrent()
+        assertEquals(listOf(f.next), f.transitions)
+        // Old code seeked once to a stale position and crossfaded two copies ~420 ms apart.
+        assertEquals(1, s.audibleDrift.size)
+        assertTrue("drift ${s.audibleDrift}", kotlin.math.abs(s.audibleDrift.single()) <= AudioTransitionPolicy.HANDOFF_TOLERANCE_MS)
+        assertTrue(kotlin.math.abs(s.incomingPosition - s.sessionPosition) <= AudioTransitionPolicy.HANDOFF_TOLERANCE_MS)
+        assertTrue(s.seeks in 2..1 + AudioTransitionPolicy.HANDOFF_MAX_REALIGNS)
+        assertEquals(1f, f.volume, 0f)
+        assertFalse(f.controller.isMixing)
+        verify(exactly = 1) { f.secondary.release() }
+        f.controller.release()
+    }
+
+    @Test fun outgoingSongEndingAFrameEarlyHandsOffInsteadOfDroppingTheIncomingAudio() = runTest {
+        val f = Fixture(this)
+        val s = SeekingSession(f, this)
+        f.tick(); runCurrent(); advanceTimeBy(4_900); runCurrent()
+        assertTrue(f.transitions.isEmpty())
+        s.pwr = false
+        f.primaryListener.captured.onPlayWhenReadyChanged(false, Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM)
+        runCurrent()
+        verify(exactly = 0) { f.secondary.release() }
+        advanceTimeBy(3_000); runCurrent()
+        assertEquals(listOf(f.next), f.transitions)
+        assertTrue(s.pwr)
+        assertTrue(kotlin.math.abs(s.audibleDrift.single()) <= AudioTransitionPolicy.HANDOFF_TOLERANCE_MS)
+        assertEquals(1f, f.volume, 0f)
+        f.controller.release()
+    }
+
+    @Test fun handoffLeadConvergesOnSeekLatencyAndUnalignedSwapIsNearInstant() {
+        // Seek latency L: after seeking with lead x, drift = L - x.
+        var lead = 0L
+        var drift = 420L
+        lead = AudioTransitionPolicy.nextHandoffLead(lead, drift)
+        assertEquals(420L, lead)
+        drift = 130L - lead
+        lead = AudioTransitionPolicy.nextHandoffLead(lead, drift)
+        assertEquals(130L, lead)
+        assertTrue(AudioTransitionPolicy.handoffAligned(130L - lead))
+        assertEquals(4_000L, AudioTransitionPolicy.nextHandoffLead(3_900L, 900L))
+        assertEquals(AudioTransitionPolicy.HANDOFF_SWAP_MS, AudioTransitionPolicy.handoffSwapMs(-12L))
+        assertEquals(AudioTransitionPolicy.HANDOFF_UNALIGNED_SWAP_MS, AudioTransitionPolicy.handoffSwapMs(85L))
+        assertEquals(11L, AudioTransitionPolicy.medianDrift(longArrayOf(12, 9, 400, 10, 11)))
+    }
 }
