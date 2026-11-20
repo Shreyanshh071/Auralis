@@ -62,6 +62,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -308,10 +310,10 @@ fun ThemeAndColorsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
+            // Glass rows as separate cards bend each other's edges across the 3dp seams, so with
+            // glass on the whole group is one card with hairline dividers instead.
+            val groupedGlass = com.auralis.music.ui.glass.pageGlassEnabled()
+            ThemeGroup(groupedGlass, onBackground, Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 // Theme mode
                 ThemeGroupItem(0, 5, Icons.Rounded.BrightnessMedium, str(R.string.theme_mode), onBackground) {
                     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -421,6 +423,47 @@ internal fun ThemePreviewCard(preview: ThemePreview, modifier: Modifier = Modifi
     }
 }
 
+/** Separate rounded rows normally; one glass card with dividers when page glass is on. */
+@Composable
+private fun ThemeGroup(glass: Boolean, onBackground: Color, modifier: Modifier, content: @Composable () -> Unit) {
+    if (!glass) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) { content() }
+        return
+    }
+    com.auralis.music.ui.glass.OptionalGlassCard(
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Transparent,
+        border = null,
+        modifier = modifier
+    ) {
+        CompositionLocalProvider(LocalThemeGroupDivider provides onBackground.copy(alpha = .08f)) {
+            Column { content() }
+        }
+    }
+}
+
+/** Set inside a single glass group: rows draw no card of their own, only a divider above. */
+private val LocalThemeGroupDivider = staticCompositionLocalOf<Color?> { null }
+
+@Composable
+private fun ThemeRowSurface(index: Int, count: Int, onBackground: Color, content: @Composable () -> Unit) {
+    val divider = LocalThemeGroupDivider.current
+    if (divider != null) {
+        Column(Modifier.fillMaxWidth()) {
+            if (index > 0) Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(divider))
+            content()
+        }
+        return
+    }
+    com.auralis.music.ui.glass.OptionalGlassCard(
+        shape = groupShape(index, count),
+        color = onBackground.copy(alpha = .07f),
+        border = null,
+        modifier = Modifier.fillMaxWidth(),
+        content = content
+    )
+}
+
 private fun groupShape(index: Int, count: Int): RoundedCornerShape {
     val top = if (index == 0) 24.dp else 6.dp
     val bottom = if (index == count - 1) 24.dp else 6.dp
@@ -431,12 +474,7 @@ private fun groupShape(index: Int, count: Int): RoundedCornerShape {
 @Composable
 private fun ThemeGroupItem(index: Int, count: Int, icon: ImageVector, title: String, onBackground: Color,
     content: @Composable () -> Unit) {
-    com.auralis.music.ui.glass.OptionalGlassCard(
-        shape = groupShape(index, count),
-        color = onBackground.copy(alpha = .07f),
-        border = null,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    ThemeRowSurface(index, count, onBackground) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp)) {
             Icon(icon, null, tint = onBackground, modifier = Modifier.padding(top = 2.dp).size(24.dp))
             Spacer(Modifier.width(18.dp))
@@ -451,12 +489,7 @@ private fun ThemeGroupItem(index: Int, count: Int, icon: ImageVector, title: Str
 @Composable
 private fun ThemeSwitchItem(index: Int, count: Int, icon: ImageVector, title: String, summary: String,
     checked: Boolean, enabled: Boolean, accent: Color, onBackground: Color, onChange: (Boolean) -> Unit) {
-    com.auralis.music.ui.glass.OptionalGlassCard(
-        shape = groupShape(index, count),
-        color = onBackground.copy(alpha = .07f),
-        border = null,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    ThemeRowSurface(index, count, onBackground) {
         Row(
             Modifier.fillMaxWidth().clickable(enabled = enabled) { onChange(!checked) }
                 .graphicsLayer { alpha = if (enabled) 1f else .45f }
