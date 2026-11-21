@@ -85,7 +85,7 @@ private fun SyncType.label(): String = when (this) {
     SyncType.PLAIN -> str(R.string.sync_none)
 }
 
-private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE, UNAVAILABLE }
+private enum class ProviderRowState { CURRENT, FOUND, FETCHING, NOT_FOUND, IDLE, UNAVAILABLE, OTHER_VERSION }
 
 /**
  * "Choose lyrics provider": every enabled source with what it has for this song.
@@ -155,6 +155,7 @@ internal fun LyricsProviderSheet(
                             LyricsProviderStatus.FETCHING -> ProviderRowState.FETCHING
                             LyricsProviderStatus.NOT_FOUND -> ProviderRowState.NOT_FOUND
                             LyricsProviderStatus.UNAVAILABLE -> ProviderRowState.UNAVAILABLE
+                            LyricsProviderStatus.OTHER_VERSION -> ProviderRowState.OTHER_VERSION
                             null -> ProviderRowState.IDLE
                         }
                     }
@@ -217,7 +218,7 @@ private fun ProviderRow(name: String, state: ProviderRowState, syncType: SyncTyp
                         else -> Icon(
                             imageVector = when (s) {
                                 ProviderRowState.CURRENT, ProviderRowState.FOUND -> Icons.Rounded.Check
-                                ProviderRowState.NOT_FOUND -> Icons.Rounded.Close
+                                ProviderRowState.NOT_FOUND, ProviderRowState.OTHER_VERSION -> Icons.Rounded.Close
                                 else -> Icons.Rounded.Search
                             },
                             contentDescription = null,
@@ -247,6 +248,7 @@ private fun ProviderRow(name: String, state: ProviderRowState, syncType: SyncTyp
                     ProviderRowState.FETCHING -> str(R.string.fetching_lyrics)
                     ProviderRowState.NOT_FOUND -> str(R.string.lyrics_not_found)
                     ProviderRowState.UNAVAILABLE -> "Temporarily unavailable - tap to retry"
+                    ProviderRowState.OTHER_VERSION -> "Found, but timed for a different version of this song"
                     ProviderRowState.IDLE -> str(R.string.tap_to_fetch)
                 },
                 color = foreground.copy(alpha = if (glass != null) .82f else .7f),

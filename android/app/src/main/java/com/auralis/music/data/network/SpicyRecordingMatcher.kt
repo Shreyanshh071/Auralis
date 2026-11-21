@@ -32,6 +32,12 @@ object SpicyRecordingMatcher {
         // Missing duration is insufficient evidence for transferring timestamps between services.
         if (duration == null || duration <= 0 || candidate.durationMs <= 0 ||
             abs(duration - candidate.durationMs) > 2500) return false
+        return matchesIdentity(query, candidate)
+    }
+
+    /** A lookup hint only. Call matches() with measured metadata before accepting timestamps. */
+    fun matchesIdentity(query: LyricsSearchQuery, candidate: SpicyRecording): Boolean {
+        if (spotifyId(candidate.id) == null) return false
         val rawTitle = query.recordingTitle ?: query.title
         val targetVersion = versions(rawTitle)
         if (targetVersion != versions(candidate.title)) return false

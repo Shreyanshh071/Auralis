@@ -48,7 +48,7 @@ data class PlayerUiState(
     val audioLeadingSilenceMs: Long? = null
 )
 
-enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND, UNAVAILABLE }
+enum class LyricsProviderStatus { FETCHING, NOT_FOUND, FOUND, UNAVAILABLE, OTHER_VERSION }
 
 /** What the lyrics provider sheet knows for one song; [trackId] scopes it to that song. */
 data class LyricsProviderPicks(
@@ -67,8 +67,10 @@ internal fun selectSettledLyrics(cached: LyricsData?, displayed: LyricsData?, re
     val displayedTier = lyricsTier(displayed)
     val resultTier = lyricsTier(result)
     // Explicit source preference precedes word/line tier and duet enrichment.
+    // Spicy leads only when nothing on hand has better timing: word sync beats line-synced Spicy.
+    val bestTier = maxOf(cachedTier, displayedTier, resultTier)
     listOfNotNull(result, displayed, cached).firstOrNull {
-        it.provider == LyricsProvider.SPICY_LYRICS && lyricsTier(it) >= 2
+        it.provider == LyricsProvider.SPICY_LYRICS && lyricsTier(it) >= 2 && lyricsTier(it) >= bestTier
     }?.let { return it }
     val verified = listOfNotNull(result, displayed, cached).filter { it.timingConfidence > 0 && lyricsTier(it) >= 2 }
     if (verified.isNotEmpty()) {
@@ -1796,7 +1798,9 @@ class PlayerViewModel(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_uiState.value.currentTrack?.id == track.id)
-                    setProviderStatus(track.id, provider, LyricsProviderStatus.UNAVAILABLE)
+                    setProviderStatus(track.id, provider,
+                        if (e is com.auralis.music.data.network.LyricsClient.OtherVersionTiming) LyricsProviderStatus.OTHER_VERSION
+                        else LyricsProviderStatus.UNAVAILABLE)
                 Log.w("AuralisLyrics", "[pickLyricsProvider] $provider failed: ${e.message}")
                 return@launch
                 null

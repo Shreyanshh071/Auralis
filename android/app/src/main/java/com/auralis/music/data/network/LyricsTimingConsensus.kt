@@ -42,7 +42,10 @@ object LyricsTimingConsensus {
     /** Call only with candidates that already passed recording/version and corruption checks. */
     fun select(fallback: LyricsData, candidates: List<LyricsData>): LyricsData {
         val all = candidates.distinctBy { it.provider }
-        all.firstOrNull { it.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(it) >= LyricsClient.TIER_LINE }
+        // Spicy leads only when nothing has better timing (word sync beats line-synced Spicy).
+        val topTier = (all + fallback).maxOf { LyricsClient.tierOf(it) }
+        all.firstOrNull { it.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(it) >= LyricsClient.TIER_LINE &&
+            LyricsClient.tierOf(it) >= topTier }
             ?.let { return it.copy(timingSelectionVersion = VERSION) }
         if (fallback.isExactVideoMatch) return fallback.copy(timingSelectionVersion = VERSION)
         val trusted = all.filter { a ->

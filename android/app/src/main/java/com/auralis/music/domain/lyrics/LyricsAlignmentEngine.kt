@@ -85,7 +85,8 @@ object LyricsAlignmentEngine {
      */
     fun evaluateMasterMatch(
         lyrics: LyricsData,
-        playbackDurationMs: Long
+        playbackDurationMs: Long,
+        audioLeadingSilenceMs: Long? = null
     ): MasterMatchStatus {
         if (playbackDurationMs <= 0L) return MasterMatchStatus.EXACT_MATCH
 
@@ -97,8 +98,11 @@ object LyricsAlignmentEngine {
             return MasterMatchStatus.MASTER_MISMATCH
         }
 
-        // 2. Corrupt intro check: line 1 or word 1 at <= 100ms on a substantial track
-        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(lyrics, playbackDurationMs / 1000L)) {
+        // 2. Corrupt intro check: line 1 or word 1 at <= 100ms on a substantial track.
+        // Some songs genuinely open on the first word ("Can't Tell Me Nothing": "La, la" at 0.1s).
+        // Word-by-word timing of that opening on the same-length master is not the crowd-sourced
+        // LRC failure this guards against (same rule as the PC).
+        if (hasUntrustedIntro(lyrics, playbackDurationMs, audioLeadingSilenceMs)) {
             return MasterMatchStatus.MASTER_MISMATCH
         }
 
@@ -135,7 +139,8 @@ object LyricsAlignmentEngine {
         playbackChannelTitle: String? = null,
         playbackVideoId: String? = null,
         playbackArtist: String? = null,
-        candidateArtist: String? = null
+        candidateArtist: String? = null,
+        audioLeadingSilenceMs: Long? = null
     ): MasterMatchStatus {
         // 0. Exact YouTube Video ID match:
         // When candidate lyrics were fetched via exact YouTube video ID lookup matching the currently playing
@@ -230,7 +235,26 @@ object LyricsAlignmentEngine {
         }
 
         // 3. Pure duration delta, overrun, and intro sanity checks
-        return evaluateMasterMatch(lyrics, playbackDurationMs)
+        return evaluateMasterMatch(lyrics, playbackDurationMs, audioLeadingSilenceMs)
+    }
+
+    /** First sung line at ~0ms with no evidence the song really opens there; see evaluateMasterMatch. */
+    fun hasUntrustedIntro(lyrics: LyricsData, playbackDurationMs: Long, audioLeadingSilenceMs: Long? = null): Boolean =
+        com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(lyrics, playbackDurationMs.takeIf { it > 0L }?.div(1000L)) &&
+            !(hasExactStatedDuration(lyrics, playbackDurationMs, audioLeadingSilenceMs) &&
+                com.auralis.music.data.parser.LyricsValidator.opensWithTimedWords(lyrics))
+
+    /**
+     * The candidate states a length within [EXACT_MATCH_MAX_DELTA_MS] of the playing audio. The
+     * phone's decoder length includes the stream's measured leading silence, which the master
+     * does not have, so the length without it counts too.
+     */
+    private fun hasExactStatedDuration(lyrics: LyricsData, playbackDurationMs: Long, audioLeadingSilenceMs: Long? = null): Boolean {
+        val stated = lyrics.durationMs ?: return false
+        if (playbackDurationMs <= 0L || stated <= 0L) return false
+        val silence = audioLeadingSilenceMs?.takeIf { it in 1L..2_000L } ?: 0L
+        return abs(playbackDurationMs - stated) <= EXACT_MATCH_MAX_DELTA_MS ||
+            abs(playbackDurationMs - silence - stated) <= EXACT_MATCH_MAX_DELTA_MS
     }
 
     /**
@@ -293,7 +317,8 @@ object LyricsAlignmentEngine {
             playbackChannelTitle = playbackChannelTitle,
             playbackVideoId = playbackVideoId,
             playbackArtist = playbackArtist,
-            candidateArtist = candidateArtist
+            candidateArtist = candidateArtist,
+            audioLeadingSilenceMs = audioLeadingSilenceMs
         )
 
         return masterMatch != MasterMatchStatus.MASTER_MISMATCH
@@ -341,7 +366,7 @@ object LyricsAlignmentEngine {
         audioLeadingSilenceMs: Long? = null
     ): LyricsData {
         if (lyrics.lines.isEmpty()) return lyrics
-        val masterMatch = evaluateMasterMatch(lyrics, playbackDurationMs)
+        val masterMatch = evaluateMasterMatch(lyrics, playbackDurationMs, audioLeadingSilenceMs)
         if (masterMatch == MasterMatchStatus.MASTER_MISMATCH) {
             return lyrics
         }

@@ -75,6 +75,16 @@ object LyricsValidator {
      * Example: LRCLIB crowdsourced submission for "Love Me Not" (Ravyn Lenae) has stated duration 213s,
      * but line 1 begins at [00:00.00], omitting the 16.8s instrumental intro entirely.
      */
+    /**
+     * The first sung line carries genuine word timing: at least two words whose starts move
+     * forward through the line, rather than a line stamped at 0 with no timing inside it.
+     */
+    fun opensWithTimedWords(lyricsData: LyricsData?): Boolean {
+        val first = lyricsData?.lines?.firstOrNull { !it.isInstrumental && it.text.isNotBlank() } ?: return false
+        val starts = first.words.orEmpty().filter { it.word.isNotBlank() }.map { it.time }
+        return starts.size >= 2 && starts.zipWithNext().all { (a, b) -> b >= a } && starts.last() - starts.first() >= 300L
+    }
+
     fun hasCorruptIntroTiming(lyricsData: LyricsData?, playbackDurationSec: Long? = null): Boolean {
         if (lyricsData == null || lyricsData.lines.isEmpty()) return false
         val nonInstLines = lyricsData.lines.filter { !it.isInstrumental && it.text.isNotBlank() }

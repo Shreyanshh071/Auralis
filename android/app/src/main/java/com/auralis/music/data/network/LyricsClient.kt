@@ -311,8 +311,9 @@ class LyricsClient(
                 isAligned && !bestIsAligned -> true
                 !isAligned && bestIsAligned -> false
                 !isAligned && !bestIsAligned -> false
-                provider == LyricsProvider.SPICY_LYRICS && tier >= TIER_LINE && bestProvider != LyricsProvider.SPICY_LYRICS -> true
-                bestProvider == LyricsProvider.SPICY_LYRICS && bestTier >= TIER_LINE && provider != LyricsProvider.SPICY_LYRICS -> false
+                // Spicy leads only among equal timing: another source's word sync beats line-synced Spicy.
+                provider == LyricsProvider.SPICY_LYRICS && tier >= TIER_LINE && bestProvider != LyricsProvider.SPICY_LYRICS && tier >= bestTier -> true
+                bestProvider == LyricsProvider.SPICY_LYRICS && bestTier >= TIER_LINE && provider != LyricsProvider.SPICY_LYRICS && bestTier >= tier -> false
                 tier == TIER_WORD && bestTier == TIER_WORD && provider != bestProvider &&
                     (provider == LyricsProvider.MUSIXMATCH || bestProvider == LyricsProvider.MUSIXMATCH) ->
                     bestProvider == LyricsProvider.MUSIXMATCH
@@ -531,6 +532,18 @@ class LyricsClient(
             masterMatch != com.auralis.music.domain.lyrics.MasterMatchStatus.MASTER_MISMATCH &&
             (provider == LyricsProvider.BETTER_LYRICS || provider == LyricsProvider.AMLL || (provider == LyricsProvider.UNISON && isExactVideoMatch))
 
+        /**
+         * A first line at ~0ms with no evidence the song opens there. Unison lyrics synced to the
+         * very video playing, with real word timing in that opening line, are that evidence: their
+         * stated length is the album's, not the video's ("Can't Tell Me Nothing": 267.7s vs 273.6s).
+         */
+        internal fun hasUntrustedIntro(lyrics: LyricsData, playbackMs: Long, audioLeadingSilenceMs: Long?, videoId: String?): Boolean {
+            val exactVideo = lyrics.isExactVideoMatch && lyrics.provider == LyricsProvider.UNISON &&
+                !videoId.isNullOrBlank() && videoId.equals(lyrics.matchedVideoId, ignoreCase = true)
+            if (exactVideo && com.auralis.music.data.parser.LyricsValidator.opensWithTimedWords(lyrics)) return false
+            return com.auralis.music.domain.lyrics.LyricsAlignmentEngine.hasUntrustedIntro(lyrics, playbackMs, audioLeadingSilenceMs)
+        }
+
         internal fun calculateQualityScore(
             cand: LyricsCandidate,
             queryDurationSec: Long?,
@@ -542,7 +555,8 @@ class LyricsClient(
             queryArtist: String? = null
         ): Double {
             if (com.auralis.music.data.parser.LyricsValidator.isCorruptOrInvalid(cand.lyricsData) ||
-                com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cand.lyricsData, queryDurationSec)) {
+                hasUntrustedIntro(cand.lyricsData,
+                    queryDurationMs?.takeIf { it > 0L } ?: ((queryDurationSec ?: 0L) * 1000L), audioLeadingSilenceMs, queryVideoId)) {
                 return -1000.0
             }
             var score = cand.confidence.toDouble() // base 0 - 100
@@ -970,7 +984,7 @@ class LyricsClient(
                     .filter { cand ->
                         val lines = cand.lyricsData.lines
                         if (lines.isEmpty() || cand.confidence < 50) return@filter false
-                        if (com.auralis.music.data.parser.LyricsValidator.hasCorruptIntroTiming(cand.lyricsData, durationSec)) return@filter false
+                        if (hasUntrustedIntro(cand.lyricsData, queryMs, audioLeadingSilenceMs, videoId)) return@filter false
                         if (com.auralis.music.data.parser.LyricsValidator.hasNonMonotonicWordTimestamps(cand.lyricsData)) return@filter false
 
                         val qVersion = com.auralis.music.data.network.TitleCleaner.extractVersion(title)
@@ -1185,6 +1199,9 @@ class LyricsClient(
      */
     fun selectableProviders(): List<LyricsProvider> = PICK_ORDER.filter { isProviderEnabled(it) }
 
+    /** A provider had lyrics for the song, timed for a different cut than the one playing. */
+    class OtherVersionTiming(provider: LyricsProvider) : java.io.IOException("$provider lyrics are timed for another version")
+
     /**
      * Asks exactly one provider, bypassing the race, for the provider sheet. The result is
      * cleaned and labelled the same way race candidates are; null when it has nothing usable.
@@ -1262,6 +1279,8 @@ class LyricsClient(
             )
             if (!acceptable) {
                 Log.d(TAG, "[Provider pick: $provider] rejected: timing is for another version (lyric=${labelled.effectiveDurationMs}ms, playback=${playbackMs}ms)")
+                // The sheet says so instead of "Lyrics not found": the provider did have this song.
+                if (reportFailures) throw OtherVersionTiming(provider)
                 return@withContext null
             }
         }

@@ -55,6 +55,9 @@ class LyricsRepositoryImpl(
         internal fun chooseSpicy(current: LyricsData?, candidate: LyricsData?): LyricsData? {
             if (candidate == null || candidate.lines.isEmpty() || candidate.provider != LyricsProvider.SPICY_LYRICS) return current
             if (LyricsClient.tierOf(candidate) < LyricsClient.TIER_LINE) return current
+            // Word sync from another source beats line-synced Spicy.
+            if (current != null && current.provider != LyricsProvider.SPICY_LYRICS &&
+                LyricsClient.tierOf(current) > LyricsClient.tierOf(candidate)) return current
             return candidate
         }
         private const val NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours TTL
@@ -587,7 +590,8 @@ class LyricsRepositoryImpl(
         ) ?: return null
         // Spicy may have completed while this enrichment request was in flight.
         val preferred = getCachedLyrics(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
-        if (spicyEnabled() && preferred?.provider == LyricsProvider.SPICY_LYRICS) return null
+        if (spicyEnabled() && preferred?.provider == LyricsProvider.SPICY_LYRICS &&
+            LyricsClient.tierOf(preferred) >= LyricsClient.tierOf(networkResult)) return null
         if ((preferred?.timingConfidence ?: 0) > networkResult.timingConfidence) return null
         return acceptSpeakerEnrichment(networkResult, title, artist, channelTitle, videoId, playbackMs, audioLeadingSilenceMs)
             ?.also { enriched ->
@@ -790,7 +794,8 @@ class LyricsRepositoryImpl(
         // A parallel Spicy lookup may have populated the cache during the race.
         val preferred = if (spicyEnabled()) getCachedLyrics(title, artist, durationSec, videoId, album,
             channelTitle, durationMs, audioLeadingSilenceMs) else null
-        if (preferred?.provider == LyricsProvider.SPICY_LYRICS && networkResult?.provider != LyricsProvider.SPICY_LYRICS) return preferred
+        if (preferred?.provider == LyricsProvider.SPICY_LYRICS && networkResult?.provider != LyricsProvider.SPICY_LYRICS &&
+            LyricsClient.tierOf(preferred) >= LyricsClient.tierOf(networkResult ?: preferred)) return preferred
         // A cached Musixmatch word result remains a fallback, but it must not stop
         // other word sources from being tried. It still outranks line-only results.
         if (cachedMusixmatchWordFallback != null &&
@@ -827,7 +832,7 @@ class LyricsRepositoryImpl(
 
             // INVARIANT: If existing cache has valid aligned RICHSYNC, and network returned lower-tier LINE_SYNC,
             // never downgrade memory cache or return value to LINE_SYNC!
-            if (existingIsAlignedRichSync && alignedNetwork.timingConfidence <= (existingDomain?.timingConfidence ?: 0) && alignedNetwork.provider != LyricsProvider.SPICY_LYRICS && alignedNetwork.syncType != SyncType.RICHSYNC) {
+            if (existingIsAlignedRichSync && alignedNetwork.timingConfidence <= (existingDomain?.timingConfidence ?: 0) && alignedNetwork.syncType != SyncType.RICHSYNC) {
                 android.util.Log.d("AuralisLyrics", "[getLyrics] Preserving existing valid RICHSYNC cache entry for '$trackKey' against lower-tier network result (${alignedNetwork.provider} ${alignedNetwork.syncType})")
                 val alignedExisting = if (playbackMs > 0L && existingDomain != null) {
                     com.auralis.music.domain.lyrics.LyricsAlignmentEngine.alignToPlayback(existingDomain, playbackMs, audioLeadingSilenceMs)
@@ -861,7 +866,8 @@ class LyricsRepositoryImpl(
 
                     // Guard: Never downgrade a genuine word-sync cache entry to line-sync UNLESS existing is a verified MASTER_MISMATCH with playback
                     if (existing == null || !existing.hasWordTiming || alignedNetwork.syncType == SyncType.RICHSYNC || existingIsMismatch ||
-                        alignedNetwork.provider == LyricsProvider.SPICY_LYRICS || alignedNetwork.timingConfidence > (existingDomain?.timingConfidence ?: 0)) {
+                        (alignedNetwork.provider == LyricsProvider.SPICY_LYRICS && alignedNetwork.syncType == SyncType.RICHSYNC) ||
+                        alignedNetwork.timingConfidence > (existingDomain?.timingConfidence ?: 0)) {
                         val entity = domainToEntity(trackKey, alignedNetwork, title, artist)
                         lyricsDao.insertLyrics(entity)
                         negativeLyricsDao?.removeNegativeEntry(trackKey)
