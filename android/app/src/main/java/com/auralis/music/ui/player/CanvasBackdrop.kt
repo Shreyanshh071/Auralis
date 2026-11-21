@@ -1,11 +1,23 @@
 package com.auralis.music.ui.player
 
 import android.view.TextureView
-import android.view.ViewGroup
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -33,7 +45,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.AspectRatioFrameLayout
 import com.auralis.music.data.network.NetworkClientProvider
 
 /**
@@ -192,6 +203,8 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, entrance: Flo
     val context = LocalContext.current.applicationContext
     var ready by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    // Canvas loops are 9:16 until the video says otherwise.
+    var videoRatio by remember { mutableFloatStateOf(9f / 16f) }
     val player = remember {
         val network = DefaultDataSource.Factory(context, OkHttpDataSource.Factory(NetworkClientProvider.okHttpClient))
         val data = androidx.media3.datasource.cache.CacheDataSource.Factory()
@@ -211,6 +224,9 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, entrance: Flo
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() { ready = true }
+            override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                if (size.width > 0 && size.height > 0) videoRatio = size.width * size.pixelWidthHeightRatio / size.height
+            }
             override fun onPlayerError(error: PlaybackException) { failed = true; ready = false; failedCallback() }
         }
         player.addListener(listener)
@@ -228,31 +244,62 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, entrance: Flo
         kotlinx.coroutines.delay(if (entrance != null) CANVAS_ENTER_MS + 20L else 420L)
         shown()
     }
-    AndroidView(
-        modifier = Modifier.fillMaxSize().graphicsLayer {
-            val enter = if (failed) 0f else entrance ?: swapOpacity
-            // Fades in fast, while settling from a slight zoom and coming into focus.
-            alpha = (enter / .55f).coerceIn(0f, 1f)
-            val settle = if (entrance != null) .08f * (1f - enter) else 0f
-            // Behind Lyrics and Queue the loop keeps playing, softened so the text reads.
-            val radius = blur * 28.dp.toPx() + (if (entrance != null) (1f - enter) * 22.dp.toPx() else 0f)
-            renderEffect = if (radius > 0.5f && android.os.Build.VERSION.SDK_INT >= 31)
-                androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Clamp) else null
-            val scale = 1f + blur * .06f + settle
-            scaleX = scale; scaleY = scale
-        },
-        factory = { viewContext ->
-            AspectRatioFrameLayout(viewContext).apply {
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                addView(TextureView(viewContext).also { player.setVideoTextureView(it) },
-                    ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            }
-        },
-        update = { frame ->
-            // Fill the screen at the window's own ratio; the zoom mode crops the loop to it.
-            if (frame.width > 0 && frame.height > 0) frame.setAspectRatio(frame.width.toFloat() / frame.height)
+    // The loop keeps its own shape: full width, from the top. Whatever the screen has left below it
+    // is filled by the same video, zoomed to cover and blurred, which the sharp loop fades into.
+    val mirror = rememberGraphicsLayer()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val videoHeight = maxWidth / videoRatio
+        val coversScreen = videoHeight >= maxHeight
+        val enterAlpha = { if (failed) 0f else ((entrance ?: swapOpacity) / .55f).coerceIn(0f, 1f) }
+        if (!coversScreen) {
+            Spacer(Modifier.fillMaxSize().graphicsLayer {
+                alpha = enterAlpha()
+                renderEffect = if (android.os.Build.VERSION.SDK_INT >= 31)
+                    androidx.compose.ui.graphics.BlurEffect(48.dp.toPx(), 48.dp.toPx(), androidx.compose.ui.graphics.TileMode.Clamp) else null
+                clip = true
+            }.drawBehind {
+                val src = mirror.size
+                if (src.width <= 0 || src.height <= 0) return@drawBehind
+                // Cover the whole screen from the middle of the loop.
+                val cover = maxOf(size.width / src.width, size.height / src.height) * 1.1f
+                translate((size.width - src.width * cover) / 2f, (size.height - src.height * cover) / 2f) {
+                    scale(cover, cover, pivot = Offset.Zero) { drawLayer(mirror) }
+                }
+                drawRect(Color.Black.copy(alpha = .28f))
+            })
         }
-    )
+        AndroidView(
+            modifier = Modifier.align(if (coversScreen) Alignment.Center else Alignment.TopCenter)
+                .fillMaxWidth().requiredHeight(videoHeight)
+                .graphicsLayer {
+                    val enter = if (failed) 0f else entrance ?: swapOpacity
+                    // Fades in fast, while settling from a slight zoom and coming into focus.
+                    alpha = (enter / .55f).coerceIn(0f, 1f)
+                    val settle = if (entrance != null) .08f * (1f - enter) else 0f
+                    // Behind Lyrics and Queue the loop keeps playing, softened so the text reads.
+                    val radius = blur * 28.dp.toPx() + (if (entrance != null) (1f - enter) * 22.dp.toPx() else 0f)
+                    renderEffect = if (radius > 0.5f && android.os.Build.VERSION.SDK_INT >= 31)
+                        androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Clamp) else null
+                    val scale = 1f + blur * .06f + settle
+                    scaleX = scale; scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(.5f, if (coversScreen) .5f else 0f)
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    // The bottom edge melts into the blurred fill instead of ending on a hard line.
+                    if (!coversScreen) drawRect(Brush.verticalGradient(
+                        .72f to Color.Black, 1f to Color.Transparent, startY = 0f, endY = size.height),
+                        blendMode = BlendMode.DstIn)
+                }
+                .drawWithContent {
+                    // Recorded once, drawn here and again (zoomed, blurred) as the fill behind.
+                    mirror.record { this@drawWithContent.drawContent() }
+                    drawLayer(mirror)
+                },
+            factory = { viewContext -> TextureView(viewContext).also { player.setVideoTextureView(it) } }
+        )
+    }
 }
 
 /** The Appearance switch for Canvas lookups with the signed-in Spotify account; read by the lookup. */
