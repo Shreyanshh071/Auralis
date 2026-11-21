@@ -257,7 +257,7 @@ private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBoun
                               val rtl: Boolean, val from: Int, val to: Int, val row: Int, val letter: Int = -1)
 
 private data class GlowMask(val image: ImageBitmap, val origin: Offset)
-private data class SpicyBloom(val peak: GlowMask, val base: GlowMask? = null)
+private data class SpicyBloom(val peak: GlowMask)
 /** Where glow masks are blurred. Off the UI thread in the app; pixel tests swap in an inline
  *  dispatcher so a snapshot never depends on whether the background blur finished first. */
 object SpicyGlowPreparation {
@@ -440,7 +440,6 @@ fun SpicyLyricsLine(
         val source = raster
         if (source != null) {
             val fontPx = with(density) { style.fontSize.toPx() }
-            val pixelUnit = with(density) { 1.dp.toPx() }
             // Software mask blur used to block composition at every new phrase.
             // The timed fill/swells draw immediately; glow preparation is cancellable
             // background work and upcoming rows warm it before their first word.
@@ -448,9 +447,7 @@ fun SpicyLyricsLine(
             geometry.mapIndexed { index, slice ->
                 coroutineContext.ensureActive()
                 val ink = inkMasks[index]
-                fun blurred(shadowRadius: Float): GlowMask {
-                    // CSS shadow blur radius maps to roughly twice the Gaussian sigma.
-                    val sigma = shadowRadius / 2f
+                fun blurred(sigma: Float): GlowMask {
                     val padding = kotlin.math.ceil(sigma * 3f + 2f).toInt()
                     val size = Size(kotlin.math.ceil(ink.width + padding * 2).toFloat(),
                         kotlin.math.ceil(ink.height + padding * 2).toFloat())
@@ -463,11 +460,11 @@ fun SpicyLyricsLine(
                     }
                     return GlowMask(blurSpicyGlyphMask(mask, sigma), Offset(ink.left - padding, ink.top - padding))
                 }
-                if (slice.letter >= 0) SpicyBloom(blurred(fontPx * .17f + pixelUnit))
-                else SpicyBloom(peak = blurred(6f * pixelUnit), base = blurred(4f * pixelUnit))
+                val sigma = (fontPx * if (slice.letter >= 0) .065f else .045f).coerceAtLeast(1f)
+                SpicyBloom(blurred(sigma))
             }
             }
-            imageLifetime.retain(prepared.flatMap { listOfNotNull(it.peak.image, it.base?.image) })
+            imageLifetime.retain(prepared.map { it.peak.image })
             value = prepared
         }
     }
@@ -586,15 +583,8 @@ fun SpicyLyricsLine(
                     val strength = (letterPose?.glow ?: wordPose.glow).coerceIn(0f, 1f)
                     val lit = ((fill + .2f) / 1.2f).coerceIn(0f, 1f)
                     if (strength > .001f) blooms.getOrNull(index)?.let { bloom ->
-                        if (letterPose != null) {
-                            val tone = .18f + (.94f - .18f) * lit
-                            drawImage(bloom.peak.image, bloom.peak.origin, alpha = .5f * strength * tone)
-                        } else {
-                            // Approximate the moving 4–6 px blur with cached endpoint masks.
-                            val alpha = .35f * strength
-                            bloom.base?.let { drawImage(it.image, it.origin, alpha = alpha * (1f - strength)) }
-                            drawImage(bloom.peak.image, bloom.peak.origin, alpha = alpha * strength)
-                        }
+                        val alpha = strength * if (letterPose != null) .65f else .35f
+                        drawImage(bloom.peak.image, bloom.peak.origin, alpha = alpha)
                     }
                     val inkBounds = inkMasks[index]
                     val baseAlpha = if (line.isBackground) 1f else .85f
