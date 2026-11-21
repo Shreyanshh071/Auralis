@@ -22,11 +22,10 @@ internal object PhoneCanvasLookup {
             indexFile = File(context.filesDir, "spotify-canvas-index.properties"),
             accountToken = {
                 // Settings > Appearance > "Fetch Canvas with your Spotify account", signed in only.
-                if (CanvasAccount.enabled && com.auralis.music.data.network.SpotifySession.signedIn.value)
-                    com.auralis.music.data.network.SpotifySession.getValidAccessToken() else null
+                if (CanvasAccount.available) com.auralis.music.data.network.SpotifySession.getValidAccessToken() else null
             })
         private val catalog = SpicyAlbumCatalog(http)
-        val resolver = SpotifyCanvasResolver(client::findFast, catalog::resolve)
+        val resolver = SpotifyCanvasResolver(client::findFast, catalog::resolve, accountAvailable = { CanvasAccount.available })
     }
     private fun get(context: android.content.Context): Lookup = instance ?: synchronized(this) {
         instance ?: Lookup(context.applicationContext).also { instance = it }
@@ -58,15 +57,17 @@ internal object PhoneCanvasLookup {
 internal class SpotifyCanvasResolver(
     private val lookup: suspend (String) -> String?,
     private val recording: suspend (LyricsSearchQuery, Set<String>) -> SpicyRecording?,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Whether the account lookup is on; a miss found without it is not reused once it is. */
+    private val accountAvailable: () -> Boolean = { false }
 ) {
-    private data class Key(val track: Track, val hint: String?)
+    private data class Key(val track: Track, val hint: String?, val accountAvailable: Boolean)
     private data class Cached(val canvas: ResolvedCanvas?, val until: Long)
     private val cache = linkedMapOf<Key, Cached>()
     private val lock = Mutex()
 
     suspend fun find(track: Track, lyricsSpotifyId: String?): ResolvedCanvas? = lock.withLock {
-        val key = Key(track, lyricsSpotifyId)
+        val key = Key(track, lyricsSpotifyId, accountAvailable())
         cache[key]?.takeIf { it.until > clock() && (it.canvas == null || it.canvas.path.startsWith("https://") || File(it.canvas.path).isFile) }
             ?.let { return@withLock it.canvas }
         val tried = linkedSetOf<String>()

@@ -38,6 +38,7 @@ internal class SpotifyCanvasClient(
     private val diskIndex by lazy { CanvasFileIndex(indexFile) }
     private val misses = mutableMapOf<String, Long>()
     private val failures = mutableMapOf<String, Long>()
+    private val accountRetry = mutableMapOf<String, Long>()
     private val lock = Mutex()
     private var retryAt = 0L
     private val directHttp by lazy {
@@ -65,17 +66,19 @@ internal class SpotifyCanvasClient(
                 return@withLock known to url
             }
             val now = clock()
-            if (now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L) || now < retryAt) return@withContext null
+            // A recent SpicyLyrics miss, failure or rate limit skips SpicyLyrics, but not the account
+            // lookup below (as on the PC): that used to be skipped too, so the account was rarely asked.
+            val spicyBlocked = now < (misses[trackId] ?: 0L) || now < (failures[trackId] ?: 0L) || now < retryAt
             var noneListed = false
-            var item = try { listing(trackId, now) { noneListed = true } }
+            var item = if (spicyBlocked) null else try { listing(trackId, now) { noneListed = true } }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     com.auralis.music.util.Log.w("SpotifyCanvas", "lookup $trackId failed: $error")
                     failures[trackId] = now + 60_000L
                     null
                 }
-            // SpicyLyrics has no Canvas: ask Spotify with the signed-in account, when the user allows it.
-            if (item == null && noneListed) item = try { accountListing(trackId) }
+            // SpicyLyrics gave no Canvas: ask Spotify with the signed-in account, when the user allows it.
+            if (item == null) item = try { accountListing(trackId, now) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     com.auralis.music.util.Log.w("SpotifyCanvas", "Spotify account Canvas lookup failed: ${error.message}")
@@ -121,8 +124,10 @@ internal class SpotifyCanvasClient(
      * token (the same request as the PC). Returns (fileId, streamable MP4 link) like [listing].
      * The token goes to Spotify and nowhere else.
      */
-    private suspend fun accountListing(trackId: String): Pair<String, String>? {
+    private suspend fun accountListing(trackId: String, now: Long): Pair<String, String>? {
+        if (now < (accountRetry[trackId] ?: 0L)) return null
         val token = accountToken?.invoke() ?: return null
+        accountRetry[trackId] = now + 60_000L
         val uri = "spotify:track:$trackId".toByteArray()
         val entity = byteArrayOf(0x0a) + varint(uri.size) + uri
         val body = byteArrayOf(0x0a) + varint(entity.size) + entity

@@ -98,6 +98,8 @@ class AppearanceSettingsDataStore(
                 animatedCoverSource = preferences[ANIMATED_COVER_SOURCE] ?: defaults.animatedCoverSource,
                 animatedCoversWifiOnly = preferences[ANIMATED_COVERS_WIFI_ONLY] ?: defaults.animatedCoversWifiOnly,
                 spotifyAccountCanvas = preferences[SPOTIFY_ACCOUNT_CANVAS] ?: defaults.spotifyAccountCanvas,
+                // Before Canvas had its own switch it followed "Canvas and animated covers".
+                spotifyCanvas = preferences[SPOTIFY_CANVAS] ?: preferences[ANIMATED_COVERS] ?: defaults.spotifyCanvas,
                 playerButtonColors = preferences[PLAYER_BUTTON_COLORS] ?: defaults.playerButtonColors,
                 playerSliderStyle = when (preferences[PLAYER_SLIDER_STYLE] ?: defaults.playerSliderStyle) {
                     "Squiggly Waveform", "Squiggly" -> "Squiggly"
@@ -171,6 +173,7 @@ class AppearanceSettingsDataStore(
         val ANIMATED_COVER_SOURCE = stringPreferencesKey("animated_cover_source")
         val ANIMATED_COVERS_WIFI_ONLY = booleanPreferencesKey("animated_covers_wifi_only")
         val SPOTIFY_ACCOUNT_CANVAS = booleanPreferencesKey("spotify_account_canvas")
+        val SPOTIFY_CANVAS = booleanPreferencesKey("spotify_canvas")
         val PLAYER_BUTTON_COLORS = stringPreferencesKey("player_button_colors")
         val PLAYER_SLIDER_STYLE = stringPreferencesKey("player_slider_style")
         val SHOW_DOWNLOAD_BUTTON = booleanPreferencesKey("show_download_button")
@@ -250,6 +253,7 @@ class AppearanceSettingsDataStore(
                 preferences[ANIMATED_COVER_SOURCE] = settings.animatedCoverSource
                 preferences[ANIMATED_COVERS_WIFI_ONLY] = settings.animatedCoversWifiOnly
                 preferences[SPOTIFY_ACCOUNT_CANVAS] = settings.spotifyAccountCanvas
+                preferences[SPOTIFY_CANVAS] = settings.spotifyCanvas
                 preferences[PLAYER_BUTTON_COLORS] = settings.playerButtonColors
                 preferences[PLAYER_SLIDER_STYLE] = settings.playerSliderStyle
                 preferences[SHOW_DOWNLOAD_BUTTON] = settings.showDownloadButton

@@ -26,6 +26,8 @@ data class AppearanceSettings(
     val animatedCovers: Boolean = true,
     val animatedCoverSource: String = "AUTO",
     val animatedCoversWifiOnly: Boolean = false,
+    /** Spotify Canvas behind the player, on its own switch like the PC (independent of animated covers). */
+    val spotifyCanvas: Boolean = true,
     /** Ask Spotify's Canvas service with the signed-in account when SpicyLyrics has no Canvas. Off unless chosen. */
     val spotifyAccountCanvas: Boolean = false,
     /** Lyrics under the cover, chosen from the song menu for each player design. */

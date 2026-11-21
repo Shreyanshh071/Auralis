@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
@@ -112,9 +113,14 @@ fun AppearanceScreen(
     var activeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<AppearanceDialogType?>(null) }
     var showThemeAndColors by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var showLyricsSettings by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
+    var showSpotifySignInPrompt by remember { mutableStateOf(false) }
+    var showSpotifySignIn by remember { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler(enabled = true) {
-        if (activeDialog != null) {
+        if (showSpotifySignIn) {
+            showSpotifySignIn = false
+        } else if (activeDialog != null) {
             activeDialog = null
         } else if (showThemeAndColors) {
             showThemeAndColors = false
@@ -156,7 +162,7 @@ fun AppearanceScreen(
     val onPrimary = MaterialTheme.colorScheme.onPrimary
 
     // Theme & colours pushes over this page instead of replacing it on one frame.
-    val themePush = rememberPushProgress(showThemeAndColors || showLyricsSettings)
+    val themePush = rememberPushProgress(showThemeAndColors || showLyricsSettings || showSpotifySignIn)
 
     SettingsPage(
         title = str(R.string.appearance),
@@ -275,40 +281,61 @@ fun AppearanceScreen(
                     isChecked = settings.enableSwipeToChangeSong,
                     onCheckedChange = { update { copy(enableSwipeToChangeSong = it) } }
                 )
+            }
+        }
+
+        // Same order as the PC's Appearance: Animated covers, then Canvas.
+        item(key = "hdr_animated_covers") {
+            SettingsGroup("Animated covers") {
                 AppearanceSwitchItem(
                     icon = Icons.Default.Image,
-                    title = "Canvas and animated covers",
-                    subtitle = "Spotify Canvas first, then animated artwork, then the still cover",
+                    title = "Show animated covers",
+                    subtitle = "Show animated album artwork on the cover when available.",
                     isChecked = settings.animatedCovers,
                     onCheckedChange = { update { copy(animatedCovers = it) } }
                 )
                 if (settings.animatedCovers) {
+                    val source = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource)
                     AppearanceClickableItem(
-                    icon = Icons.Default.Image,
-                    title = "Animated cover source",
-                    subtitle = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
-                    onClick = { activeDialog = AppearanceDialogType.ANIMATED_COVER_SOURCE }
+                        icon = Icons.Default.Image,
+                        title = "Find them on",
+                        subtitle = if (source == com.auralis.music.ui.player.CanvasSource.AUTO)
+                            "Auto looks on Apple Music first, then Tidal, then the curated library."
+                        else source.label,
+                        onClick = { activeDialog = AppearanceDialogType.ANIMATED_COVER_SOURCE }
                     )
-                    
-                    AppearanceSwitchItem(
-                    icon = Icons.Default.Image,
-                    title = "Load Canvas and animated covers on Wi-Fi only",
-                    subtitle = "Keep still artwork when using mobile data",
-                    isChecked = settings.animatedCoversWifiOnly,
-                    onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
-                    )
+                }
+            }
+        }
 
-                    // Same as the PC: when SpicyLyrics has no Canvas, Spotify is asked with the signed-in account.
-                    val spotifySignedIn by com.auralis.music.data.network.SpotifySession.signedIn.collectAsState()
-                    AppearanceSwitchItem(
+        item(key = "hdr_canvas") {
+            SettingsGroup("Canvas") {
+                AppearanceSwitchItem(
+                    icon = Icons.Default.Image,
+                    title = "Show Canvas",
+                    subtitle = "Allow Spotify Canvas behind the player.",
+                    isChecked = settings.spotifyCanvas,
+                    onCheckedChange = { update { copy(spotifyCanvas = it) } }
+                )
+                AppearanceSwitchItem(
                     icon = Icons.Default.Image,
                     title = "Fetch Canvas with your Spotify account",
                     subtitle = if (spotifySignedIn) "When SpicyLyrics has no Canvas for a song, ask Spotify with your signed-in account."
-                        else "Sign in to Spotify from your profile to use this.",
+                        else "Sign in to Spotify to use this.",
                     isChecked = settings.spotifyAccountCanvas && spotifySignedIn,
-                    onCheckedChange = { if (spotifySignedIn) update { copy(spotifyAccountCanvas = it) } }
+                    onCheckedChange = { on ->
+                        if (!spotifySignedIn) showSpotifySignInPrompt = true
+                        else update { copy(spotifyAccountCanvas = on) }
+                    }
+                )
+                if (settings.animatedCovers || settings.spotifyCanvas) {
+                    AppearanceSwitchItem(
+                        icon = Icons.Default.Image,
+                        title = "Load Canvas and animated covers on Wi-Fi only",
+                        subtitle = "Keep still artwork when using mobile data",
+                        isChecked = settings.animatedCoversWifiOnly,
+                        onCheckedChange = { update { copy(animatedCoversWifiOnly = it) } }
                     )
-                    
                 }
             }
         }
@@ -423,6 +450,27 @@ fun AppearanceScreen(
         )
     }
 
+    // "Fetch Canvas with your Spotify account" needs a Spotify session: offer to sign in first.
+    if (showSpotifySignInPrompt) com.auralis.music.ui.components.AuralisConfirmDialog(
+        title = "Sign in to Spotify",
+        message = "Fetching Canvas with your account needs you signed in to Spotify. Sign in now?",
+        confirmLabel = "Sign in",
+        icon = Icons.AutoMirrored.Filled.Login,
+        onConfirm = { showSpotifySignInPrompt = false; showSpotifySignIn = true },
+        onDismiss = { showSpotifySignInPrompt = false }
+    )
+
+    AuralisPushedPage(page = if (showSpotifySignIn) Unit else null) {
+        SpotifySignInScreen(
+            onSignedIn = {
+                // They signed in to use this, so it is switched on.
+                update { copy(spotifyAccountCanvas = true) }
+                showSpotifySignIn = false
+            },
+            onDismiss = { showSpotifySignIn = false }
+        )
+    }
+
     // ── OPTION SELECTION DIALOGS ──
     when (activeDialog) {
         AppearanceDialogType.THEME -> {
@@ -508,7 +556,7 @@ fun AppearanceScreen(
         AppearanceDialogType.ANIMATED_COVER_SOURCE -> {
             val sources = com.auralis.music.ui.player.CanvasSource.entries
             AppearanceOptionsDialog(
-                title = "Animated cover source",
+                title = "Find them on",
                 options = sources.map { it.label },
                 selectedOption = com.auralis.music.ui.player.CanvasSource.from(settings.animatedCoverSource).label,
                 onSelect = { label ->

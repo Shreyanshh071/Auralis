@@ -69,12 +69,16 @@ internal object CanvasBackdrop {
 @Composable
 internal fun rememberCanvasBackdrop(track: Track?, spotifyTrackId: String?): String? {
     val settings = LocalAppearanceSettings.current
-    SideEffect { CanvasAccount.enabled = settings.spotifyAccountCanvas }
-    if (!settings.animatedCovers || track == null) return null
+    // Set during composition so the lookup launched below already sees it.
+    CanvasAccount.enabled = settings.spotifyAccountCanvas
+    val accountOn = settings.spotifyAccountCanvas &&
+        com.auralis.music.data.network.SpotifySession.signedIn.collectAsState().value
+    if (!settings.spotifyCanvas || track == null) return null
     if (!rememberCoverWifiAvailable(settings.animatedCoversWifiOnly)) return null
     val context = LocalContext.current.applicationContext
     val hint by rememberUpdatedState(spotifyTrackId)
-    LaunchedEffect(track.id) {
+    // Turning the account lookup on (or signing in) looks again for the playing song.
+    LaunchedEffect(track.id, accountOn) {
         if (CanvasBackdrop.urlFor(track.id) != null) return@LaunchedEffect
         val first = hint
         var canvas = try { PhoneCanvasLookup.find(context, track, first) }
@@ -102,12 +106,29 @@ internal fun rememberCanvasBackdrop(track: Track?, spotifyTrackId: String?): Str
     return CanvasBackdrop.urlFor(track.id)
 }
 
-/** Fades the cover away while the Canvas fills the player behind it. */
+/** Length of the cover-to-Canvas move; the cover and the Canvas share it so they read as one. */
+private const val CANVAS_ENTER_MS = 900
+private val CanvasEnterEasing = androidx.compose.animation.core.CubicBezierEasing(.22f, 1f, .36f, 1f)
+
+/**
+ * The cover dissolves into the Canvas: it grows a little, softens and fades while the video comes
+ * into focus behind it, both on one eased curve. Coming back (Canvas gone) is a quick plain fade.
+ */
 @Composable
 internal fun Modifier.hiddenWhileCanvasBackdrop(trackId: String?): Modifier {
     val hidden = CanvasBackdrop.isShowing(trackId)
-    val alpha by animateFloatAsState(if (hidden) 0f else 1f, tween(350), label = "cover under canvas")
-    return this.graphicsLayer { this.alpha = alpha }
+    val progress by animateFloatAsState(if (hidden) 1f else 0f,
+        if (hidden) tween(CANVAS_ENTER_MS, easing = CanvasEnterEasing) else tween(320),
+        label = "cover under canvas")
+    return this.graphicsLayer {
+        // Gone a little before the move ends, so no ghost of the cover lingers over the loop.
+        alpha = (1f - progress / .8f).coerceIn(0f, 1f)
+        val scale = 1f + .1f * progress
+        scaleX = scale; scaleY = scale
+        val radius = progress * 18.dp.toPx()
+        renderEffect = if (radius > .5f && android.os.Build.VERSION.SDK_INT >= 31)
+            androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Decal) else null
+    }
 }
 
 /**
@@ -128,12 +149,22 @@ internal fun CanvasBackdropVideo(trackId: String, url: String, isPlaying: Boolea
     LaunchedEffect(url) { if (layers.last() != url) layers = layers + url }
     val blur by animateFloatAsState(if (blurred) 1f else 0f, tween(450), label = "canvas blur")
     DisposableEffect(trackId) { onDispose { if (CanvasBackdrop.showing == trackId) CanvasBackdrop.showing = null } }
+    // The entrance: 0 until the first frame has drawn, then one eased move shared with the cover.
+    var entered by remember(trackId) { mutableStateOf(CanvasBackdrop.isShowing(trackId)) }
+    val entrance by animateFloatAsState(if (entered) 1f else 0f, tween(CANVAS_ENTER_MS, easing = CanvasEnterEasing),
+        label = "canvas entrance")
+    val firstLayer = remember(trackId) { url }
     Box(modifier.fillMaxSize()) {
         layers.forEach { layerUrl ->
             key(layerUrl) {
                 CanvasLoop(layerUrl, isPlaying && foreground, blur,
-                    onShown = {
+                    entrance = if (layerUrl == firstLayer) entrance else null,
+                    onFirstFrame = {
+                        // The cover starts dissolving on the same frame the video starts showing.
+                        entered = true
                         CanvasBackdrop.showing = trackId
+                    },
+                    onShown = {
                         if (layers.last() == layerUrl) layers = listOf(layerUrl)
                     },
                     onFailed = {
@@ -141,8 +172,9 @@ internal fun CanvasBackdropVideo(trackId: String, url: String, isPlaying: Boolea
                     })
             }
         }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = blur * .32f)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = blur * .32f * entrance)))
+        // The shading fades in with the video instead of darkening the player before it shows.
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = entrance }.background(Brush.verticalGradient(
             0f to Color.Black.copy(alpha = .45f),
             .18f to Color.Transparent,
             .52f to Color.Transparent,
@@ -155,7 +187,8 @@ internal fun CanvasBackdropVideo(trackId: String, url: String, isPlaying: Boolea
 /** One looping, silent video layer; remote URLs stream (through the disk cache), files play locally. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun CanvasLoop(url: String, playing: Boolean, blur: Float, onShown: () -> Unit, onFailed: () -> Unit) {
+private fun CanvasLoop(url: String, playing: Boolean, blur: Float, entrance: Float?, onFirstFrame: () -> Unit,
+    onShown: () -> Unit, onFailed: () -> Unit) {
     val context = LocalContext.current.applicationContext
     var ready by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
@@ -173,6 +206,7 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, onShown: () -
         }
     }
     val shown by rememberUpdatedState(onShown)
+    val firstFrame by rememberUpdatedState(onFirstFrame)
     val failedCallback by rememberUpdatedState(onFailed)
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -185,16 +219,27 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, onShown: () -
         onDispose { player.removeListener(listener); player.release() }
     }
     LaunchedEffect(playing, failed) { player.playWhenReady = playing && !failed }
-    val opacity by animateFloatAsState(if (ready && !failed) 1f else 0f, tween(400), label = "canvas layer")
-    // Reported once fully faded in, so a layer underneath is only removed when nothing shows through.
-    LaunchedEffect(ready) { if (ready) { kotlinx.coroutines.delay(420); shown() } }
+    // A later layer (the sharp copy) only cross-fades over the loop already on screen.
+    val swapOpacity by animateFloatAsState(if (ready && !failed) 1f else 0f, tween(400), label = "canvas layer")
+    LaunchedEffect(ready) {
+        if (!ready) return@LaunchedEffect
+        firstFrame()
+        // Reported once fully faded in, so a layer underneath is only removed when nothing shows through.
+        kotlinx.coroutines.delay(if (entrance != null) CANVAS_ENTER_MS + 20L else 420L)
+        shown()
+    }
     AndroidView(
-        modifier = Modifier.fillMaxSize().alpha(opacity).graphicsLayer {
+        modifier = Modifier.fillMaxSize().graphicsLayer {
+            val enter = if (failed) 0f else entrance ?: swapOpacity
+            // Fades in fast, while settling from a slight zoom and coming into focus.
+            alpha = (enter / .55f).coerceIn(0f, 1f)
+            val settle = if (entrance != null) .08f * (1f - enter) else 0f
             // Behind Lyrics and Queue the loop keeps playing, softened so the text reads.
-            val radius = blur * 28.dp.toPx()
+            val radius = blur * 28.dp.toPx() + (if (entrance != null) (1f - enter) * 22.dp.toPx() else 0f)
             renderEffect = if (radius > 0.5f && android.os.Build.VERSION.SDK_INT >= 31)
                 androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Clamp) else null
-            scaleX = 1f + blur * .06f; scaleY = 1f + blur * .06f
+            val scale = 1f + blur * .06f + settle
+            scaleX = scale; scaleY = scale
         },
         factory = { viewContext ->
             AspectRatioFrameLayout(viewContext).apply {
@@ -213,4 +258,5 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, onShown: () -
 /** The Appearance switch for Canvas lookups with the signed-in Spotify account; read by the lookup. */
 internal object CanvasAccount {
     @Volatile var enabled = false
+    val available: Boolean get() = enabled && com.auralis.music.data.network.SpotifySession.signedIn.value
 }
