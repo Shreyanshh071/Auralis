@@ -1,8 +1,5 @@
 package com.auralis.music.ui.lyrics.renderers
 
-import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
-import android.graphics.Paint
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,12 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.auralis.music.domain.model.LyricLine
 import com.auralis.music.domain.model.LyricWord
 import com.auralis.music.ui.screens.lyrics.LyricsEngine
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.pow
@@ -238,30 +231,6 @@ private data class SpicySlice(val bounds: Rect, val wordIndex: Int, val wordBoun
 /** A glow shaped like the slice's own glyphs, so it never shows the edges of a clip box. */
 private data class SpicyGlow(val image: ImageBitmap, val topLeft: Offset)
 
-private data class SpicyBloom(val tight: SpicyGlow, val wide: SpicyGlow)
-
-private val spicyBloomDispatcher = Dispatchers.Default.limitedParallelism(2)
-private const val ACTIVE_RESTING_BLOOM = .15f
-private const val ACTIVE_BLOOM_SIGMA = .22f
-private const val ACTIVE_WIDE_BLOOM = .82f
-private const val ACTIVE_RESTING_BRIGHTNESS = .6f
-
-private fun Bitmap.glyphGlow(sigma: Float, origin: Offset): SpicyGlow {
-    val shift = IntArray(2)
-    // Android's mask filter takes a radius. Skia uses sigma = .57735 * radius + .5.
-    val radius = (sigma - .5f) / .57735f
-    val blur = Paint().apply { maskFilter = BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL) }
-    val alpha = extractAlpha(blur, shift)
-    try {
-        val image = Bitmap.createBitmap(alpha.width, alpha.height, Bitmap.Config.ARGB_8888)
-        android.graphics.Canvas(image).drawBitmap(alpha, 0f, 0f,
-            Paint().apply { color = android.graphics.Color.WHITE })
-        return SpicyGlow(image.asImageBitmap(), origin + Offset(shift[0].toFloat(), shift[1].toFloat()))
-    } finally {
-        alpha.recycle()
-    }
-}
-
 /** Recorded native layers can outlive the active-text branch by a frame. Keep the
  * latest image generations alive when a row switches between active and static. */
 private class SpicyImageLifetime {
@@ -298,8 +267,7 @@ fun SpicyLyricsLine(
     val imageLifetime = remember(line.text) { SpicyImageLifetime() }
     // Line-sync is a whole-line highlight. Do not manufacture timed words from its text.
     if (!isActive || words.isNullOrEmpty()) {
-        val activeAlpha = if (line.isBackground) 1f else .85f + .15f * ACTIVE_RESTING_BRIGHTNESS
-        Text(line.text, style = style, color = if (isActive) Color.White.copy(alpha = activeAlpha) else inactiveColor, overflow = TextOverflow.Visible,
+        Text(line.text, style = style, color = if (isActive) Color.White.copy(alpha = if (line.isBackground) 1f else .85f) else inactiveColor, overflow = TextOverflow.Visible,
             modifier = modifier.fillMaxWidth())
         return
     }
@@ -380,34 +348,38 @@ fun SpicyLyricsLine(
             bitmap to pad.toFloat()
         }
     }
-    // Prepare the tight and wide halos from the shaped paragraph. Timed text can
-    // draw immediately while the software blur runs off the UI thread.
-    var blooms by remember(raster, geometry, inkMasks) { mutableStateOf(emptyList<SpicyBloom>()) }
-    LaunchedEffect(raster, geometry, inkMasks) {
-        val (paragraph, rasterPad) = raster ?: return@LaunchedEffect
+    // Spicy's text-shadow is 4 + 12 x glow px for letters and 4 + 2 x glow px for words at its
+    // 56 px lyric size. Each glow is cut from the paragraph raster itself (as on desktop) and
+    // blurred, so it always sits exactly on the drawn glyphs. Re-measuring a syllable on its own
+    // misplaced it for complex scripts (a Devanagari syllable ghosted a row below its word).
+    val glows = remember(raster, geometry, inkMasks, density) {
+        val source = raster ?: return@remember emptyList<SpicyGlow?>()
+        val (paragraph, rasterPad) = source
         val pixels = paragraph.asAndroidBitmap()
         val fontPx = with(density) { style.fontSize.toPx() }
-        val prepared = withContext(spicyBloomDispatcher) {
-            geometry.mapIndexed { index, slice ->
-                coroutineContext.ensureActive()
-                val ink = inkMasks[index]
-                val left = (ink.left + rasterPad).toInt().coerceIn(0, pixels.width - 1)
-                val top = (ink.top + rasterPad).toInt().coerceIn(0, pixels.height - 1)
-                val right = ceil(ink.right + rasterPad).toInt().coerceIn(left + 1, pixels.width)
-                val bottom = ceil(ink.bottom + rasterPad).toInt().coerceIn(top + 1, pixels.height)
-                val crop = Bitmap.createBitmap(pixels, left, top, right - left, bottom - top)
-                try {
-                    val origin = Offset(left - rasterPad, top - rasterPad)
-                    val tightSigma = (fontPx * if (slice.letter >= 0) .065f else .045f).coerceAtLeast(1f)
-                    val wideSigma = (fontPx * ACTIVE_BLOOM_SIGMA).coerceAtLeast(2f)
-                    SpicyBloom(crop.glyphGlow(tightSigma, origin), crop.glyphGlow(wideSigma, origin))
-                } finally {
-                    if (crop !== pixels) crop.recycle()
-                }
+        geometry.mapIndexed { index, slice ->
+            if (groups[slice.wordIndex].endMs == null) return@mapIndexed null
+            val cssRadius = (if (slice.letter >= 0) 16f else 6f) * fontPx / 56f
+            val blur = ((cssRadius / 2f - .5f) / .57735f).coerceAtLeast(.5f)
+            val ink = inkMasks[index]
+            val left = (ink.left + rasterPad).toInt().coerceIn(0, pixels.width - 1)
+            val top = (ink.top + rasterPad).toInt().coerceIn(0, pixels.height - 1)
+            val right = kotlin.math.ceil(ink.right + rasterPad).toInt().coerceIn(left + 1, pixels.width)
+            val bottom = kotlin.math.ceil(ink.bottom + rasterPad).toInt().coerceIn(top + 1, pixels.height)
+            val crop = android.graphics.Bitmap.createBitmap(pixels, left, top, right - left, bottom - top)
+            val shift = IntArray(2)
+            val blurPaint = android.graphics.Paint().apply {
+                maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
             }
-        }
-        imageLifetime.retain(prepared.flatMap { listOf(it.tight.image, it.wide.image) })
-        blooms = prepared
+            val alpha = crop.extractAlpha(blurPaint, shift)
+            val image = android.graphics.Bitmap.createBitmap(alpha.width.coerceAtLeast(1), alpha.height.coerceAtLeast(1),
+                android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(image).drawBitmap(alpha, 0f, 0f,
+                android.graphics.Paint().apply { color = android.graphics.Color.WHITE })
+            if (crop !== pixels) crop.recycle()
+            alpha.recycle()
+            SpicyGlow(image.asImageBitmap(), Offset(left - rasterPad + shift[0], top - rasterPad + shift[1]))
+        }.also { values -> imageLifetime.retain(values.mapNotNull { it?.image }) }
     }
     val wordSprings = remember(groups) { groups.map { SpicySprings() } }
     val letterSprings = remember(geometry) { geometry.map { SpicySprings() } }
@@ -468,19 +440,12 @@ fun SpicyLyricsLine(
                         scale(letterPose.scale, letterPose.scale, pivot = slice.bounds.center)
                     }
                 }) {
-                    val strength = (letterPose?.glow ?: wordPose.glow).coerceIn(0f, 1f)
-                    val lit = ((fill + .2f) / 1.2f).coerceIn(0f, 1f)
-                    blooms.getOrNull(index)?.let { bloom ->
-                        val wideAlpha = lit * ACTIVE_WIDE_BLOOM
-                        val tightAlpha = maxOf(lit * ACTIVE_RESTING_BLOOM,
-                            strength * if (letterPose != null) .65f else .55f)
-                        if (wideAlpha > .001f) drawImage(bloom.wide.image, bloom.wide.topLeft, alpha = wideAlpha)
-                        if (tightAlpha > .001f) drawImage(bloom.tight.image, bloom.tight.topLeft, alpha = tightAlpha)
-                    }
+                    val glow = glows.getOrNull(index)
+                    val strength = if (letterPose != null) (letterPose.glow * 1.85f) else (wordPose.glow * .35f)
+                    if (glow != null && strength > .01f) drawImage(glow.image, glow.topLeft, alpha = strength.coerceAtMost(1f))
                     val inkBounds = inkMasks[index]
-                    val baseAlpha = if (line.isBackground) 1f else .85f
-                    val litAlpha = baseAlpha + (1f - baseAlpha) * maxOf(strength, lit * ACTIVE_RESTING_BRIGHTNESS)
-                    drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds, litAlpha)
+                    drawFill(text, origin, slice.bounds, fill, slice.rtl, fontPx, inkBounds,
+                        if (line.isBackground) 1f else .85f)
                 }
             }
         })
