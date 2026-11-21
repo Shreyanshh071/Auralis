@@ -64,6 +64,17 @@ internal object CanvasBackdrop {
     var panelOpen by mutableStateOf(false)
         internal set
 
+    /**
+     * How far the cover pager has moved off the Canvas song's page: 0 on it, 1 a full page away.
+     * Read while drawing, so a skip fades the Canvas out under the next cover right away instead
+     * of leaving it behind that cover until the next song has loaded.
+     */
+    var pagerAway by mutableStateOf<(() -> Float)?>(null)
+        internal set
+
+    /** [pagerAway] now, or 0 when no pager is following the Canvas. */
+    fun away(): Float = pagerAway?.invoke() ?: 0f
+
     fun urlFor(trackId: String?): String? = trackId?.let { found[it] }
 
     fun isShowing(trackId: String?): Boolean = trackId != null && showing == trackId
@@ -117,6 +128,26 @@ internal fun rememberCanvasBackdrop(track: Track?, spotifyTrackId: String?): Str
     return CanvasBackdrop.urlFor(track.id)
 }
 
+/** Lets the Canvas follow the cover pager (see [CanvasBackdrop.pagerAway]); one call per player. */
+@Composable
+internal fun CanvasFollowsPager(pagerState: androidx.compose.foundation.pager.PagerState, queue: List<Track>) {
+    val tracks by rememberUpdatedState(queue)
+    DisposableEffect(pagerState) {
+        val away: () -> Float = away@{
+            val id = CanvasBackdrop.showing ?: return@away 0f
+            val list = tracks
+            val current = pagerState.currentPage
+            // The Canvas song's page nearest the cover on screen (a song can be queued twice).
+            val page = (current - 2..current + 2).firstOrNull { list.getOrNull(it)?.id == id }
+                ?: list.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+                ?: return@away 0f
+            kotlin.math.abs(current + pagerState.currentPageOffsetFraction - page).coerceIn(0f, 1f)
+        }
+        CanvasBackdrop.pagerAway = away
+        onDispose { if (CanvasBackdrop.pagerAway === away) CanvasBackdrop.pagerAway = null }
+    }
+}
+
 /** Length of the cover-to-Canvas move; the cover and the Canvas share it so they read as one. */
 private const val CANVAS_ENTER_MS = 900
 private val CanvasEnterEasing = androidx.compose.animation.core.CubicBezierEasing(.22f, 1f, .36f, 1f)
@@ -132,6 +163,8 @@ internal fun Modifier.hiddenWhileCanvasBackdrop(trackId: String?): Modifier {
         if (hidden) tween(CANVAS_ENTER_MS, easing = CanvasEnterEasing) else tween(320),
         label = "cover under canvas")
     return this.graphicsLayer {
+        // Swiped or skipped off its page, the cover comes back as the Canvas fades out.
+        val progress = if (hidden) progress * (1f - CanvasBackdrop.away()) else progress
         // Gone a little before the move ends, so no ghost of the cover lingers over the loop.
         alpha = (1f - progress / .8f).coerceIn(0f, 1f)
         val scale = 1f + .1f * progress
@@ -165,7 +198,8 @@ internal fun CanvasBackdropVideo(trackId: String, url: String, isPlaying: Boolea
     val entrance by animateFloatAsState(if (entered) 1f else 0f, tween(CANVAS_ENTER_MS, easing = CanvasEnterEasing),
         label = "canvas entrance")
     val firstLayer = remember(trackId) { url }
-    Box(modifier.fillMaxSize()) {
+    // Fades out as soon as the covers move to another song, not once that song has loaded.
+    Box(modifier.fillMaxSize().graphicsLayer { alpha = 1f - CanvasBackdrop.away() }) {
         layers.forEach { layerUrl ->
             key(layerUrl) {
                 CanvasLoop(layerUrl, isPlaying && foreground, blur,

@@ -447,6 +447,7 @@ fun NowPlayingModal(
         CanvasBackdrop.panelOpen = currentTab != NowPlayingTab.PLAYER
         onDispose { CanvasBackdrop.panelOpen = false }
     }
+    CanvasFollowsPager(pagerState, queue)
 
     val downloadLyricsChoices by com.auralis.music.data.download.AuralisDownloadManager.downloadedLyricsChoices.collectAsState()
     val downloadedIdsForLyrics by com.auralis.music.data.download.AuralisDownloadManager.downloadedTrackIds.collectAsState()
