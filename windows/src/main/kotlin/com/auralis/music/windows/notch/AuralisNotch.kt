@@ -114,10 +114,11 @@ internal fun AuralisNotch(
     val appearance = rememberNotchAppearance(appearanceStore)
     val currentAppearance by rememberUpdatedState(appearance)
     val fallbackPosition = com.auralis.music.windows.player.rememberShownPosition(playback, remote)
-    val lyricPosition = com.auralis.music.ui.lyrics.rememberLyricsClock(
-        playback.clock, enabled && !locked && !lockScreenPreview && remote == null &&
-            state == VlcAudioPlayer.State.PLAYING && !resolving, fallbackPosition
-    )
+    // Sampled by the lyric loop below on its own timer. This composition sits outside any window,
+    // where a per-frame clock (rememberLyricsClock) has no vsync and pins the UI thread.
+    val lyricClock = remember(playback) { com.auralis.music.ui.lyrics.PolledLyricsClock(playback.clock) }
+    val clockEnabled by rememberUpdatedState(enabled && !locked && !lockScreenPreview && remote == null &&
+        state == VlcAudioPlayer.State.PLAYING && !resolving)
     LaunchedEffect(helper, enabled, locked, lockScreenPreview, remote != null) {
         if (!enabled || locked || lockScreenPreview || remote != null) return@LaunchedEffect
         withContext(Dispatchers.Swing) {
@@ -127,7 +128,7 @@ internal fun AuralisNotch(
                 while (isActive) {
                     val data = lyrics.state.value
                     val track = playback.queue.value.current?.id
-                    val position = lyricPosition.value
+                    val position = lyricClock.sample(clockEnabled, fallbackPosition.value)
                     val payload = notchLyrics(data, track, position)
                     val active = payload.lines.lastOrNull { it.timeMs <= position && (it.endMs == null || position < it.endMs) }
                     val original = data.lyrics?.lines?.firstOrNull { it.time == active?.timeMs && !it.isBackground }

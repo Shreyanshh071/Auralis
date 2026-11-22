@@ -94,6 +94,53 @@ fun carriedPositionMs(
 }
 
 /**
+ * The same anchor-and-carry clock as [rememberLyricsClock], sampled on demand
+ * instead of once per frame.
+ *
+ * For code that runs on its own timer outside a window, such as the macOS
+ * notch. A frame loop there runs on Compose's application-level clock, which
+ * has no vsync and spins the UI thread as fast as it can.
+ */
+class PolledLyricsClock(
+    private val source: PlaybackClockSource?,
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 }
+) {
+    private var anchored = false
+    private var anchorRawMs = 0L
+    private var anchorWallMs = 0L
+    private var anchorSpeed = 1f
+    private var advancing = false
+
+    /** The position now, or [fallbackMs] (the coarse mirror) while [enabled] is false. */
+    fun sample(enabled: Boolean, fallbackMs: Long): Long {
+        val clock = source
+        if (clock == null || !enabled) {
+            anchored = false
+            advancing = false
+            return fallbackMs
+        }
+        val now = nowMs()
+        val rawMs = clock.rawPositionMs()
+        if (!anchored) {
+            anchored = true
+            anchorRawMs = rawMs
+            anchorWallMs = now
+            anchorSpeed = clock.speed()
+            return rawMs
+        }
+        val playing = clock.isPlaying()
+        advancing = advanceConfirmed(advancing, anchorRawMs, rawMs, playing)
+        val position = carriedPositionMs(rawMs, anchorRawMs, anchorWallMs, now, anchorSpeed, playing && advancing)
+        if (rawMs != anchorRawMs) {
+            anchorRawMs = rawMs
+            anchorWallMs = now
+            anchorSpeed = clock.speed()
+        }
+        return position
+    }
+}
+
+/**
  * A playback position sampled once per displayed frame and smoothed by
  * [carriedPositionMs].
  *
