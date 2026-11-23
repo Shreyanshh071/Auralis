@@ -1,6 +1,8 @@
 package com.auralis.music.desktop.library
 
+import com.auralis.music.desktop.playback.DesktopJioSaavnAudio
 import com.auralis.music.desktop.playback.DesktopPlaybackMatch
+import com.auralis.music.desktop.playback.DesktopSoundCloudAudio
 import com.auralis.music.desktop.playback.DesktopStreamResolver
 import com.auralis.music.desktop.playback.LocalStreamRelay
 import com.auralis.music.domain.model.Track
@@ -21,37 +23,34 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
-/** Files are published only after complete transfer; the index survives restarts. */
+/**
+ * Files are published only after complete transfer; the index survives restarts. Audio comes from
+ * YouTube ([stream]) and, when YouTube can't supply it, from the first of [alternates] with the
+ * song's exact recording.
+ */
 class DesktopDownloads(
     root: File,
     private val scope: CoroutineScope,
     private val readTimeoutMs: Long = 60_000L,
     metadataFile: File = File(root, "index.json"),
     private val onRootChanged: (File) -> Unit = {},
-    private val stream: suspend (Track) -> String = { track ->
-        // Downloads wait behind playback (background priority) under their own allowance, and
-        // fail at once while YouTube requests are paused instead of adding to the refusals.
-        val budget = com.auralis.music.data.network.RequestBudget(com.auralis.music.data.network.RequestBudget.newId("d"), "download",
-            deadlineMs = 45_000L)
-        kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(budget)) {
-            val id = DesktopPlaybackMatch.videoId(track) ?: error("Could not match this song to playable audio")
-            when (val result = DesktopStreamResolver.resolveResult(id, com.auralis.music.desktop.playback.RequestPriority.BACKGROUND)) {
-                is com.auralis.music.desktop.playback.ResolutionResult.Resolved -> result.resource.url
-                is com.auralis.music.desktop.playback.ResolutionResult.Deferred ->
-                    error("YouTube requests are paused (${result.failure.category}); try again in ${(result.retryInMs + 59_999) / 60_000} min")
-                is com.auralis.music.desktop.playback.ResolutionResult.Failed -> error("Could not resolve audio (${result.failure.category})")
-                else -> error("Could not resolve audio")
-            }
-        }
-    }
+    /** Null: JioSaavn and SoundCloud behind the real YouTube resolver, nothing behind a test's. */
+    alternates: List<Source>? = null,
+    private val stream: suspend (Track) -> String = YOUTUBE,
 ) {
+    /** A catalog that may hold the song's exact recording: [find] returns a file or HLS playlist URL, or null. */
+    class Source(val name: String, val find: suspend (Track) -> String?)
+
+    private val alternates: List<Source> = alternates ?: if (stream === YOUTUBE) CATALOGS else emptyList()
     private val mutableRoot = MutableStateFlow(root)
     val rootDirectory = mutableRoot.asStateFlow()
     val root: File get() = mutableRoot.value
 
     data class Entry(val key: String, val groupId: String, val groupName: String, val folder: String,
         val track: Track, val index: Int, val status: String = "QUEUED", val file: String? = null,
-        val bytes: Long = 0, val total: Long = 0, val error: String? = null, val coverUrl: String? = null, val directory: String? = null)
+        val bytes: Long = 0, val total: Long = 0, val error: String? = null, val coverUrl: String? = null, val directory: String? = null,
+        /** Where the audio came from: "YouTube", or the catalog that stood in for it. */
+        val source: String? = null)
     private val metadata = metadataFile
     private val mutable = MutableStateFlow<List<Entry>>(emptyList())
     val entries = mutable.asStateFlow()
@@ -74,7 +73,8 @@ class DesktopDownloads(
                 val o = array.getJSONObject(i)
                 val e = Entry(o.getString("key"), o.getString("group"), o.getString("name"), o.getString("folder"),
                     TrackJson.decode(o.getJSONObject("track")), o.optInt("index"), o.getString("status"),
-                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null }, o.optString("cover").ifBlank { null }, o.optString("directory").ifBlank { null })
+                    o.optString("file").ifBlank { null }, o.optLong("bytes"), o.optLong("total"), o.optString("error").ifBlank { null }, o.optString("cover").ifBlank { null }, o.optString("directory").ifBlank { null },
+                    o.optString("source").ifBlank { null })
                 if (e.status != "COMPLETED" || !available(e)) e.copy(status = "FAILED", error = "Download interrupted or file missing. Retry.") else e
             }
         }
@@ -100,7 +100,7 @@ class DesktopDownloads(
         val array = JSONArray().apply { entries.value.forEach { e -> put(JSONObject()
             .put("key", e.key).put("group", e.groupId).put("name", e.groupName).put("folder", e.folder)
             .put("track", TrackJson.encode(e.track)).put("index", e.index).put("status", e.status)
-            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty()).put("cover", e.coverUrl.orEmpty()).put("directory", e.directory.orEmpty())) } }
+            .put("file", e.file.orEmpty()).put("bytes", e.bytes).put("total", e.total).put("error", e.error.orEmpty()).put("cover", e.coverUrl.orEmpty()).put("directory", e.directory.orEmpty()).put("source", e.source.orEmpty())) } }
         metadata.parentFile.mkdirs()
         val tmp = File(metadata.parentFile, metadata.name + ".new")
         tmp.writeText(array.toString())
@@ -124,7 +124,6 @@ class DesktopDownloads(
             update(e, false)
             running[key] = scope.launch(Dispatchers.IO) {
                 transferSlots.withPermit {
-                    var target: File? = null
                     var lastError: Throwable? = null
                     val maxDownloadAttempts = 2
                     for (attempt in 1..maxDownloadAttempts) {
@@ -135,143 +134,201 @@ class DesktopDownloads(
                                 com.auralis.music.data.network.RecordingMatches.matchedDurations.remove(track.id)
                                 delay(600L * attempt)
                             }
-                            val url = stream(track)
-                            update(e.copy(status = "DOWNLOADING"))
-                            val client = NetworkClientProvider.okHttpClient.newBuilder()
-                                .followRedirects(true)
-                                .readTimeout(readTimeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                                .connectTimeout(30_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
-                                .build()
-
-                            val chunkSize = 2 * 1024 * 1024L // 2 MB chunks
-                            val firstEnd = chunkSize - 1
-
-                            val initialReq = Request.Builder()
-                                .url(url)
-                                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-                                .header("Accept", "*/*")
-                                .header("Range", "bytes=0-$firstEnd")
-                                .build()
-
-                            client.newCall(initialReq).execute().use { response ->
-                                if (response.code == 403) {
-                                    DesktopStreamResolver.markHostFailed(url)
-                                }
-                                check(response.isSuccessful || response.code == 206) { "Audio request failed (HTTP ${response.code})" }
-                                val mime = response.header("Content-Type").orEmpty()
-                                require(!mime.contains("text/") && !mime.contains("json")) { "Server returned an error instead of audio" }
-                                val extension = if (mime.contains("webm")) "webm" else if (mime.contains("ogg")) "ogg" else "m4a"
-                                val name = "${sanitize(track.title, "Song")} (${hash(track.id)}).$extension"
-                                val relative = "${e.folder}/" + if (groupId == "individual") name else "%02d - %s".format(e.index + 1, name)
-                                val dest = safeFile(relative, e.directory?.let(::File) ?: root); dest.parentFile.mkdirs()
-                                val partial = File(dest.parentFile, dest.name + ".partial"); target = partial
-
-                                var count = 0L
-                                var lastUpdate = 0L
-
-                                if (response.code == 206) {
-                                    val cr = response.header("Content-Range")
-                                    val totalLength = cr?.substringAfterLast('/')?.trim()?.toLongOrNull() ?: -1L
-                                    partial.outputStream().use { out ->
-                                        // Stream first chunk directly
-                                        response.body?.byteStream()?.use { input ->
-                                            val buffer = ByteArray(128 * 1024)
-                                            while (true) {
-                                                coroutineContext.ensureActive()
-                                                val n = input.read(buffer); if (n < 0) break
-                                                out.write(buffer, 0, n); count += n
-                                                if (System.currentTimeMillis() - lastUpdate > 250) {
-                                                    update(e.copy(status = "DOWNLOADING", bytes = count, total = totalLength), false)
-                                                    lastUpdate = System.currentTimeMillis()
-                                                }
-                                            }
-                                        }
-                                        // Stream remaining chunks (bypasses Google Video bandwidth throttling)
-                                        if (totalLength > count) {
-                                            var start = count
-                                            while (start < totalLength) {
-                                                coroutineContext.ensureActive()
-                                                val end = minOf(start + chunkSize - 1, totalLength - 1)
-                                                val chunkReq = Request.Builder()
-                                                    .url(url)
-                                                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-                                                    .header("Accept", "*/*")
-                                                    .header("Range", "bytes=$start-$end")
-                                                    .build()
-                                                client.newCall(chunkReq).execute().use { chunkRes ->
-                                                    if (chunkRes.code == 403) {
-                                                        DesktopStreamResolver.markHostFailed(url)
-                                                    }
-                                                    check(chunkRes.code == 206 || chunkRes.isSuccessful) { "Chunk transfer failed (HTTP ${chunkRes.code})" }
-                                                    chunkRes.body?.byteStream()?.use { input ->
-                                                        val buffer = ByteArray(128 * 1024)
-                                                        while (true) {
-                                                            coroutineContext.ensureActive()
-                                                            val n = input.read(buffer); if (n < 0) break
-                                                            out.write(buffer, 0, n); count += n
-                                                            if (System.currentTimeMillis() - lastUpdate > 250) {
-                                                                update(e.copy(status = "DOWNLOADING", bytes = count, total = totalLength), false)
-                                                                lastUpdate = System.currentTimeMillis()
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                start = end + 1
-                                            }
-                                        }
-                                    }
-                                    check(count > 1024 && (totalLength <= 0 || count == totalLength)) { "Audio download was incomplete" }
-                                } else {
-                                    // Continuous stream fallback for servers that do not support Range
-                                    val body = response.body ?: error("Empty audio response")
-                                    val total = body.contentLength()
-                                    partial.outputStream().use { out -> body.byteStream().use { input ->
-                                        val buffer = ByteArray(128 * 1024)
-                                        while (true) {
-                                            coroutineContext.ensureActive()
-                                            val n = input.read(buffer); if (n < 0) break
-                                            out.write(buffer, 0, n); count += n
-                                            if (System.currentTimeMillis() - lastUpdate > 250) {
-                                                update(e.copy(status = "DOWNLOADING", bytes = count, total = total), false)
-                                                lastUpdate = System.currentTimeMillis()
-                                            }
-                                        }
-                                    } }
-                                    check(count > 1024 && (total < 0 || count == total)) { "Audio download was incomplete" }
-                                }
-
-                                // Basic container signature check: never publish an HTML/error page as a song.
-                                val header = partial.inputStream().use { it.readNBytes(16) }
-                                check(header.size >= 8 && (String(header, 4, 4) == "ftyp" ||
-                                    header.take(4).map { it.toInt() and 255 } == listOf(0x1a, 0x45, 0xdf, 0xa3) || String(header, 0, 4) == "OggS")) { "Downloaded file is not a supported audio container" }
-                                coroutineContext.ensureActive()
-                                Files.move(partial.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                                target = null
-                                update(e.copy(status = "COMPLETED", file = relative, bytes = count, total = count))
-                            }
+                            download(e, track)
                             lastError = null
                             break
-                        } catch (cancelled: CancellationException) {
-                            target?.delete()
-                            throw cancelled
                         } catch (err: Throwable) {
+                            // Only canceling the download stops it; a lookup's own timeout is a failed attempt.
+                            if (err is CancellationException) currentCoroutineContext().ensureActive()
                             lastError = err
-                            target?.delete()
-                            target = null
                         }
                     }
                     if (lastError != null) {
                         update(e.copy(status = "FAILED", error = lastError.message ?: "Download failed"))
-                    }
-                    if (entries.value.none { it.key == e.key }) target?.parentFile?.let {
-                        val base = e.directory?.let(::File) ?: root
-                        pruneEmptyDownloadFolders(it, base, base.canonicalFile == File(System.getProperty("user.home"), "Downloads/Auralis").canonicalFile)
                     }
                 }
             }
         }
         // Queue a large playlist in one disk write, rather than blocking the UI once per song.
         persist()
+    }
+
+    /**
+     * Saves [track] from YouTube or, when YouTube can't supply it (requests paused or refused, no
+     * matching upload, or its transfer failed), from the first alternate catalog that has the exact
+     * recording and transfers completely. Throws, saying why, when no source could.
+     */
+    private suspend fun download(e: Entry, track: Track) {
+        val youtubeError = try {
+            save(e, track, stream(track), YOUTUBE_SOURCE)
+            return
+        } catch (err: Throwable) {
+            if (err is CancellationException) currentCoroutineContext().ensureActive()
+            if (alternates.isEmpty()) throw err
+            err
+        }
+        var alternateError: Throwable? = null
+        for (source in alternates) {
+            val url = try {
+                source.find(track)
+            } catch (err: Throwable) {
+                if (err is CancellationException) currentCoroutineContext().ensureActive()
+                com.auralis.music.util.Log.w(TAG, "${source.name} lookup failed for ${track.id}: ${err.javaClass.simpleName}")
+                null
+            } ?: continue
+            try {
+                save(e, track, url, source.name)
+                com.auralis.music.util.Log.i(TAG, "Saved '${track.title}' (${track.id}) from ${source.name}: ${youtubeError.message}")
+                return
+            } catch (err: Throwable) {
+                if (err is CancellationException) currentCoroutineContext().ensureActive()
+                com.auralis.music.util.Log.w(TAG, "${source.name} download failed for ${track.id}: ${err.message}")
+                alternateError = err
+            }
+        }
+        val why = youtubeError.message ?: "YouTube couldn't supply this song"
+        error(alternateError?.let { "$why; ${it.message}" }
+            ?: "$why; no exact copy on ${alternates.joinToString(" or ") { it.name }}")
+    }
+
+    /** Transfers [url] (a file, or another catalog's HLS playlist) and publishes it as [e]'s file. */
+    private suspend fun save(e: Entry, track: Track, url: String, source: String) {
+        update(e.copy(status = "DOWNLOADING", source = source))
+        val client = NetworkClientProvider.okHttpClient.newBuilder()
+            .followRedirects(true)
+            .readTimeout(readTimeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .connectTimeout(30_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
+        val base = e.directory?.let(::File) ?: root
+        val name = "${sanitize(track.title, "Song")} (${hash(track.id)})"
+        val stem = "${e.folder}/" + if (e.groupId == "individual") name else "%02d - %s".format(e.index + 1, name)
+        val partial = safeFile("$stem.partial", base); partial.parentFile.mkdirs()
+        var lastUpdate = 0L
+        val progress = { bytes: Long, total: Long ->
+            if (System.currentTimeMillis() - lastUpdate > 250) {
+                update(e.copy(status = "DOWNLOADING", bytes = bytes, total = total, source = source), false)
+                lastUpdate = System.currentTimeMillis()
+            }
+        }
+        try {
+            val playlist = source != YOUTUBE_SOURCE && HlsPlaylist.isPlaylist(url)
+            val count = if (playlist) fetchPlaylist(client, url, partial, progress)
+                else fetchFile(client, url, partial, youtube = source == YOUTUBE_SOURCE, progress)
+            // Never publish an HTML/error page as a song; the extension is what the bytes are, not what the server said.
+            val container = checkNotNull(AudioContainer.of(partial.inputStream().use { it.readNBytes(16) })) {
+                "Downloaded file is not a supported audio container"
+            }
+            // Joined fragments would otherwise have no length, so the player could neither show one nor seek.
+            if (playlist && container == AudioContainer.MP4) runCatching { FragmentedMp4.fillInDuration(partial) }
+                .onFailure { com.auralis.music.util.Log.w(TAG, "Couldn't write the length of ${track.id}'s file: ${it.javaClass.simpleName}") }
+            val relative = "$stem.${container.extension}"
+            val dest = safeFile(relative, base)
+            currentCoroutineContext().ensureActive()
+            Files.move(partial.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            update(e.copy(status = "COMPLETED", file = relative, bytes = count, total = count, source = source))
+        } finally {
+            partial.delete()
+        }
+    }
+
+    /** One progressive file, fetched in 2 MB ranges where the server allows (bypasses Google Video throttling). */
+    private suspend fun fetchFile(client: okhttp3.OkHttpClient, url: String, partial: File, youtube: Boolean,
+        progress: (Long, Long) -> Unit): Long {
+        val chunkSize = 2 * 1024 * 1024L
+        var count = 0L
+        client.newCall(audioRequest(url, 0L until chunkSize)).execute().use { response ->
+            if (response.code == 403 && youtube) DesktopStreamResolver.markHostFailed(url)
+            check(response.isSuccessful || response.code == 206) { "Audio request failed (HTTP ${response.code})" }
+            val mime = response.header("Content-Type").orEmpty()
+            require(!mime.contains("text/") && !mime.contains("json")) { "Server returned an error instead of audio" }
+            partial.outputStream().use { out ->
+                if (response.code == 206) {
+                    val totalLength = response.header("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull() ?: -1L
+                    response.body?.byteStream()?.use { input -> count += copy(input, out) { progress(count + it, totalLength) } }
+                    var start = count
+                    while (start < totalLength) {
+                        currentCoroutineContext().ensureActive()
+                        val end = minOf(start + chunkSize - 1, totalLength - 1)
+                        client.newCall(audioRequest(url, start..end)).execute().use { chunk ->
+                            if (chunk.code == 403 && youtube) DesktopStreamResolver.markHostFailed(url)
+                            check(chunk.code == 206 || chunk.isSuccessful) { "Chunk transfer failed (HTTP ${chunk.code})" }
+                            chunk.body?.byteStream()?.use { input -> count += copy(input, out) { progress(count + it, totalLength) } }
+                        }
+                        start = end + 1
+                    }
+                    check(count > 1024 && (totalLength <= 0 || count == totalLength)) { "Audio download was incomplete" }
+                } else {
+                    // Servers that ignore Range send the whole file at once.
+                    val body = response.body ?: error("Empty audio response")
+                    val total = body.contentLength()
+                    body.byteStream().use { input -> count += copy(input, out) { progress(count + it, total) } }
+                    check(count > 1024 && (total < 0 || count == total)) { "Audio download was incomplete" }
+                }
+            }
+        }
+        return count
+    }
+
+    /**
+     * An HLS recording (SoundCloud serves many uploads only this way): the best variant's init
+     * segment and every media segment, appended in order, which is one playable file.
+     */
+    private suspend fun fetchPlaylist(client: okhttp3.OkHttpClient, url: String, partial: File, progress: (Long, Long) -> Unit): Long {
+        var parsed = HlsPlaylist.parse(fetchText(client, url), url)
+        if (parsed is HlsPlaylist.Parsed.Variants) {
+            val variant = parsed.urls.first()
+            parsed = HlsPlaylist.parse(fetchText(client, variant), variant)
+        }
+        val media = parsed as? HlsPlaylist.Parsed.Media ?: error("HLS playlist has no media segments")
+        val parts = listOfNotNull(media.init) + media.segments
+        var count = 0L
+        partial.outputStream().use { out ->
+            parts.forEachIndexed { index, part ->
+                currentCoroutineContext().ensureActive()
+                // The whole size is known only at the end; until then it is extrapolated from the parts so far.
+                val estimate = { bytes: Long -> bytes * parts.size / (index + 1) }
+                client.newCall(audioRequest(part.url, part.range)).execute().use { response ->
+                    check(response.isSuccessful) { "Audio segment request failed (HTTP ${response.code})" }
+                    check(part.range == null || response.code == 206) { "Server ignored an HLS byte range" }
+                    val body = response.body ?: error("Empty audio segment")
+                    val expected = part.range?.let { it.last - it.first + 1 } ?: body.contentLength()
+                    val written = body.byteStream().use { input -> copy(input, out) { progress(count + it, estimate(count + it)) } }
+                    check(written > 0 && (expected < 0 || written == expected)) { "Audio segment was incomplete" }
+                    count += written
+                }
+            }
+        }
+        check(count > 1024) { "Audio download was incomplete" }
+        return count
+    }
+
+    private fun fetchText(client: okhttp3.OkHttpClient, url: String): String =
+        client.newCall(audioRequest(url, null)).execute().use { response ->
+            check(response.isSuccessful) { "Playlist request failed (HTTP ${response.code})" }
+            val body = response.body ?: error("Empty playlist")
+            check(body.contentLength() <= MAX_PLAYLIST_BYTES) { "Playlist is too large" }
+            String(body.byteStream().use { it.readNBytes(MAX_PLAYLIST_BYTES.toInt() + 1) }, Charsets.UTF_8)
+                .also { check(it.length <= MAX_PLAYLIST_BYTES) { "Playlist is too large" } }
+        }
+
+    private fun audioRequest(url: String, range: LongRange?) = Request.Builder()
+        .url(url)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "*/*")
+        .apply { if (range != null) header("Range", "bytes=${range.first}-${range.last}") }
+        .build()
+
+    /** Copies [input] to [out], reporting the bytes copied so far; returns the total. */
+    private suspend fun copy(input: java.io.InputStream, out: java.io.OutputStream, copied: (Long) -> Unit): Long {
+        val buffer = ByteArray(128 * 1024)
+        var total = 0L
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val n = input.read(buffer); if (n < 0) break
+            out.write(buffer, 0, n); total += n
+            copied(total)
+        }
+        return total
     }
     @Synchronized fun remove(key: String) {
         running.remove(key)?.cancel()
@@ -386,6 +443,39 @@ class DesktopDownloads(
     fun moveGroupToCurrentRoot(groupId: String): Int = moveExistingDownloads { it.groupId == groupId }
 
     companion object {
+        private const val TAG = "DesktopDownloads"
+        private const val YOUTUBE_SOURCE = "YouTube"
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        private const val MAX_PLAYLIST_BYTES = 2L * 1024 * 1024
+
+        /** The matched YouTube upload's audio stream; throws saying why when there is none. */
+        private val YOUTUBE: suspend (Track) -> String = { track ->
+            // Downloads wait behind playback (background priority) under their own allowance, and
+            // fail at once while YouTube requests are paused instead of adding to the refusals.
+            val budget = com.auralis.music.data.network.RequestBudget(com.auralis.music.data.network.RequestBudget.newId("d"), "download",
+                deadlineMs = 45_000L)
+            kotlinx.coroutines.withContext(com.auralis.music.data.network.PlaybackIntentContext(budget)) {
+                val id = DesktopPlaybackMatch.videoId(track) ?: error("Could not match this song to playable audio")
+                when (val result = DesktopStreamResolver.resolveResult(id, com.auralis.music.desktop.playback.RequestPriority.BACKGROUND)) {
+                    is com.auralis.music.desktop.playback.ResolutionResult.Resolved -> result.resource.url
+                    is com.auralis.music.desktop.playback.ResolutionResult.Deferred ->
+                        error("YouTube requests are paused (${result.failure.category}); try again in ${(result.retryInMs + 59_999) / 60_000} min")
+                    is com.auralis.music.desktop.playback.ResolutionResult.Failed -> error("Could not resolve audio (${result.failure.category})")
+                    else -> error("Could not resolve audio")
+                }
+            }
+        }
+
+        /**
+         * The catalogs asked after YouTube, in order: JioSaavn's file (320 kbps when it has one),
+         * then SoundCloud. Both return only the song's exact recording (RecordingMatch), never a
+         * remix, live take or other cut.
+         */
+        val CATALOGS: List<Source> = listOf(
+            Source("JioSaavn", DesktopJioSaavnAudio::find320),
+            Source("SoundCloud", DesktopSoundCloudAudio::find),
+        )
+
         fun resolveDownloadDirectory(chosen: File): File {
             val canonical = chosen.canonicalFile
             return if (canonical.name.equals("Auralis", ignoreCase = true)) {
