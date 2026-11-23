@@ -586,7 +586,7 @@ fun PlaylistOptionsBottomSheet(
 
     when (activeDialog) {
         PlaylistDialogType.EDIT -> {
-            AlertDialog(
+            com.auralis.music.ui.components.GlassAlertDialog(
                 onDismissRequest = {
                     activeDialog = null
                     onDismiss()
@@ -742,7 +742,7 @@ fun PlaylistOptionsBottomSheet(
             )
         }
         PlaylistDialogType.EXPORT -> {
-            AlertDialog(
+            com.auralis.music.ui.components.GlassAlertDialog(
                 onDismissRequest = {
                     activeDialog = null
                     onDismiss()
@@ -886,7 +886,7 @@ fun PlaylistOptionsBottomSheet(
             )
         }
         PlaylistDialogType.DELETE -> {
-            AlertDialog(
+            com.auralis.music.ui.components.GlassAlertDialog(
                 onDismissRequest = {
                     activeDialog = null
                     onDismiss()
@@ -946,7 +946,7 @@ fun PlaylistOptionsBottomSheet(
             )
         }
         PlaylistDialogType.DELETE_ALL_DOWNLOADS -> {
-            AlertDialog(
+            com.auralis.music.ui.components.GlassAlertDialog(
                 onDismissRequest = {
                     activeDialog = null
                     onDismiss()
