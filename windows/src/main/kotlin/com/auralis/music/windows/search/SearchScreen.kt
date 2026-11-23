@@ -129,10 +129,15 @@ fun FindMusicDropdown(
         if (text.isNotBlank()) { dismiss(); if (bar) focusManager.clearFocus(); onSearch(text) }
     }
     fun open() { mounted = true; expanded = true }
+    val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    // A press on the title bar's drag area (handled by Windows, not Compose) closes the dropdown.
+    val titleBarPresses = TitleBarPresses.count
+    LaunchedEffect(titleBarPresses) {
+        if (bar && titleBarPresses > 0 && (expanded || fieldFocused)) { dismiss(); focusManager.clearFocus() }
+    }
     Box {
         if (bar) {
-            val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            val hovered by hover.collectIsHoveredAsState()
             Row(Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
                 .background(androidx.compose.ui.graphics.Color.White.copy(alpha = if (hovered || expanded) .14f else .08f))
                 .hoverable(hover)
@@ -204,7 +209,9 @@ fun FindMusicDropdown(
                 popupPositionProvider = position,
                 // Title bar: typing stays in the bar, so the dropdown never takes focus.
                 // A click outside closes it and leaves the field; a click on the field itself focuses it again.
-                onDismissRequest = { dismiss(); if (bar) focusManager.clearFocus() },
+                // A click on the bar itself isn't "outside": keep the open dropdown instead of
+                // closing it and replaying its entrance.
+                onDismissRequest = { if (!(bar && hovered)) { dismiss(); if (bar) focusManager.clearFocus() } },
                 properties = androidx.compose.ui.window.PopupProperties(focusable = !bar)
             ) {
                 LaunchedEffect(expanded) {

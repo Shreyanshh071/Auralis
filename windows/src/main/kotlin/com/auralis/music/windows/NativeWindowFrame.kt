@@ -37,6 +37,8 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
     /** The title bar's search field: inside the drag area, but clicks must reach it. */
     @Volatile var searchBounds: Rect = Rect.Zero
     @Volatile var onTaskbarMessage: ((Int, Long) -> Boolean)? = null
+    /** A press on the drag area: Windows handles it as non-client, so Compose never sees it. */
+    @Volatile var onCaptionPress: (() -> Unit)? = null
     var fullscreen: Boolean = false
         set(value) {
             if (field == value) return
@@ -165,6 +167,10 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
                         hoverCaption(pressedButton)
                         nativeUser.getFunction("SetCapture").invokePointer(arrayOf(hwnd))
                         LRESULT(0)
+                    }
+                    root && (message == 0x00A1 || message == 0x00A4) && w.toInt() == 2 -> { // WM_NC[L|R]BUTTONDOWN on HTCAPTION
+                        onCaptionPress?.let { java.awt.EventQueue.invokeLater(it) }
+                        user.CallWindowProc(previous, current, message, w, l)
                     }
                     root && message == 0x00A2 && pressedButton != 0 -> {
                         val x = (l.toLong() and 0xffff).toShort().toInt()
