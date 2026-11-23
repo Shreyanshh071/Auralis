@@ -166,8 +166,13 @@ class PlaybackIntentGatingTest {
         try {
             val error = async(start = CoroutineStart.UNDISPATCHED) { playback.errors.first() }
             playback.playSingle(songs[0])
-            withTimeout(15_000) { assertContains(error.await().message, "requires verification") }
+            withTimeout(15_000) {
+                val message = error.await().message
+                assertContains(message, "requires verification")
+                assertContains(message, "JioSaavn couldn't play it either")
+            }
             assertEquals(1, youtubeLookups.get())
+            // The dead stream is reopened, not looked up again.
             assertEquals(1, saavnLookups.get())
             assertEquals(songs[0].id, playback.queue.value.current?.id)
         } finally {
@@ -177,21 +182,177 @@ class PlaybackIntentGatingTest {
         }
     }
 
-    private fun testAudio(): ByteArray {
+    @Test fun soundCloudPlaysWhenJioSaavnHasNoMatch() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val stream = streamServer(testAudio())
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val saavnLookups = AtomicInteger()
+        val soundCloudLookups = AtomicInteger()
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { null },
+            resolveStream = { throw java.io.IOException("Sign in to confirm that you're not a bot") },
+            resolveJioSaavn = { saavnLookups.incrementAndGet(); null },
+            resolveSoundCloud = { soundCloudLookups.incrementAndGet(); "http://127.0.0.1:${stream.address.port}/track.wav" })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.setVolume(0f)
+        try {
+            playback.playSingle(songs[0])
+            withTimeout(15_000) { playback.state.first { it == VlcAudioPlayer.State.PLAYING } }
+            assertEquals(1, saavnLookups.get())
+            assertEquals(1, soundCloudLookups.get())
+        } finally {
+            playback.release()
+            scope.cancel()
+            stream.stop(0)
+        }
+    }
+
+    @Test fun aDeadJioSaavnStreamIsReopenedOnceThenSoundCloudTakesOver() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val dead = streamServer(null)
+        val good = streamServer(testAudio())
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val saavnLookups = AtomicInteger()
+        val soundCloudLookups = AtomicInteger()
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { null },
+            resolveStream = { throw java.io.IOException("Sign in to confirm that you're not a bot") },
+            resolveJioSaavn = { saavnLookups.incrementAndGet(); "http://127.0.0.1:${dead.address.port}/track.wav" },
+            resolveSoundCloud = { soundCloudLookups.incrementAndGet(); "http://127.0.0.1:${good.address.port}/track.wav" })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.setVolume(0f)
+        val errors = mutableListOf<DesktopPlaybackController.PlaybackError>()
+        val collecting = scope.launch { playback.errors.collect { errors += it } }
+        try {
+            playback.playSingle(songs[0])
+            withTimeout(20_000) { while (playback.state.value != VlcAudioPlayer.State.PLAYING || soundCloudLookups.get() == 0) delay(25) }
+            assertEquals(1, saavnLookups.get())
+            assertEquals(1, soundCloudLookups.get())
+            assertEquals(emptyList(), errors.map { it.message })
+        } finally {
+            collecting.cancel()
+            playback.release()
+            scope.cancel()
+            dead.stop(0)
+            good.stop(0)
+        }
+    }
+
+    @Test fun youTubeRefusingTheStreamMidSongContinuesOnJioSaavn() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // 10 s at 48 kHz stereo: the relay's first 256 KiB piece is about 1.4 s of it.
+        val long = testAudio(seconds = 10, sampleRate = 48_000f, channels = 2)
+        val youtube = streamServer(long, refuseFrom = 256 * 1024)
+        val saavn = streamServer(long)
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val youtubeLookups = AtomicInteger()
+        val saavnLookups = AtomicInteger()
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { null },
+            resolveStream = { youtubeLookups.incrementAndGet(); "http://127.0.0.1:${youtube.address.port}/track.wav" },
+            resolveJioSaavn = { saavnLookups.incrementAndGet(); "http://127.0.0.1:${saavn.address.port}/track.wav" })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.setVolume(0f)
+        val errors = mutableListOf<DesktopPlaybackController.PlaybackError>()
+        val collecting = scope.launch { playback.errors.collect { errors += it } }
+        try {
+            playback.playSingle(songs[0])
+            withTimeout(25_000) { while (saavnLookups.get() == 0 || playback.state.value != VlcAudioPlayer.State.PLAYING) delay(25) }
+            assertEquals(1, youtubeLookups.get(), "a network-wide refusal goes to the other catalogs, not back to YouTube")
+            assertEquals(0, playback.queue.value.index)
+            assertEquals(emptyList(), errors.map { it.message })
+        } finally {
+            YouTubeBackoff.recordSuccess()
+            collecting.cancel()
+            playback.release()
+            scope.cancel()
+            youtube.stop(0)
+            saavn.stop(0)
+        }
+    }
+
+    @Test fun aBrokenDownloadStreamsInstead() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val stream = streamServer(testAudio())
+        val missing = File(System.getProperty("java.io.tmpdir"), "auralis-missing-${System.nanoTime()}.wav")
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val youtubeLookups = AtomicInteger()
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { missing },
+            resolveStream = { youtubeLookups.incrementAndGet(); "http://127.0.0.1:${stream.address.port}/track.wav" })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.setVolume(0f)
+        try {
+            playback.playSingle(songs[0])
+            withTimeout(20_000) { while (youtubeLookups.get() == 0 || playback.state.value != VlcAudioPlayer.State.PLAYING) delay(25) }
+            assertEquals(1, youtubeLookups.get())
+        } finally {
+            playback.release()
+            scope.cancel()
+            stream.stop(0)
+        }
+    }
+
+    @Test fun aJioSaavnLookupThatTimesOutHoldsWithAMessage() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { null },
+            resolveStream = { throw java.io.IOException("Sign in to confirm that you're not a bot") },
+            // A request's own timeout surfaces as a cancellation; it must not cancel the song's load.
+            resolveJioSaavn = { withTimeout(50) { delay(5_000) }; null })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        try {
+            val error = async(start = CoroutineStart.UNDISPATCHED) { playback.errors.first() }
+            playback.playSingle(songs[0])
+            withTimeout(10_000) { assertContains(error.await().message, "requires verification") }
+        } finally {
+            YouTubeBackoff.recordSuccess()
+            playback.release()
+            scope.cancel()
+        }
+    }
+
+    @Test fun aSlowYouTubeLookupLetsJioSaavnStartTheSong() = runBlocking<Unit> {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val stream = streamServer(testAudio())
+        val audio = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val playback = DesktopPlaybackController(audio, scope, offlineFile = { null },
+            resolveStream = { delay(60_000); null },
+            resolveJioSaavn = { "http://127.0.0.1:${stream.address.port}/track.wav" })
+        playback.autoLoadMore = false
+        playback.preloadNext = false
+        playback.setVolume(0f)
+        try {
+            playback.playSingle(songs[0])
+            withTimeout(18_000) { playback.state.first { it == VlcAudioPlayer.State.PLAYING } }
+        } finally {
+            playback.release()
+            scope.cancel()
+            stream.stop(0)
+        }
+    }
+
+    private fun testAudio(seconds: Int = 8, sampleRate: Float = 8000f, channels: Int = 1): ByteArray {
         val output = java.io.ByteArrayOutputStream()
-        javax.sound.sampled.AudioInputStream(java.io.ByteArrayInputStream(ByteArray(8 * 8000 * 2)),
-            javax.sound.sampled.AudioFormat(8000f, 16, 1, true, false), 64000).use {
+        val frames = (seconds * sampleRate).toLong()
+        javax.sound.sampled.AudioInputStream(java.io.ByteArrayInputStream(ByteArray((frames * 2 * channels).toInt())),
+            javax.sound.sampled.AudioFormat(sampleRate, 16, channels, true, false), frames).use {
             javax.sound.sampled.AudioSystem.write(it, javax.sound.sampled.AudioFileFormat.Type.WAVE, output)
         }
         return output.toByteArray()
     }
 
-    private fun streamServer(audio: ByteArray?): HttpServer =
+    /** Serves [audio] by range; ranges starting at [refuseFrom] or later get a 429, as a refusing CDN would. */
+    private fun streamServer(audio: ByteArray?, refuseFrom: Int = Int.MAX_VALUE): HttpServer =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/track.wav") { exchange ->
                 exchange.use {
+                    val requested = exchange.requestHeaders.getFirst("Range")?.removePrefix("bytes=")?.substringBefore('-')?.toIntOrNull() ?: 0
                     if (audio == null) {
                         exchange.sendResponseHeaders(404, -1)
+                    } else if (requested >= refuseFrom) {
+                        exchange.sendResponseHeaders(429, -1)
                     } else {
                         val range = exchange.requestHeaders.getFirst("Range").removePrefix("bytes=")
                         val start = range.substringBefore('-').toInt()

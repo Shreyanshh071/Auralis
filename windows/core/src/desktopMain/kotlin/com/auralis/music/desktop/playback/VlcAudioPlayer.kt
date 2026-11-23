@@ -191,6 +191,8 @@ class VlcAudioPlayer private constructor(
         if (!player.media().play(url, *options.toTypedArray())) {
             Log.w(TAG, "libVLC refused the stream")
             publishState(State.ERROR)
+            // Reported like any other error, so the listener can recover (it used to stay silent).
+            onError?.invoke()
         } else player.controls().setRate(playbackRate)
         if (outgoing != null) {
             val revision = fadeRevision

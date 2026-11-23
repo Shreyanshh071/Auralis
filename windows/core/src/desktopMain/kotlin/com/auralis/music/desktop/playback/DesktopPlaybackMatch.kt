@@ -38,15 +38,11 @@ object DesktopPlaybackMatch {
             return m.id
         }
 
-        val primaryMatches = pickCandidates(track, candidates)
-        for (cand in primaryMatches) {
-            if (stopTrying()) return null
-            if (DesktopStreamResolver.resolve(cand.id) != null) {
-                RecordingMatches.matchedVideoIds[track.id] = cand.id
-                RecordingMatches.matchedDurations[track.id] = cand.duration.toLong()
-                com.auralis.music.util.Log.i("DesktopPlaybackMatch", "Matched '${track.title}' to ${cand.id}")
-                return cand.id
-            }
+        when (val probe = firstPlayable(track, pickCandidates(track, candidates))) {
+            is Probe.Found -> return probe.id
+            is Probe.Refused -> return probe.id
+            Probe.Stop -> return null
+            Probe.None -> Unit
         }
 
         val cleanArtist = if (track.artist.equals("Spotify Artist", ignoreCase = true)) "" else track.artist
@@ -55,18 +51,50 @@ object DesktopPlaybackMatch {
         val videoCandidates = (searchVideoCandidates(editQuery) + if (editQuery != track.title) searchVideoCandidates(track.title) else emptyList())
             .filter { isVideoId(it.id) }
 
-        val videoMatches = pickCandidates(track, videoCandidates)
-        for (cand in videoMatches) {
-            if (stopTrying()) return null
-            if (DesktopStreamResolver.resolve(cand.id) != null) {
+        return when (val probe = firstPlayable(track, pickCandidates(track, videoCandidates))) {
+            is Probe.Found -> probe.id
+            is Probe.Refused -> probe.id
+            Probe.Stop, Probe.None -> null
+        }
+    }
+
+    private sealed interface Probe {
+        /** A candidate that plays; remembered as the song's match. */
+        class Found(val id: String) : Probe
+        /** YouTube refused this network on a candidate: every other would fail alike. Not remembered. */
+        class Refused(val id: String) : Probe
+        /** Requests are paused or the allowance is spent. */
+        object Stop : Probe
+        object None : Probe
+    }
+
+    /**
+     * Resolves [candidates] in turn until one plays. A network-wide refusal (verification, rate
+     * limit, offline) stops at once and returns that candidate, so the lookup reports the refusal
+     * and the song moves on to the other catalogs in about a second instead of after the whole
+     * allowance.
+     */
+    private suspend fun firstPlayable(track: Track, candidates: List<Track>): Probe {
+        for (cand in candidates) {
+            if (stopTrying()) return Probe.Stop
+            val result = DesktopStreamResolver.resolveResult(cand.id)
+            if (result.url != null) {
                 RecordingMatches.matchedVideoIds[track.id] = cand.id
                 RecordingMatches.matchedDurations[track.id] = cand.duration.toLong()
                 com.auralis.music.util.Log.i("DesktopPlaybackMatch", "Matched '${track.title}' to ${cand.id}")
-                return cand.id
+                return Probe.Found(cand.id)
+            }
+            val refused = when (result) {
+                is ResolutionResult.Deferred -> true
+                is ResolutionResult.Failed -> result.failure.category.networkWide
+                else -> false
+            }
+            if (refused) {
+                com.auralis.music.util.Log.w("DesktopPlaybackMatch", "YouTube is refusing this network; trying no more uploads of '${track.title}'")
+                return Probe.Refused(cand.id)
             }
         }
-
-        return null
+        return Probe.None
     }
 
     /**
