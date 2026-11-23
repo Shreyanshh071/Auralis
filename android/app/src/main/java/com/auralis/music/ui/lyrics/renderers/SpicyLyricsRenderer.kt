@@ -188,6 +188,27 @@ internal fun spicyExclusiveSpans(spans: List<LyricsEngine.WordRange>): List<Lyri
     }
 }
 
+/** Box of [from, to) on wrapped [row]. When the row breaks inside a syllable (CJK wraps
+ * anywhere, "Ha-ha-ha" wraps after a hyphen), the selection path of the piece that ends the
+ * row spans two rows and the full width. Every neighbour then cut its ink mask against that
+ * box, so letters vanished or were drawn twice. Such a path is rebuilt from its own glyphs. */
+private fun spicyRowBounds(measured: TextLayoutResult, from: Int, to: Int, row: Int): Rect {
+    val top = measured.getLineTop(row)
+    val bottom = measured.getLineBottom(row)
+    val path = measured.getPathForRange(from, to).getBounds()
+    if (path.top >= top - 1f && path.bottom <= bottom + 1f) return path
+    var left = Float.POSITIVE_INFINITY
+    var right = Float.NEGATIVE_INFINITY
+    for (offset in from until to) {
+        if (measured.getLineForOffset(offset) != row) continue
+        val box = measured.getBoundingBox(offset)
+        left = minOf(left, box.left)
+        right = maxOf(right, box.right)
+    }
+    return if (left < right) Rect(left, top, right, bottom)
+        else Rect(path.left, top, path.right, bottom)
+}
+
 private data class TimedPart(val range: LyricsEngine.WordRange, val from: Int, val to: Int)
 private data class SpicyWord(val start: Int, val end: Int, val parts: List<TimedPart>) {
     val startMs = parts.minOfOrNull { it.range.word.time } ?: 0L
@@ -301,7 +322,7 @@ fun SpicyLyricsLine(
                     val from = maxOf(word.start, measured.getLineStart(row))
                     val to = minOf(word.end, measured.getLineEnd(row, visibleEnd = true))
                     if (from >= to) return@flatMap emptyList()
-                    val bounds = measured.getPathForRange(from, to).getBounds()
+                    val bounds = spicyRowBounds(measured, from, to, row)
                     val rtl = measured.getBidiRunDirection(from) == ResolvedTextDirection.Rtl
                     // Shape complex scripts as a complete word; splitting their glyphs breaks
                     // conjuncts and joining. Letter emphasis is confined to simple Latin runs.
