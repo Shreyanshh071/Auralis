@@ -6,7 +6,7 @@ Spotify Canvas comes to the phone, lyrics pick better sources, and your library 
 - **Canvas settings like the PC** — Appearance now has **Animated covers** and **Canvas** sections, each with its own switch, plus a Wi-Fi only option.
 - **Fetch Canvas with your Spotify account** — finds a Canvas for songs the public source doesn't have. If you're signed out, tapping it offers Spotify sign-in.
 - **Lyric sharing** — share a lyric as a card.
-- **New lyric styles** — the lyric styles (all but Spicy Lyrics) are replaced with Vivi Music's, and the preview under the cover follows the style you pick.
+- **New lyric styles** — the preview under the cover follows the style you pick.
 - **More playlist imports** — Deezer, Tidal and Amazon Music, alongside an automatic library import.
 - **Faster library sync** — your library moves to a faster sync service automatically the next time it syncs. Devices still on older versions keep syncing in the meantime.
 - **Reduce effects** — lighter visuals for smoothness and battery, optionally switched on with battery saver.
@@ -15,7 +15,7 @@ Spotify Canvas comes to the phone, lyrics pick better sources, and your library 
 ## Improved
 
 - **Better lyric sources** — word-by-word lyrics from any source now beat line-by-line Spicy Lyrics. Spicy still leads when the timing is equal.
-- **Spicy Lyrics finds more songs**, including songs without an album name, and songs that start singing in the first moment ("Can't Tell Me Nothing", "I Wonder") no longer lose their word sync.
+- **Spicy Lyrics finds more songs**, including songs without an album name, and songs that start singing in the first moment no longer lose their word sync.
 - **Lyrics provider picker** says when a source's timing is for a different version of the song instead of "Lyrics not found".
 - **Smoother lyric scrolling** and Spicy Lyrics' blur in every style.
 - **Listen Together** rooms have a glass banner and glass queue confirmations, and each listener can have one waiting request.
