@@ -63,7 +63,7 @@ internal enum class SettingsTab(val englishLabel: String, private val englishHin
     HOTKEYS("Global hotkeys", "Control Auralis while another app is in front", Icons.Outlined.Keyboard, "keyboard shortcuts bindings"),
     DISCORD("Discord", "Your Rich Presence card and live preview", Icons.Outlined.ChatBubbleOutline, "activity status clickable progress"),
     DATA("Data & storage", "Network, downloads and caches", Icons.Outlined.Storage, "proxy folder cache downloads"),
-    UPDATES("Updates", "Check for updates", Icons.Outlined.SystemUpdateAlt, "version release patch notes beta"),
+    UPDATES("Updates", "Check for updates", Icons.Outlined.SystemUpdateAlt, "version release patch notes"),
     ABOUT("About", "Version, updates and diagnostics", Icons.Outlined.Info, "credits support logs export"),
     CONTENT("Content & region", "Regional catalogue and lyrics providers", Icons.Outlined.Language, "country language explicit"),
     PRIVACY("Privacy & history", "Control and clear recorded activity", Icons.Outlined.Shield, "clear delete search listening");
@@ -549,8 +549,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     val update by DesktopUpdater.state.collectAsState()
     val latest by DesktopUpdater.latestRelease.collectAsState()
     val restarting by DesktopUpdater.restarting.collectAsState()
-    val prefs = DesktopPreferences.store
-    val preferences by prefs.changes.collectAsState()
     var message by remember { mutableStateOf("") }
     val bundledNotes = remember(version) {
         DesktopReleaseCheck::class.java.getResourceAsStream("/desktop-release-notes-$version.txt")
@@ -559,8 +557,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
 
     SettingsGroup("Updates") {
         Text("${desktopText("Current version")} · $version")
-        SettingToggle("Include prereleases", checked = preferences.optBoolean("betaUpdates"),
-            onChecked = { prefs.set("betaUpdates", it) })
         val checking = update is DesktopUpdater.State.Checking
         val download = update as? DesktopUpdater.State.Downloading
         Button(onClick = {

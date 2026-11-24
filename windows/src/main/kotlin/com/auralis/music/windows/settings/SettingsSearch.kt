@@ -163,7 +163,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
     }
     tab(SettingsTab.UPDATES) {
         group("Updates") {
-            row("Include prereleases", keywords = "beta")
             other("Check for updates", keywords = "version upgrade")
         }
         group("Release notes") { other("Release notes", keywords = "patch notes changelog") }

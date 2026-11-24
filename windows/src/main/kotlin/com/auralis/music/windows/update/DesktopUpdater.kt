@@ -2,7 +2,6 @@ package com.auralis.music.windows.update
 
 import com.auralis.music.util.Log
 import com.auralis.music.util.desktopAppDataDir
-import com.auralis.music.windows.settings.DesktopPreferences
 import com.auralis.music.windows.settings.DesktopReleaseCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -127,8 +126,7 @@ internal object DesktopUpdater {
         val feed = UpdateFeed.fromSystem()
         if (feed.overridden) Log.i(TAG, "Reading the overridden update feed ${feed.url}")
         val downloader = UpdateDownloader(com.auralis.music.data.network.NetworkClientProvider.okHttpClient, feed.policy, updatesDirectory)
-        val beta = DesktopPreferences.store.bool("betaUpdates")
-        val latest = DesktopReleases.latest(downloader.fetchFeed(feed.url), platform, beta)
+        val latest = DesktopReleases.latest(downloader.fetchFeed(feed.url), platform, false)
         mutableLatestRelease.value = latest
         val release = DesktopReleases.newerThan(latest, installed)
         if (release == null) {
