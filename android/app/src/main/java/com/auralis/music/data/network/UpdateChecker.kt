@@ -12,7 +12,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -36,7 +35,9 @@ data class AppRelease(val version: String, val publishedAt: String, val notes: S
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_REPO = "Shreyanshh071/Auralis"
-    private const val RELEASES_API = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+    // The list, not /releases/latest: the repository also publishes desktop releases, and the one
+    // marked Latest may be one of those.
+    private const val RELEASES_API = "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=30"
 
     private val client = OkHttpClient.Builder().proxyAuthenticator(com.auralis.music.data.network.ContentProxy.authenticator)
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -87,42 +88,23 @@ object UpdateChecker {
                     error = "Empty response"
                 )
 
-                val json = JSONObject(body)
-                val tagName = json.optString("tag_name", "").removePrefix("v").trim()
-                val releaseName = json.optString("name", "v$tagName")
-                val releaseNotes = json.optString("body", "")
-                val htmlUrl = json.optString("html_url", "https://github.com/$GITHUB_REPO/releases")
-
-                // Find APK asset
-                var downloadUrl: String? = null
-                var downloadSize: Long? = null
-                val assets = json.optJSONArray("assets")
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(i)
-                        val name = asset?.optString("name", "") ?: ""
-                        if (name.endsWith(".apk", ignoreCase = true)) {
-                            downloadUrl = asset?.optString("browser_download_url")
-                            downloadSize = asset?.optLong("size", 0L)?.takeIf { it > 0L }
-                            break
-                        }
-                    }
-                }
-                if (downloadUrl == null) {
-                    downloadUrl = htmlUrl
-                }
-
-                val isNewer = isVersionNewer(latest = tagName, current = currentVer)
+                val latest = latestPhoneRelease(body) ?: return@withContext UpdateInfo(
+                    hasUpdate = false,
+                    currentVersion = currentVer,
+                    latestVersion = currentVer,
+                    releaseTitle = "Up to date",
+                    releaseNotes = "You are currently running the latest version of Auralis."
+                )
 
                 UpdateInfo(
-                    hasUpdate = isNewer,
+                    hasUpdate = isVersionNewer(latest = latest.version, current = currentVer),
                     currentVersion = currentVer,
-                    latestVersion = if (tagName.isNotBlank()) tagName else currentVer,
-                    releaseTitle = releaseName,
-                    releaseNotes = releaseNotes,
-                    downloadUrl = downloadUrl,
-                    htmlUrl = htmlUrl,
-                    downloadSizeBytes = downloadSize
+                    latestVersion = latest.version,
+                    releaseTitle = latest.title,
+                    releaseNotes = latest.notes,
+                    downloadUrl = latest.apkUrl,
+                    htmlUrl = latest.htmlUrl,
+                    downloadSizeBytes = latest.apkSize
                 )
             }
         } catch (e: Exception) {
@@ -163,7 +145,7 @@ object UpdateChecker {
         return (0 until releases.length()).mapNotNull { i ->
             val release = releases.optJSONObject(i) ?: return@mapNotNull null
             val tag = release.optString("tag_name")
-            if (release.optBoolean("draft") || release.optBoolean("prerelease") || tag.contains("macos", ignoreCase = true)) {
+            if (release.optBoolean("draft") || release.optBoolean("prerelease") || !isPhoneTag(tag)) {
                 return@mapNotNull null
             }
             // "v1.1.1-rebuilt" is version 1.1.1.
@@ -178,6 +160,55 @@ object UpdateChecker {
                     .joinToString("\n").trim()
             )
         }.distinctBy { it.version }
+    }
+
+    /**
+     * Phone releases are tagged "v1.2.3" (sometimes with a suffix, "v1.1.1-rebuilt"). Desktop
+     * releases share the feed as "windows-v1.2.3" and "v1.0.0-macos"; their numbers aren't phone
+     * versions.
+     */
+    private fun isPhoneTag(tag: String): Boolean =
+        tag.startsWith("v") && tag.getOrNull(1)?.isDigit() == true &&
+            !tag.contains("macos", ignoreCase = true) && !tag.contains("windows", ignoreCase = true)
+
+    internal data class PhoneRelease(
+        val version: String,
+        val title: String,
+        val notes: String,
+        val htmlUrl: String,
+        val apkUrl: String,
+        val apkSize: Long?
+    )
+
+    /**
+     * The highest published phone release with an uploaded APK, from a GitHub release list.
+     * A release whose APK isn't attached yet is passed over until it is.
+     */
+    internal fun latestPhoneRelease(json: String): PhoneRelease? {
+        val releases = org.json.JSONArray(json)
+        return (0 until releases.length()).mapNotNull { i ->
+            val release = releases.optJSONObject(i) ?: return@mapNotNull null
+            val tag = release.optString("tag_name")
+            if (release.optBoolean("draft") || release.optBoolean("prerelease") || !isPhoneTag(tag)) {
+                return@mapNotNull null
+            }
+            val assets = release.optJSONArray("assets") ?: return@mapNotNull null
+            val apk = (0 until assets.length()).mapNotNull { assets.optJSONObject(it) }.firstOrNull { asset ->
+                asset.optString("name").endsWith(".apk", ignoreCase = true) &&
+                    asset.optString("state", "uploaded") == "uploaded" &&
+                    asset.optString("browser_download_url").startsWith("https://")
+            } ?: return@mapNotNull null
+            val version = tag.removePrefix("v").trim()
+            PhoneRelease(
+                version = version,
+                title = release.optString("name").takeIf { it.isNotBlank() && it != "null" } ?: tag,
+                notes = release.optString("body"),
+                htmlUrl = release.optString("html_url").takeIf { it.startsWith("https://") }
+                    ?: "https://github.com/$GITHUB_REPO/releases",
+                apkUrl = apk.optString("browser_download_url"),
+                apkSize = apk.optLong("size", 0L).takeIf { it > 0L }
+            )
+        }.reduceOrNull { best, next -> if (isVersionNewer(latest = next.version, current = best.version)) next else best }
     }
 
     private fun isVersionNewer(latest: String, current: String): Boolean {
