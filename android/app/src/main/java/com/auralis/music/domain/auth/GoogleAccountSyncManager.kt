@@ -64,24 +64,40 @@ class GoogleAccountSyncManager(
     private val libraryCloud get() = com.auralis.music.data.sync.AccountSyncHub.client(context)
 
     /** Whether an activity is showing: the notification socket is only held open then. */
-    @Volatile private var inForeground = true
-    private var startedActivities = 0
+    private val inForeground get() = foreground
 
+    /**
+     * MainActivity builds a new manager each time it is created, so the app-wide lifecycle callback
+     * is registered once and always acts for the newest manager. One callback per manager used to
+     * pile up: every return to the app ran several syncs at once.
+     */
     private fun followForeground() {
+        current = this
+        if (following) return
         val app = context.applicationContext as? android.app.Application ?: return
+        following = true
         app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities++
-                if (inForeground) return
-                inForeground = true
+                if (foreground) return
+                foreground = true
                 com.auralis.music.data.sync.AccountSyncHub.inForeground = true
                 com.auralis.music.data.sync.AccountSyncHub.foregroundCount++
                 // Back in the foreground: other devices may have changed the library meanwhile.
-                if (libraryCloud.enabled) libraryScope.launch { backupLibraryToCloud() }
+                current?.let { manager -> if (manager.libraryCloud.enabled) manager.libraryScope.launch { manager.backupLibraryToCloud() } }
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
-                if (startedActivities == 0) { inForeground = false; com.auralis.music.data.sync.AccountSyncHub.inForeground = false; libraryCloud.stopAll() }
+                if (startedActivities != 0) return
+                foreground = false
+                com.auralis.music.data.sync.AccountSyncHub.inForeground = false
+                val manager = current ?: return
+                manager.libraryCloud.stopAll()
+                // Leaving the app: send edits made just before (a reorder, an added song) now, while
+                // the process still runs, instead of waiting out the edit delay and being frozen in
+                // the background until the app is opened again. Library calls are plain HTTP, so
+                // closing the notification socket above doesn't stop this.
+                manager.libraryScope.launch { manager.backupLibraryToCloud() }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}
@@ -616,7 +632,9 @@ class GoogleAccountSyncManager(
             ) { playlists, favorites, artists, albums, pins ->
                 listOf(playlists, favorites, artists, albums, pins)
             }
-            .debounce(3000L)
+            // Short, so another device sees a reorder within a couple of seconds; leaving the app
+            // sends anything still waiting (see followForeground).
+            .debounce(1000L)
             .collect {
                 val activeUser = try { FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
                 if (activeUser != null && !activeUser.isAnonymous) {
@@ -877,6 +895,12 @@ class GoogleAccountSyncManager(
     }
 
     companion object {
+        // Process-wide: the app has one set of activities, however many managers MainActivity made.
+        @Volatile private var foreground = true
+        private var startedActivities = 0
+        private var following = false
+        @Volatile private var current: GoogleAccountSyncManager? = null
+
         fun isGenericListener(name: String): Boolean {
             val lower = name.trim().lowercase()
             return lower == "listener" || lower == "guest listener" || lower == "auralis listener"
