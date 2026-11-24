@@ -38,7 +38,7 @@ Release checks query GitHub and show an actual result or failure. There is no si
 
 ### In-app updates (`windows/src/main/kotlin/com/auralis/music/windows/update`)
 
-- **When:** `DesktopUpdater` checks quietly about 8 s after the app is up (off the UI thread) and again every 24 h. It honours Include prereleases. Settings → About → Check for updates runs the same check and shows failures. Development runs check only when the feed is overridden.
+- **When:** `DesktopUpdater` checks quietly about 8 s after the app is up (off the UI thread) and again every 24 h. It honours Include prereleases. Settings → Updates shows the installed version and the latest patch notes for the selected channel. Check for updates runs the same check and shows failures. Development runs check only when the feed is overridden.
 - **Windows, per-user MSI install** (`%LOCALAPPDATA%\Auralis\Auralis.exe`):
   - The updater downloads the newer release's `Auralis*.msi` to `%LOCALAPPDATA%\Auralis Updates`. A partial file resumes with a Range request. The folder sits beside the install folder, never inside it: the MSI's uninstall (`WixRemoveFoldersEx`) empties `%LOCALAPPDATA%\Auralis` during a major upgrade, which deleted an `Auralis\updates` download mid-install (error 1306, then 1603).
   - It verifies the size and SHA-256 before offering the update. The hash comes from the asset's API `digest`, or else from an `Auralis-<v>.msi.sha256` asset. With neither, or on a mismatch, it refuses.

@@ -1,0 +1,5 @@
+Auralis 1.0.0 is the first desktop release for Windows and macOS.
+
+• Browse and play music, build your library and playlists, and follow synchronized lyrics.
+• Keep favorite music at hand with sidebar shortcuts and desktop playback controls.
+• Check for updates and read patch notes in Settings → Updates.

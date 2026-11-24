@@ -49,6 +49,9 @@ import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.windows.discord.*
+import com.auralis.music.windows.update.DesktopReleases
+import com.auralis.music.windows.update.DesktopUpdater
+import com.auralis.music.windows.update.updateStatusText
 import kotlinx.coroutines.*
 
 private val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
@@ -60,7 +63,8 @@ internal enum class SettingsTab(val englishLabel: String, private val englishHin
     HOTKEYS("Global hotkeys", "Control Auralis while another app is in front", Icons.Outlined.Keyboard, "keyboard shortcuts bindings"),
     DISCORD("Discord", "Your Rich Presence card and live preview", Icons.Outlined.ChatBubbleOutline, "activity status clickable progress"),
     DATA("Data & storage", "Network, downloads and caches", Icons.Outlined.Storage, "proxy folder cache downloads"),
-    ABOUT("About", "Version, updates and diagnostics", Icons.Outlined.Info, "release beta logs export"),
+    UPDATES("Updates", "Check for updates", Icons.Outlined.SystemUpdateAlt, "version release patch notes beta"),
+    ABOUT("About", "Version, updates and diagnostics", Icons.Outlined.Info, "credits support logs export"),
     CONTENT("Content & region", "Regional catalogue and lyrics providers", Icons.Outlined.Language, "country language explicit"),
     PRIVACY("Privacy & history", "Control and clear recorded activity", Icons.Outlined.Shield, "clear delete search listening");
 
@@ -267,6 +271,7 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
                         SettingsTab.PLAYBACK -> PlaybackPane(stores)
                         SettingsTab.HOTKEYS -> HotkeysPane()
                         SettingsTab.DATA -> DataPane(stores)
+                        SettingsTab.UPDATES -> UpdatesPane()
                         SettingsTab.ABOUT -> AboutPane()
                         SettingsTab.CONTENT -> ContentSettingsPane(stores.content)
                         SettingsTab.PRIVACY -> PrivacySettingsPane(stores.privacy, history, search)
@@ -538,11 +543,65 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
 }
 
+@Composable private fun UpdatesPane() {
+    val scope = rememberCoroutineScope()
+    val version = DesktopReleaseCheck.version
+    val update by DesktopUpdater.state.collectAsState()
+    val latest by DesktopUpdater.latestRelease.collectAsState()
+    val restarting by DesktopUpdater.restarting.collectAsState()
+    val prefs = DesktopPreferences.store
+    val preferences by prefs.changes.collectAsState()
+    var message by remember { mutableStateOf("") }
+    val bundledNotes = remember(version) {
+        DesktopReleaseCheck::class.java.getResourceAsStream("/desktop-release-notes-$version.txt")
+            ?.bufferedReader()?.use { it.readText().trim() }.orEmpty()
+    }
+
+    SettingsGroup("Updates") {
+        Text("${desktopText("Current version")} · $version")
+        SettingToggle("Include prereleases", checked = preferences.optBoolean("betaUpdates"),
+            onChecked = { prefs.set("betaUpdates", it) })
+        val checking = update is DesktopUpdater.State.Checking
+        val download = update as? DesktopUpdater.State.Downloading
+        Button(onClick = {
+            message = ""
+            scope.launch { DesktopUpdater.check(manual = true) }
+        }, enabled = !checking && download == null && !restarting) {
+            Text(desktopText(if (checking) "Checking…" else "Check for updates"))
+        }
+        val status = updateStatusText(update)
+        if (status.isNotEmpty()) Text(status)
+        if (download != null) {
+            LinearProgressIndicator(
+                { if (download.total > 0) download.bytes.toFloat() / download.total else 0f },
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            )
+        }
+        if (update is DesktopUpdater.State.Ready) {
+            Button({ scope.launch { message = DesktopUpdater.restartToUpdate().orEmpty() } }, enabled = !restarting) {
+                Text(desktopText(if (restarting) "Restarting…" else "Restart to update"))
+            }
+        }
+        if (message.isNotEmpty()) Text(message)
+    }
+    SettingsGroup("Release notes") {
+        val release = latest
+        val notesVersion = release?.displayVersion ?: version
+        val publishedNotes = remember(release) { DesktopReleases.plainNotes(release?.notes.orEmpty()) }
+        val notes = publishedNotes.ifBlank { bundledNotes.takeIf { notesVersion == version }.orEmpty() }
+        Text("Auralis · $notesVersion", fontWeight = FontWeight.SemiBold)
+        Text(notes.ifBlank { desktopText("No release notes for this version.") })
+        if (release != null) {
+            TextButton({ java.awt.Desktop.getDesktop().browse(java.net.URI(release.pageUrl)) }) {
+                Text(desktopText("View release and installers"))
+            }
+        }
+    }
+}
+
 @Composable private fun AboutPane() {
-    val scope=rememberCoroutineScope();var message by remember {mutableStateOf("")}
-    val update by com.auralis.music.windows.update.DesktopUpdater.state.collectAsState()
-    val restarting by com.auralis.music.windows.update.DesktopUpdater.restarting.collectAsState()
-    val prefs=DesktopPreferences.store;val revision by prefs.changes.collectAsState()
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf("") }
     Text("Auralis · ${DesktopReleaseCheck.version}",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
     Text(desktopText(if (isMac) "Auralis for macOS · Compose Multiplatform · VLC" else "Auralis for Windows · Compose Multiplatform · VLC"))
     SettingsGroup("Credits") {
@@ -552,24 +611,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         Text(desktopText("Lyrics providers and community contributors are credited alongside the lyrics they supply."),
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    SettingsGroup("Updates") {
-        SettingToggle("Include prereleases",checked=prefs.bool("betaUpdates"),onChecked={prefs.set("betaUpdates",it)})
-        val updater=com.auralis.music.windows.update.DesktopUpdater
-        val busy=update is com.auralis.music.windows.update.DesktopUpdater.State.Checking||update is com.auralis.music.windows.update.DesktopUpdater.State.Downloading
-        Button({message="";scope.launch {updater.check(manual=true)}},enabled=!busy&&!restarting) {Text(desktopText(if(update is com.auralis.music.windows.update.DesktopUpdater.State.Checking) "Checking…" else "Check for updates"))}
-        val status=com.auralis.music.windows.update.updateStatusText(update)
-        if (status.isNotEmpty()) Text(status)
-        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Downloading)?.let {
-            LinearProgressIndicator({if (it.total>0) it.bytes.toFloat()/it.total else 0f},Modifier.fillMaxWidth().padding(vertical=4.dp))
-        }
-        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Ready)?.let {
-            Button({scope.launch {updater.restartToUpdate()?.let {reason->message=reason}}},enabled=!restarting) {Text(desktopText(if(restarting) "Restarting…" else "Restart to update"))}
-        }
-        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Available)?.let {available->
-            TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(available.release.pageUrl))}) {Text(desktopText("View release and installers"))}
-        }
-        if (message.isNotEmpty()) Text(desktopText(message))
-    }
     SettingsGroup("Support & diagnostics") {
         TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY))}) {Text(desktopText("Source code and licenses"))}
         TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY+"/issues/new"))}) {Text(desktopText("Report a problem"))}
@@ -578,5 +619,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         TextButton({scope.launch {runCatching {
             com.auralis.music.ui.components.WindowsFilePicker.choose("Save diagnostics", save = true, filterName = "Text files", pattern = "*.txt", defaultName = "auralis-diagnostics.txt", defaultExtension = "txt")?.let { it.writeText(DesktopReleaseCheck.diagnostics());message="Diagnostics saved."}
         }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Save diagnostics"))}
+        if (message.isNotEmpty()) Text(desktopText(message))
     }
 }

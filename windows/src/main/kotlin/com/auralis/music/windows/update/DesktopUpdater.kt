@@ -44,6 +44,8 @@ internal object DesktopUpdater {
 
     private val mutableState = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = mutableState.asStateFlow()
+    private val mutableLatestRelease = MutableStateFlow<DesktopRelease?>(null)
+    val latestRelease: StateFlow<DesktopRelease?> = mutableLatestRelease.asStateFlow()
     private val mutableReport = MutableStateFlow<WindowsUpdateInstall.Outcome?>(null)
     /** What the previous start's "Restart to update" did. */
     val report: StateFlow<WindowsUpdateInstall.Outcome?> = mutableReport.asStateFlow()
@@ -127,6 +129,7 @@ internal object DesktopUpdater {
         val downloader = UpdateDownloader(com.auralis.music.data.network.NetworkClientProvider.okHttpClient, feed.policy, updatesDirectory)
         val beta = DesktopPreferences.store.bool("betaUpdates")
         val latest = DesktopReleases.latest(downloader.fetchFeed(feed.url), platform, beta)
+        mutableLatestRelease.value = latest
         val release = DesktopReleases.newerThan(latest, installed)
         if (release == null) {
             Log.i(TAG, "No newer ${platform.label} release than $installed (latest: ${latest?.displayVersion ?: "none"})")
