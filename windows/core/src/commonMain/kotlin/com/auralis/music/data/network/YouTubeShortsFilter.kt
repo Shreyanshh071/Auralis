@@ -25,6 +25,12 @@ object YouTubeShortsFilter {
     private const val CLASSIFICATION_TTL_MS = 7L * 86_400_000L
     private const val MAX_SHORT_SECONDS = 180L
     private val videoIdPattern = Regex("[A-Za-z0-9_-]{11}")
+    /**
+     * Saved verdicts carry the rule that made them. Version 1 read every square video as a Short,
+     * which hid ordinary songs (their picture is the square album cover) for good: those verdicts
+     * are checked again rather than trusted.
+     */
+    private const val RULE_VERSION = "2"
 
     private fun needsMetadata(track: Track) = track.duration <= MAX_SHORT_SECONDS &&
         videoIdPattern.matches(track.id) && track.source == com.auralis.music.domain.model.TrackSource.YOUTUBE
@@ -34,7 +40,7 @@ object YouTubeShortsFilter {
         recent[id]?.takeIf { it.second || it.first > now }?.let { return it.second }
         val saved = classificationStore?.getString(id, "").orEmpty().split('|')
         val until = saved.firstOrNull()?.toLongOrNull() ?: return null
-        if (saved.size != 2 || saved[1] !in setOf("true", "false") || (until <= now && saved[1] != "true")) return null
+        if (saved.size != 3 || saved[2] != RULE_VERSION || saved[1] !in setOf("true", "false") || (until <= now && saved[1] != "true")) return null
         return saved[1].toBoolean().also { recent[id] = until to it }
     }
 
@@ -123,12 +129,19 @@ object YouTubeShortsFilter {
         return true
     }
 
-    /** A known nonmusic category or a square/portrait video classified as a Short. */
+    /**
+     * A known nonmusic category or a square/portrait video classified as a Short. Song uploads
+     * ("Artist - Topic") show their square album cover as the picture, so shape alone never marks
+     * them, and a video YouTube itself says can't be a Short (isShortsEligible false) isn't one.
+     */
     fun isShortOrNonMusic(track: Track, player: JSONObject?): Boolean {
         if (track.duration > MAX_SHORT_SECONDS || player == null) return false
         val microformat = player.optJSONObject("microformat")?.optJSONObject("playerMicroformatRenderer")
         val category = microformat?.optString("category").orEmpty().lowercase()
         if (category in nonMusicCategories) return true
+        val author = player.optJSONObject("videoDetails")?.optString("author").orEmpty()
+        if (author.endsWith(" - Topic")) return false
+        if (microformat?.has("isShortsEligible") == true && !microformat.optBoolean("isShortsEligible")) return false
 
         val streaming = player.optJSONObject("streamingData")
         val formats = listOfNotNull(streaming?.optJSONArray("formats"), streaming?.optJSONArray("adaptiveFormats"))
@@ -170,7 +183,7 @@ object YouTubeShortsFilter {
                     val until = now + if (verified) CLASSIFICATION_TTL_MS else 30_000L
                     if (recent.size >= 4096) recent.clear()
                     recent[track.id] = until to value
-                    if (verified) updates[track.id] = "$until|$value"
+                    if (verified) updates[track.id] = "$until|$value|$RULE_VERSION"
                     value
                 }
                 if (rejected) track.id else null

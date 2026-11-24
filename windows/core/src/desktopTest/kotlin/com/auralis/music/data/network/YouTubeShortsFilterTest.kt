@@ -11,7 +11,7 @@ class YouTubeShortsFilterTest {
     @Test fun cachedPreviewsHideUncheckedVideosAndKeepKnownShortsBlockedOffline() {
         val previous = YouTubeShortsFilter.classificationStore
         val now = System.currentTimeMillis()
-        val values = mutableMapOf("shortcache1" to "${now - 1000}|true", "audio-safe1" to "${now + 60000}|false")
+        val values = mutableMapOf("shortcache1" to "${now - 1000}|true|2", "audio-safe1" to "${now + 60000}|false|2")
         YouTubeShortsFilter.classificationStore = object : com.auralis.music.util.KeyValueStore {
             override fun getString(key: String, default: String) = values[key] ?: default
             override fun putStrings(values: Map<String, String>) {}
@@ -38,6 +38,35 @@ class YouTubeShortsFilterTest {
         assertTrue(YouTubeShortsFilter.isShortOrNonMusic(track, portrait))
         assertTrue(YouTubeShortsFilter.isShortOrNonMusic(track,
             JSONObject("""{"microformat":{"playerMicroformatRenderer":{"category":"Gaming"}}}""")))
+    }
+
+    @Test fun verdictsFromTheSquareCoverRuleAreCheckedAgain() {
+        val previous = YouTubeShortsFilter.classificationStore
+        val now = System.currentTimeMillis()
+        // Written by the old rule, which took a song's square album cover for a Short.
+        val values = mutableMapOf("oldverdict1" to "${now + 60000}|true")
+        YouTubeShortsFilter.classificationStore = object : com.auralis.music.util.KeyValueStore {
+            override fun getString(key: String, default: String) = values[key] ?: default
+            override fun putStrings(values: Map<String, String>) {}
+            override fun clear() { values.clear() }
+        }
+        try {
+            // Unknown again: kept off quick previews until re-checked, but no longer hidden for good.
+            kotlin.test.assertEquals(listOf("oldverdict1"), YouTubeShortsFilter.filterCached(listOf(Track("oldverdict1", duration = 600))).map { it.id })
+        } finally { YouTubeShortsFilter.classificationStore = previous }
+    }
+
+    @Test fun songUploadsWithSquareCoversAreNotShorts() {
+        // EsDeeKid "Century" (vVllJT_n380): 110 s, uploaded 2025, square cover art, a Topic channel.
+        val track = Track("vVllJT_n380", "Century", "EsDeeKid", duration = 110)
+        fun player(author: String, eligible: Boolean?) = JSONObject("""{"microformat":{"playerMicroformatRenderer":{"category":"Music","uploadDate":"2025-10-30"}},
+            "videoDetails":{"lengthSeconds":"110","author":"$author"},"streamingData":{"adaptiveFormats":[{"width":1080,"height":1080}]}}""").apply {
+            if (eligible != null) getJSONObject("microformat").getJSONObject("playerMicroformatRenderer").put("isShortsEligible", eligible)
+        }
+        assertFalse(YouTubeShortsFilter.isShortOrNonMusic(track, player("EsDeeKid - Topic", null)))
+        assertFalse(YouTubeShortsFilter.isShortOrNonMusic(track, player("EsDeeKid", false)))
+        assertTrue(YouTubeShortsFilter.isShortOrNonMusic(track, player("EsDeeKid", true)))
+        assertTrue(YouTubeShortsFilter.isShortOrNonMusic(track, player("EsDeeKid", null)))
     }
 
     @Test fun liveReportedGamingShortIsExcluded() = runBlocking {
