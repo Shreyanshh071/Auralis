@@ -306,6 +306,16 @@ compose.desktop {
     }
 }
 
+// Gradle skips prepareVlc (NO-SOURCE) when its VLC folder doesn't exist, so the check inside it
+// never runs and the app image was built without libVLC. Check the result before every app image.
+tasks.matching { it.name == "createDistributable" || it.name == "createReleaseDistributable" }.configureEach {
+    if (osName.contains("win")) doFirst {
+        if (!bundledVlcRoot.get().file("windows-x64/vlc/libvlc.dll").asFile.isFile) {
+            throw GradleException("64-bit VLC 3 not found at ${vlcSourceDir.get()}. Install VLC or set AURALIS_VLC_DIR to its folder.")
+        }
+    }
+}
+
 tasks.matching { it.name == "prepareAppResources" }.configureEach {
     if (osName.contains("win")) dependsOn(prepareVlc)
     if (osName.contains("mac")) {
