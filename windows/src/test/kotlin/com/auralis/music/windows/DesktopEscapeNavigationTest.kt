@@ -1,6 +1,7 @@
 package com.auralis.music.windows
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.Key
@@ -9,12 +10,14 @@ import com.auralis.music.desktop.browse.BrowsePage
 import com.auralis.music.domain.model.PlaylistResult
 import com.auralis.music.ui.components.PlatformBackHandler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.swing.Swing
 import kotlin.test.*
 
 @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
 class DesktopEscapeNavigationTest {
     @BeforeTest fun setUp() = com.auralis.music.ui.components.DesktopBackDispatcher.clear()
-    @Test fun escapeCollapsesPlayerThenReturnsSettingsLibraryHomeEvenWhileTyping() {
+    @Test fun escapeCollapsesPlayerThenReturnsSettingsLibraryHomeEvenWhileTyping() = runBlocking(Dispatchers.Swing) {
         val navigation = DesktopNavigation()
         val home = DesktopRoute(DesktopDestination.HOME, emptyList())
         val library = DesktopRoute(DesktopDestination.LIBRARY, emptyList())
@@ -23,7 +26,7 @@ class DesktopEscapeNavigationTest {
         val route = mutableStateOf(settings)
         val sectionOpen = mutableStateOf(true)
         var playerOpen = true
-        val scene = ImageComposeScene(100, 100, coroutineContext = Dispatchers.Unconfined) {
+        val scene = ImageComposeScene(100, 100, coroutineContext = Dispatchers.Swing) {
             PlatformBackHandler(enabled = navigation.canGoBack) {
                 route.value = navigation.back()!!
             }
@@ -45,7 +48,10 @@ class DesktopEscapeNavigationTest {
             override fun showQueue() = Unit
         }
         var frame = 0L
-        fun render() { scene.render(frame++ * 16_666_667L).close() }
+        fun render() {
+            Snapshot.sendApplyNotifications()
+            scene.render(frame++ * 16_666_667L).close()
+        }
         fun escape(released: Boolean = false): Boolean = handleShortcut(
             KeyEvent(Key.Escape, if (released) KeyEventType.KeyUp else KeyEventType.KeyDown),
             typing = true, actions = actions

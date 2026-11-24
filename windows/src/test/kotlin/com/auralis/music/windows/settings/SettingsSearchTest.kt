@@ -11,6 +11,8 @@ class SettingsSearchTest {
         assertEquals("Normalize volume", searchSettings("normalize").first().title)
         assertEquals(SettingsTab.GENERAL, searchSettings("tray").first().tab)
         assertEquals(SettingsTab.DISCORD, searchSettings("paused").first().tab)
+        assertEquals(SettingsTab.UPDATES, searchSettings("check for updates").first().tab)
+        assertEquals(SettingsTab.UPDATES, searchSettings("patch notes").first().tab)
         // Every word has to match, in any field.
         assertTrue(searchSettings("lyrics font").any { it.title == "Lyrics font size" })
         assertTrue(searchSettings("zzzz").isEmpty())

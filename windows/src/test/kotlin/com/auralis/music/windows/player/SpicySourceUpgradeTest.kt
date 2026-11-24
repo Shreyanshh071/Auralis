@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.*
 
 class SpicySourceUpgradeTest {
-    @Test fun spicyResultSurvivesHigherQualityProviderAndRestartWithoutAnotherNetworkCall() = runBlocking {
+    @Test fun timedSpicyResultReplacesFallbackAndSurvivesRestartWithoutAnotherNetworkCall() = runBlocking {
         val folder = Files.createTempDirectory("auralis-provider-cache").toFile()
         try {
             val disk = LyricsDiskCache(folder)
@@ -20,7 +20,7 @@ class SpicySourceUpgradeTest {
             disk.write("independent-cache", lyrics(LyricsProvider.QQMUSIC))
             var lookups = 0
             val first = DesktopLyricsRepository(disk, spicyEnabled = { true }, spicyLookup = { lookups++; spicy })
-            assertEquals(LyricsProvider.QQMUSIC, first.upgradeSpicy(query)?.provider)
+            assertEquals(LyricsProvider.SPICY_LYRICS, first.upgradeSpicy(query)?.provider)
             val restarted = DesktopLyricsRepository(disk, providerLookup = { _, _ ->
                 lookups++; throw java.io.IOException("offline")
             })
@@ -158,12 +158,13 @@ class SpicySourceUpgradeTest {
         assertEquals(2, calls, "A failed lookup is retryable, not cached forever")
     }
 
-    @Test fun lineOnlySpicyDoesNotDowngradeWordTimingAndOtherStylesKeepNormalSelection() {
+    @Test fun timedSpicyTakesPrecedenceEvenWithLineTimingOrAnotherRenderer() {
         val word = lyrics(LyricsProvider.BETTER_LYRICS)
         val line = lyrics(LyricsProvider.SPICY_LYRICS, false)
-        assertSame(word, DesktopLyricsRepository.choose(word, line, true))
-        assertSame(word, DesktopLyricsRepository.choose(line, word, true))
-        assertSame(word, DesktopLyricsRepository.choose(lyrics(LyricsProvider.SPICY_LYRICS), word, false))
+        val spicyWord = lyrics(LyricsProvider.SPICY_LYRICS)
+        assertSame(line, DesktopLyricsRepository.choose(word, line, true))
+        assertSame(line, DesktopLyricsRepository.choose(line, word, true))
+        assertSame(spicyWord, DesktopLyricsRepository.choose(spicyWord, word, false))
     }
 
     @Test fun savedLineOnlySpicyDoesNotReplaceStoredWordTiming() = runBlocking {

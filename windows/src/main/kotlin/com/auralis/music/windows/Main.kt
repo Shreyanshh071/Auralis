@@ -621,6 +621,12 @@ fun main(args: Array<String>) {
                         "Restart Auralis", javax.swing.JOptionPane.ERROR_MESSAGE)
                 }
         }
+        // "Restart to update" closes through the same orderly shutdown; its helper reopens Auralis.
+        SideEffect { com.auralis.music.windows.update.DesktopUpdater.closeApp = closeApp }
+        // Update checks start once the app is up (off the UI thread, after a short delay of their own).
+        LaunchedEffect(components != null) {
+            if (components != null && selfTest == null && !syncPilot) com.auralis.music.windows.update.DesktopUpdater.start()
+        }
 
         // macOS Dock click (reopen) and Application Menu (Preferences, About, Quit) handling
         DisposableEffect(Unit) {

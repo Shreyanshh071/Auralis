@@ -34,9 +34,23 @@ The stream clients shown are the ones configurable through Auralis's NewPipe ext
 
 Last.fm requires an API application key/shared secret and browser approval. ListenBrainz requires the listener's token. Account-dependent scrobbling cannot be tested against a user's service until they connect it; local metadata, signatures and thresholds have automated checks.
 
-Release checks query GitHub and show an actual result or failure. Installation of published releases remains an explicit installer action. There is no simulated update result.
+Release checks query GitHub and show an actual result or failure. There is no simulated update result.
 
-Windows versions are defined independently in `windows/version.properties` (currently 1.0.0). Both the installer and bundled About/version fallback read this file; Android version settings do not participate. Publish desktop releases with `windows-v<version>` tags, for example `windows-v1.0.1`, and attach an uploaded, nonempty Auralis `.msi` or `.exe` installer. The desktop updater requires both that tag namespace and a Windows installer. APK-only releases, drafts, incomplete uploads and other platforms are ignored. Preview tags/flags honor Include prereleases. All release-feed pages are checked and versions are ordered numerically; equal or older versions never offer an update link. With only Android releases published, About reports that no Windows release has been published.
+### In-app updates (`windows/src/main/kotlin/com/auralis/music/windows/update`)
+
+- **When:** `DesktopUpdater` checks quietly about 8 s after the app is up (off the UI thread) and again every 24 h. Settings → Updates shows the installed version and the latest patch notes for the platform. Check for updates runs the same check and shows failures. Development runs check only when the feed is overridden.
+- **Windows, per-user MSI install** (`%LOCALAPPDATA%\Auralis\Auralis.exe`):
+  - The updater downloads the newer release's `Auralis*.msi` to `%LOCALAPPDATA%\Auralis Updates`. A partial file resumes with a Range request. The folder sits beside the install folder, never inside it: the MSI's uninstall (`WixRemoveFoldersEx`) empties `%LOCALAPPDATA%\Auralis` during a major upgrade, which deleted an `Auralis\updates` download mid-install (error 1306, then 1603).
+  - It verifies the size and SHA-256 before offering the update. The hash comes from the asset's API `digest`, or else from an `Auralis-<v>.msi.sha256` asset. With neither, or on a mismatch, it refuses.
+  - Only HTTPS on `github.com`, `api.github.com` and GitHub's asset hosts is accepted, and every redirect hop is checked.
+  - Then a non-blocking card offers "Restart to update" with the release notes. Later hides it until the next start.
+  - On restart, a detached PowerShell helper waits for Auralis (and its launcher) to exit. It runs `msiexec /i … /passive /norestart /l*v "Auralis Updates\install-<v>.log"`, appends the exit code to `auralis.log`, and reopens Auralis.exe.
+  - The next start reports success, or the installer's reason (the old version stays installed). After a successful update it deletes old downloads.
+  - The EXE installer is never used: only the MSI tasks add the gaming-overlay step. Note that `/passive` skips that step (UI level 3), which the first full install already applied.
+- **macOS and other Windows copies** (portable, development): the card links to the release page instead of installing.
+- **Testing:** `-Dauralis.updateFeedUrl=http://127.0.0.1:<port>/releases` points the feed at a local server. Its origin may then also serve the installer. Only HTTPS, or HTTP on loopback, is accepted. `:windows:checkWindowsRelease` reads the feed without downloading.
+
+Windows versions are defined independently in `windows/version.properties` (currently 1.0.0). Both the installer and bundled About/version fallback read this file; Android version settings do not participate. Publish Windows releases with `windows-v<version>` tags, for example `windows-v1.0.1`, and attach the uploaded `Auralis-<version>.msi` from `:windows:packageReleaseMsi`. The updater installs only the MSI (an EXE alone is not offered). GitHub's asset `digest` supplies its SHA-256; for an upload without one, also attach `Auralis-<version>.msi.sha256`. Publish macOS releases with `macos-v<version>` tags and an `Auralis*.dmg` (or a zipped app): each OS reads only its own tag namespace. APK-only releases, drafts, incomplete uploads and other platforms are ignored. Update checks skip prereleases. All release-feed pages are checked and versions are ordered numerically; equal or older versions never offer an update link. With only Android releases published, About reports that no Windows release has been published.
 
 ## Verification
 

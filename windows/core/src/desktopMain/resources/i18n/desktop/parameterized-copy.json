@@ -17,5 +17,11 @@
   "%1$s time",
   "%1$s song played",
   "%1$s songs played",
-  "You have downloaded songs in your previous folder. Would you like to transfer them to \"%1$s\" and remove them from the previous location?"
+  "You have downloaded songs in your previous folder. Would you like to transfer them to \"%1$s\" and remove them from the previous location?",
+  "Auralis %1$s is available",
+  "Auralis %1$s is ready",
+  "Auralis %1$s is ready. Restart Auralis to update.",
+  "Auralis couldn't update to %1$s",
+  "Auralis was updated to %1$s",
+  "Downloading Auralis %1$s… %2$s"
 ]

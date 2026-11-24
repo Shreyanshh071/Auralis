@@ -161,11 +161,13 @@ internal val settingEntries: List<SettingEntry> = buildList {
         group("Downloads") { other("Download folder", "Open or change where downloads are saved", "location directory offline") }
         group("Caches") { other("Clear caches", "Artwork and lyrics; downloads and accounts are kept", "storage space") }
     }
-    tab(SettingsTab.ABOUT) {
+    tab(SettingsTab.UPDATES) {
         group("Updates") {
-            row("Include prereleases", keywords = "beta")
             other("Check for updates", keywords = "version upgrade")
         }
+        group("Release notes") { other("Release notes", keywords = "patch notes changelog") }
+    }
+    tab(SettingsTab.ABOUT) {
         group("Support & diagnostics") {
             other("Source code and licenses")
             other("Report a problem", keywords = "bug issue")

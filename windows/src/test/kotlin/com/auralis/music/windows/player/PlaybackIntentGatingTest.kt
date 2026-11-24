@@ -47,14 +47,12 @@ class PlaybackIntentGatingTest {
             resolveStream = { lookups.incrementAndGet(); throw java.io.IOException("Sign in to confirm that you're not a bot") })
         playback.autoLoadMore = false
         playback.preloadNext = false
-        val errors = mutableListOf<DesktopPlaybackController.PlaybackError>()
-        val collecting = scope.launch { playback.errors.collect { errors += it } }
+        val firstError = scope.async(start = CoroutineStart.UNDISPATCHED) { playback.errors.first() }
         try {
             playback.playFrom(songs[0], songs)
-            delay(2_500)
+            val error = withTimeout(10_000) { firstError.await() }
             assertEquals(0, playback.queue.value.index, "every song would fail alike; skipping only burns the queue")
             assertEquals(1, lookups.get())
-            val error = errors.single()
             assertContains(error.message, "requires verification")
             assertEquals(DesktopPlaybackController.YouTubeFallback("AAAAAAAAAAA", "AAAAAAAAAAA", 0), error.youtubeFallback)
             assertFalse(YouTubeBackoff.active)
@@ -63,7 +61,7 @@ class PlaybackIntentGatingTest {
             assertEquals(0, playback.queue.value.index)
         } finally {
             YouTubeBackoff.recordSuccess()
-            collecting.cancel()
+            firstError.cancel()
             playback.release()
             scope.cancel()
         }
