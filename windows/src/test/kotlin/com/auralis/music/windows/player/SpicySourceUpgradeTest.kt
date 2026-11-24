@@ -166,6 +166,24 @@ class SpicySourceUpgradeTest {
         assertSame(word, DesktopLyricsRepository.choose(lyrics(LyricsProvider.SPICY_LYRICS), word, false))
     }
 
+    @Test fun savedLineOnlySpicyDoesNotReplaceStoredWordTiming() = runBlocking {
+        // Last Christmas (Pudding Mix): NetEase had words, a saved Spicy copy had only lines.
+        val folder = Files.createTempDirectory("auralis-spicy-saved-line").toFile()
+        try {
+            val disk = LyricsDiskCache(folder)
+            val key = "saved-line-spicy"
+            val word = lyrics(LyricsProvider.NETEASE)
+            disk.write(key, word)
+            disk.write("$key-provider-${LyricsProvider.SPICY_LYRICS.name}", lyrics(LyricsProvider.SPICY_LYRICS, wordSync = false))
+            var lookups = 0
+            val repository = DesktopLyricsRepository(disk, spicyEnabled = { true }, spicyLookup = { lookups++; null })
+            val shown = repository.upgradeSpicy(LyricsSearchQuery("Fixture", "Artist", 180, key, durationMs = 180000))
+            assertEquals(LyricsProvider.NETEASE, shown?.provider)
+            assertEquals(LyricsProvider.NETEASE, disk.read(key)?.provider)
+            assertEquals(0, lookups)
+        } finally { folder.listFiles()?.forEach { it.delete() }; folder.delete() }
+    }
+
     @Test fun cancelledSongChangeDoesNotPermanentlySuppressTheNextAttempt() = runBlocking {
         var calls = 0
         val entered = CompletableDeferred<Unit>()

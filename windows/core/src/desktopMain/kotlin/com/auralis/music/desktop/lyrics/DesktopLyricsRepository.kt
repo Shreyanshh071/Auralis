@@ -45,8 +45,17 @@ class DesktopLyricsRepository(
         fun choose(current: LyricsData?, candidate: LyricsData?, preferSpicy: Boolean): LyricsData? {
             if (candidate == null || candidate.lines.isEmpty()) return current
             if (current == null) return candidate
-            if (candidate.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(candidate) >= LyricsClient.TIER_LINE) return candidate
-            if (current.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(current) >= LyricsClient.TIER_LINE) return current
+            // Spicy leads only among equal timing, as on Android: word-by-word lyrics from another
+            // source beat line-by-line Spicy (Last Christmas (Pudding Mix) showed Spicy's lines
+            // over NetEase's words).
+            val candidateSpicy = candidate.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(candidate) >= LyricsClient.TIER_LINE
+            val currentSpicy = current.provider == LyricsProvider.SPICY_LYRICS && LyricsClient.tierOf(current) >= LyricsClient.TIER_LINE
+            // Only for the Spicy style; other styles keep the normal comparison below.
+            if (preferSpicy && candidateSpicy != currentSpicy) {
+                val spicy = if (candidateSpicy) candidate else current
+                val other = if (candidateSpicy) current else candidate
+                return if (LyricsClient.tierOf(spicy) >= LyricsClient.tierOf(other)) spicy else other
+            }
             if (current.timingConfidence > candidate.timingConfidence) return current
             if (candidate.timingConfidence > current.timingConfidence) return candidate
             val oldTier = LyricsClient.tierOf(current)
@@ -130,8 +139,9 @@ class DesktopLyricsRepository(
             best?.takeIf { it.provider == LyricsProvider.SPICY_LYRICS }
                 ?: memory[providerKey] ?: disk?.read(providerKey)
         }
+        // A saved Spicy copy still has to beat what is stored as best (word timing from another source).
         if (existing != null && !com.auralis.music.data.network.LyricsCachePolicy.isExpired(existing, clock()))
-            return align(existing, query.durationMs ?: 0L)
+            return align(storeBest(key, existing, preferSpicy = true), query.durationMs ?: 0L)
         val attemptKey = listOf(key, query.spotifyId, query.title, query.artist, query.durationMs).joinToString("|")
         synchronized(spicyAttempts) {
             val last = spicyAttempts[attemptKey]
