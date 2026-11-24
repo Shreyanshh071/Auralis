@@ -10,13 +10,15 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.auralis.music.windows.player.SidebarLyricsCard
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.swing.Swing
 import kotlin.test.*
 
 class SidebarLyricsCollapseTest {
-    @Test fun collapseAndReopenAnimateThroughIntermediateHeights() {
+    @Test fun collapseAndReopenAnimateThroughIntermediateHeights() = runBlocking(Dispatchers.Swing) {
         var collapsed by mutableStateOf(false)
         var height = 0
-        val scene = ImageComposeScene(340, 400, coroutineContext = Dispatchers.Unconfined) {
+        val scene = ImageComposeScene(340, 400, coroutineContext = Dispatchers.Swing) {
             MaterialTheme {
                 Box(Modifier.fillMaxSize()) {
                     SidebarLyricsCard(collapsed, { collapsed = !collapsed }, {}, {},
@@ -52,10 +54,10 @@ class SidebarLyricsCollapseTest {
         } finally { scene.close() }
     }
 
-    @Test fun collapseInConstrainedColumn() {
+    @Test fun collapseInConstrainedColumn() = runBlocking(Dispatchers.Swing) {
         var collapsed by mutableStateOf(false)
         var height = 0
-        val scene = ImageComposeScene(340, 500, coroutineContext = Dispatchers.Unconfined) {
+        val scene = ImageComposeScene(340, 500, coroutineContext = Dispatchers.Swing) {
             MaterialTheme {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.height(300.dp)) // leaves 200dp

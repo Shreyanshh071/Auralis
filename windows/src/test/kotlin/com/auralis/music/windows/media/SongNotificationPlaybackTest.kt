@@ -2,8 +2,10 @@ package com.auralis.music.windows.media
 
 import com.auralis.music.desktop.playback.*
 import com.auralis.music.domain.model.Track
+import com.auralis.music.windows.player.testVlcDirectory
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -14,8 +16,7 @@ class SongNotificationPlaybackTest {
     @Test fun crossfadeNotifiesOnlyWhenTheIncomingStreamActuallyStarts() = runBlocking {
         val dir = kotlin.io.path.createTempDirectory("song-notification-playback").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val native = File(System.getProperty("user.home"), "AppData/Local/Auralis/app/resources/vlc")
-        val player = assertNotNull(VlcAudioPlayer.createOrNull(native))
+        val player = assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory()))
         val wave = File(dir, "silent.wav")
         AudioInputStream(java.io.ByteArrayInputStream(ByteArray(30*8000*2)), AudioFormat(8000f,16,1,true,false),240000).use {
             AudioSystem.write(it,AudioFileFormat.Type.WAVE,wave)
@@ -48,6 +49,11 @@ class SongNotificationPlaybackTest {
             releaseSecond.countDown()
             withTimeout(15000) { while (notices.size < 2) delay(25) }
             assertEquals(listOf("first","second"),notices.map { it.id })
+            // Exercise pause and resume once the incoming song is past the crossfade.
+            withTimeout(15000) {
+                pb.positionMs.first { it > (pb.crossfadeSeconds * 1000).toLong() }
+                pb.state.first { it == VlcAudioPlayer.State.PLAYING }
+            }
             pb.setPaused(true)
             withTimeout(3000) { while (pb.state.value != VlcAudioPlayer.State.PAUSED) delay(25) }
             pb.setPaused(false)
