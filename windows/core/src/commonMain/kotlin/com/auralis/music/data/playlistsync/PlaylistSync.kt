@@ -213,13 +213,23 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
         apply(p, if (p.remote == null) SyncChoice.AURALIS else SyncChoice.MERGE)
     }
     private fun message(id: String, text: String) { status.update { it + (id to text) } }
+    /**
+     * What a failed check says. A lookup or connection failure is no connection to the service
+     * (offline, or Android cutting a backgrounded app off), not a playlist problem: the raw
+     * "Unable to resolve host" text read as broken sync and stayed up after reopening.
+     */
+    private fun failureText(e: Exception, service: SyncService): String = when (e) {
+        is java.net.UnknownHostException, is java.net.ConnectException, is java.net.NoRouteToHostException,
+        is java.net.SocketTimeoutException -> "Can't reach ${service.label} right now. Sync retries automatically."
+        else -> e.message ?: "Sync pending. Retrying automatically."
+    }
     private suspend fun syncAll(): Boolean {
         var retry = false
         for (link in store.links.value.filter { it.enabled }) try { sync(link.localId) }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             retry = true
-            message(link.localId, e.message ?: "Sync pending. Retrying automatically.")
+            message(link.localId, failureText(e, link.service))
             com.auralis.music.util.Log.w("PlaylistSync", "${link.service} sync pending: ${e.message}")
         }
         return retry
@@ -334,7 +344,7 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             throw e
         } catch (e: Exception) {
             if (epochs.getOrDefault(id, 0L) != epoch) return
-            message(id, e.message ?: "Sync pending. Retrying automatically.")
+            message(id, failureText(e, link.service))
             throw e
         }
         // Turning sync off while a read is in flight must not re-link the playlist.
