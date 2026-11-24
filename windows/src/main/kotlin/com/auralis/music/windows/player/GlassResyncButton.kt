@@ -49,16 +49,21 @@ internal fun GlassResyncButton(label: String, onClick: () -> Unit, modifier: Mod
     val effect = remember { DockGlassEffect() }
     DisposableEffect(effect) { onDispose { effect.close() } }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val hover by animateFloatAsState(if (pressed) 1f else if (hovered) .6f else 0f, label = "resync glass hover")
+    // Neutral frosted glass, like the player's other controls: a dark tint over a well blurred,
+    // gently refracted backdrop, so a bright cover reads through muted instead of turning the
+    // button into a saturated pill of the song's colour.
     Row(modifier.graphicsLayer { scaleX = swell; scaleY = swell }
-        .shadow(6.dp, shape, clip = false).clip(shape)
+        .shadow(2.dp, shape, clip = false,
+            ambientColor = Color.Black.copy(alpha = .22f), spotColor = Color.Black.copy(alpha = .22f)).clip(shape)
         .onGloballyPositioned { coordinates = it }
         .drawWithCache {
             val pad = 32.dp.toPx()
             val copiedDensity = Density(density, fontScale)
             layer.renderEffect = effect.create(size.width, size.height, pad, density,
-                blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f)
+                blurDp = 18f, lensHeightDp = 14f, lensAmountDp = 8f)
             onDrawWithContent {
-                drawRect(Color(0xFF121212).copy(alpha = .4f))
+                drawRect(Color(0xFF121212).copy(alpha = .55f))
                 if (source != null) {
                     layer.record(copiedDensity, layoutDirection,
                         IntSize((size.width + pad * 2).toInt(), (size.height + pad * 2).toInt())) {
@@ -69,18 +74,29 @@ internal fun GlassResyncButton(label: String, onClick: () -> Unit, modifier: Mod
                     drawLayer(layer)
                     drawContext.canvas.translate(pad, pad)
                 }
-                drawRect(Color.White.copy(alpha = .09f))
-                drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha = .12f), Color.Transparent),
-                    start = Offset.Zero, end = Offset(size.width, size.height)))
+                // Tint the refracted backdrop back toward neutral, then a faint sheen.
+                drawRect(Color.Black.copy(alpha = .38f))
+                drawRect(Color.White.copy(alpha = .06f + .08f * hover))
+                drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = .10f), Color.Transparent),
+                    startY = 0f, endY = size.height * .6f))
                 drawContent()
             }
         }
-        .border(.75.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .42f), Color.White.copy(alpha = .08f),
-            Color.White.copy(alpha = .22f))), shape)
+        .border(.75.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .28f + .12f * hover),
+            Color.White.copy(alpha = .06f))), shape)
         .clickable(interactions, indication = null, onClick = onClick)
-        .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.Sync, null, tint = Color.White, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Sync, null, tint = Color.White.copy(alpha = .85f), modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(7.dp))
+        // Trim the font's extra top/bottom line spacing so the glyphs centre on the icon,
+        // instead of the label sitting low in the pill.
+        Text(label, color = Color.White.copy(alpha = .92f), fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            style = androidx.compose.material3.LocalTextStyle.current.merge(
+                lineHeight = 13.sp,
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
+                )
+            ))
     }
 }

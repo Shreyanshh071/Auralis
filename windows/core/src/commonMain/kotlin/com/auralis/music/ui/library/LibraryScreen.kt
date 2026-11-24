@@ -1046,7 +1046,7 @@ fun LibraryScreen(
     // Sort Options Dialog
     if (showSortMenu) {
         val sortOptions = listOf("Date added", "Recently played", "Alphabetical (A to Z)", "Alphabetical (Z to A)", "Track count")
-        AlertDialog(
+        com.auralis.music.ui.components.GlassAlertDialog(
             onDismissRequest = { showSortMenu = false },
             title = { Text(str(Strings.sort_playlists_by), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
             containerColor = CARD_DARK_BG,
@@ -2082,10 +2082,12 @@ private fun PlaylistDetailView(
                 val first = playlistListState.layoutInfo.totalItemsCount - displayedItems.size
                 displayedItems.getOrNull(index - first)?.track?.let { it.thumbnail to it }
             }
+            val autoScroll = rememberMiddleClickAutoScroll(playlistListState)
             LazyColumn(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .middleClickAutoScroll(autoScroll)
                     .onGloballyPositioned { listTopInRoot = it.positionInRoot().y },
                 contentPadding = bottomChromePadding()
             ) {
@@ -2664,6 +2666,20 @@ private fun PlaylistDetailView(
                     }
                 }
             }
+            androidx.compose.foundation.VerticalScrollbar(
+                adapter = androidx.compose.foundation.rememberScrollbarAdapter(playlistListState),
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(end = 4.dp, top = 6.dp, bottom = 6.dp),
+                // The default thumb is dark and disappears on the page's dark backdrop.
+                style = androidx.compose.foundation.ScrollbarStyle(
+                    minimalHeight = 48.dp,
+                    thickness = 8.dp,
+                    shape = RoundedCornerShape(4.dp),
+                    hoverDurationMillis = 200,
+                    unhoverColor = Color.White.copy(alpha = .38f),
+                    hoverColor = Color.White.copy(alpha = .65f)
+                )
+            )
+            MiddleClickAutoScrollMarker(autoScroll)
         }
     }
     // Floats over the hero cover in liquid glass mode.

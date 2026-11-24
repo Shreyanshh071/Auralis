@@ -399,6 +399,8 @@ fun main(args: Array<String>) {
             com.auralis.music.windows.immersive.connectedDisplays(null).singleOrNull()
         }
         val embeddedImmersive = immersive.trigger != null && embeddedDisplay != null
+        // The window's key filter can outlive a recomposition; read the live value at key time.
+        val embeddedImmersiveNow by rememberUpdatedState(embeddedImmersive)
         var immersiveGeometry by remember { mutableStateOf<WindowGeometry?>(null) }
         val embeddedCoverActive = embeddedImmersive || immersiveGeometry != null
         val retainedAppConstraints = remember { java.util.concurrent.atomic.AtomicReference<androidx.compose.ui.unit.Constraints>() }
@@ -707,7 +709,7 @@ fun main(args: Array<String>) {
 
         Window(
             onPreviewKeyEvent = {
-                if (embeddedImmersive) false
+                if (embeddedImmersiveNow) false
                 else if (it.key == androidx.compose.ui.input.key.Key.F11 && it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
                     setPlayerFullscreen(!playerFullscreen); true
                 } else shortcutHandler?.invoke(it) ?: false
@@ -865,7 +867,10 @@ fun main(args: Array<String>) {
                 window.minimumSize = java.awt.Dimension(minWindowWidth(isMac).toInt(), minWindowHeight(isMac).toInt())
                 singleInstanceLock?.recordWindowHandle(window.windowHandle)
                 val frame = if (!isMac) {
-                    runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also { it.onClose = requestClose } }
+                    runCatching { NativeWindowFrame(window, window.windowHandle) { captionHover = it }.also {
+                        it.onClose = requestClose
+                        it.onCaptionPress = { com.auralis.music.windows.search.TitleBarPresses.count++ }
+                    } }
                         .onFailure { Log.w(TAG, "Native window frame unavailable: ${it.javaClass.simpleName}") }.getOrNull()
                 } else null
                 nativeFrame = frame
@@ -1028,7 +1033,11 @@ fun main(args: Array<String>) {
                     onCloseWindow = requestClose,
                     onMinimizeWindow = { nativeFrame?.minimize() ?: run { windowState.isMinimized = true } },
                     openSettingsTrigger = settingsRequestTrigger,
-                    onOpenImmersive = { immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL) },
+                    // I toggles: if the key reaches the main window while immersive shows, it closes it.
+                    onOpenImmersive = {
+                        if (immersive.trigger != null) immersive.close()
+                        else immersive.open(com.auralis.music.windows.immersive.ImmersiveTrigger.MANUAL)
+                    },
                     onToggleLockScreenPreview = {
                         if (isMac) {
                             lockScreenPreview = if (lockScreenPreview) {

@@ -141,8 +141,10 @@ class DesktopConnect(
     private var realtime: ConnectRealtimeBackend? = null
 
     val deviceSyncAvailable: Boolean get() = !System.getProperty(REALTIME_URL).isNullOrBlank()
-    // Device sync is per session: every launch starts with it off, whatever the last one chose.
-    private val _deviceSyncEnabled = MutableStateFlow(false).also { store.putStrings(mapOf("realtime_transport" to "")) }
+    // Device sync is on by default; turning it off ("off") is remembered across launches.
+    private val _deviceSyncEnabled = MutableStateFlow(
+        deviceSyncAvailable && store.getString("realtime_transport", "") != "off"
+    )
     val deviceSyncEnabled: StateFlow<Boolean> = _deviceSyncEnabled.asStateFlow()
 
     fun setDeviceSyncEnabled(enabled: Boolean) {
@@ -150,7 +152,7 @@ class DesktopConnect(
         scope.launch {
             lock.withLock {
                 if (_deviceSyncEnabled.value == enabled) return@withLock
-                store.putStrings(mapOf("realtime_transport" to if (enabled) "on" else ""))
+                store.putStrings(mapOf("realtime_transport" to if (enabled) "on" else "off"))
                 _deviceSyncEnabled.value = enabled
                 if (enabled) uid?.let(::startEngine)
                 else stopEngine(signOut = false)

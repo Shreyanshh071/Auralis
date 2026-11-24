@@ -406,6 +406,32 @@ object DesktopStreamResolver {
         }
     }
 
+    /**
+     * The smallest combined MP4 (usually itag 18: 360p with AAC audio) for an upload YouTube serves
+     * with no audio-only stream, as it does some kids' Topic uploads. A player that reads MP4
+     * (the Discord bot's) plays its sound track. Null when there's none or YouTube is paused.
+     */
+    suspend fun resolveMuxedAudio(videoId: String): String? {
+        if (!DesktopPlaybackMatch.isVideoId(videoId) || cooldownFailure("muxed") != null) return null
+        ensureInitialized()
+        val budget = budgetFor(RequestPriority.FOREGROUND, "muxed")
+        val tag = YouTubeTraffic.Tag(budget.correlationId, budget.reason, budget)
+        return try {
+            NewPipeDownloader.cancellable(minOf(EXTRACTION_BUDGET_MS, budget.remainingMs()).coerceAtLeast(1L), tag) {
+                val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                extractor.fetchPage()
+                extractor.videoStreams
+                    .filter { it.format?.mimeType == "video/mp4" && !it.content.isNullOrBlank() }
+                    .minByOrNull { it.resolution.substringBefore('p').toIntOrNull() ?: 9999 }?.content
+            }.also { if (it != null) YouTubeBackoff.recordSuccess() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Log.w(TAG, "No combined stream for $videoId: ${FailureClassifier.classify(e, "muxed")}")
+            null
+        }
+    }
+
     // ---- ranking -----------------------------------------------------------------------------
 
     private fun rankStreams(streams: List<AudioStream>, excludedUrls: Set<String> = emptySet()): List<AudioStream> {

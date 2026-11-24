@@ -106,8 +106,18 @@ class AuralisCatalog {
                 DesktopPlaybackMatch.alternative(track, track.id) { DesktopStreamResolver.resolve(it) } else null)
             // YouTube refusing this IP ("confirm you're not a bot") blocks every upload alike;
             // the same recording from JioSaavn still plays, as the desktop app falls back.
-            ?: return jioSaavn(track)?.let { LocalStreamRelay.register(it) }
+            ?: return (jioSaavn(track) ?: combinedStream(track, direct))?.let { LocalStreamRelay.register(it) }
         return LocalStreamRelay.register(url, refresh = { DesktopStreamResolver.refreshBlocking(id, it.failedUrl, it.failure) })
+    }
+
+    /**
+     * Some uploads (kids' songs like "Jinga Lala Hu") come only as a 360p video with AAC sound.
+     * Lavaplayer plays that sound track, so it beats skipping the song.
+     */
+    private suspend fun combinedStream(track: Track, direct: com.auralis.music.desktop.playback.ResolutionResult): String? {
+        val failure = (direct as? com.auralis.music.desktop.playback.ResolutionResult.Failed)?.failure ?: return null
+        if (failure.detail != NO_AUDIO_STREAMS) return null
+        return DesktopStreamResolver.resolveMuxedAudio(track.id)?.also { Log.i(TAG, "Playing ${track.id} from its combined stream") }
     }
 
     private suspend fun jioSaavn(track: Track): String? = try {
@@ -126,6 +136,7 @@ class AuralisCatalog {
 
     companion object {
         private const val TAG = "AuralisCatalog"
+        private const val NO_AUDIO_STREAMS = "no audio streams"
         private val VIDEO_LINK = Regex("""(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})""")
         private val YOUTUBE_LINK = Regex("""(?:https?://)?(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)/\S+""", RegexOption.IGNORE_CASE)
 
