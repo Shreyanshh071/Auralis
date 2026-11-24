@@ -84,34 +84,7 @@ internal object DesktopReleaseCheck {
             checkNotNull(DesktopReleaseCheck::class.java.classLoader.getResourceAsStream("windows-version.properties")).use(::load)
         }.getProperty("version")
     }
-    fun check(beta: Boolean): Pair<String, String?> {
-        val client = com.auralis.music.data.network.NetworkClientProvider.okHttpClient.newBuilder()
-            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
-        val releases = org.json.JSONArray()
-        var page = 1
-        do {
-            val request = okhttp3.Request.Builder().url("https://api.github.com/repos/Shreyanshh071/Auralis/releases?per_page=100&page=$page")
-                .header("Accept", "application/vnd.github+json").build()
-            val hasNext = client.newCall(request).execute().use { response ->
-                check(response.isSuccessful) { "Release check failed (HTTP ${response.code}). Try again." }
-                val batch = org.json.JSONArray(response.body!!.string())
-                for (index in 0 until batch.length()) releases.put(batch.getJSONObject(index))
-                response.header("Link").orEmpty().contains("rel=\"next\"")
-            }
-            page++
-        } while (hasNext)
-        return result(releases, beta, version)
-    }
-    fun result(releases: org.json.JSONArray, beta: Boolean, installed: String): Pair<String, String?> {
-        val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
-        val osLabel = if (isMac) "macOS" else "Windows"
-        val release = WindowsReleases.latest(releases, beta)
-            ?: return (if (isMac) "No published release found." else "No published Windows release found.") to null
-        val current = WindowsReleases.Version.parse(installed)
-        return if (current != null && release.version <= current)
-            com.auralis.music.ui.i18n.desktopText("You are running the latest release (%1\$s).", "$osLabel $installed") to null
-        else com.auralis.music.ui.i18n.desktopText("Published release: %1\$s · Installed: %2\$s", "$osLabel ${release.displayVersion}", "$osLabel $installed") to release.url
-    }
+    // Checking, downloading and installing releases: com.auralis.music.windows.update.DesktopUpdater.
     fun diagnostics(): String {
         val isMac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
         return listOf("Auralis for ${if (isMac) "macOS" else "Windows"} $version", "OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}",

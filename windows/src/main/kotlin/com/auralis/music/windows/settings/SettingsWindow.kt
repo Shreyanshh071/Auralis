@@ -539,7 +539,9 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
 }
 
 @Composable private fun AboutPane() {
-    val scope=rememberCoroutineScope();var message by remember {mutableStateOf("")};var url by remember {mutableStateOf<String?>(null)};var busy by remember {mutableStateOf(false)}
+    val scope=rememberCoroutineScope();var message by remember {mutableStateOf("")}
+    val update by com.auralis.music.windows.update.DesktopUpdater.state.collectAsState()
+    val restarting by com.auralis.music.windows.update.DesktopUpdater.restarting.collectAsState()
     val prefs=DesktopPreferences.store;val revision by prefs.changes.collectAsState()
     Text("Auralis · ${DesktopReleaseCheck.version}",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
     Text(desktopText(if (isMac) "Auralis for macOS · Compose Multiplatform · VLC" else "Auralis for Windows · Compose Multiplatform · VLC"))
@@ -552,9 +554,21 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     SettingsGroup("Updates") {
         SettingToggle("Include prereleases",checked=prefs.bool("betaUpdates"),onChecked={prefs.set("betaUpdates",it)})
-        Button({busy=true;scope.launch {runCatching {withContext(Dispatchers.IO) {DesktopReleaseCheck.check(prefs.bool("betaUpdates"))}}.onSuccess {message=it.first;url=it.second}.onFailure {message=it.message.orEmpty()};busy=false}},enabled=!busy) {Text(desktopText(if(busy) "Checking…" else "Check for updates"))}
-        Text(desktopText(message))
-        url?.let {link->TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(link))}) {Text(desktopText("View release and installers"))}}
+        val updater=com.auralis.music.windows.update.DesktopUpdater
+        val busy=update is com.auralis.music.windows.update.DesktopUpdater.State.Checking||update is com.auralis.music.windows.update.DesktopUpdater.State.Downloading
+        Button({message="";scope.launch {updater.check(manual=true)}},enabled=!busy&&!restarting) {Text(desktopText(if(update is com.auralis.music.windows.update.DesktopUpdater.State.Checking) "Checking…" else "Check for updates"))}
+        val status=com.auralis.music.windows.update.updateStatusText(update)
+        if (status.isNotEmpty()) Text(status)
+        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Downloading)?.let {
+            LinearProgressIndicator({if (it.total>0) it.bytes.toFloat()/it.total else 0f},Modifier.fillMaxWidth().padding(vertical=4.dp))
+        }
+        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Ready)?.let {
+            Button({scope.launch {updater.restartToUpdate()?.let {reason->message=reason}}},enabled=!restarting) {Text(desktopText(if(restarting) "Restarting…" else "Restart to update"))}
+        }
+        (update as? com.auralis.music.windows.update.DesktopUpdater.State.Available)?.let {available->
+            TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(available.release.pageUrl))}) {Text(desktopText("View release and installers"))}
+        }
+        if (message.isNotEmpty()) Text(desktopText(message))
     }
     SettingsGroup("Support & diagnostics") {
         TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY))}) {Text(desktopText("Source code and licenses"))}

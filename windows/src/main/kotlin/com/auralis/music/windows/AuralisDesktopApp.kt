@@ -1062,6 +1062,7 @@ fun AuralisDesktopApp(
                         }
                         }
                         DesktopNotificationPillHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 18.dp))
+                        com.auralis.music.windows.update.DesktopUpdatePrompt(Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, end = 16.dp, bottom = 18.dp))
                     }
                     if (showNowPlaying && playback != null && lyrics != null) {
                       if (!rightIsCollapsed) SidebarResizeHandle(
