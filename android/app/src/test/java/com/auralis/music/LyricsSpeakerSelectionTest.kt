@@ -244,7 +244,6 @@ class LyricsSpeakerSelectionTest {
             netEaseSource = source(mockk(), LyricsProvider.NETEASE, netEase),
             kuGouSource = source(mockk(), LyricsProvider.KUGOU, kuGou),
             qqMusicSource = source(mockk(), LyricsProvider.QQMUSIC, none),
-            musixmatchSource = source(mockk(), LyricsProvider.MUSIXMATCH, none),
             geniusSource = source(mockk(), LyricsProvider.GENIUS, none),
             ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, none),
             youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, none),

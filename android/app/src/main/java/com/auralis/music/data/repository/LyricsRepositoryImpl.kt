@@ -200,6 +200,8 @@ class LyricsRepositoryImpl(
 
                 val syncType = SyncType.valueOf(entity.syncType)
                 val provider = try { LyricsProvider.valueOf(entity.provider) } catch (_: Exception) { LyricsProvider.LRCLIB }
+                // Musixmatch was removed: its cached lyrics are not shown again, the song re-fetches.
+                if (provider == LyricsProvider.MUSIXMATCH) return null
                 val lines = mutableListOf<LyricLine>()
 
                 val linesArray = JSONArray(entity.linesJson)

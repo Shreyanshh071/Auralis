@@ -11,7 +11,6 @@ import com.auralis.music.data.network.provider.LrcLibLyricsSource
 import com.auralis.music.data.network.provider.LyricsCandidate
 import com.auralis.music.data.network.provider.LyricsSearchQuery
 import com.auralis.music.data.network.provider.LyricsSource
-import com.auralis.music.data.network.provider.MusixmatchLyricsSource
 import com.auralis.music.data.network.provider.NetEaseLyricsSource
 import com.auralis.music.data.network.provider.PaxsenixLyricsSource
 import com.auralis.music.data.network.provider.QQMusicLyricsSource
@@ -42,9 +41,6 @@ class LyricsClient(
     private val netEaseSource: NetEaseLyricsSource = NetEaseLyricsSource(),
     private val kuGouSource: KuGouLyricsSource = KuGouLyricsSource(),
     private val qqMusicSource: QQMusicLyricsSource = QQMusicLyricsSource(),
-    // Word sync for many Indian songs Apple Music only syncs by line (see MusixmatchLyricsSource
-    // for why it uses the Android app id).
-    private val musixmatchSource: MusixmatchLyricsSource = MusixmatchLyricsSource(),
     private val geniusSource: GeniusLyricsSource = GeniusLyricsSource(),
     private val ytMusicSource: YouTubeInnerTubeLyricsSource = YouTubeInnerTubeLyricsSource(),
     private val youLyPlusSource: YouLyPlusLyricsSource = YouLyPlusLyricsSource(),
@@ -81,7 +77,6 @@ class LyricsClient(
             LyricsProvider.KUGOU,
             LyricsProvider.UNISON,
             LyricsProvider.NETEASE,
-            LyricsProvider.MUSIXMATCH,
             LyricsProvider.LRCLIB,
             LyricsProvider.JIOSAAVN,
             LyricsProvider.GENIUS,
@@ -236,11 +231,10 @@ class LyricsClient(
                 LyricsProvider.JIOSAAVN -> com.auralis.music.domain.model.LyricsProviderId.JIOSAAVN
                 LyricsProvider.NETEASE -> com.auralis.music.domain.model.LyricsProviderId.NETEASE
                 LyricsProvider.GENIUS -> com.auralis.music.domain.model.LyricsProviderId.GENIUS
-                LyricsProvider.MUSIXMATCH -> com.auralis.music.domain.model.LyricsProviderId.MUSIXMATCH
                 LyricsProvider.YOUTUBE -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_MUSIC
                 LyricsProvider.YOUTUBE_CAPTIONS -> com.auralis.music.domain.model.LyricsProviderId.YOUTUBE_CAPTIONS
                 LyricsProvider.YOULYPLUS -> com.auralis.music.domain.model.LyricsProviderId.LYRICS_PLUS
-                LyricsProvider.LOCAL -> null
+                LyricsProvider.LOCAL, LyricsProvider.MUSIXMATCH -> null
             }
 
         internal fun providerWordPriority(provider: LyricsProvider): Int = when (provider) {
@@ -696,7 +690,6 @@ class LyricsClient(
             youLyPlusSource,
             qqMusicSource,
             kuGouSource,
-            musixmatchSource,
             lrcLibSource,
             netEaseSource,
             jioSaavnSource
@@ -1226,7 +1219,6 @@ class LyricsClient(
             LyricsProvider.UNISON -> unisonSource
             LyricsProvider.PAXSENIX -> paxsenixSource
             LyricsProvider.YOULYPLUS -> youLyPlusSource
-            LyricsProvider.MUSIXMATCH -> musixmatchSource
             LyricsProvider.LRCLIB -> lrcLibSource
             LyricsProvider.KUGOU -> kuGouSource
             LyricsProvider.QQMUSIC -> qqMusicSource
@@ -1234,7 +1226,9 @@ class LyricsClient(
             LyricsProvider.JIOSAAVN -> jioSaavnSource
             LyricsProvider.GENIUS -> geniusSource
             LyricsProvider.YOUTUBE -> ytMusicSource
-            LyricsProvider.YOUTUBE_CAPTIONS, LyricsProvider.LOCAL -> return@withContext null
+            // Musixmatch was removed (Nov 2026): it blocks unofficial clients and asked
+            // projects using its private API to stop. Old cached labels may still name it.
+            LyricsProvider.MUSIXMATCH, LyricsProvider.YOUTUBE_CAPTIONS, LyricsProvider.LOCAL -> return@withContext null
         }
         val (query, coreTitle) = buildSearchQuery(title, artist, durationSec, videoId, album, channelTitle, durationMs, audioLeadingSilenceMs)
         val candidate = try {

@@ -35,7 +35,9 @@ class LyricsDiskCache(private val dir: File, private val clock: () -> Long = Sys
         return try {
             val json = JSONObject(file.readText())
             if (json.optInt("version") != VERSION) null else decode(json).takeUnless { data ->
-                com.auralis.music.data.network.LyricsCachePolicy.isExpired(data, clock()).also { expired -> if (expired) file.delete() }
+                // Musixmatch was removed: drop its cached lyrics so the song re-fetches.
+                (data.provider == LyricsProvider.MUSIXMATCH ||
+                    com.auralis.music.data.network.LyricsCachePolicy.isExpired(data, clock())).also { drop -> if (drop) file.delete() }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Unreadable lyrics cache ${file.name}: ${e.message}")

@@ -120,7 +120,6 @@ class ForeignLyricAnnotationTest {
             jioSaavnSource = source(mockk(), LyricsProvider.JIOSAAVN, null),
             netEaseSource = source(mockk(), LyricsProvider.NETEASE, null),
             kuGouSource = source(mockk(), LyricsProvider.KUGOU, lrc(kuGouLrc, LyricsProvider.KUGOU)),
-            musixmatchSource = source(mockk(), LyricsProvider.MUSIXMATCH, null),
             geniusSource = source(mockk(), LyricsProvider.GENIUS, null),
             ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, null),
             youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, null),

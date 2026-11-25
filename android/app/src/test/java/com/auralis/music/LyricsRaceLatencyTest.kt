@@ -67,7 +67,6 @@ class LyricsRaceLatencyTest {
         jioSaavnSource = source(mockk(), LyricsProvider.JIOSAAVN, null),
         netEaseSource = source(mockk(), LyricsProvider.NETEASE, netEase),
         kuGouSource = source(mockk(), LyricsProvider.KUGOU, null),
-        musixmatchSource = source(mockk(), LyricsProvider.MUSIXMATCH, null),
         geniusSource = source(mockk(), LyricsProvider.GENIUS, null),
         ytMusicSource = source(mockk(), LyricsProvider.YOUTUBE, youTubePlain),
         youLyPlusSource = source(mockk(), LyricsProvider.YOULYPLUS, youLyPlus, blockMs = youLyPlusBlockMs),

@@ -747,7 +747,6 @@ class PaxsenixLyricsSourceTest {
             jioSaavnSource = JioSaavnLyricsSource(client = dummyClient),
             netEaseSource = NetEaseLyricsSource(client = dummyClient),
             kuGouSource = KuGouLyricsSource(client = dummyClient),
-            musixmatchSource = MusixmatchLyricsSource(client = dummyClient),
             amllSource = AmllLyricsSource(client = dummyClient),
             youLyPlusSource = com.auralis.music.data.network.provider.YouLyPlusLyricsSource(client = dummyClient),
             captionsSource = com.auralis.music.data.network.provider.YouTubeCaptionsLyricsSource(client = dummyClient)

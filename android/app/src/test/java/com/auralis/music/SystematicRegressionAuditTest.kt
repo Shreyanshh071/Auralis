@@ -62,7 +62,6 @@ class SystematicRegressionAuditTest {
         val unisonSource = UnisonLyricsSource()
         val lrcLibSource = LrcLibLyricsSource()
         val netEaseSource = NetEaseLyricsSource()
-        val musixmatchSource = MusixmatchLyricsSource()
         val kuGouSource = KuGouLyricsSource()
         val jioSaavnSource = JioSaavnLyricsSource()
 
@@ -95,7 +94,6 @@ class SystematicRegressionAuditTest {
                 "UNISON" to { unisonSource.search(query) },
                 "LRCLIB" to { lrcLibSource.search(query) },
                 "NETEASE" to { netEaseSource.search(query) },
-                "MUSIXMATCH" to { musixmatchSource.search(query) },
                 "KUGOU" to { kuGouSource.search(query) },
                 "JIOSAAVN" to { jioSaavnSource.search(query) }
             )

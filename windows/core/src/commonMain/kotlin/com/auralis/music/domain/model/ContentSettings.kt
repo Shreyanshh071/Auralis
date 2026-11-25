@@ -25,7 +25,6 @@ enum class LyricsProviderId(val displayName: String, val description: String) {
     LYRICS_PLUS("LyricsPlus", "YouLy+ backend (Apple, QQ, Deezer)"),
     UNISON("Unison", "Community word-synced lyrics"),
     AMLL("AMLL", "Apple Music-style TTML lyrics"),
-    MUSIXMATCH("Musixmatch", "Rich-sync word-timed lyrics"),
     NETEASE("NetEase", "NetEase Cloud Music lyrics"),
     JIOSAAVN("JioSaavn", "Indian catalogue lyrics"),
     YOUTUBE_MUSIC("YouTube Music", "Lyrics shown in YouTube Music (unsynced)"),
