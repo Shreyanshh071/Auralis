@@ -63,9 +63,11 @@ internal fun Modifier.recordPopupGlass(source: PopupGlassSource): Modifier = thi
 /** Shared by options menus and search; popup coordinates are relative to the owner window. */
 @Composable
 internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
-    tint: Color = liquidGlassTint(false), frosted: Boolean = false, content: @Composable () -> Unit) {
+    tint: Color = liquidGlassTint(false), frosted: Boolean = false,
+    cornerRadius: Dp = 18.dp, blurDp: Float = 8f, lensHeightDp: Float = 24f, lensAmountDp: Float = 24f,
+    shadowElevation: Dp = 6.dp, content: @Composable () -> Unit) {
     val source = LocalPopupGlassSource.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(cornerRadius)
     val layer = rememberGraphicsLayer()
     val effect = remember { DockGlassEffect() }
     val rim = remember { LiquidGlassRim() }
@@ -76,7 +78,7 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
     }
     DisposableEffect(effect) { onDispose { effect.close() } }
     DisposableEffect(rim) { onDispose { rim.close() } }
-    Box(modifier.shadow(if (frosted) 0.dp else 6.dp, shape,
+    Box(modifier.shadow(if (frosted) 0.dp else shadowElevation, shape,
         ambientColor = Color.Black.copy(alpha = .1f), spotColor = Color.Black.copy(alpha = .1f)).clip(shape)
         .onGloballyPositioned { localOrigin = it.positionInWindow() }
         .drawWithCache {
@@ -85,7 +87,7 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
             val copiedDensity = Density(density, fontScale)
             layer.renderEffect = if (frosted) androidx.compose.ui.graphics.BlurEffect(24.dp.toPx(), 24.dp.toPx())
                 else effect.create(size.width * scale, size.height * scale, padding, density * scale,
-                    18.dp.toPx() * scale, blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f)
+                    cornerRadius.toPx() * scale, blurDp = blurDp, lensHeightDp = lensHeightDp, lensAmountDp = lensAmountDp)
             onDrawWithContent {
                 // Observing the capture frame repaints the popup scene when the page changes.
                 source?.frame?.longValue
@@ -108,7 +110,7 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
                 }
                 drawRect(tint.copy(alpha = if (captured) tint.alpha else .68f))
                 drawContent()
-                if (!frosted) rim.draw(drawContext.canvas.nativeCanvas, size.width, size.height, 18.dp.toPx(), density)
+                if (!frosted) rim.draw(drawContext.canvas.nativeCanvas, size.width, size.height, cornerRadius.toPx(), density)
             }
         }
         .then(if (frosted) Modifier.border(1.dp, Color.White.copy(alpha = .14f), shape) else Modifier)) {
