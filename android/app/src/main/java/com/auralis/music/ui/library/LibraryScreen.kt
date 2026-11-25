@@ -2074,11 +2074,28 @@ private fun PlaylistDetailView(
     // liquid glass (the page's own backdrop can't be used here: these buttons are part of it).
     val heroBackdrop = rememberLayerBackdrop()
     val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
-    val topBarButton: Modifier = if (heroGlass != null) {
-        Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark),
+    // The back / search buttons float over the whole scrolling page, so they refract the list
+    // itself. With only the cover recorded they went blank once it scrolled out from under them.
+    // The page colour is drawn into the recording, and reading the scroll position re-records it
+    // as the list moves.
+    val barPageColor = MaterialTheme.dynamicBackground
+    val barBackdropDraw: androidx.compose.ui.graphics.drawscope.ContentDrawScope.() -> Unit = remember(barPageColor, playlistListState) {
+        {
+            @Suppress("UNUSED_VARIABLE")
+            val scrollIndex = playlistListState.firstVisibleItemIndex
+            @Suppress("UNUSED_VARIABLE")
+            val scrollOffset = playlistListState.firstVisibleItemScrollOffset
+            drawRect(barPageColor)
+            drawContent()
+        }
+    }
+    val barBackdrop = rememberLayerBackdrop(onDraw = barBackdropDraw)
+    val barGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(barBackdrop)?.takeIf { heroMode }
+    val topBarButton: Modifier = if (barGlass != null) {
+        Modifier.liquidGlass(barGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(barGlass.isDark),
             blurRadius = com.auralis.music.ui.glass.ARTWORK_GLASS_BLUR, vibrant = false)
     } else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
-    val topBarIcon = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurface
+    val topBarIcon = if (barGlass != null) Color.White else MaterialTheme.colorScheme.onSurface
 
     // Liquid glass: the bar always floats in the same place, so opening search never moves the
     // buttons. It fades in a solid page-coloured backing while searching, and the list makes room
@@ -2100,7 +2117,7 @@ private fun PlaylistDetailView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             com.auralis.music.ui.glass.FloatingPageButton(
-                Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), heroBackdrop,
+                Icons.AutoMirrored.Filled.ArrowBack, str(R.string.back), barBackdrop,
                 overArtwork = glassHero, onClick = onBack
             )
             // The search field grows out of the search button.
@@ -2160,7 +2177,8 @@ private fun PlaylistDetailView(
                 state = playlistListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .onGloballyPositioned { listTopInRoot = it.positionInRoot().y },
+                    .onGloballyPositioned { listTopInRoot = it.positionInRoot().y }
+                    .then(if (glassHero) Modifier.layerBackdrop(barBackdrop) else Modifier),
                 contentPadding = bottomChromePadding()
             ) {
                 if (glassHero) {
