@@ -1062,41 +1062,59 @@ fun ClassicCompactPlaybackControls(
                 }
             }
 
+            val previousTap = rememberTransportTapAnimation()
+            val playTap = rememberTransportTapAnimation()
+            val nextTap = rememberTransportTapAnimation()
+
             // Previous (64dp target, bold rounded double triangle)
-            IconButton(
-                onClick = onPreviousClick,
+            TransportButton(
+                onClick = { previousTap.play(); onPreviousClick() },
                 modifier = Modifier
                     .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
+                    .transportTapHighlight({ previousTap.progress.value })
                     .semantics { contentDescription = str(R.string.previous) }
             ) {
-                ClassicSkipGlyph(forward = false, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
+                ClassicSkipGlyph(
+                    forward = false,
+                    color = Color.White,
+                    modifier = Modifier.size(width = 46.dp, height = 28.dp),
+                    skipProgress = { previousTap.progress.value }
+                )
             }
 
             // Play / Pause (76dp target)
-            IconButton(
-                onClick = onPlayPauseClick,
+            TransportButton(
+                onClick = { playTap.play(); onPlayPauseClick() },
                 modifier = Modifier
                     .size(76.dp)
                     .tactileBounce(scaleDown = 0.88f)
+                    .transportTapHighlight({ playTap.progress.value })
                     .semantics { contentDescription = if (uiState.isPlaying) str(R.string.pause) else str(R.string.play) }
             ) {
-                if (uiState.isPlaying) {
-                    ClassicPauseGlyph(color = Color.White, modifier = Modifier.size(width = 34.dp, height = 36.dp))
-                } else {
-                    ClassicPlayGlyph(color = Color.White, modifier = Modifier.size(width = 36.dp, height = 38.dp))
-                }
+                ClassicPlayPauseGlyph(
+                    isPlaying = uiState.isPlaying,
+                    color = Color.White,
+                    pauseModifier = Modifier.size(width = 34.dp, height = 36.dp),
+                    playModifier = Modifier.size(width = 36.dp, height = 38.dp)
+                )
             }
 
             // Next (64dp target)
-            IconButton(
-                onClick = onNextClick,
+            TransportButton(
+                onClick = { nextTap.play(); onNextClick() },
                 modifier = Modifier
                     .size(64.dp)
                     .tactileBounce(scaleDown = 0.85f)
+                    .transportTapHighlight({ nextTap.progress.value })
                     .semantics { contentDescription = str(R.string.next) }
             ) {
-                ClassicSkipGlyph(forward = true, color = Color.White, modifier = Modifier.size(width = 46.dp, height = 28.dp))
+                ClassicSkipGlyph(
+                    forward = true,
+                    color = Color.White,
+                    modifier = Modifier.size(width = 46.dp, height = 28.dp),
+                    skipProgress = { nextTap.progress.value }
+                )
             }
 
             if (showTransportPills && onToggleRepeat != null) {
