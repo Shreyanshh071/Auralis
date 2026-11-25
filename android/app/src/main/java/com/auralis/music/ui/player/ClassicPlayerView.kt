@@ -3057,6 +3057,15 @@ internal fun ClassicQueueContent(
                                         )
                                     }
                                 } else null,
+                                // Swipe left: the song goes to the end of the queue (it is already in it).
+                                onAddToQueue = if (swipeEnabled && onReorderQueue != null) {
+                                    {
+                                        val from = queuePosition()
+                                        val to = queueSnapshot.lastIndex
+                                        if (from >= 0 && to >= 0 && from != to) onReorderQueue(from, to)
+                                        com.auralis.music.ui.components.AppPillManager.showPill(str(R.string.added_to_queue_x, item.title))
+                                    }
+                                } else null,
                                 onRemoveFromPlaylist = if (swipeEnabled && onRemoveQueueItem != null) {
                                     { queuePosition().takeIf { it >= 0 }?.let { onRemoveQueueItem(it) } }
                                 } else null,
