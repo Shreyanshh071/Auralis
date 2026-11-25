@@ -80,6 +80,21 @@ internal object PlaylistGroupMove {
         }
     }
 
+    /**
+     * The scroll position that keeps the dragged song where it was dropped after the songs above
+     * it in the group are put back: (lazy item index for the top of the list, its scroll offset).
+     * Song rows share one height, so the item at the top is counted back from the dragged song.
+     * Returns null when that would reach into the playlist header (rows of other heights).
+     */
+    fun scrollToKeepAnchor(anchorLazyIndex: Int, anchorTop: Int, rowHeight: Int, firstSongLazyIndex: Int): Pair<Int, Int>? {
+        if (rowHeight <= 0) return null
+        if (anchorTop <= 0) return anchorLazyIndex to -anchorTop
+        val rowsAbove = (anchorTop + rowHeight - 1) / rowHeight
+        val topIndex = anchorLazyIndex - rowsAbove
+        if (topIndex < firstSongLazyIndex) return null
+        return topIndex to rowsAbove * rowHeight - anchorTop
+    }
+
     /** The same filter the playlist screen uses to decide which rows it shows. */
     fun isShownInPlaylist(track: Track): Boolean =
         !track.title.startsWith("Track ") && track.title.isNotBlank()

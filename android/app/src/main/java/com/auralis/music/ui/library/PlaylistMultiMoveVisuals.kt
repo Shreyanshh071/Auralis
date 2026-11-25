@@ -64,8 +64,9 @@ internal object PlaylistTrainPhysics {
      * little softer, so the train stretches out on a quick move and wobbles as it bunches up.
      */
     fun step(car: PlaylistTrainCar, target: Float, carIndex: Int, dt: Float) {
-        val stiffness = (300f - carIndex * 40f).coerceAtLeast(140f)
-        val damping = 2f * kotlin.math.sqrt(stiffness) * 0.58f
+        // Stiff enough that the cars stay close behind; still a touch under-damped for the wobble.
+        val stiffness = (620f - carIndex * 70f).coerceAtLeast(380f)
+        val damping = 2f * kotlin.math.sqrt(stiffness) * 0.72f
         // Small sub-steps keep the spring stable on a slow frame.
         val steps = kotlin.math.ceil(dt / 0.008f).toInt().coerceIn(1, 6)
         val h = dt / steps
@@ -74,7 +75,7 @@ internal object PlaylistTrainPhysics {
             car.velocity += accel * h
             car.y += car.velocity * h
         }
-        car.tilt = tilt(car.velocity, maxDegrees = 5f)
+        car.tilt = tilt(car.velocity, maxDegrees = 2.5f)
     }
 
     /** A sideways lean for a vertical speed (px/s), so a moving card swings a little. */

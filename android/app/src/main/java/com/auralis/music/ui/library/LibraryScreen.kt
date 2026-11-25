@@ -1893,12 +1893,14 @@ private fun PlaylistDetailView(
     var pendingOrderAt by remember { mutableStateOf(0L) }
     // Briefly true after a drop or a Top / Bottom move, so the rows glide to their new places.
     var settling by remember { mutableStateOf(false) }
+    var landedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var settleTick by remember { mutableStateOf(0) }
     LaunchedEffect(settleTick) {
         if (settleTick == 0) return@LaunchedEffect
         settling = true
-        kotlinx.coroutines.delay(520)
+        kotlinx.coroutines.delay(420)
         settling = false
+        landedIds = emptySet()
     }
     // playlistListState preserved for scroll position retention
     val playlistListState = androidx.compose.runtime.saveable.rememberSaveable(
@@ -2053,7 +2055,7 @@ private fun PlaylistDetailView(
             trainCars.clear()
             return@LaunchedEffect
         }
-        val gap = density.run { 10.dp.toPx() }
+        val gap = density.run { 6.dp.toPx() }
         var last = 0L
         var lastLeaderY = currentPointerY - grabOffsetY
         var leaderVelocity = 0f
@@ -2067,7 +2069,7 @@ private fun PlaylistDetailView(
             val instant = (leaderY - lastLeaderY) / dt
             lastLeaderY = leaderY
             leaderVelocity += (instant - leaderVelocity) * (dt * 14f).coerceAtMost(1f)
-            leaderTilt = PlaylistTrainPhysics.tilt(leaderVelocity, maxDegrees = 2.5f)
+            leaderTilt = PlaylistTrainPhysics.tilt(leaderVelocity, maxDegrees = 1.2f)
             var aheadY = leaderY
             trainCars.forEachIndexed { i, car ->
                 PlaylistTrainPhysics.step(car, target = aheadY + gap, carIndex = i, dt = dt)
@@ -2636,6 +2638,7 @@ private fun PlaylistDetailView(
                         isItemBeingDragged = isItemBeingDragged,
                         isDragging = isDragging,
                         isSettling = settling,
+                        isLanding = item.instanceId in landedIds,
                         isSelected = item.instanceId in selectedIds,
                         isSelecting = selectedIds.isNotEmpty(),
                         onToggleSelect = {
@@ -2684,7 +2687,7 @@ private fun PlaylistDetailView(
                                         val onScreen = playlistListState.layoutInfo.visibleItemsInfo
                                             .firstOrNull { it.key == carried.instanceId }?.offset?.toFloat()
                                         val startY = onScreen
-                                            ?: if (at < index) leaderY - viewport * 0.6f else leaderY + viewport * 0.6f
+                                            ?: if (at < index) leaderY - viewport * 0.3f else leaderY + viewport * 0.3f
                                         trainCars.add(PlaylistTrainCar(carried, startY))
                                     }
                                     val lifted = (before + after).map { it.instanceId }.toSet()
@@ -2709,9 +2712,26 @@ private fun PlaylistDetailView(
                             val after = groupAfter
                             val anchor = localItems.getOrNull(finalIndex)
                             if (anchor != null && (before.isNotEmpty() || after.isNotEmpty())) {
+                                // Where the dragged song sits now, so it stays put once the songs
+                                // that rode with it go back above it (otherwise it slid down a
+                                // second time after landing).
+                                val anchorInfo = playlistListState.layoutInfo.visibleItemsInfo
+                                    .firstOrNull { it.key == anchor.instanceId }
                                 val regrouped = PlaylistGroupMove.insertAroundAnchor(localItems.toList(), anchor, before, after)
+                                landedIds = (before + after).mapTo(HashSet()) { it.instanceId }
                                 localItems.clear()
                                 localItems.addAll(regrouped)
+                                if (anchorInfo != null && before.isNotEmpty() && anchorInfo.size > 0) {
+                                    val firstSongLazyIndex = anchorInfo.index - finalIndex
+                                    PlaylistGroupMove.scrollToKeepAnchor(
+                                        anchorLazyIndex = anchorInfo.index + before.size,
+                                        anchorTop = anchorInfo.offset,
+                                        rowHeight = anchorInfo.size,
+                                        firstSongLazyIndex = firstSongLazyIndex
+                                    )?.let { (item, offset) ->
+                                        playlistListState.requestScrollToItem(item, offset)
+                                    }
+                                }
                             }
                             groupBefore = emptyList()
                             groupAfter = emptyList()
@@ -2863,14 +2883,24 @@ private fun PlaylistDetailView(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(str(R.string.playlist_move_to_bottom), color = LIME_TEXT)
                     }
-                    IconButton(onClick = { selectedIds.clear() }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = str(R.string.playlist_clear_selection),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    // Done finishes arranging: clears the ticks and locks the order again, so the
+                    // circles go away without having to press back.
+                    Text(
+                        text = str(R.string.done),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .padding(start = 4.dp, end = 4.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(LIME_TEXT)
+                            .clickable {
+                                selectedIds.clear()
+                                orderUnlocked = false
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
                 }
             }
         }
@@ -3741,6 +3771,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     isItemBeingDragged: Boolean,
     isDragging: Boolean,
     isSettling: Boolean,
+    isLanding: Boolean,
     isSelected: Boolean,
     isSelecting: Boolean,
     onToggleSelect: () -> Unit,
@@ -3788,11 +3819,17 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                         placementSpec = tween(durationMillis = 100, easing = LinearOutSlowInEasing),
                         fadeOutSpec = null
                     )
-                    // After a group drop or Top / Bottom: rows glide to their new places with a
-                    // slight overshoot, and the songs that rode along fade back in where they land.
+                    // The songs that rode the train appear straight in their new places (no
+                    // second slide from where they used to be).
+                    isSettling && isLanding -> Modifier.animateItem(
+                        fadeInSpec = tween(180),
+                        placementSpec = null,
+                        fadeOutSpec = null
+                    )
+                    // Everything else makes room with one short glide, no bounce.
                     isSettling -> Modifier.animateItem(
-                        fadeInSpec = tween(260, delayMillis = 60),
-                        placementSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                        fadeInSpec = tween(180),
+                        placementSpec = tween(240, easing = FastOutSlowInEasing),
                         fadeOutSpec = null
                     )
                     else -> Modifier

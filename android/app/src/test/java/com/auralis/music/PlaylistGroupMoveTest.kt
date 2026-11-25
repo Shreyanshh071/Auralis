@@ -85,6 +85,19 @@ class PlaylistGroupMoveTest {
     }
 
     @Test
+    fun droppedSongStaysWhereItWasLetGo() {
+        // Rows are 100px; the dragged song (lazy index 12) sits 250px from the top, and two songs
+        // go back above it, so it becomes index 14. Top row: index 11, scrolled 50px.
+        assertEquals(11 to 50, PlaylistGroupMove.scrollToKeepAnchor(14, 250, 100, firstSongLazyIndex = 2))
+        // Exactly on a row edge.
+        assertEquals(12 to 0, PlaylistGroupMove.scrollToKeepAnchor(14, 200, 100, firstSongLazyIndex = 2))
+        // Partly above the top edge.
+        assertEquals(14 to 30, PlaylistGroupMove.scrollToKeepAnchor(14, -30, 100, firstSongLazyIndex = 2))
+        // Would reach into the header: leave the scroll alone.
+        assertNull(PlaylistGroupMove.scrollToKeepAnchor(4, 450, 100, firstSongLazyIndex = 2))
+    }
+
+    @Test
     fun trainCarsCatchUpAndSettle() {
         val car = com.auralis.music.ui.library.PlaylistTrainCar(
             com.auralis.music.ui.library.PlaylistTrackItem("a_0", Track(id = "a", title = "Alpha", artist = "x")),
