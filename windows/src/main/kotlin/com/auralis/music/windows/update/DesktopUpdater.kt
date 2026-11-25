@@ -83,7 +83,9 @@ internal object DesktopUpdater {
             delay(STARTUP_DELAY_MS)
             var lastCheck = 0L
             while (isActive) {
-                if (System.currentTimeMillis() - lastCheck >= CHECK_INTERVAL_MS) {
+                // Settings → Updates → "Automatically check for updates".
+                if (com.auralis.music.windows.settings.UpdatePreferences.autoCheck &&
+                    System.currentTimeMillis() - lastCheck >= CHECK_INTERVAL_MS) {
                     lastCheck = System.currentTimeMillis()
                     check(manual = false)
                 }

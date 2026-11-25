@@ -50,7 +50,11 @@ internal fun DesktopUpdatePrompt(modifier: Modifier = Modifier) {
     val ready = state as? DesktopUpdater.State.Ready
     val available = state as? DesktopUpdater.State.Available
     val failedReport = report?.takeIf { !it.succeeded }
-    val visible = !hidden && (report != null || ready != null || available != null)
+    // Settings → Updates → "Enable update notifications".
+    val revision by com.auralis.music.windows.settings.DesktopPreferences.store.changes.collectAsState()
+    val prompts = remember(revision) { com.auralis.music.windows.settings.UpdatePreferences.prompts }
+    // A failed update is always reported; only the "ready"/"available"/"updated" cards follow the switch.
+    val visible = !hidden && (failedReport != null || (prompts && (report != null || ready != null || available != null)))
     AnimatedVisibility(visible, modifier, enter = fadeIn() + slideInVertically { it / 3 }, exit = fadeOut() + slideOutVertically { it / 3 }) {
         Surface(shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .97f),

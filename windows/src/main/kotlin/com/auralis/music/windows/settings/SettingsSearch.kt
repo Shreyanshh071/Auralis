@@ -162,18 +162,20 @@ internal val settingEntries: List<SettingEntry> = buildList {
         group("Caches") { other("Clear caches", "Artwork and lyrics; downloads and accounts are kept", "storage space") }
     }
     tab(SettingsTab.UPDATES) {
-        group("Updates") {
-            other("Check for updates", keywords = "version upgrade")
+        group("Current version") { other("Check for updates", keywords = "version upgrade") }
+        group("Update settings") {
+            row("Automatically check for updates", "Once a day while Auralis is open", "auto daily")
+            row("Enable update notifications", "A card in the corner when an update is ready", "prompt popup")
         }
-        group("Release notes") { other("Release notes", keywords = "patch notes changelog") }
+        group("Changelog") { other("Changelog", keywords = "release patch notes what's new") }
     }
     tab(SettingsTab.ABOUT) {
-        group("Support & diagnostics") {
-            other("Source code and licenses")
-            other("Report a problem", keywords = "bug issue")
-            other("Copy diagnostics", keywords = "logs")
-            other("Save diagnostics", keywords = "logs export")
+        group("Lead Developer") {
+            other("Copy diagnostic report", keywords = "logs diagnostics support")
+            other("Buy Me a Chai", keywords = "donate support")
         }
+        group("Contributors") { other("Contributors", keywords = "credits team github") }
+        group("Credits") { other("Animation inspired by Spicy Lyrics", keywords = "credits licenses") }
     }
     tab(SettingsTab.CONTENT) {
         group("Content country & language") {

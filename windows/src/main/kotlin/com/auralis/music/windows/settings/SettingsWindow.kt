@@ -272,7 +272,7 @@ internal fun SettingsWindowContent(stores: SettingsStores, history: HistoryRepos
                         SettingsTab.HOTKEYS -> HotkeysPane()
                         SettingsTab.DATA -> DataPane(stores)
                         SettingsTab.UPDATES -> UpdatesPane()
-                        SettingsTab.ABOUT -> AboutPane()
+                        SettingsTab.ABOUT -> AboutPane(onCheckForUpdates = { selected = SettingsTab.UPDATES; jump = null })
                         SettingsTab.CONTENT -> ContentSettingsPane(stores.content)
                         SettingsTab.PRIVACY -> PrivacySettingsPane(stores.privacy, history, search)
                         else -> Unit
@@ -540,81 +540,5 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             desktopText("Artwork and lyrics: %1\$s", com.auralis.music.util.formatBytes(bytes!!)))
         Button({scope.launch {withContext(Dispatchers.IO) {DesktopCaches.clearImages();DesktopCaches.clearLyrics();com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache()};refresh++;message="Caches cleared. Downloads and accounts are preserved."}}) {Text(desktopText("Clear caches"))}
         Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable private fun UpdatesPane() {
-    val scope = rememberCoroutineScope()
-    val version = DesktopReleaseCheck.version
-    val update by DesktopUpdater.state.collectAsState()
-    val latest by DesktopUpdater.latestRelease.collectAsState()
-    val restarting by DesktopUpdater.restarting.collectAsState()
-    var message by remember { mutableStateOf("") }
-    val bundledNotes = remember(version) {
-        DesktopReleaseCheck::class.java.getResourceAsStream("/desktop-release-notes-$version.txt")
-            ?.bufferedReader()?.use { it.readText().trim() }.orEmpty()
-    }
-
-    SettingsGroup("Updates") {
-        Text("${desktopText("Current version")} · $version")
-        val checking = update is DesktopUpdater.State.Checking
-        val download = update as? DesktopUpdater.State.Downloading
-        Button(onClick = {
-            message = ""
-            scope.launch { DesktopUpdater.check(manual = true) }
-        }, enabled = !checking && download == null && !restarting) {
-            Text(desktopText(if (checking) "Checking…" else "Check for updates"))
-        }
-        val status = updateStatusText(update)
-        if (status.isNotEmpty()) Text(status)
-        if (download != null) {
-            LinearProgressIndicator(
-                { if (download.total > 0) download.bytes.toFloat() / download.total else 0f },
-                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            )
-        }
-        if (update is DesktopUpdater.State.Ready) {
-            Button({ scope.launch { message = DesktopUpdater.restartToUpdate().orEmpty() } }, enabled = !restarting) {
-                Text(desktopText(if (restarting) "Restarting…" else "Restart to update"))
-            }
-        }
-        if (message.isNotEmpty()) Text(message)
-    }
-    SettingsGroup("Release notes") {
-        val release = latest
-        val notesVersion = release?.displayVersion ?: version
-        val publishedNotes = remember(release) { DesktopReleases.plainNotes(release?.notes.orEmpty()) }
-        val notes = publishedNotes.ifBlank { bundledNotes.takeIf { notesVersion == version }.orEmpty() }
-        Text("Auralis · $notesVersion", fontWeight = FontWeight.SemiBold)
-        Text(notes.ifBlank { desktopText("No release notes for this version.") })
-        if (release != null) {
-            TextButton({ java.awt.Desktop.getDesktop().browse(java.net.URI(release.pageUrl)) }) {
-                Text(desktopText("View release and installers"))
-            }
-        }
-    }
-}
-
-@Composable private fun AboutPane() {
-    val scope = rememberCoroutineScope()
-    var message by remember { mutableStateOf("") }
-    Text("Auralis · ${DesktopReleaseCheck.version}",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
-    Text(desktopText(if (isMac) "Auralis for macOS · Compose Multiplatform · VLC" else "Auralis for Windows · Compose Multiplatform · VLC"))
-    SettingsGroup("Credits") {
-        TextButton({ java.awt.Desktop.getDesktop().browse(java.net.URI("https://github.com/Spikerko/spicy-lyrics")) }) {
-            Text(desktopText("Animation inspired by Spicy Lyrics"))
-        }
-        Text(desktopText("Lyrics providers and community contributors are credited alongside the lyrics they supply."),
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    SettingsGroup("Support & diagnostics") {
-        TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY))}) {Text(desktopText("Source code and licenses"))}
-        TextButton({java.awt.Desktop.getDesktop().browse(java.net.URI(DesktopReleaseCheck.REPOSITORY+"/issues/new"))}) {Text(desktopText("Report a problem"))}
-        val clipboard=androidx.compose.ui.platform.LocalClipboardManager.current
-        TextButton({clipboard.setText(androidx.compose.ui.text.AnnotatedString(DesktopReleaseCheck.diagnostics()));message="Diagnostics copied. No tokens, cookies or account identifiers are included."}) {Text(desktopText("Copy diagnostics"))}
-        TextButton({scope.launch {runCatching {
-            com.auralis.music.ui.components.WindowsFilePicker.choose("Save diagnostics", save = true, filterName = "Text files", pattern = "*.txt", defaultName = "auralis-diagnostics.txt", defaultExtension = "txt")?.let { it.writeText(DesktopReleaseCheck.diagnostics());message="Diagnostics saved."}
-        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Save diagnostics"))}
-        if (message.isNotEmpty()) Text(desktopText(message))
     }
 }
