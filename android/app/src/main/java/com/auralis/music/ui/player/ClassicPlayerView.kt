@@ -387,6 +387,17 @@ fun ClassicPlayerView(
         ) {
             if (!hidePlayerThumbnail) {
                 val artworkShape = remember { RoundedCornerShape(24.dp) }
+                // With a Canvas the cover is hidden in the player, so it never travels visibly:
+                // it appears (coming into focus) only once it has settled in the Lyrics / Queue
+                // header, and is gone the moment it starts back toward the player.
+                val headerSettled by remember(compactHeaderProgress) {
+                    derivedStateOf { compactHeaderProgress.value >= 0.999f }
+                }
+                val headerCoverReveal by animateFloatAsState(
+                    if (headerSettled) 1f else 0f,
+                    if (headerSettled) tween(260, easing = FastOutSlowInEasing) else snap(),
+                    label = "canvasHeaderCover"
+                )
                 val coverAtRest by remember(compactHeaderProgress) {
                     derivedStateOf { compactHeaderProgress.value <= 0.001f }
                 }
@@ -443,7 +454,7 @@ fun ClassicPlayerView(
                                             )
                                         }
                                     }
-                                    .hiddenWhileCanvasBackdrop(pageTrack.id) { compactHeaderProgress.value }
+                                    .hiddenWhileCanvasBackdrop(pageTrack.id) { headerCoverReveal }
                                     .graphicsLayer {
                                         shape = artworkShape
                                         shadowElevation = if (coverAtRest) 14.dp.toPx() else 0f
@@ -485,7 +496,7 @@ fun ClassicPlayerView(
                 } else {
                     Box(
                         modifier = Modifier
-                            .hiddenWhileCanvasBackdrop(displayedTrack.id) { compactHeaderProgress.value }
+                            .hiddenWhileCanvasBackdrop(displayedTrack.id) { headerCoverReveal }
                             .fillMaxWidth()
                             .aspectRatio(1f)
                             .shadow(

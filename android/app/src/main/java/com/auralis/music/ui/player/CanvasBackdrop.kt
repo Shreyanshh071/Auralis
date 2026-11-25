@@ -157,8 +157,8 @@ private val CanvasEnterEasing = androidx.compose.animation.core.CubicBezierEasin
  * into focus behind it, both on one eased curve. Coming back (Canvas gone) is a quick plain fade.
  *
  * [reveal] (0..1, read while drawing) brings the cover back regardless of the Canvas: the Classic
- * player passes how far the cover has shrunk into the Lyrics / Queue header, so the cover fades in
- * as it travels up there and fades back into the Canvas as it grows back into the player.
+ * player raises it once the cover has settled in the Lyrics / Queue header (never while it is
+ * travelling) and drops it the moment the cover heads back to the player.
  */
 @Composable
 internal fun Modifier.hiddenWhileCanvasBackdrop(trackId: String?, reveal: (() -> Float)? = null): Modifier {
