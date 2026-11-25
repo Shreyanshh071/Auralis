@@ -85,6 +85,20 @@ class PlaylistGroupMoveTest {
     }
 
     @Test
+    fun theSavesOldOrderEchoIsIgnoredEvenAfterTheNewOrderArrived() {
+        val saved = listOf("b", "c", "a")
+        val old = listOf("a", "b", "c")
+        // New order first (from memory), then the database's in-between old order, then the new.
+        assertEquals(PlaylistGroupMove.Reload.ACCEPT, PlaylistGroupMove.judgeReload(saved, saved, 10))
+        assertEquals(PlaylistGroupMove.Reload.IGNORE, PlaylistGroupMove.judgeReload(old, saved, 120))
+        assertEquals(PlaylistGroupMove.Reload.ACCEPT, PlaylistGroupMove.judgeReload(saved, saved, 140))
+        // A song added or removed is a real change.
+        assertEquals(PlaylistGroupMove.Reload.ACCEPT_AND_FORGET, PlaylistGroupMove.judgeReload(listOf("a", "b"), saved, 200))
+        // Long after the save, any order counts.
+        assertEquals(PlaylistGroupMove.Reload.ACCEPT_AND_FORGET, PlaylistGroupMove.judgeReload(old, saved, 5_000))
+    }
+
+    @Test
     fun droppedSongStaysWhereItWasLetGo() {
         // Rows are 100px; the dragged song (lazy index 12) sits 250px from the top, and two songs
         // go back above it, so it becomes index 14. Top row: index 11, scrolled 50px.

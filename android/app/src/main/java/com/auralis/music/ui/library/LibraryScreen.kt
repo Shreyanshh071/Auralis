@@ -1929,13 +1929,12 @@ private fun PlaylistDetailView(
             val incoming = validPlaylistTracks.map { it.id }
             val pending = pendingOrder
             if (pending != null) {
-                if (incoming == pending || System.currentTimeMillis() - pendingOrderAt > 4_000L) {
-                    pendingOrder = null
-                } else if (incoming.size == pending.size && incoming.sorted() == pending.sorted()) {
-                    // The in-between old order of the save: keep showing the new one.
-                    return@LaunchedEffect
-                } else {
-                    pendingOrder = null
+                when (PlaylistGroupMove.judgeReload(incoming, pending, System.currentTimeMillis() - pendingOrderAt)) {
+                    // The in-between old order of the save (it can arrive after the new order
+                    // already did): keep showing the new one.
+                    PlaylistGroupMove.Reload.IGNORE -> return@LaunchedEffect
+                    PlaylistGroupMove.Reload.ACCEPT -> Unit
+                    PlaylistGroupMove.Reload.ACCEPT_AND_FORGET -> pendingOrder = null
                 }
             }
             val tracksDiffer = localItems.size != validPlaylistTracks.size ||

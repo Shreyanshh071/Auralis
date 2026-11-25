@@ -95,6 +95,24 @@ internal object PlaylistGroupMove {
         return topIndex to rowsAbove * rowHeight - anchorTop
     }
 
+    enum class Reload { IGNORE, ACCEPT, ACCEPT_AND_FORGET }
+
+    /** How long after a save other orders of the same songs are taken as the save's echoes. */
+    const val SAVE_ECHO_WINDOW_MS = 3_000L
+
+    /**
+     * What to do with a playlist reload while an order this screen saved [ageMs] ago is
+     * [pending]. Saving writes the songs, then their order, so the database reports the old order
+     * in between, before or after the new one. Within the window, the same songs in another order
+     * are that echo and are ignored; the saved order itself is accepted (and keeps the guard on).
+     * A changed set of songs, or the window running out, ends the guard.
+     */
+    fun judgeReload(incoming: List<String>, pending: List<String>, ageMs: Long): Reload {
+        if (ageMs > SAVE_ECHO_WINDOW_MS) return Reload.ACCEPT_AND_FORGET
+        if (incoming.size != pending.size || incoming.sorted() != pending.sorted()) return Reload.ACCEPT_AND_FORGET
+        return if (incoming == pending) Reload.ACCEPT else Reload.IGNORE
+    }
+
     /** The same filter the playlist screen uses to decide which rows it shows. */
     fun isShownInPlaylist(track: Track): Boolean =
         !track.title.startsWith("Track ") && track.title.isNotBlank()
