@@ -471,16 +471,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
             if(next.isNotEmpty()) prefs.set("streamClients",next.joinToString(","))
         })
     }
-    SettingsGroup("Lyrics source order") {
-        val available=com.auralis.music.data.network.LyricsClient.PICK_ORDER.filter {it !in setOf(LyricsProvider.LOCAL,LyricsProvider.YOUTUBE_CAPTIONS)}
-        val chosen=prefs.text("lyricsPriority").split(',').mapNotNull {name->runCatching {LyricsProvider.valueOf(name)}.getOrNull()}
-        SettingToggle("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.",chosen.isNotEmpty()) {prefs.set("lyricsPriority",if(it) available.joinToString(",") {p->p.name} else "")}
-        if(chosen.isNotEmpty()) chosen.forEachIndexed {index,provider->Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-            Text(provider.name.replace('_',' '),Modifier.weight(1f))
-            fun move(step:Int) {val next=chosen.toMutableList();val to=index+step;if(to in next.indices) {java.util.Collections.swap(next,index,to);prefs.set("lyricsPriority",next.joinToString(",") {it.name})}}
-            TextButton({move(-1)},enabled=index>0) {Text("↑")};TextButton({move(1)},enabled=index<chosen.lastIndex) {Text("↓")}
-        }}
-    }
     ContentSettingsPane(stores.content)
 }
 

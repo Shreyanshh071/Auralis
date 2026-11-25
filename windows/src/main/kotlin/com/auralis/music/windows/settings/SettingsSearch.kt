@@ -125,9 +125,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("VISIONOS", keywords = "stream client extractor")
             row("IOS", keywords = "stream client extractor")
         }
-        group("Lyrics source order") {
-            row("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.", "providers")
-        }
     }
     tab(SettingsTab.HOTKEYS) {
         group("Global hotkeys") {
@@ -185,7 +182,7 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Show artist description", "Displays Wikipedia and bio descriptions on artist pages")
         }
         group("Lyrics providers") {
-            other("Lyrics providers", "Active providers are queried in priority order for synchronous and word-timed lyrics.", "sources")
+            other("Lyrics providers", "Auralis asks providers from the top down. Drag a provider to change the order.", "sources priority order reorder")
         }
         group("Lyrics romanization") {
             row("Romanize lyrics", "Show pronunciation below supported lyrics", "romanisation pronunciation latin")

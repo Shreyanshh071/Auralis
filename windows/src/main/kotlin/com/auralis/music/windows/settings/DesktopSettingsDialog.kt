@@ -239,21 +239,7 @@ internal fun ContentSettingsPane(store: ContentSettingsDataStore) {
         )
     }
 
-    SettingsGroup("Lyrics providers") {
-        Text(desktopText("Active providers are queried in priority order for synchronous and word-timed lyrics."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LyricsProviderId.entries.forEach { provider ->
-            val enabled = provider !in settings.disabledLyricsProviders
-            SettingToggle(
-                title = provider.displayName,
-                description = provider.description,
-                checked = enabled,
-                onChecked = { isChecked ->
-                    val updated = if (isChecked) settings.disabledLyricsProviders - provider else settings.disabledLyricsProviders + provider
-                    update { copy(disabledLyricsProviders = updated) }
-                }
-            )
-        }
-    }
+    LyricsProviderOrder()
 
     SettingsGroup("Lyrics romanization") {
         SettingToggle("Romanize lyrics", "Show pronunciation below supported lyrics", settings.romanizationEnabled) {

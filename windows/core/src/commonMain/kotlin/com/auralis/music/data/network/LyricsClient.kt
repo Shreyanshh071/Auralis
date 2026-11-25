@@ -211,15 +211,15 @@ class LyricsClient(
             return qVersion == null || cVersion == null || !qVersion.equals(cVersion, ignoreCase = true)
         }
 
-        /** Settings → Content → Lyrics → provider switches. */
-        fun isProviderEnabled(provider: LyricsProvider): Boolean {
-            if (provider == LyricsProvider.SPICY_LYRICS && !SpicyLyricsSource.isNativeKey(
-                    SpicyLyricsSource.effectiveKey())) return false
-            val id = settingsId(provider) ?: return true
-            return id !in com.auralis.music.data.network.ContentSettingsSource.current().disabledLyricsProviders
-        }
+        /**
+         * Every provider is on: Settings only ranks them (Lyrics providers, drag to reorder). A provider
+         * switched off by the old per-provider switches no longer stays off invisibly.
+         */
+        fun isProviderEnabled(provider: LyricsProvider): Boolean =
+            provider != LyricsProvider.SPICY_LYRICS || SpicyLyricsSource.isNativeKey(SpicyLyricsSource.effectiveKey())
 
-        private fun settingsId(provider: LyricsProvider): com.auralis.music.domain.model.LyricsProviderId? =
+        /** The settings entry (name and description) for [provider]. */
+        fun settingsId(provider: LyricsProvider): com.auralis.music.domain.model.LyricsProviderId? =
             when (provider) {
                 LyricsProvider.SPICY_LYRICS -> com.auralis.music.domain.model.LyricsProviderId.SPICY_LYRICS
                 LyricsProvider.AMLL -> com.auralis.music.domain.model.LyricsProviderId.AMLL
