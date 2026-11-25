@@ -238,21 +238,11 @@ internal fun ImmersiveScreen(
                     AnimatedContent(
                         targetState = shown,
                         transitionSpec = {
-                            if (targetState == ImmersiveView.LYRICS) {
-                                (fadeIn(animationSpec = tween(320, easing = FastOutSlowInEasing)) +
-                                    slideInHorizontally(animationSpec = tween(320, easing = FastOutSlowInEasing)) { it / 8 })
-                                    .togetherWith(
-                                        fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                                            slideOutHorizontally(animationSpec = tween(220, easing = FastOutSlowInEasing)) { -it / 8 }
-                                    )
-                            } else {
-                                (fadeIn(animationSpec = tween(320, easing = FastOutSlowInEasing)) +
-                                    slideInHorizontally(animationSpec = tween(320, easing = FastOutSlowInEasing)) { -it / 8 })
-                                    .togetherWith(
-                                        fadeOut(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                                            slideOutHorizontally(animationSpec = tween(220, easing = FastOutSlowInEasing)) { it / 8 }
-                                    )
-                            }
+                            // One sideways move, like the bead in the switch: Lyrics sits to the right of Clock.
+                            val toRight = targetState == ImmersiveView.LYRICS
+                            val slide = tween<IntOffset>(420, easing = FastOutSlowInEasing)
+                            (slideInHorizontally(slide) { if (toRight) it else -it } + fadeIn(tween(260, delayMillis = 60)))
+                                .togetherWith(slideOutHorizontally(slide) { if (toRight) -it else it } + fadeOut(tween(200)))
                         },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         label = "ImmersiveViewSwitch"
@@ -269,34 +259,8 @@ internal fun ImmersiveScreen(
                             track, view, onView, playback, displays, shownDisplays, thisDisplay, onToggleDisplay, onLeave,
                             Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
                                 .hoverable(dockInteraction),
-                            dockTrack = track?.takeIf { shown == ImmersiveView.CLOCK },
                             artwork = highRes
                         )
-                    }
-                }
-                AnimatedVisibility(
-                    visible = shown == ImmersiveView.LYRICS && track != null,
-                    enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
-                        slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it / 3 },
-                    exit = fadeOut(tween(200, easing = FastOutSlowInEasing)) +
-                        slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 3 },
-                    modifier = Modifier.align(Alignment.BottomStart)
-                ) {
-                    if (track != null) {
-                        Row(
-                            Modifier.padding(start = 24.dp, bottom = 16.dp)
-                                .fillMaxWidth(.28f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            DesktopArtwork(highRes, Modifier.size(52.dp), 8.dp, track.title)
-                            Column(Modifier.weight(1f)) {
-                                Text(track.title, fontSize = 16.sp, fontWeight = FontWeight.Bold,
-                                    color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(track.artist, fontSize = 11.sp, color = Color.White.copy(alpha = .75f),
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
                     }
                 }
             }
@@ -746,11 +710,14 @@ private fun LyricsView(playback: DesktopPlaybackController, lyrics: DesktopLyric
     }
 }
 
-/** The dock is one glass box: the now-playing card on top, the view switch and close along the bottom. */
-private val DockBoxWidth = 540.dp
-private val DockRadius = 28.dp
-private val DockInset = 12.dp
-private val DockRowHeight = 40.dp
+/**
+ * The dock is one slim glass row, identical on both views so switching never moves it:
+ * cover, song and timeline, transport, then the Clock/Lyrics switch and close.
+ */
+private val DockMaxWidth = 820.dp
+private val DockRadius = 26.dp
+private val DockInset = 10.dp
+private val DockControlHeight = 36.dp
 
 /**
  * The phone's liquid glass, as its floating dock draws it (Android `liquidGlass` with `glassBarTint`):
@@ -766,88 +733,59 @@ private val PhoneIndicatorEdge = Color.White.copy(alpha = .10f)
 private fun ImmersiveControls(
     track: Track?, view: ImmersiveView, onView: (ImmersiveView) -> Unit, playback: DesktopPlaybackController,
     displays: List<ImmersiveDisplay>, shownDisplays: List<ImmersiveDisplay>, thisDisplay: ImmersiveDisplay,
-    onToggleDisplay: (Int) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier,
-    dockTrack: Track? = null, artwork: String? = null
+    onToggleDisplay: (Int) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier, artwork: String? = null
 ) {
-    // Keep the last song on the card while it animates away.
-    var heldTrack by remember { mutableStateOf(dockTrack) }
-    LaunchedEffect(dockTrack) { if (dockTrack != null) heldTrack = dockTrack }
-    val cardTrack = dockTrack ?: heldTrack
     LiquidPopupSurface(
-        modifier.width(DockBoxWidth), tint = PhoneGlassTint, cornerRadius = DockRadius,
+        modifier.widthIn(max = DockMaxWidth).fillMaxWidth(), tint = PhoneGlassTint, cornerRadius = DockRadius,
         blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f, lensBand = .3f, chromaticAberration = 0f,
         shadowElevation = 12.dp
     ) {
-        Column(
-            Modifier
-                .animateContentSize(tween(280, easing = FastOutSlowInEasing))
-                .padding(DockInset)
+        Row(
+            Modifier.fillMaxWidth().padding(start = DockInset, top = DockInset, bottom = DockInset, end = DockInset + 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AnimatedVisibility(
-                visible = dockTrack != null,
-                enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) + fadeIn(tween(220)),
-                exit = shrinkVertically(tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(160))
-            ) {
-                if (cardTrack != null) {
-                    Column {
-                        DockNowPlaying(cardTrack, artwork, playback)
-                        Spacer(Modifier.height(12.dp))
-                    }
+            if (track != null) {
+                // The box's corner minus its inset keeps the cover's corner concentric with the glass.
+                DesktopArtwork(artwork, Modifier.size(60.dp), DockRadius - DockInset, track.title, highRes = true)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(track.title, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(track.artist, fontSize = 12.sp, lineHeight = 15.sp, color = Color.White.copy(alpha = .7f),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(4.dp))
+                    ImmersiveProgress(playback, track, Modifier.fillMaxWidth())
                 }
-            }
-            Row(
-                Modifier.fillMaxWidth().height(DockRowHeight),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ImmersiveViewSwitch(view, onView)
+                Spacer(Modifier.width(12.dp))
+                TransportControls(playback, emphasized = false)
+                Spacer(Modifier.width(12.dp))
+                Box(Modifier.width(1.dp).height(28.dp).background(Color.White.copy(alpha = .14f)))
+                Spacer(Modifier.width(12.dp))
+            } else {
                 Spacer(Modifier.weight(1f))
-                AnimatedVisibility(visible = track != null && dockTrack == null) {
-                    TransportControls(playback, emphasized = false, Modifier.padding(end = 6.dp))
-                }
-                if (displays.size > 1) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        displays.forEachIndexed { index, display ->
-                            DockCircleButton(
-                                onClick = { onToggleDisplay(index) },
-                                selected = display in shownDisplays,
-                                size = DockRowHeight
-                            ) { alpha ->
-                                Text("${index + 1}", fontSize = 12.sp, color = Color.White.copy(alpha = alpha),
-                                    fontWeight = if (display == thisDisplay) FontWeight.Bold else FontWeight.Normal)
-                            }
+            }
+            ImmersiveViewSwitch(view, onView)
+            if (displays.size > 1) {
+                Spacer(Modifier.width(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    displays.forEachIndexed { index, display ->
+                        DockCircleButton(
+                            onClick = { onToggleDisplay(index) },
+                            selected = display in shownDisplays,
+                            size = DockControlHeight
+                        ) { alpha ->
+                            Text("${index + 1}", fontSize = 12.sp, color = Color.White.copy(alpha = alpha),
+                                fontWeight = if (display == thisDisplay) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
-                    Spacer(Modifier.width(4.dp))
-                }
-                DockCircleButton(onClick = onLeave, selected = false, size = DockRowHeight, description = desktopText("Close")) { alpha ->
-                    Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(18.dp),
-                        tint = Color.White.copy(alpha = alpha))
                 }
             }
-        }
-    }
-}
-
-/** Cover on the left spanning both rows; title and controls on top, the timeline under them. */
-@Composable
-private fun DockNowPlaying(track: Track, artwork: String?, playback: DesktopPlaybackController) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        // The box's corner minus its inset keeps the cover's corner concentric with the glass.
-        DesktopArtwork(artwork, Modifier.size(80.dp), DockRadius - DockInset, track.title, highRes = true)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f).padding(end = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(track.title, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, fontSize = 13.sp, lineHeight = 17.sp, color = Color.White.copy(alpha = .7f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Spacer(Modifier.width(10.dp))
-                TransportControls(playback, emphasized = true)
+            Spacer(Modifier.width(6.dp))
+            DockCircleButton(onClick = onLeave, selected = false, size = DockControlHeight, description = desktopText("Close")) { alpha ->
+                Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(18.dp),
+                    tint = Color.White.copy(alpha = alpha))
             }
-            Spacer(Modifier.height(10.dp))
-            ImmersiveProgress(playback, track, Modifier.fillMaxWidth())
+            if (track == null) Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -855,18 +793,18 @@ private fun DockNowPlaying(track: Track, artwork: String?, playback: DesktopPlay
 /** Clock / Lyrics like the phone dock's tabs: the selected one sits on a bead that glides between them. */
 @Composable
 private fun ImmersiveViewSwitch(selected: ImmersiveView, onSelect: (ImmersiveView) -> Unit) {
-    val segment = 112.dp
+    val segment = 92.dp
     val index by animateFloatAsState(
         ImmersiveView.entries.indexOf(selected).toFloat(),
         spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "view_switch_bead"
     )
-    Box(Modifier.width(segment * ImmersiveView.entries.size).height(DockRowHeight).selectableGroup()) {
+    Box(Modifier.width(segment * ImmersiveView.entries.size).height(DockControlHeight).selectableGroup()) {
         Box(
             Modifier
                 .offset { IntOffset((index * segment.toPx()).roundToInt(), 0) }
                 .width(segment)
-                .height(DockRowHeight)
+                .height(DockControlHeight)
                 .drawBehind {
                     val stroke = 1.dp.toPx()
                     drawRoundRect(PhoneIndicatorTint, cornerRadius = CornerRadius(size.height / 2f))
@@ -896,11 +834,11 @@ private fun ImmersiveViewSwitch(selected: ImmersiveView, onSelect: (ImmersiveVie
                         .selectable(isSelected, interactionSource = interaction, indication = null, role = Role.Tab,
                             onClick = { onSelect(option) }),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
                 ) {
                     val icon = if (option == ImmersiveView.CLOCK) Icons.Rounded.Schedule else Icons.AutoMirrored.Rounded.Subject
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White.copy(alpha = alpha))
-                    Text(desktopText(option.label), fontSize = 13.sp, lineHeight = 15.sp, maxLines = 1,
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White.copy(alpha = alpha))
+                    Text(desktopText(option.label), fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                         color = Color.White.copy(alpha = alpha))
                 }
