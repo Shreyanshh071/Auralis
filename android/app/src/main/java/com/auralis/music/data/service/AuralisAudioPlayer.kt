@@ -1310,7 +1310,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                         radio = { song -> com.auralis.music.data.network.LocalizedContent.run {
                             radioClient.getRadioTracks(AudioStreamResolver.getMatchedVideoId(song.id) ?: song.id, song.artist, song.title)
                         } },
-                        artistSongs = { artist -> radioClient.search("$artist songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs })
+                        artistSongs = { artist -> radioClient.search("$artist songs", com.auralis.music.data.network.InnerTubeClient.FILTER_SONGS).songs },
+                        // Songs actually played through, newest first: keep the queue on their sound.
+                        anchors = queueManager.state.let { st ->
+                            st.listenedIndices.filter { it != st.currentIndex }.sortedDescending().mapNotNull { st.queue.getOrNull(it) }
+                        })
                 }
                 ensureActive()
                 if (!canExtendQueue() || queueGenerationId.get() != genId) return@launch

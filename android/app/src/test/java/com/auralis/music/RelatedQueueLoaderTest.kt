@@ -66,6 +66,32 @@ class RelatedQueueLoaderTest {
         assertFalse(batch.any { it.id == "seed" || it.id == "other-id" })
     }
 
+    @Test fun songsTheRecentlyPlayedRadiosAgreeOnLeadTheBatch() = runTest {
+        val anchor = song("anchor", "Thom Yorke")
+        val drift = song("drift", "Pop Star")
+        val match = song("match", "Portishead")
+        val shared = song("shared", "Massive Attack")
+        val result = RelatedQueueLoader.load(seed, listOf(anchor, seed), radio = {
+            if (it.id == seed.id) listOf(drift, match) else listOf(match, shared)
+        }, artistSongs = { emptyList() }, anchors = listOf(anchor))
+        // The anchor's radio backs "match" (moved ahead of the drifting pick) and adds "shared".
+        assertEquals(listOf("match", "drift", "shared"), result.map { it.id })
+    }
+
+    @Test fun aDifferentScriptSinksButStays() {
+        val hindiSeed = Track(id = "s", title = "तुम ही हो", artist = "Arijit Singh")
+        val korean = Track(id = "k", title = "봄날", artist = "BTS")
+        val hindi = Track(id = "h", title = "चन्ना मेरेया", artist = "Arijit Singh")
+        assertEquals(listOf("h", "k"), RelatedQueueLoader.rank(hindiSeed, listOf(korean, hindi), emptyList()).map { it.id })
+        assertEquals("devanagari", RelatedQueueLoader.dominantScript(hindiSeed.title))
+        assertEquals("latin", RelatedQueueLoader.dominantScript("Karma Police"))
+    }
+
+    @Test fun withoutAnchorsTheRadioOrderIsKept() {
+        val list = (0..5).map { song("r$it", "Artist $it") }
+        assertEquals(list, RelatedQueueLoader.rank(seed, list, emptyList()))
+    }
+
     @Test(expected = CancellationException::class)
     fun cancellationNeverBecomesAnUnrelatedFallback() = runTest {
         RelatedQueueLoader.load(seed, listOf(seed), { throw CancellationException() }, { error("Cancelled") })

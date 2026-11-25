@@ -932,7 +932,10 @@ class PlayerViewModel(
                     radio = { song -> com.auralis.music.data.network.LocalizedContent.run {
                         innerTubeClient.getRadioTracks(song.id, song.artist, song.title)
                     } },
-                    artistSongs = { artist -> innerTubeClient.search("$artist songs", InnerTubeClient.FILTER_SONGS).songs })
+                    artistSongs = { artist -> innerTubeClient.search("$artist songs", InnerTubeClient.FILTER_SONGS).songs },
+                    anchors = queueManager.state.let { st ->
+                        st.listenedIndices.filter { it != st.currentIndex }.sortedDescending().mapNotNull { st.queue.getOrNull(it) }
+                    })
             }
             if (!_playerSettings.value.autoLoadMore || requestId != currentPlaybackRequestId.get()) return@launch
             val qState = queueManager.appendTracks(batch)
@@ -1093,7 +1096,10 @@ class PlayerViewModel(
                         radio = { song -> com.auralis.music.data.network.LocalizedContent.run {
                             innerTubeClient.getRadioTracks(song.id, song.artist, song.title)
                         } },
-                        artistSongs = { artist -> innerTubeClient.search("$artist songs", InnerTubeClient.FILTER_SONGS).songs })
+                        artistSongs = { artist -> innerTubeClient.search("$artist songs", InnerTubeClient.FILTER_SONGS).songs },
+                        anchors = queueManager.state.let { st ->
+                            st.listenedIndices.filter { it != st.currentIndex }.sortedDescending().mapNotNull { st.queue.getOrNull(it) }
+                        })
                 }
                 if (!_playerSettings.value.autoLoadMore || reqId != currentPlaybackRequestId.get()) return@launch
                 queueManager.appendTracks(batch)
