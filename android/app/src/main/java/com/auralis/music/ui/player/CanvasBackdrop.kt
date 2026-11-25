@@ -155,16 +155,21 @@ private val CanvasEnterEasing = androidx.compose.animation.core.CubicBezierEasin
 /**
  * The cover dissolves into the Canvas: it grows a little, softens and fades while the video comes
  * into focus behind it, both on one eased curve. Coming back (Canvas gone) is a quick plain fade.
+ *
+ * [reveal] (0..1, read while drawing) brings the cover back regardless of the Canvas: the Classic
+ * player passes how far the cover has shrunk into the Lyrics / Queue header, so the cover fades in
+ * as it travels up there and fades back into the Canvas as it grows back into the player.
  */
 @Composable
-internal fun Modifier.hiddenWhileCanvasBackdrop(trackId: String?): Modifier {
+internal fun Modifier.hiddenWhileCanvasBackdrop(trackId: String?, reveal: (() -> Float)? = null): Modifier {
     val hidden = CanvasBackdrop.isShowing(trackId)
     val progress by animateFloatAsState(if (hidden) 1f else 0f,
         if (hidden) tween(CANVAS_ENTER_MS, easing = CanvasEnterEasing) else tween(320),
         label = "cover under canvas")
     return this.graphicsLayer {
         // Swiped or skipped off its page, the cover comes back as the Canvas fades out.
-        val progress = if (hidden) progress * (1f - CanvasBackdrop.away()) else progress
+        val shown = 1f - (reveal?.invoke() ?: 0f).coerceIn(0f, 1f)
+        val progress = (if (hidden) progress * (1f - CanvasBackdrop.away()) else progress) * shown
         // Gone a little before the move ends, so no ghost of the cover lingers over the loop.
         alpha = (1f - progress / .8f).coerceIn(0f, 1f)
         val scale = 1f + .1f * progress
@@ -310,7 +315,7 @@ private fun CanvasLoop(url: String, playing: Boolean, blur: Float, entrance: Flo
                     // Fades in fast, while settling from a slight zoom and coming into focus.
                     alpha = (enter / .55f).coerceIn(0f, 1f)
                     val settle = if (entrance != null) .08f * (1f - enter) else 0f
-                    // Behind Lyrics and Queue the loop keeps playing, softened so the text reads.
+                    // Behind Lyrics and Queue the loop pauses, softened so the text reads.
                     val radius = blur * 28.dp.toPx() + (if (entrance != null) (1f - enter) * 22.dp.toPx() else 0f)
                     renderEffect = if (radius > 0.5f && android.os.Build.VERSION.SDK_INT >= 31)
                         androidx.compose.ui.graphics.BlurEffect(radius, radius, androidx.compose.ui.graphics.TileMode.Clamp) else null

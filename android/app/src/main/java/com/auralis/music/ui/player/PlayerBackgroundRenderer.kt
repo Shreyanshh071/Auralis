@@ -813,7 +813,10 @@ fun PlayerBackground(
     }
     // Drawn over the style, which stays underneath until the Canvas's first frame.
     if (canvasUrl != null && canvasTrack != null) {
-        CanvasBackdropVideo(canvasTrack.id, canvasUrl, isPlaying, blurred = CanvasBackdrop.panelOpen, modifier = Modifier.fillMaxSize())
+        // Behind Lyrics and Queue the loop holds its current frame (blurred, it barely shows and
+        // decoding it made those tabs lag); back on the player it carries on from there.
+        CanvasBackdropVideo(canvasTrack.id, canvasUrl, isPlaying && !CanvasBackdrop.panelOpen,
+            blurred = CanvasBackdrop.panelOpen, modifier = Modifier.fillMaxSize())
     }
     }
 }

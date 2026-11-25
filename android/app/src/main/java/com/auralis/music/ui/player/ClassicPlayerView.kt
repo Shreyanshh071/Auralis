@@ -443,7 +443,7 @@ fun ClassicPlayerView(
                                             )
                                         }
                                     }
-                                    .hiddenWhileCanvasBackdrop(pageTrack.id)
+                                    .hiddenWhileCanvasBackdrop(pageTrack.id) { compactHeaderProgress.value }
                                     .graphicsLayer {
                                         shape = artworkShape
                                         shadowElevation = if (coverAtRest) 14.dp.toPx() else 0f
@@ -485,7 +485,7 @@ fun ClassicPlayerView(
                 } else {
                     Box(
                         modifier = Modifier
-                            .hiddenWhileCanvasBackdrop(displayedTrack.id)
+                            .hiddenWhileCanvasBackdrop(displayedTrack.id) { compactHeaderProgress.value }
                             .fillMaxWidth()
                             .aspectRatio(1f)
                             .shadow(
