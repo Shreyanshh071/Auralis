@@ -620,7 +620,7 @@ private fun TransportControls(playback: DesktopPlaybackController, emphasized: B
     Row(
         modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (emphasized) 6.dp else 16.dp, Alignment.CenterHorizontally)
+        horizontalArrangement = Arrangement.spacedBy(if (emphasized) 6.dp else 4.dp, Alignment.CenterHorizontally)
     ) {
         TransportButton(onClick = playback::previous, width = skipWidth) { hovered ->
             ClassicSkipGlyph(forward = false, color = Color.White.copy(alpha = if (hovered) 1f else .86f),
@@ -714,7 +714,8 @@ private fun LyricsView(playback: DesktopPlaybackController, lyrics: DesktopLyric
  * The dock is one slim glass row, identical on both views so switching never moves it:
  * cover, song and timeline, transport, then the Clock/Lyrics switch and close.
  */
-private val DockMaxWidth = 820.dp
+/** The song's text column: long titles ellipsize instead of widening the dock. */
+private val DockTextWidth = 190.dp
 private val DockRadius = 26.dp
 private val DockInset = 10.dp
 private val DockControlHeight = 36.dp
@@ -736,19 +737,20 @@ private fun ImmersiveControls(
     onToggleDisplay: (Int) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier, artwork: String? = null
 ) {
     LiquidPopupSurface(
-        modifier.widthIn(max = DockMaxWidth).fillMaxWidth(), tint = PhoneGlassTint, cornerRadius = DockRadius,
+        modifier, tint = PhoneGlassTint, cornerRadius = DockRadius,
         blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f, lensBand = .3f, chromaticAberration = 0f,
         shadowElevation = 12.dp
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = DockInset, top = DockInset, bottom = DockInset, end = DockInset + 4.dp),
+            Modifier.padding(start = DockInset, top = DockInset, bottom = DockInset, end = DockInset + 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (track != null) {
                 // The box's corner minus its inset keeps the cover's corner concentric with the glass.
                 DesktopArtwork(artwork, Modifier.size(60.dp), DockRadius - DockInset, track.title, highRes = true)
                 Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
+                // Shrinks on a narrow (portrait) display rather than pushing the controls off.
+                Column(Modifier.weight(1f, fill = false).widthIn(max = DockTextWidth)) {
                     Text(track.title, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = Color.White,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(track.artist, fontSize = 12.sp, lineHeight = 15.sp, color = Color.White.copy(alpha = .7f),
@@ -756,13 +758,11 @@ private fun ImmersiveControls(
                     Spacer(Modifier.height(4.dp))
                     ImmersiveProgress(playback, track, Modifier.fillMaxWidth())
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 TransportControls(playback, emphasized = false)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Box(Modifier.width(1.dp).height(28.dp).background(Color.White.copy(alpha = .14f)))
-                Spacer(Modifier.width(12.dp))
-            } else {
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
             }
             ImmersiveViewSwitch(view, onView)
             if (displays.size > 1) {
@@ -785,7 +785,6 @@ private fun ImmersiveControls(
                 Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(18.dp),
                     tint = Color.White.copy(alpha = alpha))
             }
-            if (track == null) Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -793,7 +792,7 @@ private fun ImmersiveControls(
 /** Clock / Lyrics like the phone dock's tabs: the selected one sits on a bead that glides between them. */
 @Composable
 private fun ImmersiveViewSwitch(selected: ImmersiveView, onSelect: (ImmersiveView) -> Unit) {
-    val segment = 92.dp
+    val segment = 82.dp
     val index by animateFloatAsState(
         ImmersiveView.entries.indexOf(selected).toFloat(),
         spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
