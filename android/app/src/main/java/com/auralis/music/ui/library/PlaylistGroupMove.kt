@@ -56,6 +56,30 @@ internal object PlaylistGroupMove {
         return result
     }
 
+    /**
+     * Rebuilds the screen's rows for [tracks], giving each song the id its row already had (the
+     * first unused row of the same song, so duplicates keep theirs too). Only songs new to the
+     * list get a new id. Ticks and list keys therefore survive a reload of the playlist.
+     */
+    fun reconcile(current: List<PlaylistTrackItem>, tracks: List<Track>): List<PlaylistTrackItem> {
+        val pool = HashMap<String, ArrayDeque<PlaylistTrackItem>>()
+        current.forEach { pool.getOrPut(it.track.id) { ArrayDeque() }.addLast(it) }
+        val used = current.mapTo(HashSet()) { it.instanceId }
+        return tracks.mapIndexed { index, track ->
+            val reused = pool[track.id]?.removeFirstOrNull()
+            when {
+                reused == null -> {
+                    var id = "${track.id}_$index"
+                    var n = 0
+                    while (!used.add(id)) id = "${track.id}_${index}_${++n}"
+                    PlaylistTrackItem(instanceId = id, track = track)
+                }
+                reused.track == track -> reused
+                else -> reused.copy(track = track)
+            }
+        }
+    }
+
     /** The same filter the playlist screen uses to decide which rows it shows. */
     fun isShownInPlaylist(track: Track): Boolean =
         !track.title.startsWith("Track ") && track.title.isNotBlank()

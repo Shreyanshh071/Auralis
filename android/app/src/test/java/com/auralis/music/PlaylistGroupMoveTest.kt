@@ -66,6 +66,41 @@ class PlaylistGroupMoveTest {
     }
 
     @Test
+    fun reloadingThePlaylistKeepsEveryRowsId() {
+        val a = Track(id = "a", title = "Alpha", artist = "x")
+        val b = Track(id = "b", title = "Beta", artist = "x")
+        val c = Track(id = "c", title = "Gamma", artist = "x")
+        val rows = PlaylistGroupMove.reconcile(emptyList(), listOf(a, b, a, c))
+        assertEquals(listOf("a_0", "b_1", "a_2", "c_3"), rows.map { it.instanceId })
+
+        // The saved order comes back (or the old one in between): same ids, just moved.
+        val reloaded = PlaylistGroupMove.reconcile(rows, listOf(c, a, b, a))
+        assertEquals(listOf("c_3", "a_0", "b_1", "a_2"), reloaded.map { it.instanceId })
+
+        // A new song gets an id no other row has.
+        val d = Track(id = "d", title = "Delta", artist = "x")
+        val withNew = PlaylistGroupMove.reconcile(reloaded, listOf(d, c, a, b, a))
+        assertEquals(5, withNew.map { it.instanceId }.toSet().size)
+        assertEquals("c_3", withNew[1].instanceId)
+    }
+
+    @Test
+    fun trainCarsCatchUpAndSettle() {
+        val car = com.auralis.music.ui.library.PlaylistTrainCar(
+            com.auralis.music.ui.library.PlaylistTrackItem("a_0", Track(id = "a", title = "Alpha", artist = "x")),
+            startY = 0f
+        )
+        var overshot = false
+        repeat(240) {
+            com.auralis.music.ui.library.PlaylistTrainPhysics.step(car, target = 500f, carIndex = 1, dt = 1f / 120f)
+            if (car.y > 500f) overshot = true
+        }
+        // It wobbles past the target once, then comes to rest on it.
+        assertEquals(true, overshot)
+        assertEquals(500f, car.y, 1f)
+    }
+
+    @Test
     fun duplicateSongsSurviveAGroupMove() {
         val a = Track(id = "a", title = "Alpha", artist = "x")
         val b = Track(id = "b", title = "Beta", artist = "x")

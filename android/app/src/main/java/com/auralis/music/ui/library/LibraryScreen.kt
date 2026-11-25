@@ -1823,7 +1823,7 @@ internal fun <T> applyTargetSwap(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-private data class PlaylistTrackItem(
+internal data class PlaylistTrackItem(
     val instanceId: String,
     val track: Track
 )
@@ -1886,7 +1886,20 @@ private fun PlaylistDetailView(
     // The other ticked songs, lifted out of the list while the group is dragged.
     var groupBefore by remember { mutableStateOf<List<PlaylistTrackItem>>(emptyList()) }
     var groupAfter by remember { mutableStateOf<List<PlaylistTrackItem>>(emptyList()) }
-    LaunchedEffect(canReorder) { if (!canReorder) selectedIds.clear() }
+    // The order this screen just saved. Saving writes the songs and then their order, so the
+    // database briefly reports the old order in between; until the saved order comes back (or a
+    // few seconds pass) other orders are ignored instead of snapping the list back.
+    var pendingOrder by remember { mutableStateOf<List<String>?>(null) }
+    var pendingOrderAt by remember { mutableStateOf(0L) }
+    // Briefly true after a drop or a Top / Bottom move, so the rows glide to their new places.
+    var settling by remember { mutableStateOf(false) }
+    var settleTick by remember { mutableStateOf(0) }
+    LaunchedEffect(settleTick) {
+        if (settleTick == 0) return@LaunchedEffect
+        settling = true
+        kotlinx.coroutines.delay(520)
+        settling = false
+    }
     // playlistListState preserved for scroll position retention
     val playlistListState = androidx.compose.runtime.saveable.rememberSaveable(
         playlist.id,
@@ -1895,31 +1908,47 @@ private fun PlaylistDetailView(
         androidx.compose.foundation.lazy.LazyListState()
     }
 
+    // Rows keep their ids when the playlist is reloaded, so ticks and keys survive a save.
+    fun syncLocalItems(tracks: List<Track>) {
+        val synced = PlaylistGroupMove.reconcile(localItems.toList(), tracks)
+        localItems.clear()
+        localItems.addAll(synced)
+        val alive = synced.mapTo(HashSet()) { it.instanceId }
+        selectedIds.retainAll { it in alive }
+    }
+
+    fun rememberSavedOrder() {
+        pendingOrder = localItems.map { it.track.id }
+        pendingOrderAt = System.currentTimeMillis()
+    }
+
     LaunchedEffect(validPlaylistTracks) {
         if (localItems.isNotEmpty() && !isDragging && draggingInstanceId == null) {
+            val incoming = validPlaylistTracks.map { it.id }
+            val pending = pendingOrder
+            if (pending != null) {
+                if (incoming == pending || System.currentTimeMillis() - pendingOrderAt > 4_000L) {
+                    pendingOrder = null
+                } else if (incoming.size == pending.size && incoming.sorted() == pending.sorted()) {
+                    // The in-between old order of the save: keep showing the new one.
+                    return@LaunchedEffect
+                } else {
+                    pendingOrder = null
+                }
+            }
             val tracksDiffer = localItems.size != validPlaylistTracks.size ||
                     localItems.indices.any { localItems[it].track.id != validPlaylistTracks[it].id }
-            if (tracksDiffer) {
-                localItems.clear()
-                localItems.addAll(
-                    validPlaylistTracks.mapIndexed { index, track ->
-                        PlaylistTrackItem(
-                            instanceId = "${track.id}_$index",
-                            track = track
-                        )
-                    }
-                )
-            }
+            if (tracksDiffer) syncLocalItems(validPlaylistTracks)
         }
     }
 
     fun ensureLocalItems() {
         if (localItems.isEmpty() || localItems.size != validPlaylistTracks.size) {
-            localItems.clear()
-            localItems.addAll(validPlaylistTracks.mapIndexed { index, song ->
-                PlaylistTrackItem(instanceId = "${song.id}_$index", track = song)
-            })
+            syncLocalItems(validPlaylistTracks)
         }
+    }
+    LaunchedEffect(canReorder) {
+        if (canReorder) ensureLocalItems() else selectedIds.clear()
     }
 
     fun moveSelection(toTop: Boolean) {
@@ -1929,8 +1958,10 @@ private fun PlaylistDetailView(
             else PlaylistGroupMove.toBottom(localItems.toList(), picked)
         if (moved.map { it.instanceId } == localItems.map { it.instanceId }) return
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        settleTick++
         localItems.clear()
         localItems.addAll(moved)
+        rememberSavedOrder()
         onSetTrackOrder?.invoke(moved.map { it.track })
     }
 
@@ -2007,6 +2038,40 @@ private fun PlaylistDetailView(
             if (scrollDelta != 0f) {
                 playlistListState.scrollBy(scrollDelta)
                 checkTargetSwap(pointerY)
+            }
+        }
+    }
+
+    // Group drag as a train: the other ticked songs gather behind the dragged one and follow it,
+    // each chasing the car ahead on a soft spring, so they trail and swing a little (wobble) when
+    // the finger moves and bunch up again when it stops.
+    val trainCars = remember { androidx.compose.runtime.mutableStateListOf<PlaylistTrainCar>() }
+    var leaderTilt by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(isDragging) {
+        if (!isDragging) {
+            leaderTilt = 0f
+            trainCars.clear()
+            return@LaunchedEffect
+        }
+        val gap = density.run { 10.dp.toPx() }
+        var last = 0L
+        var lastLeaderY = currentPointerY - grabOffsetY
+        var leaderVelocity = 0f
+        while (isDragging && isActive) {
+            val now = withFrameNanos { it }
+            if (last == 0L) { last = now; continue }
+            val dt = (now - last).coerceAtMost(32_000_000L) / 1_000_000_000f
+            last = now
+            if (dt <= 0f) continue
+            val leaderY = currentPointerY - grabOffsetY
+            val instant = (leaderY - lastLeaderY) / dt
+            lastLeaderY = leaderY
+            leaderVelocity += (instant - leaderVelocity) * (dt * 14f).coerceAtMost(1f)
+            leaderTilt = PlaylistTrainPhysics.tilt(leaderVelocity, maxDegrees = 2.5f)
+            var aheadY = leaderY
+            trainCars.forEachIndexed { i, car ->
+                PlaylistTrainPhysics.step(car, target = aheadY + gap, carIndex = i, dt = dt)
+                aheadY = car.y
             }
         }
     }
@@ -2570,6 +2635,7 @@ private fun PlaylistDetailView(
                         isCustomSort = canReorder,
                         isItemBeingDragged = isItemBeingDragged,
                         isDragging = isDragging,
+                        isSettling = settling,
                         isSelected = item.instanceId in selectedIds,
                         isSelecting = selectedIds.isNotEmpty(),
                         onToggleSelect = {
@@ -2604,6 +2670,23 @@ private fun PlaylistDetailView(
                                     ) { it.instanceId in selectedIds }
                                     groupBefore = before
                                     groupAfter = after
+                                    // The nearest few ride visibly behind the dragged song, each
+                                    // starting from where it sits now (off-screen ones fly in
+                                    // from that edge).
+                                    val leaderY = pointerY - grabOffsetY
+                                    val viewport = playlistListState.layoutInfo.viewportSize.height.toFloat()
+                                    val positions = (before + after).mapNotNull { carried ->
+                                        val at = localItems.indexOf(carried)
+                                        if (at < 0) null else carried to at
+                                    }.sortedBy { (_, at) -> kotlin.math.abs(at - index) }
+                                    trainCars.clear()
+                                    positions.take(PlaylistTrainPhysics.VISIBLE_CARS).forEach { (carried, at) ->
+                                        val onScreen = playlistListState.layoutInfo.visibleItemsInfo
+                                            .firstOrNull { it.key == carried.instanceId }?.offset?.toFloat()
+                                        val startY = onScreen
+                                            ?: if (at < index) leaderY - viewport * 0.6f else leaderY + viewport * 0.6f
+                                        trainCars.add(PlaylistTrainCar(carried, startY))
+                                    }
                                     val lifted = (before + after).map { it.instanceId }.toSet()
                                     localItems.removeAll { it.instanceId in lifted }
                                 } else {
@@ -2632,21 +2715,28 @@ private fun PlaylistDetailView(
                             }
                             groupBefore = emptyList()
                             groupAfter = emptyList()
+                            val grouped = before.isNotEmpty() || after.isNotEmpty()
+                            if (grouped) {
+                                settleTick++
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
                             isDragging = false
                             draggingInstanceId = null
                             originalDragIndex = -1
                             reorderState.reset()
-                            if (before.isNotEmpty() || after.isNotEmpty()) {
+                            if (grouped) {
+                                rememberSavedOrder()
                                 onSetTrackOrder?.invoke(localItems.map { it.track })
                             } else if (startIndex >= 0 && finalIndex >= 0 && startIndex != finalIndex) {
+                                rememberSavedOrder()
                                 onReorderTracks?.invoke(startIndex, finalIndex)
                             }
                         },
                         onReorderDragCancel = {
-                            localItems.clear()
-                            localItems.addAll(validPlaylistTracks.mapIndexed { index, song ->
-                                PlaylistTrackItem(instanceId = "${song.id}_$index", track = song)
-                            })
+                            // Lifted songs come back with their ids, so they stay ticked.
+                            val lifted = groupBefore + groupAfter
+                            if (lifted.isNotEmpty()) localItems.addAll(lifted)
+                            syncLocalItems(validPlaylistTracks)
                             groupBefore = emptyList()
                             groupAfter = emptyList()
                             isDragging = false
@@ -2662,17 +2752,50 @@ private fun PlaylistDetailView(
                         }
                     )
                 }
+
+                // The selection bar floats over the end of the list: make room so the last songs
+                // can still scroll out from under it.
+                item(key = "selection_bar_room", contentType = "gap") {
+                    val room by animateDpAsState(
+                        if (canReorder && selectedIds.isNotEmpty()) 76.dp else 0.dp,
+                        tween(260, easing = FastOutSlowInEasing), label = "selectionBarRoom"
+                    )
+                    Spacer(Modifier.height(room))
+                }
             }
 
             // ================================================================
-            // FLOATING DRAGGED CARD OVERLAY
+            // FLOATING DRAGGED CARD OVERLAY (and, for ticked songs, the train behind it)
             // ================================================================
             val draggedTrack = localItems.find { it.instanceId == draggingInstanceId }?.track
             if (isDragging && draggedTrack != null) {
-                val trackMin = draggedTrack.duration / 60
-                val trackSec = draggedTrack.duration % 60
-                val trackDurationStr = "$trackMin:${if (trackSec < 10) "0" else ""}$trackSec"
-
+                val carried = groupBefore.size + groupAfter.size
+                val grouped = carried > 0
+                // Farthest car first, so each car sits under the one ahead of it.
+                trainCars.indices.reversed().forEach { i ->
+                    val car = trainCars[i]
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .offset { IntOffset(0, car.y.roundToInt()) }
+                            .zIndex(990f - i)
+                            .graphicsLayer {
+                                val shrink = 1f - 0.035f * (i + 1)
+                                scaleX = shrink
+                                scaleY = shrink
+                                rotationZ = car.tilt
+                                alpha = (1f - 0.14f * i).coerceAtLeast(0.4f)
+                            }
+                    ) {
+                        PlaylistDraggedRowVisual(
+                            track = car.item.track,
+                            ticked = true,
+                            carried = 0,
+                            asCard = true
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2684,93 +2807,17 @@ private fun PlaylistDetailView(
                             )
                         }
                         .zIndex(999f)
+                        .graphicsLayer { if (grouped) rotationZ = leaderTilt }
                 ) {
-                    // The dragged row looks exactly like a normal row (no card, border, lift or
-                    // accent): it just follows the finger. Painted with the page background so it
-                    // doesn't show through the rows it passes over.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.dynamicBackground)
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                            val ticked = draggingInstanceId in selectedIds
-                            Icon(
-                                imageVector = if (ticked) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                contentDescription = null,
-                                tint = if (ticked) LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        ArtworkCard(
-                            sizeToConstraints = true,
-                            url = draggedTrack.thumbnail,
-                            modifier = Modifier.size(48.dp),
-                            cornerRadius = 8.dp,
-                            contentDescription = draggedTrack.title,
-                            fallbackTrack = draggedTrack
-                        )
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = draggedTrack.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "${draggedTrack.artist} • $trackDurationStr",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        val carried = groupBefore.size + groupAfter.size
-                        if (carried > 0) {
-                            Text(
-                                text = "+$carried",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(LIME_TEXT)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        Box(
-                            modifier = Modifier.size(36.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DragHandle,
-                                contentDescription = str(R.string.drag_to_reorder_song),
-                                tint = Color.White.copy(alpha = 0.45f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = str(R.string.options),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
+                    // A single dragged row looks exactly like a normal row (no card or lift): it
+                    // just follows the finger. Leading a group it becomes a card, so the songs
+                    // trailing behind it read as one stack.
+                    PlaylistDraggedRowVisual(
+                        track = draggedTrack,
+                        ticked = draggingInstanceId in selectedIds,
+                        carried = carried,
+                        asCard = grouped
+                    )
                 }
             }
 
@@ -3693,6 +3740,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     isCustomSort: Boolean,
     isItemBeingDragged: Boolean,
     isDragging: Boolean,
+    isSettling: Boolean,
     isSelected: Boolean,
     isSelecting: Boolean,
     onToggleSelect: () -> Unit,
@@ -3719,6 +3767,8 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
         }
     }
     var handleTopInRoot by remember { mutableStateOf(0f) }
+    val selectedFill by animateFloatAsState(if (isCustomSort && isSelected) 1f else 0f, tween(180), label = "rowSelected")
+    val selectedTint = LIME_TEXT
     val currentListTop by androidx.compose.runtime.rememberUpdatedState(listTopInRoot)
     val currentDragStart by androidx.compose.runtime.rememberUpdatedState(onReorderDragStart)
     val currentDrag by androidx.compose.runtime.rememberUpdatedState(onReorderDrag)
@@ -3732,14 +3782,21 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
         isPlaylistContext = true,
         modifier = modifier
             .then(
-                if (isDragging && !isItemBeingDragged) {
-                    Modifier.animateItemPlacement(
-                        animationSpec = tween(
-                            durationMillis = 100,
-                            easing = LinearOutSlowInEasing
-                        )
+                when {
+                    isDragging && !isItemBeingDragged -> Modifier.animateItem(
+                        fadeInSpec = null,
+                        placementSpec = tween(durationMillis = 100, easing = LinearOutSlowInEasing),
+                        fadeOutSpec = null
                     )
-                } else Modifier
+                    // After a group drop or Top / Bottom: rows glide to their new places with a
+                    // slight overshoot, and the songs that rode along fade back in where they land.
+                    isSettling -> Modifier.animateItem(
+                        fadeInSpec = tween(260, delayMillis = 60),
+                        placementSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                        fadeOutSpec = null
+                    )
+                    else -> Modifier
+                }
             )
             .padding(horizontal = 16.dp, vertical = 2.dp)
             .then(
@@ -3754,11 +3811,9 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 .fillMaxWidth()
                 .then(if (!isCustomSort) Modifier.contextMenuAnchor { onPlayTrack(track) } else Modifier)
                 .clip(RoundedCornerShape(12.dp))
-                .then(
-                    if (isCustomSort && isSelected) {
-                        Modifier.background(LIME_TEXT.copy(alpha = 0.12f))
-                    } else Modifier
-                )
+                .drawBehind {
+                    if (selectedFill > 0f) drawRect(selectedTint.copy(alpha = 0.10f * selectedFill))
+                }
                 .combinedClickable(
                     onClick = {
                         if (!isDragging) {
@@ -3773,19 +3828,18 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isCustomSort) {
-                IconButton(
+            AnimatedVisibility(
+                visible = isCustomSort,
+                enter = expandHorizontally(tween(260, easing = FastOutSlowInEasing), expandFrom = Alignment.Start) +
+                    fadeIn(tween(200, delayMillis = 60)),
+                exit = shrinkHorizontally(tween(220, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Start) +
+                    fadeOut(tween(120))
+            ) {
+                PlaylistSelectTick(
+                    selected = isSelected,
                     onClick = onToggleSelect,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = str(R.string.playlist_select_song),
-                        tint = if (isSelected) LIME_TEXT else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
+                    modifier = Modifier.padding(end = 10.dp)
+                )
             }
             ArtworkCard(
                 sizeToConstraints = true,
