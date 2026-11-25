@@ -1,10 +1,20 @@
 <div align="center">
-  <img src="docs/logo-round.png" width="130" height="130" alt="Auralis Logo" />
-  <h1>Auralis</h1>
-  <p><b>A native YouTube Music player for Android, with synced lyrics and group listening</b></p>
+  <img src="docs/banner.jpg" width="100%" alt="Auralis — your music with syllable-synced lyrics, for Android, Windows and macOS" />
+
+  <br />
+  <br />
+
+  <a href="https://github.com/Shreyanshh071/Auralis/releases/latest"><img src="https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="42" alt="Download for Android" /></a>
+  <a href="https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.0"><img src="https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge" height="42" alt="Download for Windows" /></a>
+  <a href="https://github.com/Shreyanshh071/Auralis/releases/tag/v1.0.1-macos"><img src="https://img.shields.io/badge/Download-macOS%20(beta)-111111?style=for-the-badge&logo=apple&logoColor=white" height="42" alt="Download for macOS" /></a>
+  <br />
+  <a href="https://discord.gg/6Q2YKz73S"><img src="https://img.shields.io/badge/Join%20the-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="42" alt="Join the Auralis Discord" /></a>
+
+  <br />
+  <br />
 
   ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Shreyanshh071/Auralis?style=for-the-badge&color=8A2BE2)
-  ![APK Size](https://img.shields.io/badge/APK%20Size-25%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
+  ![APK Size](https://img.shields.io/badge/APK%20Size-41%20MB%20(Universal)-32CD32?style=for-the-badge&logo=android&logoColor=white)
   ![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
   ![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
   ![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
@@ -13,11 +23,11 @@
 
   <br />
 
-  **Auralis** is an ad-free music player for Android that streams from YouTube Music, built natively with **Jetpack Compose**, **AndroidX Media3**, **Kotlin Coroutines** and **Material 3**.
+  **Auralis** is an ad-free music player that streams from YouTube Music — built natively with **Jetpack Compose** and **AndroidX Media3** on Android, and **Compose Multiplatform** on Windows and macOS.
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download APK](https://github.com/Shreyanshh071/Auralis/releases/latest) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download](#-download) • [Discord](https://discord.gg/6Q2YKz73S) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
 
 </div>
 
@@ -26,15 +36,47 @@
 
 ---
 
+## 🎤 Lyrics that move
+
+<div align="center">
+<table>
+<tr>
+<td align="center" valign="middle" width="28%">
+<img src="docs/readme/lyrics-phone.webp" width="100%" alt="Syllable-synced duet lyrics on Android" /><br />
+<sub><b>Android</b></sub>
+</td>
+<td align="center" valign="middle" width="72%">
+<img src="docs/readme/lyrics-desktop.webp" width="100%" alt="Syllable-synced lyrics in the full-screen desktop player" /><br />
+<sub><b>Windows &amp; macOS</b></sub>
+</td>
+</tr>
+</table>
+<sub>Every syllable lights up as it is sung, and duet parts sit on their own side.</sub>
+</div>
+
+---
+
 ## 📦 Download
 
-[Download the universal APK](https://github.com/Shreyanshh071/Auralis/releases/latest) for Android 7.0 and newer. [Release notes](docs/release-notes-v1.1.2.md) · [Release source](https://github.com/Shreyanshh071/Auralis/tree/v1.1.2)
+| Platform | Download | Notes |
+| :--- | :--- | :--- |
+| **Android** | [Auralis-v1.1.4-universal.apk](https://github.com/Shreyanshh071/Auralis/releases/latest) | Android 7.0+ · [Release notes](docs/release-notes-v1.1.4.md) |
+| **Windows** | [Auralis-1.0.0.msi](https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.0) | Installer · updates itself from Settings → Updates |
+| **macOS** | [Auralis-1.0.1.dmg](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.0.1-macos) | Beta |
 
-The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs. Most of its size is Discord's official SDK for Rich Presence, which includes native code for each of those processor types. The app itself is native Jetpack Compose, shrunk with R8.
+The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs — one download works on all of them.
 
 ---
 
 ## 📸 Screenshots
+
+<div align="center">
+  <img src="docs/showcase-strip.svg" width="100%" alt="Auralis screens scrolling by: lyrics, players, artist pages, Listen Together, library, recognition, stats and Wrapped" />
+</div>
+
+<details>
+<summary><b>See every screen, labelled</b></summary>
+<br />
 
 <div align="center">
   <table>
@@ -44,10 +86,6 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <sub><b>Now Playing</b></sub>
       </td>
       <td align="center" width="25%">
-        <img src="docs/screenshots/lyrics.jpg" alt="Karaoke lyrics with word-by-word sync" width="100%" /><br />
-        <sub><b>Karaoke Lyrics · Word-by-Word Sync</b></sub>
-      </td>
-      <td align="center" width="25%">
         <img src="docs/screenshots/artist.jpg" alt="Artist Profile" width="100%" /><br />
         <sub><b>Artist Discography</b></sub>
       </td>
@@ -55,12 +93,12 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <img src="docs/screenshots/listen_together.jpg" alt="Listen Together" width="100%" /><br />
         <sub><b>Listen Together</b></sub>
       </td>
-    </tr>
-    <tr>
       <td align="center" width="25%">
         <img src="docs/screenshots/recognition.jpg" alt="Music Recognition" width="100%" /><br />
         <sub><b>Music Recognition</b></sub>
       </td>
+    </tr>
+    <tr>
       <td align="center" width="25%">
         <img src="docs/screenshots/search.jpg" alt="Search & Explore" width="100%" /><br />
         <sub><b>Search & Discovery</b></sub>
@@ -73,12 +111,12 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
         <img src="docs/screenshots/wrapped.jpg" alt="Auralis Wrapped" width="100%" /><br />
         <sub><b>Auralis Wrapped</b></sub>
       </td>
-    </tr>
-    <tr>
       <td align="center" width="25%">
         <img src="docs/screenshots/stats.jpg" alt="Listening Stats" width="100%" /><br />
         <sub><b>Listening Stats</b></sub>
       </td>
+    </tr>
+    <tr>
       <td align="center" width="25%">
         <img src="docs/screenshots/new_player.jpg" alt="Immersive Player" width="100%" /><br />
         <sub><b>Immersive Player</b></sub>
@@ -95,9 +133,52 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
   </table>
 </div>
 
+</details>
+
 ---
 
 ## ✨ Key Features
+
+<table>
+<tr>
+<td align="center" width="33%" valign="top">
+<h3>🎤</h3>
+<b>Syllable-synced lyrics</b><br />
+<sub>Every word and syllable lights up as it is sung, from 14 lyrics sources, with translation and romanization.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>👥</h3>
+<b>Listen Together</b><br />
+<sub>Share a room code and hear the same song, in sync, with your friends.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>🔁</h3>
+<b>Auralis Connect</b><br />
+<sub>Move playback between your phone and PC, and control either one from the other.</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%" valign="top">
+<h3>⬇️</h3>
+<b>Offline downloads</b><br />
+<sub>Save songs and whole playlists, plus a cache that replays what you have heard.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>📊</h3>
+<b>Real listening stats</b><br />
+<sub>Measured listening time, top songs and artists, and your own Wrapped.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>💜</h3>
+<b>Your library, everywhere</b><br />
+<sub>Import from Spotify and YouTube Music, and sync it all with your Auralis account.</sub>
+</td>
+</tr>
+</table>
+
+<details>
+<summary><b>See the full feature list</b></summary>
+<br />
 
 <table>
 <tr>
@@ -125,7 +206,7 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 #### Together & Accounts
 
 - **Listen Together** — join a room with a code and hear the same song with friends.
-- **Auralis Connect** — move your music between your phone and PC, and control playback from either one. The PC app is coming soon.
+- **Auralis Connect** — move your music between your phone and PC, and control playback from either one.
 - **Spotify integration** — sign in to bring over your playlists and Liked Songs.
 - **Playlist import** for Spotify and YouTube Music.
 - **Discord Rich Presence** — show your song, artist, cover and progress.
@@ -157,6 +238,8 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 </tr>
 </table>
 
+</details>
+
 ---
 
 ## 🛠️ Architecture & Tech Stack
@@ -174,6 +257,9 @@ The APK (~27 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 ---
 
 ## 📂 Project Structure
+
+<details>
+<summary><b>Show the folder layout</b></summary>
 
 ```
 Auralis/
@@ -216,22 +302,29 @@ Auralis/
 └── README.md
 ```
 
+</details>
+
 ---
 
 ## ❓ Frequently Asked Questions (FAQ)
 
 <details>
-<summary><b>Why is the APK about 25 MB?</b></summary>
+<summary><b>Why is the APK about 41 MB?</b></summary>
 <br>
 
-The app itself is native **Jetpack Compose** and **AndroidX Media3**, shrunk with **R8**. Most of the download is Discord's official SDK for Rich Presence, which ships native code for the four CPU architectures packaged in the APK.
+Two add-ons make up most of it:
+
+- **Discord's official SDK** for Rich Presence (~15 MB), which ships native code for each of the four CPU types the APK supports.
+- **An offline Japanese dictionary** (~13 MB, [Kuromoji](https://github.com/atilika/kuromoji)) that turns Japanese lyrics into romaji without an internet connection.
+
+The app itself — native **Jetpack Compose** and **AndroidX Media3**, shrunk with **R8** — is about 9 MB.
 </details>
 
 <details>
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-Download `Auralis-v1.1.3.2-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
+Download `Auralis-v1.1.4-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
 </details>
 
 <details>
@@ -243,7 +336,7 @@ Fresh installs start with a starter set of songs from curated artists (*Tame Imp
 
 <br />
 
-> 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs.
+> 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs — or ask the community on **[Discord](https://discord.gg/6Q2YKz73S)**.
 
 ---
 
@@ -266,14 +359,11 @@ Auralis is built on the work of many people. Thank you to all of them.
 - **[Media3 / ExoPlayer](https://github.com/androidx/media)** — audio and animated cover playback.
 - **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
 - **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the JioSaavn 320kbps audio in High Quality (GPL-3.0).
-- **[Vivi Music’s LyricsUtils](https://github.com/vivizzz007/vivi-music/blob/main/app/src/main/kotlin/com/music/vivi/lyrics/LyricsUtils.kt)** — reference for offline dictionary-based Japanese romanisation and background conversion (GPL-3.0).
 - **[Kuromoji](https://github.com/atilika/kuromoji)** — offline Japanese tokenisation and kanji readings (Apache-2.0).
-- **[ArchiveTune and its Automix fork](https://github.com/4nx3b/ArchiveTune/tree/main/app/src/main/kotlin/moe/rukamori/archivetune/playback/automix)** — Automix audio analysis, beat and energy planning, FFT helpers, and transition filtering adapted under GPL-3.0. The original notices are retained in the adapted files.
-- **shazam_identifier** by Shashwat and **Shazam** — music recognition.
 
 **Design & interface**
 
-- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — the Liquid Glass implementation, motion references and Apple Music artist photo lookup (GPL-3.0).
+- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — Apple Music artist photo lookup (GPL-3.0).
 - **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
 
 **Services**

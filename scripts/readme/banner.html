@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- Source for docs/banner.jpg. Render at 1280x440, 2x scale (see scripts/readme/README.md). -->
+<html><head><meta charset="utf-8"><style>
+*{margin:0;box-sizing:border-box}
+html,body{width:1280px;height:440px;overflow:hidden;background:#120c14}
+body{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;color:#f4ede8;position:relative}
+.bg{position:absolute;inset:0;
+ background:
+  radial-gradient(520px 380px at 12% 25%, #45302a 0%, transparent 70%),
+  radial-gradient(560px 420px at 70% 30%, #5a1f5a88 0%, transparent 70%),
+  radial-gradient(520px 420px at 95% 95%, #1f3a5a66 0%, transparent 70%),
+  linear-gradient(135deg,#24171a 0%,#0f0a10 100%);}
+.left{position:absolute;left:60px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;width:450px;z-index:3}
+.brand{display:flex;align-items:center;gap:20px}
+.brand img{width:80px;height:80px;border-radius:50%;box-shadow:0 10px 30px #0008,0 0 0 1px #ffffff14}
+h1{font-size:80px;font-weight:650;letter-spacing:-2.5px;line-height:1}
+.tag{margin-top:22px;font-size:23px;line-height:1.3;color:#e9d9cf;font-weight:450}
+.tag b{color:#fff;font-weight:650}
+.chips{display:flex;gap:9px;margin-top:26px;flex-wrap:wrap}
+.chip{font-size:14px;font-weight:600;letter-spacing:.3px;padding:7px 13px;border-radius:999px;
+ background:#ffffff12;border:1px solid #ffffff22;color:#f1e4db}
+/* desktop window */
+.pc{position:absolute;left:628px;top:60px;width:600px;height:338px;border-radius:12px;overflow:hidden;
+ box-shadow:0 40px 80px #000c,0 0 0 1px #ffffff26;transform:perspective(1600px) rotateY(-8deg);transform-origin:left center}
+.pc img{width:100%;height:100%;object-fit:cover;object-position:top left;display:block}
+/* phones */
+.ph{position:absolute;width:150px;height:320px;border-radius:28px;overflow:hidden;z-index:2;
+ box-shadow:0 30px 60px #000d,0 0 0 5px #0b0807,0 0 0 6px #ffffff26}
+.ph img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
+.p1{left:560px;top:150px;transform:rotate(-6deg)}
+.p2{left:1078px;top:132px;transform:rotate(5deg)}
+</style></head><body>
+<div class="bg"></div>
+<div class="left">
+ <div class="brand"><img src="../../docs/logo-round.png"><h1>Auralis</h1></div>
+ <p class="tag">Your music, with <b>syllable-synced lyrics</b>, Listen Together and offline downloads.</p>
+ <div class="chips"><span class="chip">Android</span><span class="chip">Windows</span><span class="chip">macOS</span><span class="chip">Open source · GPL-3.0</span></div>
+</div>
+<div class="pc"><img src="../../docs/readme/pc-home.jpg"></div>
+<div class="ph p1"><img src="../../docs/readme/phone-classic.jpg"></div>
+<div class="ph p2"><img src="../../docs/readme/phone-immersive.jpg"></div>
+</body></html>
