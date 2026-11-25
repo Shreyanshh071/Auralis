@@ -748,6 +748,7 @@ fun ImmersivePlayerContainer(
                                         showBottomBar = false,
                                         showPlaybackControls = false,
                                         queueListState = queueListState,
+                                        hostControlsShown = controlsVisible,
                                         listBottomPadding = controlsHeightDp + CONTROLS_FADE_ABOVE,
                                         modifier = Modifier.fillMaxSize()
                                     )

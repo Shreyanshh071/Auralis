@@ -2630,10 +2630,22 @@ internal fun ClassicQueueContent(
     modifier: Modifier = Modifier,
     queueListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     contentLayer: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {},
-    controlsBottomSpacerDp: androidx.compose.ui.unit.Dp = 0.dp
+    controlsBottomSpacerDp: androidx.compose.ui.unit.Dp = 0.dp,
+    /**
+     * The host's own controls state, when it shows or hides them itself (Immersive). Keeps this
+     * queue's idea of "hidden" in step, so the next scroll down always hides them.
+     */
+    hostControlsShown: Boolean? = null
 ) {
     var queueLocked by rememberSaveable { mutableStateOf(true) }
     var queueControlsVisible by remember { mutableStateOf(true) }
+    // The scroll handler below is remembered once. A host that composes the queue ahead of time
+    // (Immersive, on the Player tab) would otherwise be called through its first, stale callback,
+    // which still thought the queue was closed and dropped every hide.
+    val notifyControlsVisibility by rememberUpdatedState(onQueueControlsVisibilityChange)
+    LaunchedEffect(hostControlsShown) {
+        if (hostControlsShown != null) queueControlsVisible = hostControlsShown
+    }
     val queueContext = LocalContext.current
 
     // Tapping a song re-shows the controls, but not on the tap frame: that frame and the next few
@@ -2648,7 +2660,7 @@ internal fun ClassicQueueContent(
         pendingRevealTrackId = null
         if (!queueControlsVisible) {
             queueControlsVisible = true
-            onQueueControlsVisibilityChange(true)
+            notifyControlsVisibility(true)
         }
     }
 
@@ -2657,7 +2669,7 @@ internal fun ClassicQueueContent(
             .collect { (index, offset) ->
                 if (index == 0 && offset == 0 && !queueControlsVisible) {
                     queueControlsVisible = true
-                    onQueueControlsVisibilityChange(true)
+                    notifyControlsVisibility(true)
                 }
             }
     }
@@ -2955,7 +2967,7 @@ internal fun ClassicQueueContent(
                         .collect { isAtTop ->
                             if (isAtTop && !queueControlsVisible) {
                                 queueControlsVisible = true
-                                onQueueControlsVisibilityChange(true)
+                                notifyControlsVisibility(true)
                             }
                         }
                 }
@@ -2971,10 +2983,10 @@ internal fun ClassicQueueContent(
                             val delta = available.y
                             if (delta < -2f && queueControlsVisible) {
                                 queueControlsVisible = false
-                                onQueueControlsVisibilityChange(false)
+                                notifyControlsVisibility(false)
                             } else if (delta > 2f && !queueControlsVisible) {
                                 queueControlsVisible = true
-                                onQueueControlsVisibilityChange(true)
+                                notifyControlsVisibility(true)
                             }
                             return Offset.Zero
                         }
@@ -2987,7 +2999,7 @@ internal fun ClassicQueueContent(
                             if (reorderableLazyListState.isAnyItemDragging) return Offset.Zero
                             if (available.y > 2f && !queueControlsVisible) {
                                 queueControlsVisible = true
-                                onQueueControlsVisibilityChange(true)
+                                notifyControlsVisibility(true)
                             }
                             return Offset.Zero
                         }
