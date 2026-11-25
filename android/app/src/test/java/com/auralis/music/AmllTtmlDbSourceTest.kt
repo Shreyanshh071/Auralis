@@ -254,11 +254,11 @@ class AmllTtmlDbSourceTest {
 
     // ── 6. Strict Master Alignment Gate ──
     @Test
-    fun `AMLL TTML with master duration mismatch is strictly rejected`() = runBlocking {
+    fun `AMLL TTML whose vocals overrun the playing audio is strictly rejected`() = runBlocking {
         val client = createMockClient { req ->
             val url = req.url.toString()
             if (url.contains("am-lyrics/12345.ttml")) {
-                // sampleSyllableTtml duration is 213s (3:33)
+                // sampleSyllableTtml's last line ends at 8.1s
                 response(req, 200, sampleSyllableTtml)
             } else {
                 response(req, 404, "Not Found")
@@ -266,17 +266,45 @@ class AmllTtmlDbSourceTest {
         }
 
         val source = AmllLyricsSource(client = client)
-        // Query duration is 150s (2:30) -> delta > 3.5s -> MASTER_MISMATCH
+        // Audio is 4s long: vocals run 4.1s past it -> another version
         val query = LyricsSearchQuery(
             title = "Idol",
             artist = "YOASOBI",
-            durationSec = 150L,
-            durationMs = 150_000L,
+            durationSec = 4L,
+            durationMs = 4_000L,
             appleMusicId = "12345"
         )
 
         val result = source.search(query)
-        assertNull("Master-mismatched candidate (>3.5s delta) must be rejected", result)
+        assertNull("Vocals overrunning the audio (>3.5s) must be rejected", result)
+    }
+
+    // AMLL writes <body dur> as the last line's end, not the track length. Real file:
+    // raw-lyrics/1751650743390-91305636-b3df76ea.ttml ("I Love You So", dur 2:05.193) for a
+    // 160s master; reading dur as the length rejected it by 34.8s, and nearly every song with it.
+    @Test
+    fun `AMLL body dur is the lyric end, so a song with an outro still matches`() = runBlocking {
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml"><body dur="02:05.193"><div begin="00:10.000" end="02:05.193">
+<p begin="00:10.000" end="00:13.000"><span begin="00:10.000" end="00:11.500">I</span> <span begin="00:11.500" end="00:13.000">love</span></p>
+<p begin="00:30.000" end="00:33.000"><span begin="00:30.000" end="00:31.500">you</span> <span begin="00:31.500" end="00:33.000">so</span></p>
+<p begin="02:02.087" end="02:05.193"><span begin="02:02.087" end="02:02.653">I</span> <span begin="02:02.653" end="02:05.193">know</span></p>
+</div></body></tt>"""
+        val client = createMockClient { req ->
+            if (req.url.toString().contains("am-lyrics/1591338975.ttml")) response(req, 200, ttml)
+            else response(req, 404, "Not Found")
+        }
+
+        val result = AmllLyricsSource(client = client).search(
+            LyricsSearchQuery(
+                title = "I Love You So",
+                artist = "The Walters",
+                durationSec = 160L,
+                durationMs = 160_000L,
+                appleMusicId = "1591338975"
+            )
+        )
+        assertNotNull("Lyrics ending 35s before the audio (outro) must still match", result)
+        assertEquals(160_000L, result!!.lyricsData.durationMs)
     }
 
     // ── 7. Paxsenix Fallback to AMLL TTML DB ──

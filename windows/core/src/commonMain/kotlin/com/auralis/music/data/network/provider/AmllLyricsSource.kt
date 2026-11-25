@@ -183,7 +183,11 @@ class AmllLyricsSource(
         val ttmlContent = fetchTtmlFromDb(folder, id) ?: return null
         if (ttmlContent.isBlank()) return null
 
-        val parsed = TtmlParser.parse(ttmlContent, LyricsProvider.AMLL)
+        // AMLL's editor writes <body dur> as the end of the last line, not the track's length
+        // (dur == last line end in every file sampled, up to 49s short of the Apple master).
+        // Read as a length, it failed the 5s gate below on any song with an outro, so AMLL
+        // almost never returned anything. Only the lyric end is known: gate it for overrun.
+        val parsed = TtmlParser.parse(ttmlContent, LyricsProvider.AMLL).copy(durationMs = null)
         if (parsed.lines.isEmpty()) return null
 
         val candTitle = parsed.trackName?.ifBlank { null } ?: fallbackTitle
