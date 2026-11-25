@@ -1959,6 +1959,7 @@ private fun PlaylistDetailView(
             else PlaylistGroupMove.toBottom(localItems.toList(), picked)
         if (moved.map { it.instanceId } == localItems.map { it.instanceId }) return
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        settling = true
         settleTick++
         localItems.clear()
         localItems.addAll(moved)
@@ -2736,6 +2737,7 @@ private fun PlaylistDetailView(
                             groupAfter = emptyList()
                             val grouped = before.isNotEmpty() || after.isNotEmpty()
                             if (grouped) {
+                                settling = true
                                 settleTick++
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }
@@ -3821,14 +3823,17 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                     // The songs that rode the train appear straight in their new places (no
                     // second slide from where they used to be).
                     isSettling && isLanding -> Modifier.animateItem(
-                        fadeInSpec = tween(180),
+                        fadeInSpec = tween(220),
                         placementSpec = null,
                         fadeOutSpec = null
                     )
-                    // Everything else makes room with one short glide, no bounce.
-                    isSettling -> Modifier.animateItem(
-                        fadeInSpec = tween(180),
-                        placementSpec = tween(240, easing = FastOutSlowInEasing),
+                    // While the order is unlocked every row always carries its glide: the list
+                    // only knows where a row was if it was already animated, so switching the
+                    // glide on at the drop came a frame late and the rows jumped. Now the songs
+                    // on either side of a drop (or a Top / Bottom move) slide apart smoothly.
+                    isCustomSort && !isItemBeingDragged -> Modifier.animateItem(
+                        fadeInSpec = tween(200),
+                        placementSpec = tween(320, easing = FastOutSlowInEasing),
                         fadeOutSpec = null
                     )
                     else -> Modifier
