@@ -14,7 +14,8 @@ import org.jetbrains.skia.RuntimeShaderBuilder
 internal class DockGlassEffect : AutoCloseable {
     private val effect = RuntimeEffect.makeForShader(DockLensShader)
     fun create(width: Float, height: Float, padding: Float, density: Float, cornerRadius: Float = height / 2f,
-        blurDp: Float = 18f, lensHeightDp: Float = 20f, lensAmountDp: Float = 28f): androidx.compose.ui.graphics.RenderEffect {
+        blurDp: Float = 18f, lensHeightDp: Float = 20f, lensAmountDp: Float = 28f,
+        lensBand: Float = .45f, chromaticAberration: Float = 1f): androidx.compose.ui.graphics.RenderEffect {
         return RuntimeShaderBuilder(effect).use { builder ->
             builder.uniform("size", width, height)
             builder.uniform("offset", -padding, -padding)
@@ -22,10 +23,10 @@ internal class DockGlassEffect : AutoCloseable {
             builder.uniform("cornerRadii", radius, radius, radius, radius)
             // A fixed rim is almost invisible on large menus. Keep the same
             // lens curve across a proportional band of each glass surface.
-            builder.uniform("refractionHeight", maxOf(lensHeightDp * density, minOf(width, height) * .45f))
+            builder.uniform("refractionHeight", maxOf(lensHeightDp * density, minOf(width, height) * lensBand))
             builder.uniform("refractionAmount", -lensAmountDp * density)
             builder.uniform("depthEffect", 1f)
-            builder.uniform("chromaticAberration", 1f)
+            builder.uniform("chromaticAberration", chromaticAberration)
             // Android's vibrancy(): saturation 1.5, applied before blur and refraction.
             val r = -0.5f * 0.213f; val g = -0.5f * 0.715f; val b = -0.5f * 0.072f
             ColorFilter.makeMatrix(ColorMatrix(

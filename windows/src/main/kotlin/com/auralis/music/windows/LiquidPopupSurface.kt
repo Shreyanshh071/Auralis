@@ -65,6 +65,7 @@ internal fun Modifier.recordPopupGlass(source: PopupGlassSource): Modifier = thi
 internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
     tint: Color = liquidGlassTint(false), frosted: Boolean = false,
     cornerRadius: Dp = 18.dp, blurDp: Float = 8f, lensHeightDp: Float = 24f, lensAmountDp: Float = 24f,
+    lensBand: Float = .45f, chromaticAberration: Float = 1f,
     shadowElevation: Dp = 6.dp, content: @Composable () -> Unit) {
     val source = LocalPopupGlassSource.current
     val shape = RoundedCornerShape(cornerRadius)
@@ -87,7 +88,8 @@ internal fun LiquidPopupSurface(modifier: Modifier = Modifier,
             val copiedDensity = Density(density, fontScale)
             layer.renderEffect = if (frosted) androidx.compose.ui.graphics.BlurEffect(24.dp.toPx(), 24.dp.toPx())
                 else effect.create(size.width * scale, size.height * scale, padding, density * scale,
-                    cornerRadius.toPx() * scale, blurDp = blurDp, lensHeightDp = lensHeightDp, lensAmountDp = lensAmountDp)
+                    cornerRadius.toPx() * scale, blurDp = blurDp, lensHeightDp = lensHeightDp, lensAmountDp = lensAmountDp,
+                    lensBand = lensBand, chromaticAberration = chromaticAberration)
             onDrawWithContent {
                 // Observing the capture frame repaints the popup scene when the page changes.
                 source?.frame?.longValue

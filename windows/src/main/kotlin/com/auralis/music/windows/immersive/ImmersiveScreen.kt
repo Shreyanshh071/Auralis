@@ -746,41 +746,21 @@ private fun LyricsView(playback: DesktopPlaybackController, lyrics: DesktopLyric
     }
 }
 
-/** The dock floats as separate glass pieces: a now-playing card over a row of capsules. */
-private val DockCardWidth = 540.dp
-private val DockRowHeight = 44.dp
-/** Thin, faintly smoky glass: the song's backdrop should read through it, bent at the edges. */
-private val DockGlassTint = Color(0xFF141418).copy(alpha = .24f)
+/** The dock is one glass box: the now-playing card on top, the view switch and close along the bottom. */
+private val DockBoxWidth = 540.dp
+private val DockRadius = 28.dp
+private val DockInset = 12.dp
+private val DockRowHeight = 40.dp
 
-@Composable
-private fun DockGlass(radius: Dp, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    LiquidPopupSurface(
-        modifier, tint = DockGlassTint, cornerRadius = radius,
-        blurDp = 5f, lensHeightDp = 30f, lensAmountDp = 34f, shadowElevation = 16.dp
-    ) {
-        Box(Modifier.drawBehind { glassSheen(radius.toPx()) }) { content() }
-    }
-}
-
-/** Light pooling on the top edge, a soft glint across the upper left, and depth at the base. */
-private fun DrawScope.glassSheen(radius: Float) {
-    val corner = CornerRadius(radius)
-    drawRoundRect(
-        Brush.verticalGradient(0f to Color.White.copy(alpha = .11f), .35f to Color.White.copy(alpha = .025f), 1f to Color.Transparent),
-        cornerRadius = corner
-    )
-    drawRoundRect(
-        Brush.linearGradient(
-            0f to Color.White.copy(alpha = .07f), .32f to Color.Transparent,
-            start = Offset.Zero, end = Offset(size.width * .55f, size.height)
-        ),
-        cornerRadius = corner
-    )
-    drawRoundRect(
-        Brush.verticalGradient(.62f to Color.Transparent, 1f to Color.Black.copy(alpha = .16f)),
-        cornerRadius = corner
-    )
-}
+/**
+ * The phone's liquid glass, as its floating dock draws it (Android `liquidGlass` with `glassBarTint`):
+ * a 9% white tint, 8dp blur, a 24dp lens over at least 30% of the short side, no dispersion,
+ * vibrancy, the directional half-dp rim and Kyant's default shadow.
+ */
+private val PhoneGlassTint = Color.White.copy(alpha = .09f)
+/** The phone dock's selected tab: a solid 14% white bead with a faint 10% white edge. */
+private val PhoneIndicatorTint = Color.White.copy(alpha = .14f)
+private val PhoneIndicatorEdge = Color.White.copy(alpha = .10f)
 
 @Composable
 private fun ImmersiveControls(
@@ -793,48 +773,52 @@ private fun ImmersiveControls(
     var heldTrack by remember { mutableStateOf(dockTrack) }
     LaunchedEffect(dockTrack) { if (dockTrack != null) heldTrack = dockTrack }
     val cardTrack = dockTrack ?: heldTrack
-    Column(
-        modifier.animateContentSize(tween(280, easing = FastOutSlowInEasing)),
-        horizontalAlignment = Alignment.CenterHorizontally
+    LiquidPopupSurface(
+        modifier.width(DockBoxWidth), tint = PhoneGlassTint, cornerRadius = DockRadius,
+        blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f, lensBand = .3f, chromaticAberration = 0f,
+        shadowElevation = 12.dp
     ) {
-        AnimatedVisibility(
-            visible = dockTrack != null,
-            enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) + fadeIn(tween(220)) +
-                scaleIn(tween(280, easing = FastOutSlowInEasing), initialScale = .94f),
-            exit = shrinkVertically(tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(160)) +
-                scaleOut(tween(220, easing = FastOutSlowInEasing), targetScale = .94f)
+        Column(
+            Modifier
+                .animateContentSize(tween(280, easing = FastOutSlowInEasing))
+                .padding(DockInset)
         ) {
-            if (cardTrack != null) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    DockGlass(30.dp, Modifier.width(DockCardWidth)) { DockNowPlaying(cardTrack, artwork, playback) }
-                    Spacer(Modifier.height(10.dp))
+            AnimatedVisibility(
+                visible = dockTrack != null,
+                enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) + fadeIn(tween(220)),
+                exit = shrinkVertically(tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(160))
+            ) {
+                if (cardTrack != null) {
+                    Column {
+                        DockNowPlaying(cardTrack, artwork, playback)
+                        Spacer(Modifier.height(12.dp))
+                    }
                 }
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            DockGlass(DockRowHeight / 2) { ImmersiveViewSwitch(view, onView) }
-            AnimatedVisibility(visible = track != null && dockTrack == null) {
-                DockGlass(DockRowHeight / 2) {
-                    TransportControls(playback, emphasized = false, Modifier.height(DockRowHeight).padding(horizontal = 10.dp))
+            Row(
+                Modifier.fillMaxWidth().height(DockRowHeight),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ImmersiveViewSwitch(view, onView)
+                Spacer(Modifier.weight(1f))
+                AnimatedVisibility(visible = track != null && dockTrack == null) {
+                    TransportControls(playback, emphasized = false, Modifier.padding(end = 6.dp))
                 }
-            }
-            if (displays.size > 1) {
-                DockGlass(DockRowHeight / 2) {
-                    Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (displays.size > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         displays.forEachIndexed { index, display ->
                             DockCircleButton(
                                 onClick = { onToggleDisplay(index) },
                                 selected = display in shownDisplays,
-                                size = DockRowHeight - 8.dp
+                                size = DockRowHeight
                             ) { alpha ->
                                 Text("${index + 1}", fontSize = 12.sp, color = Color.White.copy(alpha = alpha),
                                     fontWeight = if (display == thisDisplay) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     }
+                    Spacer(Modifier.width(4.dp))
                 }
-            }
-            DockGlass(DockRowHeight / 2) {
                 DockCircleButton(onClick = onLeave, selected = false, size = DockRowHeight, description = desktopText("Close")) { alpha ->
                     Icon(Icons.Rounded.Close, contentDescription = null, modifier = Modifier.size(18.dp),
                         tint = Color.White.copy(alpha = alpha))
@@ -847,16 +831,16 @@ private fun ImmersiveControls(
 /** Cover on the left spanning both rows; title and controls on top, the timeline under them. */
 @Composable
 private fun DockNowPlaying(track: Track, artwork: String?, playback: DesktopPlaybackController) {
-    Row(Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-        // 30dp card corner minus the 12dp inset keeps the cover's corner concentric with the glass.
-        DesktopArtwork(artwork, Modifier.size(84.dp), 18.dp, track.title, highRes = true)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // The box's corner minus its inset keeps the cover's corner concentric with the glass.
+        DesktopArtwork(artwork, Modifier.size(80.dp), DockRadius - DockInset, track.title, highRes = true)
         Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).padding(end = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(track.title, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = Color.White,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, fontSize = 13.sp, lineHeight = 17.sp, color = Color.White.copy(alpha = .68f),
+                    Text(track.artist, fontSize = 13.sp, lineHeight = 17.sp, color = Color.White.copy(alpha = .7f),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.width(10.dp))
@@ -868,35 +852,26 @@ private fun DockNowPlaying(track: Track, artwork: String?, playback: DesktopPlay
     }
 }
 
-/** Clock / Lyrics as a segmented capsule; the selected segment is a brighter glass bead that glides between them. */
+/** Clock / Lyrics like the phone dock's tabs: the selected one sits on a bead that glides between them. */
 @Composable
 private fun ImmersiveViewSwitch(selected: ImmersiveView, onSelect: (ImmersiveView) -> Unit) {
     val segment = 112.dp
-    val height = DockRowHeight - 8.dp
     val index by animateFloatAsState(
         ImmersiveView.entries.indexOf(selected).toFloat(),
         spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "view_switch_bead"
     )
-    Box(Modifier.padding(4.dp).width(segment * ImmersiveView.entries.size).height(height).selectableGroup()) {
+    Box(Modifier.width(segment * ImmersiveView.entries.size).height(DockRowHeight).selectableGroup()) {
         Box(
             Modifier
                 .offset { IntOffset((index * segment.toPx()).roundToInt(), 0) }
                 .width(segment)
-                .height(height)
+                .height(DockRowHeight)
                 .drawBehind {
                     val stroke = 1.dp.toPx()
-                    val radius = CornerRadius(size.height / 2f)
+                    drawRoundRect(PhoneIndicatorTint, cornerRadius = CornerRadius(size.height / 2f))
                     drawRoundRect(
-                        Brush.verticalGradient(listOf(Color.White.copy(alpha = .24f), Color.White.copy(alpha = .10f))),
-                        cornerRadius = radius
-                    )
-                    drawRoundRect(
-                        Brush.verticalGradient(0f to Color.White.copy(alpha = .12f), .5f to Color.Transparent),
-                        cornerRadius = radius
-                    )
-                    drawRoundRect(
-                        Brush.verticalGradient(listOf(Color.White.copy(alpha = .38f), Color.White.copy(alpha = .06f))),
+                        PhoneIndicatorEdge,
                         topLeft = Offset(stroke / 2f, stroke / 2f),
                         size = Size(size.width - stroke, size.height - stroke),
                         cornerRadius = CornerRadius(size.height / 2f - stroke / 2f),
@@ -934,7 +909,7 @@ private fun ImmersiveViewSwitch(selected: ImmersiveView, onSelect: (ImmersiveVie
     }
 }
 
-/** A round glass button: a faint bead on hover, a brighter one when [selected]. */
+/** A round button on the glass: the phone's indicator bead when [selected], a fainter one on hover. */
 @Composable
 private fun DockCircleButton(
     onClick: () -> Unit, selected: Boolean, size: Dp, description: String? = null,
@@ -943,14 +918,14 @@ private fun DockCircleButton(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
-    val fill by animateFloatAsState(if (selected) .20f else if (hovered) .12f else 0f, tween(120))
+    val fill by animateFloatAsState(if (selected) .14f else if (hovered) .10f else 0f, tween(120))
     val alpha by animateFloatAsState(if (selected || hovered) 1f else .72f, tween(140))
     val scale by animateFloatAsState(if (pressed) .9f else 1f, spring(stiffness = Spring.StiffnessMediumLow))
     Box(
         Modifier
             .size(size)
             .scale(scale)
-            .drawBehind { if (fill > 0f) drawCircle(Color.White.copy(alpha = fill), radius = this.size.minDimension / 2f - 4.dp.toPx()) }
+            .drawBehind { if (fill > 0f) drawCircle(Color.White.copy(alpha = fill)) }
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
