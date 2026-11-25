@@ -156,19 +156,23 @@ internal object WindowsUpdateInstall {
         process.outputStream.close()
     }
 
+    /** [msi] is the downloaded installer: the MSI on Windows, the disk image or zip on macOS. */
     fun writeRecord(directory: File, version: String, from: String, msi: File) {
+        directory.mkdirs()
         File(directory, RESULT).delete()
         File(directory, RECORD).writeText(JSONObject().put("version", version).put("from", from)
             .put("msi", msi.name).put("started", System.currentTimeMillis()).toString())
     }
 
+    /** What the last "Restart to update" did, on either desktop OS. */
     data class Outcome(val version: String, val succeeded: Boolean, val message: String)
 
     /**
-     * What the last "Restart to update" did, read once at the next start. Null when there was none
-     * (or the installer may still be running).
+     * The target version and the helper's exit code (null when it wrote none) of the last install,
+     * consumed once. Null when there was none, or when the helper may still be running. Shared by
+     * the Windows and macOS installers, which write the same [RECORD] and [RESULT] files.
      */
-    fun reconcile(directory: File, installed: String, now: Long = System.currentTimeMillis()): Outcome? {
+    fun takeRecord(directory: File, now: Long = System.currentTimeMillis()): Pair<String, Int?>? {
         val record = File(directory, RECORD)
         val resultFile = File(directory, RESULT)
         if (!record.isFile) { resultFile.delete(); return null }
@@ -178,7 +182,15 @@ internal object WindowsUpdateInstall {
         // Started by hand while the installer runs: let the instance the helper reopens report it.
         if (code == null && json != null && now - json.optLong("started") in 0 until 15 * 60_000L) return null
         record.delete(); resultFile.delete()
-        target ?: return null
+        return target?.let { it to code }
+    }
+
+    /**
+     * What the last "Restart to update" did, read once at the next start. Null when there was none
+     * (or the installer may still be running).
+     */
+    fun reconcile(directory: File, installed: String, now: Long = System.currentTimeMillis()): Outcome? {
+        val (target, code) = takeRecord(directory, now) ?: return null
         val installedVersion = Version.parse(installed)
         val targetVersion = Version.parse(target)
         val upgraded = installedVersion != null && targetVersion != null && installedVersion >= targetVersion

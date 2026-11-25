@@ -74,6 +74,10 @@ internal fun DesktopUpdatePrompt(modifier: Modifier = Modifier) {
                     else -> ""
                 }
                 if (detail.isNotEmpty()) Text(detail, fontSize = 12.5.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (available != null && failedReport == null && DesktopUpdater.suggestMoveToApplications) {
+                    Text(desktopText("Move Auralis to Applications to update automatically."),
+                        fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 val notes = remember(ready, available) {
                     DesktopReleases.plainNotes((ready?.release ?: available?.release)?.notes.orEmpty())
                 }
