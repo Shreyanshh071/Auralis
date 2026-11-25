@@ -3422,7 +3422,7 @@ private fun openAudioOutputSettings(context: Context) {
 
 /** Section title row in the classic Queue ("History", "Continue Playing"). */
 @Composable
-private fun ClassicQueueSectionHeader(
+internal fun ClassicQueueSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,

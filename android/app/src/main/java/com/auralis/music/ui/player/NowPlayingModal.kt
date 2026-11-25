@@ -1324,21 +1324,15 @@ fun NowPlayingModal(
                         }.toMutableStateList()
                     }
 
+                    // Opens on Continue Playing, with History (if any) just above it.
                     val initialScrollIndex = remember {
                         val activeIdx = QueueOperations.findActiveTrackIndex(
                             queue = queueSnapshot,
                             currentTrack = uiState.currentTrack,
                             currentIndex = queueCurrentIndex
-                        )
-                        if (activeIdx >= 0) {
-                            QueueOperations.calculateScrollIndex(
-                                targetIndex = activeIdx,
-                                visibleItemCount = 6,
-                                queueSize = queueSnapshot.size
-                            )
-                        } else {
-                            0
-                        }
+                        ).coerceAtLeast(0)
+                        val played = (0 until activeIdx).count { it in uiState.listenedQueueIndices }
+                        if (played > 0) played + 1 else 0
                     }
 
                     val queueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
@@ -1354,8 +1348,9 @@ fun NowPlayingModal(
                         lazyListState = queueListState,
                         scroller = scroller
                     ) { from, to ->
-                        val fromIndex = from.index
-                        val toIndex = to.index
+                        // Keys, not list positions: the section headers sit between the songs.
+                        val fromIndex = localQueue.indexOfFirst { it.instanceId == from.key }
+                        val toIndex = localQueue.indexOfFirst { it.instanceId == to.key }
                         if (fromIndex in localQueue.indices && toIndex in localQueue.indices) {
                             localQueue.add(toIndex, localQueue.removeAt(fromIndex))
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -1366,32 +1361,38 @@ fun NowPlayingModal(
                         syncLocalQueueWithSnapshot(localQueue, queueSnapshot, reorderableLazyListState.isAnyItemDragging)
                     }
 
-                    // Auto-scroll queue to currently playing song when Queue becomes active or active track changes
-                    val playingTrackId = uiState.currentTrack?.id
-                    LaunchedEffect(playingTrackId) {
-                        val playingTrack = uiState.currentTrack ?: return@LaunchedEffect
-                        val activeIndex = QueueOperations.findActiveTrackIndex(
-                            queue = localQueue.map { it.track },
-                            currentTrack = playingTrack,
-                            currentIndex = queueCurrentIndex
-                        )
-                        if (activeIndex >= 0) {
-                            val approxItemHeight = with(density) { 68.dp.roundToPx() }
-                            val visibleCount = if (queueListState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
-                                queueListState.layoutInfo.visibleItemsInfo.size
-                            } else if (queueListState.layoutInfo.viewportSize.height > 0 && approxItemHeight > 0) {
-                                (queueListState.layoutInfo.viewportSize.height / approxItemHeight).coerceAtLeast(1)
-                            } else {
-                                6
-                            }
-                            val targetScrollIndex = QueueOperations.calculateScrollIndex(
-                                targetIndex = activeIndex,
-                                visibleItemCount = visibleCount,
-                                queueSize = localQueue.size
-                            )
-                            if (!reorderableLazyListState.isAnyItemDragging) {
-                                queueListState.scrollToItem(targetScrollIndex)
-                            }
+                    // History holds only the queue occurrences that actually played (marked by the
+                    // player once a song plays). Songs jumped over stay unplayed and are skipped:
+                    // they show in neither section. Same split as the Classic queue.
+                    val playingTrack = uiState.currentTrack
+                    val activeQueueIndex by remember(localQueue, playingTrack, queueCurrentIndex) {
+                        derivedStateOf {
+                            if (playingTrack == null) 0
+                            else QueueOperations.findActiveTrackIndex(
+                                queue = localQueue.map { it.track },
+                                currentTrack = playingTrack,
+                                currentIndex = queueCurrentIndex
+                            ).coerceAtLeast(0)
+                        }
+                    }
+                    val historyIndices = (0 until activeQueueIndex).filter { it in uiState.listenedQueueIndices }
+                    val historyItems = historyIndices.mapNotNull { localQueue.getOrNull(it) }
+                    val historyCount = historyItems.size
+                    val continueHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
+
+                    // When the song changes, the played one moves up into History; bring Continue
+                    // Playing back to the top once the rows have finished sliding.
+                    val latestContinueHeaderIndex by rememberUpdatedState(continueHeaderIndex)
+                    var lastPlayingQueuePosition by remember { mutableStateOf(playingTrack?.id to queueCurrentIndex) }
+                    LaunchedEffect(playingTrack?.id, queueCurrentIndex) {
+                        val position = (playingTrack?.id ?: return@LaunchedEffect) to queueCurrentIndex
+                        if (position == lastPlayingQueuePosition) return@LaunchedEffect
+                        lastPlayingQueuePosition = position
+                        if (reorderableLazyListState.isAnyItemDragging) return@LaunchedEffect
+                        kotlinx.coroutines.delay(PlayerTransitionMotion.QueuePlacementMillis.toLong() + 40L)
+                        val target = latestContinueHeaderIndex
+                        if (queueListState.firstVisibleItemIndex != target || queueListState.firstVisibleItemScrollOffset != 0) {
+                            queueListState.animateScrollToItem(target)
                         }
                     }
 
@@ -1427,7 +1428,7 @@ fun NowPlayingModal(
                     ) {
                         Column(modifier = Modifier.fillMaxSize()) {
                             Text(
-                                text = str(R.string.up_next_x_songs, localQueue.size),
+                                text = str(R.string.up_next_x_songs, (localQueue.size - activeQueueIndex - 1).coerceAtLeast(0)),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -1440,12 +1441,9 @@ fun NowPlayingModal(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    items(
-                                        items = localQueue,
-                                        key = { it.instanceId },
-                                        contentType = { "queue_track" }
-                                    ) { item ->
-                                        val isCurrent = item.track.id == uiState.currentTrack?.id
+                                    // History: only songs that actually played. Songs jumped over are skipped, not history.
+                                    val queueRow: @Composable androidx.compose.foundation.lazy.LazyItemScope.(QueueTrackItem, Boolean) -> Unit = { item, inHistory ->
+                                        val isCurrent = localQueue.getOrNull(activeQueueIndex)?.instanceId == item.instanceId
                                         val primaryColor = MaterialTheme.colorScheme.primary
 
                                         ReorderableItem(
@@ -1453,7 +1451,9 @@ fun NowPlayingModal(
                                             key = item.instanceId,
                                             animateItemModifier = Modifier.animateItem(
                                                 fadeInSpec = null,
-                                                placementSpec = PlayerTransitionMotion.queuePlacement,
+                                                // A song that has just become History jumps to its place above
+                                                // instead of sliding up through the songs below.
+                                                placementSpec = if (inHistory) null else PlayerTransitionMotion.queuePlacement,
                                                 fadeOutSpec = null
                                             )
                                         ) { isDragging ->
@@ -1533,7 +1533,8 @@ fun NowPlayingModal(
                                                         enabled = !reorderableLazyListState.isAnyItemDragging && (System.currentTimeMillis() - lastDragEndTime > 450L)
                                                     ) {
                                                         if (System.currentTimeMillis() - lastDragEndTime <= 450L) return@clickable
-                                                        val actualIndex = queueSnapshot.indexOfFirst { it.id == item.track.id }.takeIf { it >= 0 } ?: localQueue.indexOfFirst { it.instanceId == item.instanceId }
+                                                        // This row's own occurrence: the same song can sit in the queue twice.
+                                                        val actualIndex = queuePosition()
                                                         if (actualIndex >= 0) {
                                                             skipPagerAnimation = true
                                                             com.auralis.music.ui.theme.ArtworkPaletteCache.updateForTrack(context, item.track)
@@ -1645,6 +1646,28 @@ fun NowPlayingModal(
                                             }
                                         }
                                     }
+                                    if (historyCount > 0) {
+                                        item(key = "queue_history_header", contentType = "queue_header") {
+                                            ClassicQueueSectionHeader(
+                                                title = str(R.string.history),
+                                                modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+                                            )
+                                        }
+                                        items(items = historyItems, key = { it.instanceId }, contentType = { "queue_track" }) { queueRow(it, true) }
+                                    }
+                                    item(key = "queue_continue_header", contentType = "queue_header") {
+                                        ClassicQueueSectionHeader(
+                                            title = str(R.string.continue_playing),
+                                            modifier = Modifier
+                                                .animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+                                                .padding(top = if (historyCount > 0) 10.dp else 0.dp)
+                                        )
+                                    }
+                                    items(
+                                        items = localQueue.subList(activeQueueIndex.coerceAtMost(localQueue.size), localQueue.size).toList(),
+                                        key = { it.instanceId },
+                                        contentType = { "queue_track" }
+                                    ) { queueRow(it, false) }
                                 }
                             }
                         }

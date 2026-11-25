@@ -844,27 +844,26 @@ fun ImmersivePlayerContainer(
                         ImmersiveVolumeRow()
 
                         Spacer(Modifier.height(if (deckTight) 4.dp else 10.dp))
+
+                        // Part of the deck, as in the classic player: scrolling the queue or lyrics
+                        // hides the whole panel and the list runs to the bottom of the screen.
+                        ImmersiveActionRow(
+                            lyricsOpen = currentTab == NowPlayingTab.LYRICS,
+                            queueOpen = currentTab == NowPlayingTab.QUEUE,
+                            onToggleLyrics = {
+                                onTabChange(if (currentTab == NowPlayingTab.LYRICS) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS)
+                            },
+                            onToggleQueue = {
+                                onTabChange(if (currentTab == NowPlayingTab.QUEUE) NowPlayingTab.PLAYER else NowPlayingTab.QUEUE)
+                            }
+                        )
+
+                        // Room the reference keeps under the row (its output caption sits here); the first
+                        // thing a short screen gives back.
+                        Spacer(Modifier.height(if (deckTight) 12.dp else 44.dp))
                     }
                 }
             }
-
-            ImmersiveActionRow(
-                lyricsOpen = currentTab == NowPlayingTab.LYRICS,
-                queueOpen = currentTab == NowPlayingTab.QUEUE,
-                onToggleLyrics = {
-                    onTabChange(if (currentTab == NowPlayingTab.LYRICS) NowPlayingTab.PLAYER else NowPlayingTab.LYRICS)
-                },
-                onToggleQueue = {
-                    onTabChange(if (currentTab == NowPlayingTab.QUEUE) NowPlayingTab.PLAYER else NowPlayingTab.QUEUE)
-                },
-                modifier = Modifier
-                    .padding(horizontal = SIDE_GUTTER)
-                    .graphicsLayer { alpha = controlsAlpha }
-            )
-
-            // Room the reference keeps under the row (its output caption sits here); the first
-            // thing a short screen gives back.
-            Spacer(Modifier.height(if (deckTight) 12.dp else 44.dp))
         }
 
         if (showLyricsProviders) {
