@@ -59,6 +59,8 @@ private class PageGlow {
     var enabled = false
     var image by mutableStateOf<ImageBitmap?>(null)
     var pageSize by mutableStateOf(IntSize.Zero)
+    /** How far above the page's top the glow starts (it runs up behind the status bar). */
+    var topOffsetPx by mutableIntStateOf(0)
 }
 
 private val LocalPageGlow = staticCompositionLocalOf<PageGlow?> { null }
@@ -98,6 +100,8 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
     val glass = rememberPageHeaderGlass(backdrop)
     val pageGlow = remember { PageGlow() }
     pageGlow.enabled = glass != null || glowWithoutGlass
+    pageGlow.topOffsetPx = if (glowBehindStatusBar)
+        androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current) else 0
     if (glowBehindStatusBar) DisposableEffect(pageGlow) {
         onDispose { if (StatusBarGlow.owner === pageGlow) StatusBarGlow.clear() }
     }
@@ -111,7 +115,13 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
                 StatusBarGlow.color = background
                 if (!pageGlow.enabled) StatusBarGlow.image = null
             } else modifier) {
-                if (pageGlow.enabled) Box(Modifier.fillMaxSize()
+                // The page paints its own colour and glow up behind the status bar (as BitChord's
+                // pages do) instead of leaving that strip to StatusBarGlowBand to copy. The band
+                // only follows whichever page drew last, so while tabs switched or a page closed
+                // it fell back to the app's dark background and the strip went black.
+                val behindBar = if (glowBehindStatusBar) Modifier.underStatusBar() else Modifier
+                if (glowBehindStatusBar) Box(Modifier.fillMaxSize().then(behindBar).background(background))
+                if (pageGlow.enabled) Box(Modifier.fillMaxSize().then(behindBar)
                     .then(if (glass != null) Modifier.layerBackdrop(backdrop) else Modifier).drawWithCache {
                     val image = renderPageGlow(size, background, accent)
                     val pageSize = IntSize(size.width.toInt(), size.height.toInt())
@@ -259,7 +269,10 @@ internal fun PageGlowTopFade(height: Dp, background: Color, modifier: Modifier =
             0f to background, .64f to background.copy(alpha = .88f), 1f to Color.Transparent)))
     } else {
         Box(base.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.drawWithContent {
-            glow.image?.let { drawImage(it, dstSize = glow.pageSize, filterQuality = FilterQuality.Low) }
+            glow.image?.let {
+                drawImage(it, dstOffset = androidx.compose.ui.unit.IntOffset(0, -glow.topOffsetPx),
+                    dstSize = glow.pageSize, filterQuality = FilterQuality.Low)
+            }
             drawRect(
                 Brush.verticalGradient(0f to Color.Black, .64f to Color.Black.copy(alpha = .88f), 1f to Color.Transparent),
                 blendMode = BlendMode.DstIn
