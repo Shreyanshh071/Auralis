@@ -224,7 +224,7 @@ fun Modifier.contextMenuAnchor(onClick: (() -> Unit)? = null): Modifier = compos
                 if (released != null) return@awaitEachGesture
                 val coords = anchor.coordinates?.takeIf { it.isAttached } ?: return@awaitEachGesture
                 val origin = IntArray(2).also { view.getLocationOnScreen(it) }
-                anchor.boundsOnScreen = coords.boundsInWindow().translate(Offset(origin[0].toFloat(), origin[1].toFloat()))
+                anchor.boundsOnScreen = coords.fullBoundsInWindow().translate(Offset(origin[0].toFloat(), origin[1].toFloat()))
                 anchor.snapshot = null
                 ContextMenuAnchors.arm(anchor)
                 scope.launch {
@@ -263,7 +263,7 @@ fun ContextMenuAnchor.captureForTap(scope: kotlinx.coroutines.CoroutineScope) {
     val coords = coordinates?.takeIf { it.isAttached } ?: return
     val view = hostView ?: return
     val origin = IntArray(2).also { view.getLocationOnScreen(it) }
-    boundsOnScreen = coords.boundsInWindow().translate(Offset(origin[0].toFloat(), origin[1].toFloat()))
+    boundsOnScreen = coords.fullBoundsInWindow().translate(Offset(origin[0].toFloat(), origin[1].toFloat()))
     snapshot = null
     val layer = tapLayer ?: return
     scope.launch {
@@ -273,6 +273,15 @@ fun ContextMenuAnchor.captureForTap(scope: kotlinx.coroutines.CoroutineScope) {
         snapshot = runCatching { layer.toImageBitmap() }.getOrNull()
         capturing = false
     }
+}
+
+/**
+ * The item's whole rectangle in the window. boundsInWindow() is cut to what its parents show, so
+ * an item half off the screen came out narrow and its full snapshot was squeezed into that.
+ */
+private fun LayoutCoordinates.fullBoundsInWindow(): Rect {
+    val topLeft = positionInWindow()
+    return Rect(topLeft, androidx.compose.ui.geometry.Size(size.width.toFloat(), size.height.toFloat()))
 }
 
 /** One row of the glass menu. [dismisses] = false when the row opens something else instead. */
@@ -381,6 +390,9 @@ fun GlassContextMenu(
 
         // Where the menu grows from: the side touching the lifted item. Set during layout.
         var menuOrigin by remember { mutableStateOf(TransformOrigin(0f, 0f)) }
+        // How far the lifted item travels from its spot so it and the menu fit fully on screen
+        // (an item cut by the screen edge slides in). Set during layout, applied with the lift.
+        var cardShift by remember { mutableStateOf(Offset.Zero) }
         // Animation is read only in layer/draw lambdas, so opening never recomposes the menu.
         val p = { progress.value.coerceIn(0f, 1.2f) }
         val scrimAlpha = if (blurSupported) 0.32f else 0.6f
@@ -418,6 +430,9 @@ fun GlassContextMenu(
                                 val lift = 1f + 0.035f * p()
                                 scaleX = lift
                                 scaleY = lift
+                                val travel = p().coerceIn(0f, 1f)
+                                translationX = cardShift.x * travel
+                                translationY = cardShift.y * travel
                             }
                             .clip(liftedCardShape)
                             .drawBehind {
@@ -531,22 +546,33 @@ fun GlassContextMenu(
                 val cardW = (itemRect.width + cardPadPx * 2).roundToInt().coerceAtLeast(1)
                 val cardH = (itemRect.height + cardPadPx * 2).roundToInt().coerceAtLeast(1)
                 val card = measurables[0].measure(Constraints.fixed(cardW, cardH))
-                val below = constraints.maxHeight - (itemRect.bottom + cardPadPx + gapPx) - marginPx * 3
-                val above = itemRect.top - cardPadPx - gapPx - marginPx * 3
+                val screenW = constraints.maxWidth.toFloat()
+                val screenH = constraints.maxHeight.toFloat()
+                val edge = marginPx * 3
+                // The card stays in its row; one cut by the screen's side edge slides sideways
+                // just far enough to be fully on screen.
+                val homeX = itemRect.left - cardPadPx
+                val homeY = itemRect.top - cardPadPx
+                val cardX = if (cardW + marginPx * 2 <= screenW) homeX.coerceIn(marginPx, screenW - cardW - marginPx) else homeX
+                val cardY = homeY
+                val below = screenH - (cardY + cardH + gapPx) - edge
+                val above = cardY - gapPx - edge
                 val placeBelow = below >= above
                 val room = (if (placeBelow) below else above).roundToInt().coerceAtLeast(0)
                 val menu = measurables[1].measure(
                     constraints.copy(minWidth = 0, minHeight = 0, maxHeight = room.coerceAtLeast(1))
                 )
-                val menuX = itemRect.left.coerceIn(marginPx, (constraints.maxWidth - menu.width - marginPx).coerceAtLeast(marginPx))
-                val menuY = if (placeBelow) itemRect.bottom + cardPadPx + gapPx
-                    else itemRect.top - cardPadPx - gapPx - menu.height
+                cardShift = Offset(cardX - homeX, 0f)
+                val cardLeft = cardX + cardPadPx
+                val menuX = cardLeft.coerceIn(marginPx, (screenW - menu.width - marginPx).coerceAtLeast(marginPx))
+                val menuY = if (placeBelow) cardY + cardH + gapPx else cardY - gapPx - menu.height
                 menuOrigin = TransformOrigin(
-                    pivotFractionX = ((itemRect.left + itemRect.width / 2f - menuX) / menu.width.coerceAtLeast(1)).coerceIn(0f, 1f),
+                    pivotFractionX = ((cardLeft + itemRect.width / 2f - menuX) / menu.width.coerceAtLeast(1)).coerceIn(0f, 1f),
                     pivotFractionY = if (placeBelow) 0f else 1f
                 )
                 layout(constraints.maxWidth, constraints.maxHeight) {
-                    card.place((itemRect.left - cardPadPx).roundToInt(), (itemRect.top - cardPadPx).roundToInt())
+                    // Placed at its spot; the lift slides it to (cardX, cardY) and back on close.
+                    card.place(homeX.roundToInt(), homeY.roundToInt())
                     menu.place(menuX.roundToInt(), menuY.roundToInt())
                 }
             }
