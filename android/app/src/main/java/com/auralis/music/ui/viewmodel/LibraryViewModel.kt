@@ -690,6 +690,29 @@ class LibraryViewModel(
         }
 
         val reordered = com.auralis.music.domain.library.PlaylistManager.reorderTracks(currentPlaylist.tracks, fromIndex, toIndex)
+        commitPlaylistOrder(currentPlaylist, reordered)
+    }
+
+    /**
+     * Saves a new order for the songs the playlist screen shows (several selected songs moved at
+     * once). Hidden placeholder rows keep their slots.
+     */
+    fun setPlaylistTrackOrder(playlistId: String, newVisibleOrder: List<Track>) {
+        if (playlistId.startsWith("smart_") && !DownloadTrackOrder.supports(playlistId)) return
+        val currentPlaylist = _uiState.value.selectedPlaylist?.takeIf { it.id == playlistId }
+            ?: _uiState.value.playlists.firstOrNull { it.id == playlistId }
+            ?: return
+        val reordered = com.auralis.music.ui.library.PlaylistGroupMove.applyVisibleOrder(
+            currentPlaylist.tracks,
+            newVisibleOrder,
+            com.auralis.music.ui.library.PlaylistGroupMove::isShownInPlaylist
+        ) ?: return
+        if (reordered.map { it.id } == currentPlaylist.tracks.map { it.id }) return
+        commitPlaylistOrder(currentPlaylist, reordered)
+    }
+
+    private fun commitPlaylistOrder(currentPlaylist: Playlist, reordered: List<Track>) {
+        val playlistId = currentPlaylist.id
         val updatedPlaylist = currentPlaylist.copy(tracks = reordered)
 
         if (DownloadTrackOrder.supports(playlistId)) {

@@ -1692,6 +1692,9 @@ fun AuralisApp(
                                                 onReorderPlaylistTracks = { plId, from, to ->
                                                     libVM.reorderPlaylistTracks(plId, from, to)
                                                 },
+                                                onSetPlaylistOrder = { plId, tracks ->
+                                                    libVM.setPlaylistTrackOrder(plId, tracks)
+                                                },
                                                 isExternalCreateDialogOpen = isExternalCreatePlaylistOpen,
                                                 onCloseExternalCreateDialog = { isExternalCreatePlaylistOpen = false },
                                                 isTrackPinned = { homeViewModel.isTrackPinned(it) },

@@ -345,6 +345,14 @@
     <string name="playlist_order_unlocked">Order unlocked: drag the handles to reorder</string>
     <string name="unlock_playlist_order">Unlock playlist order</string>
     <string name="lock_playlist_order">Lock playlist order</string>
+    <string name="playlist_order_unlocked_select">Order unlocked: drag a handle, or tick songs to move them together</string>
+    <string name="playlist_songs_selected">%1$d selected</string>
+    <string name="playlist_move_to_top">Top</string>
+    <string name="playlist_move_to_bottom">Bottom</string>
+    <string name="playlist_move_selected_to_top">Move selected songs to the top</string>
+    <string name="playlist_move_selected_to_bottom">Move selected songs to the bottom</string>
+    <string name="playlist_clear_selection">Clear selection</string>
+    <string name="playlist_select_song">Select song</string>
     <string name="audio_output_settings_unavailable">Audio Output Settings unavailable</string>
     <string name="artist_x">Artist: %1$s</string>
     <string name="previous_track">Previous Track</string>
