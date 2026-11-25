@@ -116,14 +116,11 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Prevent duplicates", "Do not add the same song twice to the upcoming queue")
             row("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track")
         }
-        group("Video") {
-            row("Music videos", "Show a synchronized video in the sidebar when the playing recording has one. Audio continues independently.")
-            row("Ambient light", "Sample the video colours for the sidebar background")
+        group("Search") {
             row("Hide music videos in search", "Show audio recordings instead of video results on your next search")
         }
-        group("Advanced · stream clients") {
-            row("VISIONOS", keywords = "stream client extractor")
-            row("IOS", keywords = "stream client extractor")
+        group("Lyrics providers") {
+            row("Provider order", "Auralis asks providers from the top down. Drag a provider to change the order.", "lyrics sources priority reorder rearrange")
         }
     }
     tab(SettingsTab.HOTKEYS) {
@@ -180,9 +177,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("Show artist subscriber count", "Displays channel subscribers on artist pages")
             row("Show monthly listeners", "Displays estimated monthly listeners on artist pages")
             row("Show artist description", "Displays Wikipedia and bio descriptions on artist pages")
-        }
-        group("Lyrics providers") {
-            other("Lyrics providers", "Auralis asks providers from the top down. Drag a provider to change the order.", "sources priority order reorder")
         }
         group("Lyrics romanization") {
             row("Romanize lyrics", "Show pronunciation below supported lyrics", "romanisation pronunciation latin")

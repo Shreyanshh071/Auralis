@@ -49,6 +49,7 @@ import com.auralis.music.domain.model.*
 import com.auralis.music.domain.repository.HistoryRepository
 import com.auralis.music.domain.repository.SearchRepository
 import com.auralis.music.windows.discord.*
+import com.auralis.music.windows.recordPopupGlass
 import com.auralis.music.windows.update.DesktopReleases
 import com.auralis.music.windows.update.DesktopUpdater
 import com.auralis.music.windows.update.updateStatusText
@@ -109,6 +110,7 @@ internal fun SettingsPopupOverlay(modifier: Modifier = Modifier, onDismiss: () -
     val focus = remember { FocusRequester() }
     val opening = remember { Animatable(0f) }
     val firstDraw = remember { CompletableDeferred<Unit>() }
+    val settingsGlass = com.auralis.music.windows.rememberPopupGlassSource()
     LaunchedEffect(Unit) { focus.requestFocus() }
     LaunchedEffect(Unit) {
         firstDraw.await()
@@ -123,7 +125,8 @@ internal fun SettingsPopupOverlay(modifier: Modifier = Modifier, onDismiss: () -
     }.focusRequester(focus).focusable().drawWithContent {
         drawContent()
         firstDraw.complete(Unit)
-    }, contentAlignment = Alignment.Center) {
+    // Glass popups opened from Settings sample Settings itself, not the page behind the overlay.
+    }.recordPopupGlass(settingsGlass), contentAlignment = Alignment.Center) {
         Box(Modifier.matchParentSize().graphicsLayer { alpha = opening.value }
             .background(Color.Black.copy(alpha = .58f))
             .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss))
@@ -149,6 +152,7 @@ internal fun SettingsPopupOverlay(modifier: Modifier = Modifier, onDismiss: () -
         MaterialTheme(colorScheme = popupScheme) {
         CompositionLocalProvider(
             com.auralis.music.ui.components.LocalGlassDialogHost provides { dismiss, dialog -> SettingsOptionPopup(dismiss, dialog) },
+            com.auralis.music.windows.LocalPopupGlassSource provides settingsGlass,
             LocalScrollbarStyle provides LocalScrollbarStyle.current.copy(
             thickness = 4.dp,
             unhoverColor = scheme.onSurface.copy(alpha = .20f),
@@ -457,20 +461,12 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         SettingToggle("Sticky shuffle", "Keep shuffling when you start a different album or playlist", prefs.bool("stickyShuffle")) { prefs.set("stickyShuffle", it) }
         SettingToggle("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track", prefs.bool("shuffleWholeQueue")) { prefs.set("shuffleWholeQueue",it) }
     }
-    SettingsGroup("Video") {
-        SettingToggle("Music videos", "Show a synchronized video in the sidebar when the playing recording has one. Audio continues independently.",prefs.bool("musicVideos")) {prefs.set("musicVideos",it)}
-        if(prefs.bool("musicVideos")) SettingToggle("Ambient light", "Sample the video colours for the sidebar background",prefs.bool("ambientVideo",true)) {prefs.set("ambientVideo",it)}
+    SettingsGroup("Search") {
         SettingToggle("Hide music videos in search", "Show audio recordings instead of video results on your next search",prefs.bool("hideVideos")) {prefs.set("hideVideos",it)}
     }
     SettingsBlockedArtistsSection()
-    SettingsGroup("Advanced · stream clients") {
-        Text(desktopText("These are the clients supported by Auralis's extractor. Keep at least one enabled. Changes apply to the next stream lookup."),style=MaterialTheme.typography.bodySmall)
-        val enabled=prefs.text("streamClients","VISIONOS").split(',').toSet()
-        for(client in listOf("VISIONOS","IOS")) SettingToggle(client,checked=client in enabled,onChecked={on->
-            val next=if(on) enabled+client else enabled-client
-            if(next.isNotEmpty()) prefs.set("streamClients",next.joinToString(","))
-        })
-    }
+
+    LyricsProviderOrder()
     ContentSettingsPane(stores.content)
 }
 

@@ -550,7 +550,8 @@ fun main(args: Array<String>) {
                 val prefs = com.auralis.music.windows.settings.DesktopPreferences.store
                 pb.setNormalizeVolume(prefs.bool("normalize"))
                 pb.crossfadeSeconds = prefs.number("crossfadeSeconds",0.0).toFloat()
-                com.auralis.music.desktop.playback.DesktopStreamResolver.enabledClients = prefs.text("streamClients","VISIONOS").split(',').filter {it in setOf("VISIONOS","IOS")}.toSet()
+                // Stream clients are no longer a setting: always the extractor's default (VISIONOS).
+                com.auralis.music.desktop.playback.DesktopStreamResolver.enabledClients = setOf("VISIONOS")
                 com.auralis.music.desktop.lyrics.DesktopLyricsRepository.preferredProviders = prefs.text("lyricsPriority").split(',').mapNotNull {name->runCatching {com.auralis.music.domain.model.LyricsProvider.valueOf(name)}.getOrNull()}
                 pb.preventDuplicates = prefs.bool("preventDuplicates",true)
 

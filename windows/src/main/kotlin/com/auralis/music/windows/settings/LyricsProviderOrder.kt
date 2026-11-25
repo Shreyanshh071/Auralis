@@ -2,11 +2,18 @@ package com.auralis.music.windows.settings
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DragIndicator
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -15,12 +22,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,64 +58,88 @@ internal fun <T> moved(list: List<T>, from: Int, to: Int): List<T> {
     return list.toMutableList().apply { add(to, removeAt(from)) }
 }
 
-private val RowHeight = 64.dp
-private val RowGap = 8.dp
+private fun LyricsProvider.label() = LyricsClient.settingsId(this)?.displayName ?: name
+
+private val RowHeight = 58.dp
+private val RowGap = 6.dp
+
+/** A number that sits in the optical middle of its circle (the font's line box would push it down). */
+private val RankStyle = TextStyle(
+    fontSize = 12.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
+)
 
 /**
- * Lyrics providers, ranked: no switches, every provider stays on and Auralis asks them from the top
- * down. Drag a row by its handle, or use the arrows.
+ * Settings → Playback → Lyrics providers: one row showing the current top of the order. It opens a
+ * glass sheet where every provider (all of them stay on) is ranked by dragging or the arrows.
  */
 @Composable
 internal fun LyricsProviderOrder() {
     val prefs = DesktopPreferences.store
     val revision by prefs.changes.collectAsState()
+    val order = remember(revision) { lyricsProviderOrder(prefs.text("lyricsPriority")) }
+    var open by remember { mutableStateOf(false) }
+    SettingsGroup("Lyrics providers") {
+        SettingsHoverSurface(
+            onClick = { open = true }, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth().settingJumpTarget("Provider order")
+        ) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(desktopText("Provider order"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(order.take(3).joinToString("  ›  ") { it.label() } + "  ›  …",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(desktopText("Rearrange"), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                Icon(Icons.Outlined.ChevronRight, null, Modifier.padding(start = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    if (open) ProviderOrderSheet(onDismiss = { open = false })
+}
+
+@Composable
+private fun ProviderOrderSheet(onDismiss: () -> Unit) {
+    val prefs = DesktopPreferences.store
+    val revision by prefs.changes.collectAsState()
     val savedText = remember(revision) { prefs.text("lyricsPriority") }
-    val custom = savedText.isNotBlank()
     var order by remember(savedText) { mutableStateOf(lyricsProviderOrder(savedText)) }
     fun save(next: List<LyricsProvider>) {
         order = next
         prefs.set("lyricsPriority", next.joinToString(",") { it.name })
     }
-
-    SettingsGroup("Lyrics providers") {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(desktopText("Auralis asks providers from the top down. Drag a provider to change the order."),
-                Modifier.weight(1f).padding(start = 2.dp), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (custom) TextButton({ prefs.set("lyricsPriority", "") }) { Text(desktopText("Reset order")) }
+    GlassSheet(desktopText("Lyrics providers"), onDismiss, sheetWidth = 460.dp, maxSheetHeight = 640.dp, trailing = {
+        if (savedText.isNotBlank()) TextButton({ prefs.set("lyricsPriority", "") }) {
+            Text(desktopText("Reset"), color = Color.White.copy(alpha = .85f))
         }
+    }) {
+        Text(desktopText("Auralis asks providers from the top down. Drag a provider to change the order."),
+            Modifier.padding(horizontal = 8.dp), fontSize = 12.5.sp, color = Color.White.copy(alpha = .62f))
+        Spacer(Modifier.height(12.dp))
         val step = with(LocalDensity.current) { (RowHeight + RowGap).toPx() }
         var dragging by remember { mutableStateOf<LyricsProvider?>(null) }
         var dragOffset by remember { mutableFloatStateOf(0f) }
-        Column(verticalArrangement = Arrangement.spacedBy(RowGap)) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(RowGap)) {
             order.forEachIndexed { index, provider ->
                 key(provider) {
                     val isDragged = dragging == provider
                     val lift by animateFloatAsState(if (isDragged) 1f else 0f, label = "lift")
                     ProviderRow(
-                        provider = provider,
-                        rank = index + 1,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < order.lastIndex,
+                        provider = provider, rank = index + 1,
+                        canMoveUp = index > 0, canMoveDown = index < order.lastIndex,
                         onMoveUp = { save(moved(order, index, index - 1)) },
                         onMoveDown = { save(moved(order, index, index + 1)) },
-                        modifier = Modifier
-                            .zIndex(if (isDragged) 1f else 0f)
-                            .graphicsLayer {
-                                translationY = if (isDragged) dragOffset else 0f
-                                val scale = 1f + .02f * lift
-                                scaleX = scale; scaleY = scale
-                                shadowElevation = 12f * lift
-                                shape = RoundedCornerShape(16.dp)
-                                clip = false
-                            },
+                        lifted = lift,
+                        modifier = Modifier.zIndex(if (isDragged) 1f else 0f).graphicsLayer {
+                            translationY = if (isDragged) dragOffset else 0f
+                            val scale = 1f + .02f * lift
+                            scaleX = scale; scaleY = scale
+                        },
                         handle = Modifier.pointerInput(provider) {
                             detectDragGestures(
                                 onDragStart = { dragging = provider; dragOffset = 0f },
-                                onDragEnd = {
-                                    dragging = null; dragOffset = 0f
-                                    prefs.set("lyricsPriority", order.joinToString(",") { it.name })
-                                },
+                                onDragEnd = { dragging = null; dragOffset = 0f; save(order) },
                                 onDragCancel = { dragging = null; dragOffset = 0f; order = lyricsProviderOrder(savedText) }
                             ) { change, amount ->
                                 change.consume()
@@ -128,34 +163,43 @@ internal fun LyricsProviderOrder() {
 @Composable
 private fun ProviderRow(
     provider: LyricsProvider, rank: Int, canMoveUp: Boolean, canMoveDown: Boolean,
-    onMoveUp: () -> Unit, onMoveDown: () -> Unit, modifier: Modifier, handle: Modifier
+    onMoveUp: () -> Unit, onMoveDown: () -> Unit, lifted: Float, modifier: Modifier, handle: Modifier
 ) {
     val info = LyricsClient.settingsId(provider)
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = modifier.fillMaxWidth().height(RowHeight)) {
-        Row(Modifier.fillMaxSize().padding(start = 6.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(handle.size(36.dp, RowHeight).pointerHoverIcon(PointerIcon.Hand), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.DragIndicator, desktopText("Drag to reorder %1\$s", info?.displayName ?: provider.name),
-                    Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Box(Modifier.size(26.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .16f)),
-                contentAlignment = Alignment.Center) {
-                Text("$rank", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(info?.displayName ?: provider.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                info?.description?.let {
-                    Text(desktopText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            IconButton(onMoveUp, enabled = canMoveUp, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Outlined.KeyboardArrowUp, desktopText("Move up"), Modifier.size(20.dp))
-            }
-            IconButton(onMoveDown, enabled = canMoveDown, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Outlined.KeyboardArrowDown, desktopText("Move down"), Modifier.size(20.dp))
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(18.dp)
+    val fill = .06f + (if (hovered) .03f else 0f) + .08f * lifted
+    Row(
+        modifier.fillMaxWidth().height(RowHeight).clip(shape).background(Color.White.copy(alpha = fill), shape)
+            .hoverable(interaction).padding(start = 4.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(handle.size(34.dp, RowHeight).pointerHoverIcon(PointerIcon.Hand), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.DragIndicator, desktopText("Drag to reorder %1\$s", provider.label()),
+                Modifier.size(20.dp), tint = Color.White.copy(alpha = .55f))
+        }
+        Box(Modifier.size(26.dp).clip(CircleShape).background(Color.White.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+            Text("$rank", style = RankStyle, color = Color.White)
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(provider.label(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            info?.description?.let {
+                Text(desktopText(it), fontSize = 12.sp, color = Color.White.copy(alpha = .6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+        ArrowButton(Icons.Outlined.KeyboardArrowUp, desktopText("Move up"), canMoveUp, onMoveUp)
+        ArrowButton(Icons.Outlined.KeyboardArrowDown, desktopText("Move down"), canMoveDown, onMoveDown)
     }
+}
+
+@Composable
+private fun ArrowButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(32.dp).clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier),
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, description, Modifier.size(20.dp), tint = Color.White.copy(alpha = if (enabled) .85f else .25f)) }
 }

@@ -9,6 +9,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.layout.*
 import com.auralis.music.ui.components.toggleable
 import androidx.compose.ui.semantics.Role
@@ -239,7 +246,6 @@ internal fun ContentSettingsPane(store: ContentSettingsDataStore) {
         )
     }
 
-    LyricsProviderOrder()
 
     SettingsGroup("Lyrics romanization") {
         SettingToggle("Romanize lyrics", "Show pronunciation below supported lyrics", settings.romanizationEnabled) {
@@ -377,8 +383,35 @@ internal fun SettingButtonRow(title: String, description: String? = null, button
                     Text(desktopText(description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            OutlinedButton(onClick = onClick) { Text(desktopText(button)) }
+            SettingPillButton(desktopText(button), destructive = button.startsWith("Clear") || button.startsWith("Delete"), onClick = onClick)
         }
+    }
+}
+
+/**
+ * The action on the right of a settings row: a soft filled pill that brightens on hover and dips on
+ * press. [destructive] (clearing or deleting) tints it red so it reads as the one to think about.
+ */
+@Composable
+internal fun SettingPillButton(text: String, destructive: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val danger = Color(0xFFFF6B6B)
+    val base = if (destructive) danger else MaterialTheme.colorScheme.onSurface
+    val fill by animateColorAsState(base.copy(alpha = if (!enabled) .05f else if (hovered) .20f else .12f), tween(120), label = "pillFill")
+    val scale by animateFloatAsState(if (pressed) .95f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "pillScale")
+    Box(
+        Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(50)).background(fill)
+            .hoverable(interaction, enabled)
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .padding(horizontal = 18.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+            color = (if (destructive) danger else MaterialTheme.colorScheme.onSurface).copy(alpha = if (enabled) 1f else .4f))
     }
 }
 

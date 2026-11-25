@@ -24,7 +24,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.LocalCafe
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.*
@@ -131,14 +141,20 @@ internal fun AboutPane(onCheckForUpdates: () -> Unit) {
             SocialIcon(Icons.Outlined.LocalCafe, desktopText("Buy Me a Chai"), 24) { openUrl(BUY_ME_A_CHAI_URL) }
         }
         Spacer(Modifier.height(22.dp))
-        Column(Modifier.widthIn(max = 520.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PillOutlinedButton(desktopText("Buy Me a Chai"), Modifier.weight(1f), Icons.Outlined.LocalCafe) { openUrl(BUY_ME_A_CHAI_URL) }
-                PillOutlinedButton(desktopText("Check for Updates"), Modifier.weight(1f), onClick = onCheckForUpdates)
-            }
-            PillOutlinedButton(desktopText("Copy diagnostic report"), Modifier.fillMaxWidth()) {
-                clipboard.setText(AnnotatedString(DesktopReleaseCheck.diagnostics()))
-                message = desktopText("Diagnostic report copied")
+        // Three action tiles side by side: an icon bead, what it does, and a line of context.
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(2_500); copied = false } }
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ActionTile(Icons.Outlined.LocalCafe, desktopText("Buy Me a Chai"), desktopText("Support Auralis"),
+                    Modifier.weight(1f).fillMaxHeight(), accent = true) { openUrl(BUY_ME_A_CHAI_URL) }
+                ActionTile(Icons.Outlined.SystemUpdateAlt, desktopText("Check for Updates"),
+                    desktopText("Version %1\$s", DesktopReleaseCheck.version), Modifier.weight(1f).fillMaxHeight(), onClick = onCheckForUpdates)
+                ActionTile(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, desktopText("Copy diagnostics"),
+                    desktopText(if (copied) "Copied to clipboard" else "For bug reports"), Modifier.weight(1f).fillMaxHeight()) {
+                    clipboard.setText(AnnotatedString(DesktopReleaseCheck.diagnostics()))
+                    copied = true
+                }
             }
             message?.let {
                 Text(it, Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, fontSize = 13.sp, textAlign = TextAlign.Center)
@@ -273,6 +289,45 @@ private fun CircleLink(icon: ImageVector, size: Int, onClick: () -> Unit) {
     }
 }
 
+/**
+ * A tall action tile: an icon in a tinted circle over a title and a muted line. [accent] tints the
+ * tile with the theme colour so the one ask that matters (support) leads the row.
+ */
+@Composable
+private fun ActionTile(icon: ImageVector, title: String, subtitle: String, modifier: Modifier, accent: Boolean = false, onClick: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val primary = MaterialTheme.colorScheme.primary
+    val base = if (accent) primary.copy(alpha = .16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = .07f)
+    val fill by androidx.compose.animation.animateColorAsState(
+        if (hovered) (if (accent) primary.copy(alpha = .24f) else MaterialTheme.colorScheme.onSurface.copy(alpha = .11f)) else base,
+        tween(140), label = "tileFill")
+    val scale by animateFloatAsState(if (pressed) .97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "tileScale")
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(shape)
+            .background(fill, shape)
+            .border(1.dp, if (accent) primary.copy(alpha = .28f) else Color.White.copy(alpha = .06f), shape)
+            .hoverable(interaction)
+            .clickable(interaction, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(primary.copy(alpha = if (accent) .30f else .16f)),
+            contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(19.dp), tint = if (accent) Color.White else primary)
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        Spacer(Modifier.height(2.dp))
+        Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
 @Composable
 private fun PillOutlinedButton(text: String, modifier: Modifier, icon: ImageVector? = null, onClick: () -> Unit) {
     OutlinedButton(
@@ -316,100 +371,91 @@ internal fun UpdatesPane() {
         else -> null
     }
 
-    // ── The update flow: a big title, the version, progress, notes and the actions ──
-    Column(Modifier.fillMaxWidth()) {
-        Icon(Icons.Outlined.SystemUpdateAlt, null, tint = primary, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.height(14.dp))
-        AnimatedContent(
-            targetState = updateTitle(update),
-            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
-            label = "updateTitle"
-        ) { title -> Text(title, color = onBackground, fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Normal) }
-
-        if (release != null) {
-            Spacer(Modifier.height(18.dp))
-            Text(desktopText("AURALIS V%1\$s", release.displayVersion), color = onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            if (release.installer.size > 0) {
-                Text(desktopText("Size: %1\$s", com.auralis.music.util.formatBytes(release.installer.size)), color = muted, fontSize = 12.sp)
-            }
-        }
-
-        when (val s = update) {
-            DesktopUpdater.State.Idle, DesktopUpdater.State.Checking -> {
-                Spacer(Modifier.height(18.dp))
-                WavyUpdateProgress(progress = null, color = primary)
-                Spacer(Modifier.height(16.dp))
-                Text(desktopText("Please wait while we check for the latest features."), color = muted, fontSize = 14.sp)
-            }
-            is DesktopUpdater.State.UpToDate -> {
-                Spacer(Modifier.height(14.dp))
-                Text(desktopText("You're on the latest version, v%1\$s.", s.installed), color = muted, fontSize = 15.sp)
-            }
-            is DesktopUpdater.State.Failed -> {
-                Spacer(Modifier.height(14.dp))
-                Text(s.message, color = muted, fontSize = 15.sp)
-            }
-            is DesktopUpdater.State.Available -> {
-                Spacer(Modifier.height(14.dp))
-                Text(desktopText(if (DesktopUpdater.platform == ReleasePlatform.MACOS)
-                    "This copy can't update itself. Download the new version from the release page."
-                    else "This copy can't update itself. Download the installer from the release page."), color = muted, fontSize = 14.sp)
-            }
-            is DesktopUpdater.State.Downloading -> {
-                val fraction = if (s.total > 0) (s.bytes.toFloat() / s.total).coerceIn(0f, 1f) else null
-                Spacer(Modifier.height(18.dp))
-                WavyUpdateProgress(progress = fraction ?: 0f, color = primary)
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    if (fraction == null || s.bytes == 0L) desktopText("Starting download…")
-                    else desktopText("Downloading update · %1\$s%%", (fraction * 100).toInt().toString()),
-                    color = muted, fontSize = 13.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
-                )
-            }
-            is DesktopUpdater.State.Ready -> {
-                Spacer(Modifier.height(14.dp))
-                Text(desktopText("Downloaded. Restart Auralis to finish updating."), color = primary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-
-        if (release != null) {
-            Spacer(Modifier.height(20.dp))
-            ReleaseNotes(release.notes, onBackground, primary)
-        }
-
-        Spacer(Modifier.height(24.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (val s = update) {
-                DesktopUpdater.State.Idle, DesktopUpdater.State.Checking ->
-                    FilledAction(desktopText("Check for updates"), enabled = false) {}
-                is DesktopUpdater.State.UpToDate, is DesktopUpdater.State.Failed ->
-                    FilledAction(desktopText("Check again"), onClick = check)
-                is DesktopUpdater.State.Available -> {
-                    FilledAction(desktopText("Open release page")) { openUrl(s.release.pageUrl) }
-                    OutlinedAction(desktopText("Later")) { DesktopUpdater.hidePrompt() }
-                }
-                is DesktopUpdater.State.Downloading -> Unit
-                is DesktopUpdater.State.Ready -> {
-                    FilledAction(desktopText(if (restarting) "Restarting…" else "Restart to update"), enabled = !restarting) {
-                        scope.launch { message = DesktopUpdater.restartToUpdate() }
+    // ── One status card: an orb for the state, what it means, the versions, and the action on the right ──
+    val checking = update == DesktopUpdater.State.Idle || update == DesktopUpdater.State.Checking
+    Surface(
+        shape = RoundedCornerShape(24.dp), color = onBackground.copy(alpha = .07f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .06f)),
+        modifier = Modifier.fillMaxWidth().settingJumpTarget("Current version", group = true)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                UpdateOrb(update, checking, primary)
+                Spacer(Modifier.width(20.dp))
+                Column(Modifier.weight(1f)) {
+                    AnimatedContent(
+                        targetState = updateTitle(update),
+                        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                        label = "updateTitle"
+                    ) { title -> Text(title, color = onBackground, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold) }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        when (val s = update) {
+                            DesktopUpdater.State.Idle, DesktopUpdater.State.Checking -> desktopText("Please wait while we check for the latest features.")
+                            is DesktopUpdater.State.UpToDate -> desktopText("You're on the latest version, v%1\$s.", s.installed)
+                            is DesktopUpdater.State.Failed -> s.message
+                            is DesktopUpdater.State.Available -> desktopText(if (DesktopUpdater.platform == ReleasePlatform.MACOS)
+                                "This copy can't update itself. Download the new version from the release page."
+                                else "This copy can't update itself. Download the installer from the release page.")
+                            is DesktopUpdater.State.Downloading -> desktopText("Auralis downloads it in the background. Keep listening.")
+                            is DesktopUpdater.State.Ready -> desktopText("Downloaded. Restart Auralis to finish updating.")
+                        },
+                        color = muted, fontSize = 13.5.sp, lineHeight = 19.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        UpdateChip(desktopText("Installed v%1\$s", version))
+                        UpdateChip(if (isMacOs) "macOS · FOSS" else "Windows · FOSS")
+                        if (release != null) {
+                            UpdateChip(desktopText("New v%1\$s", release.displayVersion) +
+                                (if (release.installer.size > 0) " · " + com.auralis.music.util.formatBytes(release.installer.size) else ""), accent = true)
+                        }
                     }
-                    OutlinedAction(desktopText("Later")) { DesktopUpdater.hidePrompt() }
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (val s = update) {
+                        DesktopUpdater.State.Idle, DesktopUpdater.State.Checking -> FilledAction(desktopText("Checking…"), enabled = false) {}
+                        is DesktopUpdater.State.UpToDate, is DesktopUpdater.State.Failed -> FilledAction(desktopText("Check again"), onClick = check)
+                        is DesktopUpdater.State.Available -> {
+                            FilledAction(desktopText("Open release page")) { openUrl(s.release.pageUrl) }
+                            OutlinedAction(desktopText("Later")) { DesktopUpdater.hidePrompt() }
+                        }
+                        is DesktopUpdater.State.Downloading -> Unit
+                        is DesktopUpdater.State.Ready -> {
+                            FilledAction(desktopText(if (restarting) "Restarting…" else "Restart to update"), enabled = !restarting) {
+                                scope.launch { message = DesktopUpdater.restartToUpdate() }
+                            }
+                            OutlinedAction(desktopText("Later")) { DesktopUpdater.hidePrompt() }
+                        }
+                    }
                 }
             }
-        }
-        message?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            val download = update as? DesktopUpdater.State.Downloading
+            if (checking || download != null) {
+                val fraction = download?.let { if (it.total > 0) (it.bytes.toFloat() / it.total).coerceIn(0f, 1f) else 0f }
+                Spacer(Modifier.height(20.dp))
+                WavyUpdateProgress(progress = fraction, color = primary)
+                if (download != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (download.bytes == 0L) desktopText("Starting download…")
+                        else desktopText("Downloading update · %1\$s%%", ((fraction ?: 0f) * 100).toInt().toString()),
+                        color = muted, fontSize = 12.5.sp
+                    )
+                }
+            }
+            message?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            }
         }
     }
-
-    // ── The phone's updater groups ──
-    SettingsGroup("Current version") {
-        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                Text(desktopText("Version: %1\$s", version), color = onBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.height(4.dp))
-                Text(if (isMacOs) "macos - FOSS" else "windows - FOSS", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+    if (release != null) {
+        Surface(shape = RoundedCornerShape(24.dp), color = onBackground.copy(alpha = .05f), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(desktopText("What's new in v%1\$s", release.displayVersion), color = onBackground, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                ReleaseNotes(release.notes, onBackground, primary)
             }
         }
     }
@@ -445,6 +491,38 @@ internal fun UpdatesPane() {
     }
 }
 
+/** The state at a glance: a glowing circle with a spinner, a tick, a warning, or the update arrow. */
+@Composable
+private fun UpdateOrb(state: DesktopUpdater.State, checking: Boolean, primary: Color) {
+    val icon = when (state) {
+        is DesktopUpdater.State.UpToDate -> Icons.Outlined.CheckCircle
+        is DesktopUpdater.State.Failed -> Icons.Outlined.ErrorOutline
+        is DesktopUpdater.State.Ready -> Icons.Outlined.RestartAlt
+        is DesktopUpdater.State.Downloading -> Icons.Outlined.Download
+        else -> Icons.Outlined.SystemUpdateAlt
+    }
+    val tone = if (state is DesktopUpdater.State.Failed) Color(0xFFFF6B6B) else primary
+    Box(
+        Modifier.size(64.dp).clip(CircleShape)
+            .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(tone.copy(alpha = .42f), tone.copy(alpha = .12f))))
+            .border(1.dp, tone.copy(alpha = .35f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (checking) CircularProgressIndicator(Modifier.size(26.dp), color = Color.White, strokeWidth = 2.5.dp)
+        else Icon(icon, null, Modifier.size(30.dp), tint = Color.White)
+    }
+}
+
+@Composable
+private fun UpdateChip(text: String, accent: Boolean = false) {
+    val primary = MaterialTheme.colorScheme.primary
+    Surface(shape = RoundedCornerShape(50), color = if (accent) primary.copy(alpha = .18f) else Color.White.copy(alpha = .07f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (accent) primary.copy(alpha = .35f) else Color.White.copy(alpha = .08f))) {
+        Text(text, Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold,
+            color = if (accent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @Composable
 private fun updateTitle(state: DesktopUpdater.State): String = when (state) {
     DesktopUpdater.State.Idle, DesktopUpdater.State.Checking -> desktopText("Checking for update…")
@@ -458,16 +536,16 @@ private fun updateTitle(state: DesktopUpdater.State): String = when (state) {
 @Composable
 private fun FilledAction(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(onClick = onClick, enabled = enabled, shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.widthIn(min = 220.dp).height(50.dp).pointerHoverIcon(PointerIcon.Hand)) {
-        Text(text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        modifier = Modifier.widthIn(min = 170.dp).height(44.dp).pointerHoverIcon(PointerIcon.Hand)) {
+        Text(text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
 }
 
 @Composable
 private fun OutlinedAction(text: String, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.widthIn(min = 160.dp).height(50.dp).pointerHoverIcon(PointerIcon.Hand)) {
-        Text(text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+        modifier = Modifier.widthIn(min = 170.dp).height(44.dp).pointerHoverIcon(PointerIcon.Hand)) {
+        Text(text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

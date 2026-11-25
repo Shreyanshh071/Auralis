@@ -47,19 +47,18 @@ private val BeadFill = Color.White.copy(alpha = .14f)
 private val BeadEdge = Color.White.copy(alpha = .10f)
 
 /**
- * A settings choice in a liquid-glass sheet, the same glass as the app's other popups: the page
- * shows through, bent at the edges. Rows are plain on the glass; the chosen one sits on the bead.
- * With [searchable] a search field filters the list.
+ * A liquid-glass sheet over the window, the same glass as the app's other popups: what is behind
+ * it shows through, bent at the edges. [content] lays out under the title.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-internal fun GlassPickerDialog(
+internal fun GlassSheet(
     title: String,
-    options: List<Pair<String, String>>,
-    selectedKey: String,
-    searchable: Boolean = false,
     onDismiss: () -> Unit,
-    onSelect: (String) -> Unit
+    sheetWidth: Dp = 420.dp,
+    maxSheetHeight: Dp = 560.dp,
+    trailing: @Composable RowScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit
 ) {
     com.auralis.music.windows.MacWindowChrome.ModalOverlayEffect()
     val size = LocalWindowInfo.current.containerSize
@@ -71,21 +70,13 @@ internal fun GlassPickerDialog(
             override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize) = IntOffset.Zero
         }
     }
-    var filter by remember { mutableStateOf("") }
-    val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
-    val shown = remember(filter, options, languageRevision) {
-        if (filter.isBlank()) options
-        else options.filter { (key, label) ->
-            label.contains(filter, true) || key.contains(filter, true) || desktopText(label).contains(filter, true)
-        }
-    }
     Popup(popupPositionProvider = position, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         Box(Modifier.size(width, height), contentAlignment = Alignment.Center) {
             Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .42f))
                 .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss))
             LiquidPopupSurface(
-                Modifier.widthIn(max = (width - 48.dp).coerceAtLeast(1.dp)).width(420.dp)
-                    .heightIn(max = minOf(560.dp, (height - 48.dp).coerceAtLeast(1.dp))),
+                Modifier.widthIn(max = (width - 48.dp).coerceAtLeast(1.dp)).width(sheetWidth)
+                    .heightIn(max = minOf(maxSheetHeight, (height - 48.dp).coerceAtLeast(1.dp))),
                 tint = Color.White.copy(alpha = .09f), cornerRadius = 28.dp,
                 blurDp = 8f, lensHeightDp = 24f, lensAmountDp = 24f, lensBand = .3f, chromaticAberration = 0f,
                 shadowElevation = 12.dp
@@ -95,25 +86,51 @@ internal fun GlassPickerDialog(
                         Modifier.clickable(remember { MutableInteractionSource() }, indication = null, onClick = {})
                             .padding(start = 14.dp, end = 14.dp, top = 20.dp, bottom = 14.dp)
                     ) {
-                        Text(title, Modifier.padding(horizontal = 8.dp), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(title, Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            trailing()
+                        }
                         Spacer(Modifier.height(14.dp))
-                        if (searchable) {
-                            GlassSearchField(filter) { filter = it }
-                            Spacer(Modifier.height(10.dp))
-                        }
-                        val listState = rememberLazyListState(
-                            initialFirstVisibleItemIndex = options.indexOfFirst { it.first == selectedKey }.coerceAtLeast(0).let { maxOf(0, it - 2) })
-                        LazyColumn(Modifier.weight(1f, fill = false), state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            items(shown, key = { it.first }) { (key, label) ->
-                                GlassOptionRow(label, key == selectedKey) { onSelect(key); onDismiss() }
-                            }
-                        }
-                        if (shown.isEmpty()) {
-                            Text(desktopText("No matches"), Modifier.padding(12.dp), color = Color.White.copy(alpha = .6f), fontSize = 13.sp)
-                        }
+                        content()
                     }
                 }
             }
+        }
+    }
+}
+
+/** A settings choice in a [GlassSheet]: rows plain on the glass, the chosen one on the bead. [searchable] adds a filter. */
+@Composable
+internal fun GlassPickerDialog(
+    title: String,
+    options: List<Pair<String, String>>,
+    selectedKey: String,
+    searchable: Boolean = false,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    var filter by remember { mutableStateOf("") }
+    val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
+    val shown = remember(filter, options, languageRevision) {
+        if (filter.isBlank()) options
+        else options.filter { (key, label) ->
+            label.contains(filter, true) || key.contains(filter, true) || desktopText(label).contains(filter, true)
+        }
+    }
+    GlassSheet(title, onDismiss) {
+        if (searchable) {
+            GlassSearchField(filter) { filter = it }
+            Spacer(Modifier.height(10.dp))
+        }
+        val listState = rememberLazyListState(
+            initialFirstVisibleItemIndex = options.indexOfFirst { it.first == selectedKey }.coerceAtLeast(0).let { maxOf(0, it - 2) })
+        LazyColumn(Modifier.weight(1f, fill = false), state = listState, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            items(shown, key = { it.first }) { (key, label) ->
+                GlassOptionRow(label, key == selectedKey) { onSelect(key); onDismiss() }
+            }
+        }
+        if (shown.isEmpty()) {
+            Text(desktopText("No matches"), Modifier.padding(12.dp), color = Color.White.copy(alpha = .6f), fontSize = 13.sp)
         }
     }
 }

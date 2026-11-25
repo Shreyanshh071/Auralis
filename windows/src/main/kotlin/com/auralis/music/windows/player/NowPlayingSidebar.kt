@@ -109,11 +109,10 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
         if (mainPlayerOpen) {
             // The fullscreen cover owns animation playback while it covers this sidebar.
             DesktopArtwork(track.thumbnail, Modifier.size(coverSize), 12.dp, track.title, highRes = true)
-        } else SidebarMusicVideo(track, clock, Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover")), motionAura,
-            established = establishedId == track.id) {
-        AnimatedCover(track, Modifier.fillMaxSize(), motionAura, playbackClock = clock) {
-            DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
-        }
+        } else Box(Modifier.size(coverSize).clip(RoundedCornerShape(12.dp)).then(com.auralis.music.windows.dev.perfSkip("cover"))) {
+            AnimatedCover(track, Modifier.fillMaxSize(), motionAura, playbackClock = clock) {
+                DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
+            }
         }
         Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
         SidebarArtistNames(artists, onOpenArtist, Modifier.width(coverSize))
