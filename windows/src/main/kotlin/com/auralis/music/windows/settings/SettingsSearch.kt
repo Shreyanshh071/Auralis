@@ -126,7 +126,6 @@ internal val settingEntries: List<SettingEntry> = buildList {
             row("IOS", keywords = "stream client extractor")
         }
         group("Lyrics source order") {
-            row("Spicy Lyrics key override (optional)", "Works automatically with Auralis's included publishable key", "spicy api token key")
             row("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.", "providers")
         }
     }

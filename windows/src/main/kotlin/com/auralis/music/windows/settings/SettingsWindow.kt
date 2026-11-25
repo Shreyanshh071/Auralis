@@ -472,7 +472,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
         })
     }
     SettingsGroup("Lyrics source order") {
-        SpicyLyricsKeySetting(stores.content)
         val available=com.auralis.music.data.network.LyricsClient.PICK_ORDER.filter {it !in setOf(LyricsProvider.LOCAL,LyricsProvider.YOUTUBE_CAPTIONS)}
         val chosen=prefs.text("lyricsPriority").split(',').mapNotNull {name->runCatching {LyricsProvider.valueOf(name)}.getOrNull()}
         SettingToggle("Use custom source priority", "Try enabled sources in this order before automatic fallback. Applies to newly fetched lyrics.",chosen.isNotEmpty()) {prefs.set("lyricsPriority",if(it) available.joinToString(",") {p->p.name} else "")}
@@ -510,35 +509,86 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
 
 @Composable private fun DataPane(stores:SettingsStores) {
     val content by stores.content.settingsFlow.collectAsState(ContentSettings()); val scope=rememberCoroutineScope()
-    var proxy by remember {mutableStateOf(content.proxyUrl)}
+    var proxy by remember(content.proxyUrl) { mutableStateOf(content.proxyUrl) }
+    var proxyMessage by remember { mutableStateOf<String?>(null) }
     SettingsGroup("Network") {
-        SettingToggle("Use proxy", "New connections use this proxy",content.proxyEnabled) {scope.launch {stores.content.update {s->s.copy(proxyEnabled=it)}}}
-        SettingChoice("Proxy type",selected=content.proxyType.name,options=ProxyType.entries.map {it.name}) {scope.launch {stores.content.update {s->s.copy(proxyType=ProxyType.valueOf(it))}}}
-        OutlinedTextField(proxy,{proxy=it},Modifier.fillMaxWidth().reportTypingFocus(),label={Text(desktopText("Proxy host:port"))},singleLine=true)
-        var message by remember {mutableStateOf("")}
-        Button({if(com.auralis.music.data.network.ContentProxy.parseHostPort(proxy)!=null) scope.launch {stores.content.update {it.copy(proxyUrl=proxy)};message="Proxy saved."} else message="Enter a valid host and port."}) {Text(desktopText("Save proxy"))}
-        Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
+        SettingToggle("Use proxy", "New connections use this proxy", content.proxyEnabled) { scope.launch { stores.content.update { s -> s.copy(proxyEnabled = it) } } }
+        SettingChoice("Proxy type", selected = content.proxyType.name, options = ProxyType.entries.map { it.name }) { scope.launch { stores.content.update { s -> s.copy(proxyType = ProxyType.valueOf(it)) } } }
+        // The address and its Save share one card, like the rows above.
+        DataCard {
+            Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(desktopText("Proxy address"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = .06f))
+                    .border(1.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    if (proxy.isEmpty()) Text("host:port", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f))
+                    BasicTextField(proxy, { proxy = it; proxyMessage = null }, Modifier.fillMaxWidth().reportTypingFocus(), singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary))
+                }
+                proxyMessage?.let { Text(desktopText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            }
+            OutlinedButton({
+                if (com.auralis.music.data.network.ContentProxy.parseHostPort(proxy) != null) {
+                    scope.launch { stores.content.update { it.copy(proxyUrl = proxy) }; proxyMessage = "Proxy saved." }
+                } else proxyMessage = "Enter a valid host and port."
+            }) { Text(desktopText("Save")) }
+        }
     }
     val downloads=com.auralis.music.desktop.library.DesktopDownloads.instance; val root by downloads.rootDirectory.collectAsState()
+    var folderMessage by remember { mutableStateOf<String?>(null) }
     SettingsGroup("Downloads") {
-        Text(root.absolutePath);TextButton({java.awt.Desktop.getDesktop().open(root)}) {Text(desktopText("Open download folder"))}
-        var message by remember {mutableStateOf("")}
-        TextButton({scope.launch {runCatching {
-            com.auralis.music.windows.library.NativeFolderPicker.chooseFolder(root)?.let {
-                withContext(Dispatchers.IO) { downloads.changeDirectory(it,false) }
-                message="Download location saved. Existing files stay available at their current locations."
+        DataCard {
+            DataIcon(Icons.Outlined.FolderOpen)
+            Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(desktopText("Download folder"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(root.absolutePath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                folderMessage?.let { Text(desktopText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             }
-        }.onFailure {message=it.message.orEmpty()}}}) {Text(desktopText("Change folder"))}
-        Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton({ runCatching { java.awt.Desktop.getDesktop().open(root) } }) { Text(desktopText("Open")) }
+                OutlinedButton({ scope.launch { runCatching {
+                    com.auralis.music.windows.library.NativeFolderPicker.chooseFolder(root)?.let {
+                        withContext(Dispatchers.IO) { downloads.changeDirectory(it, false) }
+                        folderMessage = "Download location saved. Existing files stay available at their current locations."
+                    }
+                }.onFailure { folderMessage = it.message.orEmpty() } } }) { Text(desktopText("Change")) }
+            }
+        }
     }
     SettingsGroup("Caches") {
-        var refresh by remember {mutableStateOf(0)}; var message by remember {mutableStateOf("")}
+        var refresh by remember { mutableStateOf(0) }; var cacheMessage by remember { mutableStateOf<String?>(null) }
         val bytes by produceState<Long?>(null, refresh) {
             value = withContext(Dispatchers.IO) { DesktopCaches.imageBytes() + DesktopCaches.lyricsBytes() }
         }
-        Text(if (bytes == null) desktopText("Calculating cache size…") else
-            desktopText("Artwork and lyrics: %1\$s", com.auralis.music.util.formatBytes(bytes!!)))
-        Button({scope.launch {withContext(Dispatchers.IO) {DesktopCaches.clearImages();DesktopCaches.clearLyrics();com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache()};refresh++;message="Caches cleared. Downloads and accounts are preserved."}}) {Text(desktopText("Clear caches"))}
-        Text(desktopText(message),style=MaterialTheme.typography.bodySmall)
+        DataCard {
+            DataIcon(Icons.Outlined.Storage)
+            Column(Modifier.weight(1f).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(if (bytes == null) desktopText("Calculating cache size…") else com.auralis.music.util.formatBytes(bytes!!),
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(desktopText(cacheMessage ?: "Artwork and lyrics; downloads and accounts are kept"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (cacheMessage != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedButton({ scope.launch {
+                withContext(Dispatchers.IO) { DesktopCaches.clearImages(); DesktopCaches.clearLyrics(); com.auralis.music.desktop.playback.DesktopStreamResolver.clearCache() }
+                refresh++; cacheMessage = "Caches cleared. Downloads and accounts are preserved."
+            } }, enabled = (bytes ?: 0L) > 0L) { Text(desktopText("Clear caches")) }
+        }
+    }
+}
+
+/** One settings card holding a row of content, the same surface as the toggle and choice rows. */
+@Composable private fun DataCard(content: @Composable RowScope.() -> Unit) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, content = content)
+    }
+}
+
+@Composable private fun DataIcon(icon: ImageVector) {
+    Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .14f)),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }

@@ -191,8 +191,9 @@ class SpicyLyricsSource(
     }
 
     companion object {
-        fun effectiveKey(): String = com.auralis.music.data.network.SpicyLyricsAccess.resolve(
-            ContentSettingsSource.current().spicyLyricsApiKey)
+        // Always Auralis's included key: the user override field was removed, so a key saved
+        // through it earlier must not keep applying invisibly.
+        fun effectiveKey(): String = com.auralis.music.data.network.SpicyLyricsAccess.resolve("")
         fun isNativeKey(key: String): Boolean = Regex("sl_pk_[A-Za-z0-9_-]+").matches(key)
     }
 }

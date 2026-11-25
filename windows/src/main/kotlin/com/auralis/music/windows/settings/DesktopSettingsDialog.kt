@@ -184,24 +184,6 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
 // 2. PLAYER & AUDIO SETTINGS PANE
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Kept in Playback so credentials remain accessible without a Content settings tab. */
-@Composable
-internal fun SpicyLyricsKeySetting(store: ContentSettingsDataStore) {
-    val settings by store.settingsFlow.collectAsState(ContentSettings())
-    val scope = rememberCoroutineScope()
-    fun update(transform: ContentSettings.() -> ContentSettings) {
-        scope.launch { store.update { current -> current.transform() } }
-    }
-    SettingTextField("Spicy Lyrics key override (optional)",
-        "Auralis uses its included key automatically. Leave blank, or enter your own native publishable sl_pk_ key.",
-        settings.spicyLyricsApiKey, isPassword = true,
-        onValue = { update { copy(spicyLyricsApiKey = it.trim()) } })
-    if (settings.spicyLyricsApiKey.isNotBlank() &&
-        !com.auralis.music.data.network.provider.SpicyLyricsSource.isNativeKey(settings.spicyLyricsApiKey.trim())) {
-        Text("Enter a publishable sl_pk_ key. Server secret keys are not supported.", color = MaterialTheme.colorScheme.error)
-    }
-}
-
 @Composable
 internal fun ContentSettingsPane(store: ContentSettingsDataStore) {
     val settings by store.settingsFlow.collectAsState(ContentSettings())
