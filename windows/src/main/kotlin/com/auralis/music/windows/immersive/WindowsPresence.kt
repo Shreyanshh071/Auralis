@@ -31,6 +31,14 @@ internal object WindowsPresence {
         hr == 0 && state.value == QUNS_ACCEPTS_NOTIFICATIONS
     }.onFailure { Log.w(TAG, "Notification state unavailable: ${it.javaClass.simpleName}") }.getOrDefault(false)
 
+    /**
+     * Locks the PC, exactly like Win+L: Windows shows its own sign-in screen and asks for the
+     * password, PIN or Hello. Auralis never draws or sees any of it.
+     */
+    fun lockWorkstation(): Boolean = runCatching { User32.INSTANCE.LockWorkStation().booleanValue() }
+        .onFailure { Log.w(TAG, "Could not lock the PC: ${it.javaClass.simpleName}") }
+        .getOrDefault(false)
+
     /** Resets the display's idle timer once; repeat it for as long as the screen should stay on. */
     fun keepDisplayOn() {
         runCatching {

@@ -91,6 +91,11 @@ internal class ImmersivePreferences(private val prefs: DesktopPreferencesStore =
         get() = prefs.number("immersiveIdleMinutes", 0.0).toInt()
         set(value) = prefs.set("immersiveIdleMinutes", value)
 
+    /** Windows: leaving an idle start locks the PC, so coming back asks for the Windows password. */
+    var lockOnLeave: Boolean
+        get() = prefs.bool("immersiveLockOnLeave")
+        set(value) = prefs.set("immersiveLockOnLeave", value)
+
     var macLockScreenOverlay: Boolean
         get() = prefs.bool("macLockScreenOverlay", default = true)
         set(value) = prefs.set("macLockScreenOverlay", value)
@@ -112,6 +117,13 @@ internal fun shouldStartIdle(minutes: Int, playing: Boolean, idleMs: Long?, wind
 
 internal fun shouldLeaveIdle(openForMs: Long, idleMs: Long?) =
     openForMs > IDLE_EXIT_GRACE_MS && idleMs != null && idleMs < 1_000L
+
+/**
+ * An idle start that ends, however it ends, locks the PC when the person asked for that. Turning
+ * into a manual session (asked for by hand) doesn't: they're already at the keyboard.
+ */
+internal fun shouldLockAfter(previous: ImmersiveTrigger?, current: ImmersiveTrigger?, lockOnLeave: Boolean) =
+    lockOnLeave && previous == ImmersiveTrigger.IDLE && current == null
 
 /** The keys immersive mode answers. */
 internal interface ImmersiveKeyActions {
