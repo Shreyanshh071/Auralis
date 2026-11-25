@@ -106,6 +106,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -1909,6 +1913,33 @@ private fun PlaylistDetailView(
     ) {
         androidx.compose.foundation.lazy.LazyListState()
     }
+    // Rows ripple into place when the page opens at the top, and after a jump back up.
+    val cascade = rememberPlaylistCascade()
+    val pageScope = rememberCoroutineScope()
+    LaunchedEffect(playlist.id) {
+        if (playlistListState.firstVisibleItemIndex == 0 && playlistListState.firstVisibleItemScrollOffset == 0) {
+            cascade.play()
+        }
+    }
+    var jumpJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun jumpToTop() {
+        if (jumpJob?.isActive == true) return
+        jumpJob = pageScope.launch {
+            if (playlistListState.firstVisibleItemIndex > 15) {
+                // A long way down: land at the top at once and let the page ripple back in.
+                playlistListState.scrollToItem(0)
+                cascade.play()
+            } else {
+                // The animated scroll estimates rows it hasn't measured (the header is much
+                // taller than a song), so it could stop short partway up. Finish the job if so.
+                runCatching { playlistListState.animateScrollToItem(0) }
+                if (playlistListState.firstVisibleItemIndex != 0 || playlistListState.firstVisibleItemScrollOffset != 0) {
+                    playlistListState.animateScrollBy(-playlistListState.playlistHeaderScrollPx().coerceAtMost(4000f))
+                    playlistListState.scrollToItem(0)
+                }
+            }
+        }
+    }
 
     // Rows keep their ids when the playlist is reloaded, so ticks and keys survive a save.
     fun syncLocalItems(tracks: List<Track>) {
@@ -2173,6 +2204,13 @@ private fun PlaylistDetailView(
     // The page runs up behind the status bar so the cover continues under it (no band of page
     // colour above the artwork); the buttons and the search bar stay below it.
     val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // The hero cover is a full-width square; the title sits 72dp above its bottom edge.
+    val heroCoverPx = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val cascadeRisePx = with(density) { 22.dp.toPx() }
+    val collapseAtPx = heroCoverPx - with(density) { (72.dp + statusBarInset + 58.dp - 34.dp).toPx() }
+    val headerCollapsed by remember(playlistListState, collapseAtPx) {
+        androidx.compose.runtime.derivedStateOf { playlistListState.playlistHeaderScrollPx() > collapseAtPx }
+    }
     val topBar: @Composable () -> Unit = {
         Row(
             modifier = Modifier
@@ -2255,10 +2293,11 @@ private fun PlaylistDetailView(
                     }
                 }
                 // Header Content
-                item(key = "playlist_header", contentType = "header") {
+                item(key = PLAYLIST_HEADER_KEY, contentType = "header") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .playlistCascadeLayer(cascade, { 0 }, cascadeRisePx)
                             .padding(horizontal = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -2305,6 +2344,8 @@ private fun PlaylistDetailView(
                                             placeable.place(-sidePad, 0)
                                         }
                                     }
+                                    // Trails the page as it scrolls, softening as it goes.
+                                    .playlistHeroDrift(playlistListState) { heroCoverPx }
                                     .background(CARD_DARK_BG)
                                     .layerBackdrop(heroBackdrop)
                             } else Modifier
@@ -2625,7 +2666,7 @@ private fun PlaylistDetailView(
                     items = displayedItems,
                     key = { _, item -> item.instanceId },
                     contentType = { _, _ -> "song" }
-                ) { _, item ->
+                ) { songIndex, item ->
                     val track = item.track
                     val isCurrent = track.id == currentTrackId
                     val isItemBeingDragged = draggingInstanceId == item.instanceId
@@ -2770,7 +2811,8 @@ private fun PlaylistDetailView(
                             selectedIds.removeAll { it in removed }
                             localItems.removeAll { it.track.id == trackId }
                             onRemoveTrack(trackId)
-                        }
+                        },
+                        modifier = Modifier.playlistCascadeLayer(cascade, { songIndex + 1 }, cascadeRisePx)
                     )
                 }
 
@@ -2783,6 +2825,22 @@ private fun PlaylistDetailView(
                     )
                     Spacer(Modifier.height(room))
                 }
+            }
+
+            // A slim thumb for long playlists: shows while scrolling and can be grabbed.
+            if (displayedItems.size > 40 && !isDragging) {
+                val chromePadding = bottomChromePadding()
+                PlaylistScrollThumb(
+                    state = playlistListState,
+                    itemCount = displayedItems.size + 3,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(
+                            top = statusBarInset + 72.dp,
+                            bottom = chromePadding.calculateBottomPadding() + 8.dp
+                        )
+                )
             }
 
             // ================================================================
@@ -2905,6 +2963,25 @@ private fun PlaylistDetailView(
                 }
             }
         }
+    }
+    // Drawn before the top bar so the back button sits over it. Once the title has slid under the bar, a chip with the cover and name takes its place
+    // beside the back button; tapping it goes back to the top.
+    if (glassHero) {
+        val chipModifier: Modifier = if (barGlass != null) {
+            Modifier.liquidGlass(barGlass, RoundedCornerShape(23.dp), tint = com.auralis.music.ui.glass.glassBarTint(barGlass.isDark),
+                blurRadius = com.auralis.music.ui.glass.ARTWORK_GLASS_BLUR, vibrant = false)
+        } else Modifier.clip(RoundedCornerShape(23.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+        PlaylistCollapsedTitle(
+            visible = headerCollapsed && !isSearchActive,
+            title = playlist.title,
+            chipModifier = chipModifier,
+            textColor = topBarIcon,
+            onClick = { jumpToTop() },
+            cover = { PlaylistCoverArt(playlist, savedAlbums, cornerRadius = 9.dp) },
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 14.dp + 46.dp + 10.dp, top = statusBarInset + 12.dp)
+        )
     }
     // Floats over the hero cover in liquid glass mode.
     if (glassHero) topBar()
@@ -3806,6 +3883,14 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
     val currentDrag by androidx.compose.runtime.rememberUpdatedState(onReorderDrag)
     val currentDragEnd by androidx.compose.runtime.rememberUpdatedState(onReorderDragEnd)
     val currentDragCancel by androidx.compose.runtime.rememberUpdatedState(onReorderDragCancel)
+    // The drag gesture lives on this row's handle. If auto-scroll (or a fast flick) carries the
+    // row past the list's edge, the list would dispose it, which kills the gesture and cancels
+    // the drag midway. Keep the row alive for as long as it is being dragged.
+    val pinnable = androidx.compose.ui.layout.LocalPinnableContainer.current
+    androidx.compose.runtime.DisposableEffect(isItemBeingDragged, pinnable) {
+        val handle = if (isItemBeingDragged) pinnable?.pin() else null
+        onDispose { handle?.release() }
+    }
 
     com.auralis.music.ui.components.SwipeableTrackContainer(
         onPlayNext = onPlayNext?.let { { it(track) } },
@@ -3929,17 +4014,35 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.PlaylistTrackRow(
                         .size(36.dp)
                         .onGloballyPositioned { handleTopInRoot = it.positionInRoot().y }
                         .pointerInput(isCustomSort) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { offset ->
-                                    currentDragStart(handleTopInRoot - currentListTop + offset.y)
-                                },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    currentDrag(amount.y)
-                                },
-                                onDragEnd = { currentDragEnd() },
-                                onDragCancel = { currentDragCancel() }
-                            )
+                            // Not detectDragGesturesAfterLongPress: that gives up the moment any
+                            // other handler consumes the move (or the system cuts the touch), so
+                            // a drag passing over the status bar or the navigation bar was
+                            // cancelled and the song snapped back. This follows the finger until
+                            // it lifts, and a touch the system ends drops the song where it is.
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val held = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                                currentDragStart(handleTopInRoot - currentListTop + held.position.y)
+                                var finished = false
+                                try {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == held.id } ?: break
+                                        if (!change.pressed) {
+                                            change.consume()
+                                            break
+                                        }
+                                        val dy = change.position.y - change.previousPosition.y
+                                        if (dy != 0f) currentDrag(dy)
+                                        change.consume()
+                                    }
+                                    finished = true
+                                    currentDragEnd()
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    if (!finished) currentDragCancel()
+                                    throw e
+                                }
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
