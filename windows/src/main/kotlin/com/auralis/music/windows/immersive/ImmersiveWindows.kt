@@ -50,28 +50,19 @@ internal fun ImmersiveIdleWatcher(session: ImmersiveSession, playback: DesktopPl
     LaunchedEffect(session, playback) {
         val preferences = ImmersivePreferences()
         var lastKeptAwake = 0L
-        var previous: ImmersiveTrigger? = null
-        val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("windows")
         while (true) {
             val now = System.currentTimeMillis()
             val idle = WindowsPresence.idleMillis()
-            var trigger = session.trigger
-            if (trigger == ImmersiveTrigger.IDLE && shouldLeaveIdle(now - session.openedAtMs, idle)) {
-                // Lock before the windows close, so the desktop never shows between the two.
-                if (isWindows && shouldLockAfter(trigger, null, preferences.lockOnLeave)) WindowsPresence.lockWorkstation()
-                session.close()
-                trigger = null
-                previous = null
-            }
-            // Ended some other way (the dock's close button, a closed window): lock all the same.
-            if (isWindows && shouldLockAfter(previous, trigger, preferences.lockOnLeave)) WindowsPresence.lockWorkstation()
-            previous = trigger
+            val trigger = session.trigger
             if (trigger != null && playback.isPlayingNow() && now - lastKeptAwake >= KEEP_AWAKE_MS) {
                 WindowsPresence.keepDisplayOn()
                 lastKeptAwake = now
             }
             when (trigger) {
-                ImmersiveTrigger.IDLE -> delay(200)
+                ImmersiveTrigger.IDLE -> {
+                    if (shouldLeaveIdle(now - session.openedAtMs, idle)) session.close()
+                    delay(200)
+                }
                 ImmersiveTrigger.MANUAL -> delay(1_000)
                 null -> {
                     val minutes = preferences.idleMinutes

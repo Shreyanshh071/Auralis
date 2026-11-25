@@ -42,16 +42,6 @@ class ImmersiveModeTest {
         assertFalse(shouldLeaveIdle(60_000, 5_000))
     }
 
-    @Test fun onlyAnEndedIdleStartLocksAndOnlyWhenAskedFor() {
-        assertTrue(shouldLockAfter(ImmersiveTrigger.IDLE, null, lockOnLeave = true))
-        assertFalse(shouldLockAfter(ImmersiveTrigger.IDLE, null, lockOnLeave = false), "Off by default")
-        assertFalse(shouldLockAfter(ImmersiveTrigger.MANUAL, null, true), "Opened by hand: they're at the keyboard")
-        assertFalse(shouldLockAfter(ImmersiveTrigger.IDLE, ImmersiveTrigger.MANUAL, true), "Taken over by hand")
-        assertFalse(shouldLockAfter(ImmersiveTrigger.IDLE, ImmersiveTrigger.IDLE, true), "Still showing")
-        assertFalse(shouldLockAfter(null, null, true))
-        assertFalse(ImmersivePreferences(store()).lockOnLeave)
-    }
-
     @Test fun displaysStartWithTheOneAuralisIsOnThenLeftToRight() {
         assertEquals(listOf(second, leftOfMain, first), orderDisplays(listOf(first, second, leftOfMain), Rectangle(2000, 100, 800, 600)))
         assertEquals(listOf(leftOfMain, first, second), orderDisplays(listOf(first, second, leftOfMain), null))

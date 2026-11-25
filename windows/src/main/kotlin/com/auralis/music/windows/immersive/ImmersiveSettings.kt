@@ -40,15 +40,6 @@ internal fun ImmersiveSettings() {
         selected = idleLabel(preferences.idleMinutes),
         options = ImmersiveIdleChoices.map(::idleLabel)
     ) { label -> preferences.idleMinutes = ImmersiveIdleChoices.first { idleLabel(it) == label } }
-    if (!isMac) {
-        com.auralis.music.windows.settings.SettingToggle(
-            title = "Require password to leave",
-            description = "When it started by itself, coming back locks the PC and Windows asks for your password, PIN or Hello. " +
-                "Like a screensaver with “On resume, display logon screen”.",
-            checked = preferences.lockOnLeave,
-            onChecked = { preferences.lockOnLeave = it }
-        )
-    }
     val displays = remember { connectedDisplays(null) }
     displays.forEachIndexed { index, display ->
         val selected = if (preferences.isOff(display)) OFF else preferences.view(display, index).label
