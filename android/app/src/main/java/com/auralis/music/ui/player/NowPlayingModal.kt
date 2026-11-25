@@ -1380,6 +1380,36 @@ fun NowPlayingModal(
                     val historyCount = historyItems.size
                     val continueHeaderIndex = if (historyCount > 0) historyCount + 1 else 0
 
+                    // History stays tucked above until the list is pulled down. A short queue can't
+                    // scroll Continue Playing to the top on its own (the list stops at its end), so
+                    // its end gets just enough room to let it; same as the Classic queue.
+                    var viewportHeightPx by remember(queueListState) { mutableIntStateOf(0) }
+                    var continueSectionHeightPx by remember(queueListState, historyCount, localQueue.size) { mutableIntStateOf(0) }
+                    LaunchedEffect(queueListState, historyCount, localQueue.size) {
+                        snapshotFlow { queueListState.layoutInfo }.collect { info ->
+                            if (info.totalItemsCount == 0) return@collect
+                            viewportHeightPx = info.viewportSize.height
+                            val header = info.visibleItemsInfo.firstOrNull { it.index == continueHeaderIndex }
+                            val last = info.visibleItemsInfo.firstOrNull { it.index == info.totalItemsCount - 1 }
+                            if (header != null && last != null) {
+                                continueSectionHeightPx = last.offset + last.size - header.offset
+                            }
+                        }
+                    }
+                    val extraBottomPaddingPx = if (continueSectionHeightPx > 0) {
+                        (viewportHeightPx - continueSectionHeightPx).coerceAtLeast(0)
+                    } else 0
+                    var userScrolledQueue by remember(queueListState) { mutableStateOf(false) }
+                    LaunchedEffect(queueListState) {
+                        snapshotFlow { queueListState.isScrollInProgress }.collect { if (it) userScrolledQueue = true }
+                    }
+                    // Once the room exists, land on Continue Playing (unless the user already moved).
+                    LaunchedEffect(extraBottomPaddingPx) {
+                        if (!userScrolledQueue && !reorderableLazyListState.isAnyItemDragging) {
+                            queueListState.scrollToItem(continueHeaderIndex)
+                        }
+                    }
+
                     // When the song changes, the played one moves up into History; bring Continue
                     // Playing back to the top once the rows have finished sliding.
                     val latestContinueHeaderIndex by rememberUpdatedState(continueHeaderIndex)
@@ -1403,7 +1433,8 @@ fun NowPlayingModal(
                                 val info = queueListState.layoutInfo
                                 val start = info.visibleItemsInfo.firstOrNull()?.index ?: 0
                                 val end = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                                (start..end).mapNotNull { localQueue.getOrNull(it)?.track }
+                                // By key: the section headers shift list positions off the queue's.
+                                info.visibleItemsInfo.mapNotNull { visible -> localQueue.firstOrNull { it.instanceId == visible.key }?.track }
                             }.distinctUntilChanged()
                                 .collect { visibleTracks ->
                                     withContext(Dispatchers.IO) {
@@ -1439,6 +1470,9 @@ fun NowPlayingModal(
                                 LazyColumn(
                                     state = queueListState,
                                     modifier = Modifier.fillMaxSize(),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        bottom = with(density) { extraBottomPaddingPx.toDp() }
+                                    ),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     // History: only songs that actually played. Songs jumped over are skipped, not history.
