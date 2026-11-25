@@ -66,17 +66,22 @@ fun SwipeableTrackContainer(
     onAddToQueue: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     isPlaylistContext: Boolean = false,
-    /** Swipe left removes ([onRemoveFromPlaylist]) whenever swipe gestures are on, e.g. in the play queue. */
+    /** A list whose rows can be removed by swiping, like a playlist (e.g. the play queue). */
     removeOnSwipeLeft: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    // Two separate modes, never mixed (Settings turns one off when the other is turned on):
+    //  - "Swipe left to add to the queue, or right to play next": only those two actions.
+    //  - "Swipe to remove": swiping left removes, where a row can be removed; nothing else.
+    // The queue used to remove on swipe left under the first setting, so play next and remove
+    // ended up on the same row with "Swipe to remove" switched off.
     val appearance = LocalAppearanceSettings.current
     val isSwipeQueueNextEnabled = appearance.swipeLeftQueueRightPlayNext
     val isSwipeRemoveEnabled = onRemoveFromPlaylist != null &&
-        ((appearance.swipeToRemoveSongFromPlaylist && isPlaylistContext) || (removeOnSwipeLeft && isSwipeQueueNextEnabled))
+        appearance.swipeToRemoveSongFromPlaylist && (isPlaylistContext || removeOnSwipeLeft)
 
-    val canSwipeRight = isSwipeQueueNextEnabled && onPlayNext != null
+    val canSwipeRight = !isSwipeRemoveEnabled && isSwipeQueueNextEnabled && onPlayNext != null
     val canSwipeLeft = isSwipeRemoveEnabled || (isSwipeQueueNextEnabled && onAddToQueue != null)
 
     // Fast path: no swipe features enabled or capable — render content directly with zero overhead
