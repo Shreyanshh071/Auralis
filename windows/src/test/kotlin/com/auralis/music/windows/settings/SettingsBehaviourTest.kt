@@ -108,7 +108,8 @@ class SettingsBehaviourTest {
             scene.render().use { image -> image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)!!.use { data ->
                 File("build/screens/settings-choice-open.png").apply {parentFile.mkdirs();writeBytes(data.bytes)}
             } }
-            click(scene,300f,320f)
+            // The second row ("High") of the centred glass sheet.
+            click(scene,300f,346f)
             assertEquals("High",selected.value, "The popup option must receive the click")
         } finally { scene.close() }
     }
