@@ -461,7 +461,13 @@ fun ImmersivePlayerContainer(
         } else {
         ImmersiveColorField(
             artworkUrl = track.thumbnail,
-            modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) }
+            modifier = Modifier.graphicsLayer { alpha = sheetBackdropAlpha(sheetProgress()) },
+            // The colours carry on from the sleeve's bottom edge; as the sleeve leaves for the
+            // compact header the seam rises with it, and the mesh fills the whole screen.
+            seam = {
+                if (hidePlayerThumbnail) 0f
+                else containerWidthPx * (1f - heroProgress.value.coerceIn(0f, 1f))
+            }
         )
         }
 
@@ -1063,11 +1069,12 @@ private fun ImmersiveTitleBlock(
                 )
                 Text(
                     text = shown.artist,
-                    color = Color.White.copy(alpha = 0.62f),
+                    // Takes the cover's colour from the backdrop behind it.
+                    color = VibrantInk,
                     fontSize = 18.sp * fit.artistScale,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(
+                    modifier = Modifier.vibrantChrome().clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
@@ -1501,7 +1508,10 @@ private fun ImmersiveThinBar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     idleHeight: Dp = 7.dp,
-    activeHeight: Dp = 12.dp
+    activeHeight: Dp = 12.dp,
+    trackColor: Color = Color.White.copy(alpha = 0.22f),
+    fillColor: Color = Color.White.copy(alpha = 0.9f),
+    activeFillColor: Color = Color.White
 ) {
     var touching by remember { mutableStateOf(false) }
     val thickness by animateDpAsState(
@@ -1550,7 +1560,7 @@ private fun ImmersiveThinBar(
         val top = (size.height - barHeight) / 2f
         val radius = CornerRadius(barHeight / 2f)
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.22f),
+            color = trackColor,
             topLeft = Offset(0f, top),
             size = Size(size.width, barHeight),
             cornerRadius = radius
@@ -1558,7 +1568,7 @@ private fun ImmersiveThinBar(
         val fraction = value().coerceIn(0f, 1f)
         if (fraction > 0f) {
             drawRoundRect(
-                color = Color.White.copy(alpha = if (touching) 1f else 0.9f),
+                color = if (touching) activeFillColor else fillColor,
                 topLeft = Offset(0f, top),
                 size = Size((size.width * fraction).coerceAtLeast(barHeight), barHeight),
                 cornerRadius = radius
@@ -1602,11 +1612,12 @@ private fun ImmersiveScrubber(
         currentPosMs = posMs,
         totalDurationMs = durationMs,
         sliderStyle = sliderStyle,
+        // The played part stays white; the rest of the bar and the times take the cover's colour.
         activeTrackColor = Color.White,
-        inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+        inactiveTrackColor = VibrantInk.copy(alpha = 0.4f),
         thumbColor = Color.White,
-        textColor = Color.White.copy(alpha = 0.55f),
-        modifier = modifier.fillMaxWidth()
+        textColor = VibrantInk,
+        modifier = modifier.fillMaxWidth().vibrantChrome()
     )
 }
 
@@ -1732,14 +1743,15 @@ private fun ImmersiveVolumeRow() {
 
 @Composable
 private fun ImmersiveVolumeControls(volume: () -> Float, onChange: (Float) -> Unit, onFinish: () -> Unit) {
+    // The speakers and the bar take the cover's colour from the backdrop.
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().vibrantChrome(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             Icons.AutoMirrored.Rounded.VolumeDown,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.5f),
+            tint = VibrantInk,
             modifier = Modifier.size(20.dp)
         )
         Spacer(Modifier.width(10.dp))
@@ -1750,13 +1762,16 @@ private fun ImmersiveVolumeControls(volume: () -> Float, onChange: (Float) -> Un
             activeHeight = 10.dp,
             onChange = onChange,
             onFinish = onFinish,
+            trackColor = VibrantInk.copy(alpha = 0.32f),
+            fillColor = VibrantInk,
+            activeFillColor = Color.White,
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(10.dp))
         Icon(
             Icons.AutoMirrored.Rounded.VolumeUp,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.5f),
+            tint = VibrantInk,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -1817,11 +1832,12 @@ private fun RoundActionGlyph(
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center
     ) {
+        // Tinted by the cover like Apple Music's; full white while its panel is open.
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.White.copy(alpha = if (highlighted) 1f else 0.75f),
-            modifier = Modifier.size(26.dp)
+            tint = if (highlighted) Color.White else VibrantInk,
+            modifier = Modifier.size(26.dp).vibrantChrome()
         )
     }
 }
