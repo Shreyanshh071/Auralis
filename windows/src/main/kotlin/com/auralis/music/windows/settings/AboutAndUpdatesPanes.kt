@@ -182,14 +182,32 @@ internal fun AboutPane(onCheckForUpdates: () -> Unit) {
 
     // Attribution the desktop's lyrics animation owes.
     AboutSection("Credits") {
-        Text(
-            desktopText("Animation inspired by Spicy Lyrics"),
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable { openUrl("https://github.com/Spikerko/spicy-lyrics") }
-                .pointerHoverIcon(PointerIcon.Hand).padding(vertical = 4.dp),
-            color = onBackground, fontSize = 14.sp, fontWeight = FontWeight.Medium
-        )
+        // The project the lyrics animation is inspired by, as a card like the people above it.
+        val spicyRepo = "https://github.com/Spikerko/spicy-lyrics"
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .07f),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable { openUrl(spicyRepo) }
+                .pointerHoverIcon(PointerIcon.Hand)
+        ) {
+            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = .8f), RoundedCornerShape(18.dp)),
+                    contentAlignment = Alignment.Center
+                ) { DesktopArtwork("https://github.com/Spikerko.png", Modifier.fillMaxSize(), 18.dp, "Spicy Lyrics") }
+                Spacer(Modifier.width(18.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Spicy Lyrics", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = onBackground)
+                    Text("Spikerko/spicy-lyrics", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                    Text(desktopText("Animation inspired by Spicy Lyrics"), fontSize = 13.sp, color = muted)
+                }
+                Spacer(Modifier.width(12.dp))
+                CircleLink(GitHubIcon, 19) { openUrl(spicyRepo) }
+            }
+        }
         Text(desktopText("Lyrics providers and community contributors are credited alongside the lyrics they supply."),
-            color = muted, fontSize = 13.sp)
+            Modifier.padding(horizontal = 4.dp), color = muted, fontSize = 13.sp)
     }
 }
 
