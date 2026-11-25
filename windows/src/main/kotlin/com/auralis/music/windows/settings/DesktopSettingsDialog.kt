@@ -411,30 +411,8 @@ internal fun SettingChoice(title: String, description: String? = null, selected:
     }
 
     if (expanded) {
-        AlertDialog(
-            onDismissRequest = { expanded = false },
-            title = { Text(desktopText(title)) },
-            containerColor = Color(0xFF1C1A22),
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    options.forEach { option ->
-                        SettingsHoverSurface(
-                            onClick = { onSelect(option); expanded = false },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (option == selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = option == selected, onClick = null)
-                                Spacer(Modifier.width(10.dp))
-                                Text(desktopText(option), fontWeight = if (option == selected) FontWeight.Bold else FontWeight.Normal)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { expanded = false }) { Text(desktopText("Done")) } }
-        )
+        GlassPickerDialog(desktopText(title), options.map { it to desktopText(it) }, selected,
+            onDismiss = { expanded = false }, onSelect = onSelect)
     }
 }
 
@@ -497,46 +475,9 @@ internal fun SettingSearchableChoice(
     }
 
     if (expanded) {
-        AlertDialog(
-            onDismissRequest = { expanded = false },
-            title = { Text(desktopText(title)) },
-            containerColor = Color(0xFF1C1A22),
-            text = {
-                val languageRevision = com.auralis.music.ui.i18n.StringLookup.revision.intValue
-                val filtered = remember(filterText, options, languageRevision) {
-                    if (filterText.isBlank()) options
-                    else options.filter { it.second.contains(filterText, ignoreCase = true) || it.first.contains(filterText, ignoreCase = true) || desktopText(it.second).contains(filterText, ignoreCase = true) }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.width(360.dp).heightIn(max = 420.dp)) {
-                    OutlinedTextField(
-                        value = filterText,
-                        onValueChange = { filterText = it },
-                        placeholder = { Text(desktopText("Search...")) },
-                        modifier = Modifier.fillMaxWidth().reportTypingFocus(),
-                        singleLine = true
-                    )
-                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(filtered) { (key, display) ->
-                            val isSel = key == selectedKey
-                            SettingsHoverSurface(
-                                onClick = { onSelect(key); expanded = false },
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSel) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.04f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(selected = isSel, onClick = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(if (key.isBlank() || display == "System default" || display == "Default") desktopText(display) else display, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { expanded = false }) { Text(desktopText("Cancel")) } }
-        )
+        GlassPickerDialog(desktopText(title),
+            options.map { (key, display) -> key to (if (key.isBlank() || display == "System default" || display == "Default") desktopText(display) else display) },
+            selectedKey, searchable = true, onDismiss = { expanded = false }, onSelect = onSelect)
     }
 }
 

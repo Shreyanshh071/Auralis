@@ -229,22 +229,8 @@ private fun Choice(title: String, selected: String, options: List<String>, selec
             Text(desktopText("Choose ›"))
         }
     }
-    if (expanded) AlertDialog(onDismissRequest = { expanded = false }, title = { Text(desktopText(title)) },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f),
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                options.forEach { option ->
-                    SettingsHoverSurface(onClick = { select(option); expanded = false },
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                        color = if (option == selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            RadioButton(selected = option == selected, onClick = null)
-                            Spacer(Modifier.width(12.dp)); Text(desktopText(option))
-                        }
-                    }
-                }
-            }
-        }, confirmButton = { TextButton(onClick = { expanded = false }) { Text(desktopText("Cancel")) } })
+    if (expanded) GlassPickerDialog(desktopText(title), options.map { it to desktopText(it) }, selected,
+        onDismiss = { expanded = false }, onSelect = { select(it) })
 }
 
 /** Pointer movement updates only this control; persist one value when the gesture ends. */
