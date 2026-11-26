@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -55,12 +56,14 @@ private val LocalPageCardGlass = staticCompositionLocalOf<LiquidGlassContext?> {
 
 /** The page's painted glow, for anything that has to match it (see [PageGlowTopFade]). */
 @Stable
-private class PageGlow {
+internal class PageGlow {
     var enabled = false
     var image by mutableStateOf<ImageBitmap?>(null)
     var pageSize by mutableStateOf(IntSize.Zero)
     /** How far above the page's top the glow starts (it runs up behind the status bar). */
     var topOffsetPx by mutableIntStateOf(0)
+    /** The page's colour, for the status-bar strip while it's the page showing. */
+    var color by mutableStateOf<Color?>(null)
 }
 
 private val LocalPageGlow = staticCompositionLocalOf<PageGlow?> { null }
@@ -86,6 +89,10 @@ private fun renderPageGlow(pageSize: Size, background: Color, accent: Color): Im
 @Composable
 internal fun pageGlassEnabled(): Boolean = LocalPageCardGlass.current != null
 
+/** Samples only the page's painted background, so in-page glass never samples itself. */
+@Composable
+internal fun pageBackgroundGlass(): LiquidGlassContext? = LocalPageCardGlass.current
+
 /** Blur for a small button over artwork: heavier averages everything under it into one colour. */
 internal val ARTWORK_GLASS_BLUR = 3.dp
 
@@ -103,7 +110,7 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
     pageGlow.topOffsetPx = if (glowBehindStatusBar)
         androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current) else 0
     if (glowBehindStatusBar) DisposableEffect(pageGlow) {
-        onDispose { if (StatusBarGlow.owner === pageGlow) StatusBarGlow.clear() }
+        onDispose { StatusBarGlow.release(pageGlow) }
     }
     CompositionLocalProvider(LocalPageCardGlass provides glass, LocalPageGlow provides pageGlow) {
         // Switching the theme rebuilds the page: cards already drawn kept the old look until they
@@ -111,9 +118,8 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
         key(glass != null) {
             // Set on draw: a tab kept alive in the background must take the strip back.
             Box(if (glowBehindStatusBar) modifier.drawBehind {
-                StatusBarGlow.owner = pageGlow
-                StatusBarGlow.color = background
-                if (!pageGlow.enabled) StatusBarGlow.image = null
+                pageGlow.color = background
+                StatusBarGlow.take(pageGlow)
             } else modifier) {
                 // The page paints its own colour and glow up behind the status bar (as BitChord's
                 // pages do) instead of leaving that strip to StatusBarGlowBand to copy. The band
@@ -128,7 +134,6 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
                     pageGlow.image = image
                     pageGlow.pageSize = pageSize
                     onDrawBehind {
-                    if (glowBehindStatusBar) StatusBarGlow.image = image
                     drawImage(image, dstSize = pageSize, filterQuality = FilterQuality.Low)
                 }
                 })
@@ -138,16 +143,37 @@ internal fun OptionalGlassPage(background: Color, accent: Color, modifier: Modif
     }
 }
 
-/** The page showing below the status bar, for [StatusBarGlowBand] to continue. */
+/**
+ * The pages open below the status bar, for [StatusBarGlowBand] to continue: the last one drawn
+ * owns the strip. Closing a page hands the strip back to the one beneath it. A single owner,
+ * cleared on close, left the strip black after going back, until the page beneath next redrew.
+ */
 internal object StatusBarGlow {
-    var owner: Any? = null
-    var color by mutableStateOf<Color?>(null)
-    var image by mutableStateOf<ImageBitmap?>(null)
+    private val pages = androidx.compose.runtime.mutableStateListOf<PageGlow>()
+    val color: Color? get() = pages.lastOrNull()?.color
+    val image: ImageBitmap? get() = pages.lastOrNull()?.takeIf { it.enabled }?.image
 
-    fun clear() {
-        owner = null
-        color = null
-        image = null
+    /**
+     * Called while a page draws, so the list must not be read observed: two open pages each
+     * subscribed to it, and every take redrew the other page, which took the strip back, forever.
+     */
+    fun take(page: PageGlow) = androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation {
+        if (pages.lastOrNull() === page) return@withoutReadObservation
+        pages.remove(page); pages.add(page)
+    }
+
+    fun release(page: PageGlow) { pages.remove(page) }
+}
+
+/**
+ * [clipToBounds] for a page that paints behind the status bar: it still clips its sides and
+ * bottom, but leaves room above it for that strip (a plain clip cut the strip off, so it went black).
+ */
+@Composable
+internal fun Modifier.clipToBoundsBelowStatusBar(): Modifier {
+    val inset = androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(androidx.compose.ui.platform.LocalDensity.current).toFloat()
+    return drawWithContent {
+        clipRect(left = 0f, top = -inset, right = size.width, bottom = size.height) { this@drawWithContent.drawContent() }
     }
 }
 
