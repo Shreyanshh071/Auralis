@@ -122,6 +122,9 @@ val ExpandedMiniPlayerHeight: Dp = 132.dp
  * Height the app reserves for the mini-player. One fixed 68dp for every design cut the expanded
  * design's control row off (regressed in 52f428a, which clamped the host to MiniPlayerHeight).
  */
+/** False while the full player covers the mini player (it stays composed then): its background stops animating. */
+val LocalMiniPlayerOnScreen = androidx.compose.runtime.compositionLocalOf { true }
+
 fun miniPlayerHeightFor(design: String): Dp =
     if (design == MiniPlayerDesign.EXPANDED.displayName) ExpandedMiniPlayerHeight else MiniPlayerHeight
 
@@ -1010,7 +1013,8 @@ private fun ClassicMiniPlayerView(
                 extractedColors = extractedColors,
                 modifier = Modifier.matchParentSize(),
                 isMiniPlayer = true,
-                isPlaying = isPlaying
+                isPlaying = isPlaying,
+                isVisible = LocalMiniPlayerOnScreen.current
             )
         }
 
@@ -1314,7 +1318,8 @@ private fun NewMiniPlayerPillView(
                 extractedColors = extractedColors,
                 modifier = Modifier.matchParentSize(),
                 isMiniPlayer = true,
-                isPlaying = isPlaying
+                isPlaying = isPlaying,
+                isVisible = LocalMiniPlayerOnScreen.current
             )
         }
 

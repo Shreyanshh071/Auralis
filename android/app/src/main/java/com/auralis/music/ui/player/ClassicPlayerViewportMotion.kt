@@ -51,6 +51,8 @@ internal object ClassicPlayerViewportMotion {
     const val HeroDurationMillis = 500
     const val HeroSettleFrames = 2
     const val LayerPrepareDelayMillis = 900L
+    /** Between pre-building the Lyrics tab and the Queue tab, so each lands in its own frame. */
+    const val LayerPrepareGapMillis = 350L
     // Cover curve: soft start, fast middle, long glide into the header ("liquid").
     // An instant-start curve made the collapse look abrupt.
     val HeroEasing = androidx.compose.animation.core.FastOutSlowInEasing

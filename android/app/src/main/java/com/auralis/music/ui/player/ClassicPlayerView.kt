@@ -1464,7 +1464,7 @@ internal const val HiddenLayerOffsetPx = 1_000_000
 
 /** A hidden tab stops its per-frame lyric motion, and only its own readers recompose on a switch. */
 @Composable
-private fun HiddenLayerMotion(
+internal fun HiddenLayerMotion(
     onScreen: State<Boolean>,
     blurSuspended: State<Boolean>,
     content: @Composable () -> Unit
@@ -1613,13 +1613,18 @@ internal fun rememberClassicPlayerMotion(
     // Building the lyric list took ~380ms of 12fps frames, and it happened on every switch, right
     // as the cover took off. Build both tabs once while the open player is at rest, then keep them
     // ready off-screen, so a switch only moves things that already exist.
-    var layersPrepared by remember { mutableStateOf(false) }
+    // One tab at a time: building both in the same frame was a ~110 ms frame a second after every
+    // open (release build trace), since the player is rebuilt each time it opens.
+    var lyricsPrepared by remember { mutableStateOf(false) }
+    var queuePrepared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(ClassicPlayerViewportMotion.LayerPrepareDelayMillis)
-        layersPrepared = true
+        lyricsPrepared = true
+        delay(ClassicPlayerViewportMotion.LayerPrepareGapMillis)
+        queuePrepared = true
     }
-    val showLyricsLayer = remember(lyricsLayerOnScreen) { derivedStateOf { layersPrepared || lyricsLayerOnScreen.value } }
-    val showQueueLayer = remember(queueLayerOnScreen) { derivedStateOf { layersPrepared || queueLayerOnScreen.value } }
+    val showLyricsLayer = remember(lyricsLayerOnScreen) { derivedStateOf { lyricsPrepared || lyricsLayerOnScreen.value } }
+    val showQueueLayer = remember(queueLayerOnScreen) { derivedStateOf { queuePrepared || queueLayerOnScreen.value } }
 
     return remember(
         motionValues,

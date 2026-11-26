@@ -109,6 +109,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -198,6 +199,14 @@ private val PLAY_TOUCH_SIZE = 92.dp
 private val PLAY_TOUCH_SIZE_TIGHT = 78.dp
 /** The expanded title starts no higher than this fraction of the sleeve (its faded foot). */
 private const val TITLE_MIN_SLEEVE_FRACTION = 0.86f
+
+/** What the deck's text fit depends on. */
+private data class DeckFitKey(val width: Int, val height: Int, val fontScale: Float, val inlineLyrics: Boolean)
+
+/** Fitted deck steps for this run of the app, so the player opens already fitted after the first time. */
+private object ImmersiveDeckFit {
+    val steps = java.util.concurrent.ConcurrentHashMap<DeckFitKey, Int>()
+}
 private const val DECK_MAX_STEP = 1 + PlayerFit.MAX_STEP
 private val HANDLE_STRIP_HEIGHT = 32.dp
 /** Rows fade out over this band above the controls, and are fully hidden beneath them. */
@@ -268,6 +277,11 @@ fun ImmersivePlayerContainer(
     val motion = rememberClassicPlayerMotion(currentTab, LocalReducedMotion.current)
     val sheetProgress = LocalPlayerSheetProgress.current
     val heroProgress = motion.compactHeaderProgress
+    val lyricsBlurSuspended = remember(heroProgress) {
+        derivedStateOf {
+            heroProgress.value in 0.001f..ClassicPlayerViewportMotion.LyricsRevealStart
+        }
+    }
     val compactActionsEnabled by remember(heroProgress) { derivedStateOf { heroProgress.value > 0.5f } }
     val heroAtRest by remember(heroProgress) { derivedStateOf { heroProgress.value <= 0.001f } }
     val expandedTitleShown by remember(heroProgress) {
@@ -282,8 +296,11 @@ fun ImmersivePlayerContainer(
     // foot instead of climbing over the cover: 1 = gaps, 2-4 = the shared PlayerFit text steps.
     // Only ever rises for one screen size / font scale / lyric state, so it cannot oscillate.
     val fontScale = density.fontScale
-    var deckStep by remember(containerWidthPx, containerHeightPx, fontScale, uiState.showInlineLyrics) {
-        mutableIntStateOf(0)
+    // Starts at the step this screen already fitted to: re-fitting from 0 on every open cost one or
+    // two full re-layouts (~115 ms each on the release build) right after the sheet came to rest.
+    val deckFitKey = DeckFitKey(containerWidthPx, containerHeightPx, fontScale, uiState.showInlineLyrics)
+    var deckStep by remember(deckFitKey) {
+        mutableIntStateOf(ImmersiveDeckFit.steps[deckFitKey] ?: 0)
     }
     val deckTight = deckStep >= 1
     val playerFit = PlayerFit((deckStep - 1).coerceAtLeast(0))
@@ -391,7 +408,10 @@ fun ImmersivePlayerContainer(
         modifier = Modifier
             .fillMaxSize()
             .onGloballyPositioned {
-                containerOriginInRoot = it.positionInRoot()
+                // Positions here are only ever compared with each other, and the whole sheet moves
+                // together, so they're kept from rest: writing them on every frame of the slide
+                // recomposed the player on every frame.
+                if (sheetProgress() >= 0.999f || containerOriginInRoot == Offset.Zero) containerOriginInRoot = it.positionInRoot()
                 containerWidthPx = it.size.width
                 containerHeightPx = it.size.height
             }
@@ -599,13 +619,16 @@ fun ImmersivePlayerContainer(
                                 // The title may sit on the sleeve's faded foot, not over the cover
                                 // itself. Measured only at rest on the player, where the deck is up.
                                 if (!heroAtRest || currentTab != NowPlayingTab.PLAYER || controlsHeightPx == 0 ||
-                                    containerWidthPx == 0 || hidePlayerThumbnail
+                                    containerWidthPx == 0 || hidePlayerThumbnail || sheetProgress() < 0.999f
                                 ) return@onGloballyPositioned
                                 val titleTop = coords.positionInRoot().y - containerOriginInRoot.y
                                 val composedStep = deckStep
                                 if (titleTop < containerWidthPx * TITLE_MIN_SLEEVE_FRACTION &&
                                     composedStep < DECK_MAX_STEP
-                                ) deckStep = composedStep + 1
+                                ) {
+                                    deckStep = composedStep + 1
+                                    ImmersiveDeckFit.steps[deckFitKey] = composedStep + 1
+                                }
                             }
                         )
                         Spacer(Modifier.height(if (deckTight) 8.dp else 18.dp))
@@ -618,7 +641,10 @@ fun ImmersivePlayerContainer(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = controlsAlpha }
+                            .graphicsLayer {
+                                alpha = controlsAlpha
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                            }
                     ) {
                         ImmersiveCompactHeader(
                             track = track,
@@ -632,6 +658,13 @@ fun ImmersivePlayerContainer(
                             onClick = { onTabChange(NowPlayingTab.PLAYER) },
                             onShowTrackOptions = onShowTrackOptions
                         )
+                        val lyricsAlpha = {
+                            motion.lyricsAlpha.value * ClassicPlayerViewportMotion.lyricsRevealAlpha(heroProgress.value)
+                        }
+                        val maskControls = {
+                            controlsHeightPx > 0 && controlsReveal.value > 0.001f &&
+                                (motion.queueAlpha.value > 0.001f || lyricsAlpha() > 0.001f)
+                        }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -639,12 +672,15 @@ fun ImmersivePlayerContainer(
                                 .clipToBounds()
                                 // Lyrics and the queue run on under the controls; while those are up
                                 // the rows fade out where the panel starts and stay hidden beneath it.
-                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .graphicsLayer {
+                                    compositingStrategy = if (maskControls()) CompositingStrategy.Offscreen
+                                    else CompositingStrategy.Auto
+                                }
                                 .drawWithContent {
                                     drawContent()
                                     val panel = controlsHeightPx.toFloat()
                                     val reveal = controlsReveal.value
-                                    if (reveal > 0.001f && panel > 0f) {
+                                    if (maskControls()) {
                                         val top = size.height - panel
                                         val fade = CONTROLS_FADE_ABOVE.toPx()
                                         drawRect(
@@ -665,8 +701,14 @@ fun ImmersivePlayerContainer(
                                         .zIndex(if (currentTab == NowPlayingTab.LYRICS) 1f else 0f)
                                         // Parked while hidden: alpha 0 alone still takes touches.
                                         .offset { IntOffset(0, if (motion.lyricsLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
+                                        .drawWithContent {
+                                            if (motion.lyricsLayerOnScreen.value && heroProgress.value > ClassicPlayerViewportMotion.LyricsRevealStart) {
+                                                drawContent()
+                                            }
+                                        }
                                         .graphicsLayer {
-                                            alpha = motion.lyricsAlpha.value
+                                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                                            alpha = lyricsAlpha()
                                             translationY = motion.lyricsTranslationYDp.value.dp.toPx()
                                         }
                                         .padding(horizontal = SIDE_GUTTER - 8.dp)
@@ -678,6 +720,7 @@ fun ImmersivePlayerContainer(
                                             })
                                         }
                                 ) {
+                                    HiddenLayerMotion(motion.lyricsLayerOnScreen, lyricsBlurSuspended) {
                                     SyncedLyricsView(
                                         lyrics = uiState.lyrics,
                                         positionState = lyricsPositionState,
@@ -698,6 +741,7 @@ fun ImmersivePlayerContainer(
                                         isBuffering = uiState.isBuffering,
                                         audioLeadingSilenceMs = uiState.audioLeadingSilenceMs
                                     )
+                                    }
                                 }
                             }
                             if (queueLayerShown) {
@@ -708,7 +752,9 @@ fun ImmersivePlayerContainer(
                                         // Parked while hidden: an invisible row's options button
                                         // otherwise sits over the title's and opens the wrong song.
                                         .offset { IntOffset(0, if (motion.queueLayerOnScreen.value) 0 else HiddenLayerOffsetPx) }
+                                        .drawWithContent { if (motion.queueLayerOnScreen.value) drawContent() }
                                         .graphicsLayer {
+                                            compositingStrategy = CompositingStrategy.ModulateAlpha
                                             alpha = motion.queueAlpha.value
                                             translationY = motion.queueTranslationYDp.value.dp.toPx()
                                         }
@@ -830,7 +876,7 @@ fun ImmersivePlayerContainer(
                             modifier = Modifier
                                 .testTag("immersiveScrubber")
                                 .onGloballyPositioned {
-                                    scrubberTopInRoot = it.positionInRoot().y
+                                    if (sheetProgress() >= 0.999f || scrubberTopInRoot == null) scrubberTopInRoot = it.positionInRoot().y
                                 }
                         )
 
@@ -918,8 +964,7 @@ fun ImmersivePlayerContainer(
                         shape = RoundedCornerShape((compactCornerPx / s) * p)
                         clip = true
                     }
-                    .heroFadeMask { heroProgress.value }
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+                    .heroFadeMask { heroProgress.value },
                 cornerRadius = 0.dp,
                 elevation = 0.dp,
                 contentDescription = track.title,
@@ -946,18 +991,16 @@ private fun Modifier.heroFadeMask(solidity: () -> Float): Modifier = this
         val firm = solidity().coerceIn(0f, 1f)
         compositingStrategy = if (firm < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
     }
-    .drawWithContent {
-        drawContent()
-        val firm = solidity().coerceIn(0f, 1f)
-        if (firm < 1f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color.Black, Color.Black.copy(alpha = firm)),
-                    startY = size.height * (1f - HERO_FADE_FRACTION),
-                    endY = size.height
-                ),
-                blendMode = BlendMode.DstIn
-            )
+    .drawWithCache {
+        val mask = Brush.verticalGradient(
+            colors = listOf(Color.Transparent, Color.Black),
+            startY = size.height * (1f - HERO_FADE_FRACTION),
+            endY = size.height
+        )
+        onDrawWithContent {
+            drawContent()
+            val fade = 1f - solidity().coerceIn(0f, 1f)
+            if (fade > 0f) drawRect(mask, alpha = fade, blendMode = BlendMode.DstOut)
         }
     }
 

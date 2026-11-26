@@ -112,6 +112,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GTranslate
@@ -1237,29 +1239,14 @@ fun NowPlayingModal(
             val tabBodyEnter = auralisContentEnter()
             val tabBodyExit = auralisContentExit()
             val tabReducedMotion = LocalReducedMotion.current
-            AnimatedContent(
-                targetState = currentTab,
+            // Tabs are built once and kept: switching only slides and fades bodies that already
+            // exist. Rebuilding the queue (125 songs) or the lyrics on every switch, inside an
+            // AnimatedContent, was what made switching lag.
+            NowPlayingTabHost(
+                currentTab = currentTab,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
-                transitionSpec = {
-                    if (tabReducedMotion) {
-                        tabBodyEnter togetherWith tabBodyExit using SizeTransform(clip = false)
-                    } else {
-                        // Shared-axis: the new tab arrives from the side of the tab you tapped
-                        // (Lyrics | Queue | Player) and settles with a long decelerating glide;
-                        // the old one slips the other way and fades out quickly.
-                        val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                        val glide = androidx.compose.animation.core.CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-                        val enter = androidx.compose.animation.slideInHorizontally(tween(420, easing = glide)) { w -> direction * w / 4 } +
-                            fadeIn(tween(260, delayMillis = 60, easing = FastOutSlowInEasing)) +
-                            scaleIn(initialScale = 0.96f, animationSpec = tween(420, easing = glide))
-                        val exit = androidx.compose.animation.slideOutHorizontally(tween(220, easing = androidx.compose.animation.core.FastOutLinearInEasing)) { w -> -direction * w / 8 } +
-                            fadeOut(tween(160, easing = androidx.compose.animation.core.FastOutLinearInEasing))
-                        enter togetherWith exit using SizeTransform(clip = false)
-                    }
-                },
-                label = "nowPlayingTabBody"
+                    .fillMaxWidth()
             ) { tab ->
                 when (tab) {
                 // ============================================================
@@ -1338,6 +1325,9 @@ fun NowPlayingModal(
                     val queueListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
                     var startDragIndex by remember { mutableIntStateOf(-1) }
                     var lastDragEndTime by remember { mutableLongStateOf(0L) }
+                    // Reordering starts locked, as in the old and immersive players: handles and
+                    // long-press drag only while the lock beside Continue Playing is open.
+                    var queueLocked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
 
                     val edgeScrollSpeed = with(density) { 45.dp.toPx() }
                     val scroller = rememberScroller(
@@ -1351,7 +1341,7 @@ fun NowPlayingModal(
                         // Keys, not list positions: the section headers sit between the songs.
                         val fromIndex = localQueue.indexOfFirst { it.instanceId == from.key }
                         val toIndex = localQueue.indexOfFirst { it.instanceId == to.key }
-                        if (fromIndex in localQueue.indices && toIndex in localQueue.indices) {
+                        if (!queueLocked && fromIndex in localQueue.indices && toIndex in localQueue.indices) {
                             localQueue.add(toIndex, localQueue.removeAt(fromIndex))
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         }
@@ -1458,14 +1448,9 @@ fun NowPlayingModal(
                             .graphicsLayer { alpha = controlsAlpha }
                     ) {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            Text(
-                                text = str(R.string.up_next_x_songs, (localQueue.size - activeQueueIndex - 1).coerceAtLeast(0)),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-
+                            // No "Up Next" count here: the old and immersive players open straight on
+                            // Continue Playing, and the tab already shows the queue size.
+                            Spacer(Modifier.height(8.dp))
                             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                                 LazyColumn(
                                     state = queueListState,
@@ -1499,7 +1484,7 @@ fun NowPlayingModal(
                                                 val occurrence = localQueue.take(localIndex).count { it.track.id == item.track.id }
                                                 return queueSnapshot.indices.filter { queueSnapshot[it].id == item.track.id }.getOrNull(occurrence) ?: localIndex
                                             }
-                                            val swipeEnabled = !isCurrent && !reorderableLazyListState.isAnyItemDragging
+                                            val swipeEnabled = !isCurrent && queueLocked && !reorderableLazyListState.isAnyItemDragging
                                             // Swipe right: play this song next. Swipe left: take it out of the queue.
                                             com.auralis.music.ui.components.SwipeableTrackContainer(
                                                 onPlayNext = if (swipeEnabled && onReorderQueue != null) {
@@ -1554,7 +1539,7 @@ fun NowPlayingModal(
                                                         }
                                                     }
                                                     .longPressDraggableHandle(
-                                                        enabled = true,
+                                                        enabled = !queueLocked,
                                                         onDragStarted = {
                                                             isRowHeld = true
                                                             startDragIndex = localQueue.indexOfFirst { it.instanceId == item.instanceId }
@@ -1646,8 +1631,8 @@ fun NowPlayingModal(
                                                     )
                                                 }
 
-                                                // Drag Handle (comfortable hit area, visual grip)
-                                                Box(
+                                                // Drag Handle (comfortable hit area, visual grip), only while unlocked.
+                                                if (!queueLocked) Box(
                                                     modifier = Modifier
                                                         .size(40.dp)
                                                         .pointerInput(item.instanceId) {
@@ -1703,7 +1688,27 @@ fun NowPlayingModal(
                                             title = str(R.string.continue_playing),
                                             modifier = Modifier
                                                 .animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
-                                                .padding(top = if (historyCount > 0) 10.dp else 0.dp)
+                                                .padding(top = if (historyCount > 0) 10.dp else 0.dp),
+                                            action = {
+                                                IconButton(
+                                                    onClick = {
+                                                        queueLocked = !queueLocked
+                                                        Toast.makeText(
+                                                            context,
+                                                            if (queueLocked) str(R.string.queue_locked) else str(R.string.queue_unlocked_drag_the_handles_to_reord),
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (queueLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                                        contentDescription = if (queueLocked) str(R.string.unlock_queue_reordering) else str(R.string.lock_queue_reordering),
+                                                        tint = if (queueLocked) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
                                         )
                                     }
                                     items(
