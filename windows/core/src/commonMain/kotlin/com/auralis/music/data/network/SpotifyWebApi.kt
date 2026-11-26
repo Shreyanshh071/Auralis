@@ -19,9 +19,14 @@ object SpotifyWebApi {
     private val bundledHashes = mapOf(
         "libraryV3" to "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
         "fetchPlaylist" to "8964e8eafb21aa992a7d951d256d83285c04be2105d209262901de70cb97584a",
-        "fetchLibraryTracks" to "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240"
+        "fetchLibraryTracks" to "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240",
+        // Verified from the registry on 2026-11-26, for playlist sync.
+        "profileAttributes" to "08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0",
+        "searchDesktop" to "db61238974d27839a136c9dc02bfdbe3fab7635f21cf85976ebff9a1ee281345"
     )
     private val previousHashes = mapOf(
+        "profileAttributes" to "b197b5adb4b761690f76ad9d9fb278c14c14e7331f357c04a56e7001af7106e0",
+        "searchDesktop" to "4801118d4a100f756e833d33984436a3899cff359c532f8fd3aaf174b60b3b49",
         "libraryV3" to "973e511ca44261fda7eebac8b653155e7caee3675abb4fb110cc1b8c78b091c3",
         "fetchPlaylist" to "243c0ba2736f16da721e3a227004bbcdb8df6c846f198bd478172e00aa1faf42"
     )

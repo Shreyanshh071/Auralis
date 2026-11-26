@@ -219,11 +219,7 @@ fun PlaylistOptionsBottomSheet(
     val platformActions = com.auralis.music.ui.components.LocalPlatformActions.current
     val coroutineScope = rememberCoroutineScope()
     val shortcutActions = LocalPlaylistShortcutActions.current
-    val syncPlaylist = LocalPlaylistSync.current.takeUnless {
-        com.auralis.music.data.playlistsync.PlaylistSyncStore.imported(playlist.id)?.first ==
-            com.auralis.music.data.playlistsync.SyncService.SPOTIFY ||
-            playlist.id.startsWith("sp_") || playlist.id.startsWith("spotify:")
-    }
+    val syncPlaylist = LocalPlaylistSync.current
     val isShortcutPinned = shortcutActions?.isPinned?.invoke(playlist) == true
     val shortcutTitle = if (isShortcutPinned) "Unpin from shortcuts" else "Pin to shortcuts"
     var activeDialog by remember { mutableStateOf(initialDialog) }

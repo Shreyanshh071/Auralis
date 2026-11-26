@@ -44,10 +44,8 @@ fun PlaylistImportSyncToggle() {
         Column(Modifier.weight(1f)) {
             Text("Keep imported playlists in sync")
             val descriptionStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 18.sp)
-            Text("Two-way sync with YouTube Music playlists.", style = descriptionStyle,
+            Text("Two-way sync with YouTube Music and Spotify playlists.", style = descriptionStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Currently works with YouTube Music only. Spotify playlists can be imported, but changes won’t sync.",
-                style = descriptionStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(choice.enabled, { choice.enabled = it; choice.changed(it) })
     }
@@ -87,13 +85,14 @@ fun PlaylistCreationDialog(library: LibraryRepository, engine: PlaylistSyncEngin
                     unfocusedPlaceholderColor = colors.onSurface.copy(alpha = .65f)
                 )
             )
-            // Spotify playlists import but don't sync, so YouTube Music is the only sync choice.
             Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Save to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 PlaylistDestination("Auralis only", "Save in your Auralis library", Icons.Default.MusicNote,
                     selected = service == null, enabled = !busy && localId == null) { service = null }
                 PlaylistDestination("YouTube Music", "Private playlist with two-way sync", Icons.Default.Sync,
                     selected = service == SyncService.YOUTUBE, enabled = !busy && localId == null) { service = SyncService.YOUTUBE }
+                PlaylistDestination("Spotify", "Private playlist with two-way sync", Icons.Default.Sync,
+                    selected = service == SyncService.SPOTIFY, enabled = !busy && localId == null) { service = SyncService.SPOTIFY }
             }
             if (request.tracks.isNotEmpty()) Text("${request.tracks.size} song(s) will be added.", style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

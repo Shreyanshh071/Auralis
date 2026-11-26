@@ -33,6 +33,14 @@ class PlaylistSyncTest {
         }
         override suspend fun create(title: String, description: String): String { creations++; return "created" }
         override suspend fun identify(track: Track) = track.id.takeUnless { it == "unmatched" }
+        /** Songs the service cleanly doesn't have, and how often each was looked up. */
+        var missing = emptySet<String>(); var matchError = false
+        val lookups = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        override suspend fun match(track: Track): SyncMatch {
+            lookups.merge(track.id, 1, Int::plus)
+            if (matchError) throw java.io.IOException("Spotify search returned HTTP 429")
+            return if (track.id in missing) SyncMatch.NotFound else super.match(track)
+        }
         override suspend fun write(before: RemoteSyncPlaylist, target: SyncSnapshot) {
             if (before.revision != "$revision") throw PlaylistSyncStalePreviewException("Remote changed before upload")
             writes++; if (fail || failWrite) error("Offline during upload")
@@ -97,6 +105,32 @@ class PlaylistSyncTest {
                 assertEquals(service to "original", engine.source(local.id), "Turning off must retain the original import source")
             } finally { dir.deleteRecursively() }
         }
+    }
+
+    @Test fun anImportedPlaylistCanSwitchToAPrivateCopyOnTheOtherServiceAndBack() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("sync-cross-service").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.restorePlaylist("imported:youtube_music:original", "Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a")))
+            val youtube = Remote(snap("a"), SyncService.YOUTUBE)
+            val spotify = Remote(snap(), SyncService.SPOTIFY)
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.YOUTUBE to youtube, SyncService.SPOTIFY to spotify))
+            engine.connect(local.id, SyncService.YOUTUBE)
+            assertEquals(SyncService.YOUTUBE to "original", store.links.value.single().let { it.service to it.remoteId })
+            // Spotify instead: YouTube's link goes, a private Spotify copy is created and keeps syncing.
+            engine.connect(local.id, SyncService.SPOTIFY)
+            assertEquals(SyncService.SPOTIFY to "created", store.links.value.single().let { it.service to it.remoteId })
+            assertEquals(1, spotify.creations); assertEquals(listOf("a"), spotify.current.ids)
+            library.addTrackToPlaylist(local.id, track("b")); engine.sync(local.id)
+            assertEquals(listOf("a", "b"), spotify.current.ids, "a deliberate copy on the other service must not pause as 'differs from source'")
+            assertEquals(listOf("a"), youtube.current.ids)
+            // Back to YouTube: the imported playlist itself, never a new one.
+            engine.connect(local.id, SyncService.YOUTUBE)
+            assertEquals(SyncService.YOUTUBE to "original", store.links.value.single().let { it.service to it.remoteId })
+            assertEquals(0, youtube.creations); assertEquals(listOf("a", "b"), youtube.current.ids)
+        } finally { dir.deleteRecursively() }
     }
 
     @Test fun additionsTravelBothWaysAutomaticallyAndTurningOffStopsTheWorker() = runBlocking<Unit> {
@@ -498,5 +532,113 @@ class PlaylistSyncTest {
             engine.start(CoroutineScope(nextJob + Dispatchers.Default))
             withTimeout(3000) { engine.status.first { it[local.id] == "Up to date" } }
         } finally { firstJob.cancelAndJoin(); nextJob.cancelAndJoin(); dir.deleteRecursively() }
+    }
+
+    private suspend fun ids(library: DesktopLibraryRepository, id: String) = library.getPlaylist(id).first()!!.tracks.map { it.id }
+
+    @Test fun anAuralisOnlySongStaysLocalWhileTheRestKeepsSyncingThroughRemoteAddsReordersAndDeletes() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("auralis-only").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a"), track("cover"), track("b")))
+            val remote = Remote(snap()).apply { missing = setOf("cover") }
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.SPOTIFY to remote))
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            assertEquals(listOf("a", "b"), remote.current.ids)
+            assertEquals(listOf("a", "cover", "b"), ids(library, local.id))
+            assertEquals(setOf("cover"), store.links.value.single().unmatchedIds)
+            assertEquals("Up to date · 1 song kept in Auralis only (not on Spotify)", engine.status.value[local.id])
+            // Spotify adds c and moves b first: the cover still follows a.
+            remote.current = snap("b", "a", "c"); remote.revision++
+            engine.sync(local.id)
+            assertEquals(listOf("b", "a", "cover", "c"), ids(library, local.id))
+            // Spotify deletes a, the cover's anchor: the cover stays where it was, not deleted or duplicated.
+            remote.current = snap("b", "c"); remote.revision++
+            engine.sync(local.id)
+            assertEquals(listOf("b", "cover", "c"), ids(library, local.id))
+            assertEquals(listOf("b", "c"), remote.current.ids)
+            // Polling again never searches for the known Auralis-only song.
+            repeat(3) { engine.sync(local.id) }
+            assertEquals(1, remote.lookups["cover"])
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun addingAnAuralisOnlySongUploadsNothingButIsRememberedAndRemovingItAllowsARecheck() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("auralis-only-add").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Mix"); library.addTrackToPlaylist(local.id, track("a"))
+            val remote = Remote(snap()).apply { missing = setOf("cover") }
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.SPOTIFY to remote))
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            val writes = remote.writes
+            library.addTrackToPlaylist(local.id, track("cover")); engine.sync(local.id)
+            assertEquals(writes, remote.writes, "an Auralis-only addition must not write to Spotify")
+            assertEquals(setOf("cover"), store.links.value.single().unmatchedIds)
+            engine.sync(local.id); assertEquals(1, remote.lookups["cover"])
+            library.removeTrackFromPlaylist(local.id, "cover"); engine.sync(local.id)
+            assertEquals(emptySet(), store.links.value.single().unmatchedIds)
+            // Re-added after it's released on Spotify: looked up again and uploaded.
+            remote.missing = emptySet()
+            library.addTrackToPlaylist(local.id, track("cover")); engine.sync(local.id)
+            assertEquals(2, remote.lookups["cover"])
+            assertEquals(listOf("a", "cover"), remote.current.ids)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun aPlaylistOfOnlyAuralisOnlySongsSyncsWithoutWipingThem() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("auralis-only-all").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Covers")
+            library.replacePlaylistTracks(local.id, listOf(track("x"), track("y"), track("x")))
+            val remote = Remote(snap()).apply { missing = setOf("x", "y") }
+            val engine = PlaylistSyncEngine(library, PlaylistSyncStore(Memory()), mapOf(SyncService.SPOTIFY to remote))
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            assertEquals(1, remote.creations); assertEquals(emptyList(), remote.current.ids)
+            assertEquals(listOf("x", "y", "x"), ids(library, local.id))
+            engine.sync(local.id)
+            assertEquals(listOf("x", "y", "x"), ids(library, local.id))
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun aFailedOrRateLimitedLookupRetriesInsteadOfMarkingTheSongAuralisOnly() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("auralis-only-error").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Mix"); library.addTrackToPlaylist(local.id, track("a"))
+            val remote = Remote(snap())
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.SPOTIFY to remote))
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            library.addTrackToPlaylist(local.id, track("new")); remote.matchError = true
+            assertFailsWith<java.io.IOException> { engine.sync(local.id) }
+            assertEquals(emptySet(), store.links.value.single().unmatchedIds)
+            assertEquals(listOf("a"), remote.current.ids)
+            remote.matchError = false; engine.sync(local.id)
+            assertEquals(listOf("a", "new"), remote.current.ids)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun auralisOnlySongsAnchorToTheRightCopyOfADuplicate() {
+        fun t(id: String) = track(id)
+        val only = setOf("x", "y")
+        val latest = listOf(t("a"), t("x"), t("a"), t("y"), t("b"))
+        assertEquals(listOf("a", "x", "a", "y", "b"), PlaylistSyncMerge.keepAuralisOnly(latest, listOf(t("a"), t("a"), t("b")), only).map { it.id })
+        // The second a was removed online: y stays after the last surviving song before it.
+        assertEquals(listOf("a", "x", "y", "b"), PlaylistSyncMerge.keepAuralisOnly(latest, listOf(t("a"), t("b")), only).map { it.id })
+        // Duplicate copies of one Auralis-only song both survive, around their neighbour.
+        assertEquals(listOf("x", "a", "x"), PlaylistSyncMerge.keepAuralisOnly(listOf(t("x"), t("a"), t("x")), listOf(t("a")), setOf("x")).map { it.id })
+    }
+
+    @Test fun storedLinksKeepTheirAuralisOnlySongsAndOlderLinksLoadWithNone() {
+        val memory = Memory()
+        PlaylistSyncStore(memory).put(PlaylistSyncLink("l", SyncService.SPOTIFY, "r", "me", snap("a"), mapOf("a" to "a"), unmatchedIds = setOf("cover")))
+        assertEquals(setOf("cover"), PlaylistSyncStore(memory).links.value.single().unmatchedIds)
+        memory.data["playlist_sync_v1"] = """[{"local":"l","service":"SPOTIFY","remote":"r","account":"me","base":{"title":"Mix","description":"","ids":["a"]},"mapping":{"a":"a"}}]"""
+        assertEquals(emptySet(), PlaylistSyncStore(memory).links.value.single().unmatchedIds)
     }
 }

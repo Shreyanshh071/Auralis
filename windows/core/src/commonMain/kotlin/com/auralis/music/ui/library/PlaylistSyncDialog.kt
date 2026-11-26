@@ -18,7 +18,8 @@ val LocalPlaylistSync = staticCompositionLocalOf<((Playlist) -> Unit)?> { null }
 @Composable
 fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss: () -> Unit) {
     val links by engine.store.links.collectAsState()
-    val origin = engine.source(playlist.id)
+    // Fixed when the dialog opens, so turning a link off doesn't swap to the setup dialog mid-way.
+    val origin = remember(playlist.id) { engine.source(playlist.id) }
     if (origin == null) {
         // A locally created playlist has no import source to infer.
         PlaylistSyncSetupDialog(playlist, engine, onDismiss)
@@ -28,35 +29,46 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
     val enabled = link != null
     val status by engine.status.collectAsState()
     var busy by remember(playlist.id) { mutableStateOf(false) }
-    var pendingToggle by remember(playlist.id) { mutableStateOf<Boolean?>(null) }
+    var pending by remember(playlist.id) { mutableStateOf<Pair<SyncService, Boolean>?>(null) }
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // The playlist's own service first, then the other one, which keeps a private copy there.
+    val services = listOf(origin.first) + SyncService.entries.filter { it != origin.first }
     GlassAlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("Playlist sync") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(playlist.title, style = MaterialTheme.typography.titleMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Sync with ${origin.first.label}", modifier = Modifier.weight(1f))
-                Switch(checked = pendingToggle ?: enabled, enabled = !busy, onCheckedChange = { turnOn ->
-                    pendingToggle = turnOn; busy = true; error = null
-                    scope.launch {
-                        try {
-                            if (turnOn) engine.enable(playlist.id)
-                            else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
-                        finally { busy = false; pendingToggle = null }
+            for (service in services) {
+                val on = pending?.takeIf { it.first == service }?.second
+                    ?: (link?.service == service && pending?.second != true)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Sync with ${service.label}")
+                        Text(if (service == origin.first) "The same ${service.label} playlist"
+                            else "Keeps a private copy on ${service.label}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                })
+                    Switch(checked = on, enabled = !busy, onCheckedChange = { turnOn ->
+                        pending = service to turnOn; busy = true; error = null
+                        scope.launch {
+                            try {
+                                if (turnOn) engine.connect(playlist.id, service)
+                                else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
+                            finally { busy = false; pending = null }
+                        }
+                    })
+                }
             }
-            Text("Add a song here and it is added to the same ${origin.first.label} playlist. Songs added there appear here automatically too.",
+            Text("A playlist syncs with one service at a time. Songs added in Auralis or on that service appear on both.",
                 style = MaterialTheme.typography.bodySmall)
-            Text("${origin.first.label} changes are checked about every five seconds while Auralis is running. Turning sync off keeps both playlists.",
+            Text("Changes are checked about every five seconds while Auralis is running. Turning sync off keeps both playlists.",
                 style = MaterialTheme.typography.bodySmall)
             if (busy) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("Connecting playlist sync…", style = MaterialTheme.typography.bodySmall)
-            } else if (enabled) Text(status[playlist.id] ?: if (link?.interrupted == true) "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on", style = MaterialTheme.typography.bodySmall)
+            } else if (enabled) Text("${link!!.service.label}: " + (status[playlist.id] ?: if (link?.interrupted == true) "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on"), style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Done") } })
 }
@@ -66,8 +78,7 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
     val links by engine.store.links.collectAsState()
     val link = links.firstOrNull { it.localId == playlist.id }
     val status by engine.status.collectAsState()
-    // Spotify imports can't start a new sync link, so only a YouTube Music import pre-fills it.
-    val imported = remember(playlist.id) { PlaylistSyncStore.imported(playlist.id)?.takeIf { it.first == SyncService.YOUTUBE } }
+    val imported = remember(playlist.id) { PlaylistSyncStore.imported(playlist.id) }
     var service by remember { mutableStateOf(link?.service ?: imported?.first ?: SyncService.YOUTUBE) }
     var remoteId by remember { mutableStateOf(link?.remoteId ?: imported?.second.orEmpty()) }
     var createNew by remember { mutableStateOf(remoteId.isBlank()) }
@@ -93,8 +104,7 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
                     style = MaterialTheme.typography.bodySmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // New links are YouTube Music only; an existing Spotify link still shows its service.
-                SyncService.entries.filter { it == SyncService.YOUTUBE || it == link?.service }.forEach { item -> FilterChip(selected = service == item, enabled = !busy && link == null,
+                SyncService.entries.forEach { item -> FilterChip(selected = service == item, enabled = !busy && link == null,
                     onClick = { service = item; preview = null; choice = null; remoteId = ""; createNew = true }, label = { Text(item.label) }) }
             }
             if (link == null) {
@@ -117,6 +127,13 @@ private fun PlaylistSyncSetupDialog(playlist: Playlist, engine: PlaylistSyncEngi
                 Text("Auralis: ${p.localSnapshot.title} · ${p.localSnapshot.ids.size} songs")
                 Text(p.remote?.let { "${service.label}: ${it.snapshot.title} · ${it.snapshot.ids.size} songs" }
                     ?: "A new private playlist will be created on ${service.label}.")
+                if (p.unmatchedIds.isNotEmpty()) {
+                    val missing = p.local.tracks.filter { it.id in p.unmatchedIds }.distinctBy { it.id }
+                    Text("${missing.size} song${if (missing.size == 1) " isn't" else "s aren't"} on ${service.label}, so " +
+                        "${if (missing.size == 1) "it stays" else "they stay"} in Auralis only and won't upload: " +
+                        missing.take(5).joinToString { "‘${it.title}’" } + if (missing.size > 5) " and ${missing.size - 5} more." else ".",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 if (p.remote != null) {
                     p.merged?.let { merge -> FilterChip(choice == SyncChoice.MERGE,
                         onClick = { choice = SyncChoice.MERGE }, enabled = !busy,

@@ -9,38 +9,171 @@ import kotlin.test.*
 
 class PlaylistSyncTransportTest {
     private val id = "abcdefghijklmnopqrstuv"
-    private fun info(snapshot: String = "v1") = """{"id":"$id","name":"Mix","description":"","snapshot_id":"$snapshot","owner":{"id":"me"}}"""
-    private fun song(id: String) = JSONObject().put("item", JSONObject().put("id", id).put("type", "track").put("name", "Song")
-        .put("duration_ms", 180000).put("artists", JSONArray().put(JSONObject().put("name", "Artist"))))
-    @Test fun spotifyReadsAllPagesAndPreservesDuplicateOccurrences() = runBlocking<Unit> {
-        val client = OkHttpClient.Builder().addInterceptor { chain ->
-            val path = chain.request().url.encodedPath
-            val body = when {
-                path == "/v1/me" -> """{"id":"me"}"""
-                path.endsWith("/items") && chain.request().url.queryParameter("offset") == null -> JSONObject().put("items", JSONArray().put(song(id)).put(song(id)))
-                    .put("next", "https://api.spotify.com/v1/playlists/$id/items?offset=2").toString()
-                path.endsWith("/items") -> JSONObject().put("items", JSONArray().put(song("zyxwvutsrqponmlkjihgfe"))).put("next", JSONObject.NULL).toString()
-                else -> info()
+    private fun track(n: Int) = "spotify:track:" + n.toString().padStart(22, '0')
+    private fun bare(uri: String) = uri.removePrefix("spotify:track:")
+    private val a = track(1); private val b = track(2); private val c = track(3)
+
+    /** A stand-in for Spotify's playlist service and Pathfinder that applies index-based edits. */
+    private inner class FakeSpotify(vararg uris: String) {
+        var nextItem = 0
+        fun item(): String = java.util.Base64.getEncoder().encodeToString((nextItem++).toString(16).padStart(16, '0').toByteArray())
+        val entries = uris.map { it to item() }.toMutableList()
+        var name = "Mix"; var description = ""; var revision = 1; var editable = true
+        val missingDetails = mutableSetOf<String>()
+        val pages = mutableListOf<String>(); val changes = mutableListOf<JSONObject>(); val creates = mutableListOf<JSONObject>()
+        val rootlist = mutableListOf<JSONObject>()
+        var search = JSONArray()
+        fun rev() = "rev$revision"
+        fun song(uri: String, seconds: Long = 180): JSONObject = JSONObject().put("__typename", "Track").put("uri", uri).put("name", "Song ${uri.takeLast(2)}")
+            .put("artists", JSONObject().put("items", JSONArray().put(JSONObject().put("profile", JSONObject().put("name", "Artist")))))
+            .put("trackDuration", JSONObject().put("totalMilliseconds", seconds * 1000)).put("albumOfTrack", JSONObject().put("name", "Album"))
+        private fun text(req: Request) = okio.Buffer().also { req.body!!.writeTo(it) }.readUtf8()
+        private fun apply(op: JSONObject) { when (op.getInt("kind")) {
+            2 -> { val add = op.getJSONObject("add"); val items = add.getJSONArray("items")
+                val at = if (add.has("fromIndex")) add.getInt("fromIndex") else entries.size
+                for (i in 0 until items.length()) entries.add(at + i, items.getJSONObject(i).getString("uri") to item()) }
+            3 -> { val rem = op.getJSONObject("rem"); assertFalse(rem.getBoolean("itemsAsKey"))
+                val at = rem.getInt("fromIndex"); assertEquals(1, rem.getInt("length"))
+                assertEquals(rem.getJSONArray("items").getJSONObject(0).getJSONObject("attributes").getString("itemId"), entries[at].second)
+                entries.removeAt(at) }
+            4 -> { val mov = op.getJSONObject("mov"); val from = mov.getInt("fromIndex"); val to = mov.getInt("toIndex")
+                val moved = entries.removeAt(from); entries.add(if (to > from) to - 1 else to, moved) }
+            6 -> { val values = op.getJSONObject("updateListAttributes").getJSONObject("newAttributes").getJSONObject("values")
+                if (values.has("name")) name = values.getString("name")
+                if (values.has("description")) description = values.getString("description") }
+            else -> error("Unexpected op")
+        } }
+        val http: OkHttpClient = OkHttpClient.Builder().addInterceptor { chain ->
+            val req = chain.request(); val path = req.url.encodedPath
+            var code = 200
+            val body: String = when {
+                req.method == "GET" -> {
+                    pages += req.url.query.orEmpty()
+                    val from = req.url.queryParameter("from")!!.toInt(); val length = req.url.queryParameter("length")!!.toInt()
+                    JSONObject().put("revision", rev()).put("length", entries.size).put("ownerUsername", "me")
+                        .put("attributes", JSONObject().put("name", name).put("description", description))
+                        .put("capabilities", JSONObject().put("canEditItems", editable))
+                        .put("contents", JSONObject().put("items", JSONArray(entries.drop(from).take(length).map { (uri, item) ->
+                            JSONObject().put("uri", uri).put("attributes", JSONObject().put("itemId", item)) }))).toString()
+                }
+                path == "/playlist/v2/playlist" -> { creates += JSONObject(text(req)); """{"uri":"spotify:playlist:zyxwvutsrqponmlkjihgfe"}""" }
+                path.endsWith("/rootlist/changes") -> { rootlist += JSONObject(text(req)); "{}" }
+                path.endsWith("/changes") -> {
+                    val o = JSONObject(text(req))
+                    if (o.has("baseRevision") && o.getString("baseRevision") != rev()) { code = 409; "{}" } else {
+                        changes += o
+                        val ops = o.getJSONArray("deltas").getJSONObject(0).getJSONArray("ops")
+                        for (i in 0 until ops.length()) apply(ops.getJSONObject(i))
+                        revision++; JSONObject().put("revision", rev()).toString()
+                    }
+                }
+                else -> error("Unexpected $path")
             }
-            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(body.toResponseBody()).build()
+            Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(code).message("x").body(body.toResponseBody()).build()
         }.build()
-        val result = SpotifyPlaylistSync({ "token" }, client).read(id)
-        assertTrue(result.editable)
-        assertEquals(listOf(id, id, "zyxwvutsrqponmlkjihgfe"), result.snapshot.ids)
-        assertEquals(3, result.tracks.size)
+        val pathfinder: (String, String, JSONObject) -> JSONObject = { _, operation, variables -> when (operation) {
+            "profileAttributes" -> JSONObject().put("data", JSONObject().put("me", JSONObject().put("profile", JSONObject().put("username", "me"))))
+            "fetchPlaylist" -> {
+                val offset = variables.getInt("offset"); val limit = variables.getInt("limit")
+                JSONObject().put("data", JSONObject().put("playlistV2", JSONObject().put("content", JSONObject().put("totalCount", entries.size)
+                    .put("items", JSONArray(entries.drop(offset).take(limit).map { (uri, item) ->
+                        JSONObject().put("uid", String(java.util.Base64.getDecoder().decode(item)))
+                            .put("itemV2", JSONObject().put("data", if (uri in missingDetails) JSONObject.NULL else song(uri))) })))))
+            }
+            "searchDesktop" -> JSONObject().put("data", JSONObject().put("searchV2", JSONObject().put("tracksV2", JSONObject().put("items", search))))
+            else -> error("Unexpected $operation")
+        } }
+        val api get() = SpotifyPlaylistSync({ "token" }, http, pathfinder)
     }
-    @Test fun spotifyRejectsUnavailableItemsAndMissingWritePermissionsInsteadOfReportingSuccess() = runBlocking<Unit> {
-        var code = 200
-        val client = OkHttpClient.Builder().addInterceptor { chain ->
-            val path = chain.request().url.encodedPath
-            val body = when { path == "/v1/me" -> """{"id":"me"}"""
-                path.endsWith("/items") -> """{"items":[{"item":null}],"next":null}"""; else -> info() }
-            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("OK").body(body.toResponseBody()).build()
-        }.build()
-        val api = SpotifyPlaylistSync({ "token" }, client)
-        assertTrue(assertFailsWith<IllegalStateException> { api.read(id) }.message!!.contains("unavailable"))
-        code = 403
-        assertTrue(assertFailsWith<IllegalStateException> { api.create("Mix", "") }.message!!.contains("permissions"))
+    private fun song(id: String, title: String, duration: Long = 0, album: String? = null) =
+        com.auralis.music.domain.model.Track(id, title, "Artist", album = album, duration = duration)
+
+    @Test fun spotifyReadsEveryPageAndPreservesDuplicateOccurrences() = runBlocking<Unit> {
+        val songs = List(150) { if (it % 50 == 0) a else track(10 + it) }
+        val spotify = FakeSpotify(*songs.toTypedArray())
+        val result = spotify.api.read(id)
+        assertTrue(result.editable)
+        assertEquals("me", result.account)
+        assertEquals(songs.map(::bare), result.snapshot.ids)
+        assertEquals(songs.map { "sp_" + bare(it) }, result.tracks.map { it.id })
+        assertTrue(spotify.pages.any { "from=100" in it }, "the second page must be requested")
+    }
+
+    @Test fun spotifyPausesOnLocalFilesEpisodesAndUnavailableItemsInsteadOfDroppingThem() = runBlocking<Unit> {
+        for ((uri, words) in listOf("spotify:local:Artist:Album:Song:180" to "local files", "spotify:episode:abcdefghijklmnopqrstuv" to "Episodes")) {
+            val message = assertFailsWith<IllegalStateException> { FakeSpotify(a, uri).api.read(id) }.message!!
+            assertTrue(words in message, message)
+        }
+        val unavailable = FakeSpotify(a, b).apply { missingDetails += b }
+        assertTrue("unavailable" in assertFailsWith<IllegalStateException> { unavailable.api.read(id) }.message!!)
+        val noProfile = SpotifyPlaylistSync({ "token" }, FakeSpotify(a).http, pathfinder = { _, _, _ -> JSONObject() })
+        assertFailsWith<IllegalStateException> { noProfile.account() }
+    }
+
+    @Test fun spotifyCreatesAPrivatePlaylistWithItsDescriptionInTheLibrary() = runBlocking<Unit> {
+        val spotify = FakeSpotify()
+        assertEquals("zyxwvutsrqponmlkjihgfe", spotify.api.create("Mix", "For the road"))
+        val values = spotify.creates.single().getJSONArray("ops").getJSONObject(0)
+            .getJSONObject("updateListAttributes").getJSONObject("newAttributes").getJSONObject("values")
+        assertEquals("Mix", values.getString("name")); assertEquals("For the road", values.getString("description"))
+        assertTrue(spotify.rootlist.single().getJSONArray("deltas").length() == 1)
+        val added = spotify.rootlist.single().getJSONArray("deltas").getJSONObject(0).getJSONArray("ops").getJSONObject(0)
+            .getJSONObject("add").getJSONArray("items").getJSONObject(0)
+        assertEquals("spotify:playlist:zyxwvutsrqponmlkjihgfe", added.getString("uri"))
+        assertFalse(added.getJSONObject("attributes").getBoolean("public"))
+        spotify.creates.clear(); spotify.api.create("Mix", "")
+        assertFalse(spotify.creates.single().toString().contains("description"))
+    }
+
+    @Test fun spotifyIdentifiesFromSavedIdsThenTheLinkedPlaylistThenSearch() = runBlocking<Unit> {
+        val spotify = FakeSpotify(b)
+        val api = spotify.api
+        assertEquals(bare(a), api.identify(song("sp_" + bare(a), "x")))
+        com.auralis.music.data.network.RecordingMatches.matchedVideoIds["sp_" + bare(c)] = "ytVideoId01"
+        try { assertEquals(bare(c), api.identify(song("ytVideoId01", "x"))) }
+        finally { com.auralis.music.data.network.RecordingMatches.matchedVideoIds.remove("sp_" + bare(c)) }
+        api.read(id)
+        assertEquals(bare(b), api.identify(song("ytVideoId02", "Song 02", 180, "Album")))
+        spotify.search = JSONArray().put(JSONObject().put("item", JSONObject().put("data", spotify.song(track(7), seconds = 240))))
+            .put(JSONObject().put("item", JSONObject().put("data", spotify.song(track(8)))))
+        assertEquals(bare(track(8)), api.identify(song("ytVideoId03", "Song 08", 180)))
+        assertNull(api.identify(song("ytVideoId04", "Song 09", 180)))
+    }
+
+    private fun result(id: Int, title: String, artist: String, seconds: Long) = JSONObject().put("item", JSONObject().put("data",
+        JSONObject().put("__typename", "Track").put("uri", track(id)).put("name", title)
+            .put("artists", JSONObject().put("items", JSONArray().put(JSONObject().put("profile", JSONObject().put("name", artist)))))
+            .put("trackDuration", JSONObject().put("totalMilliseconds", seconds * 1000))
+            .put("albumOfTrack", JSONObject().put("name", "The Land Is Inhospitable and So Are We"))))
+
+    @Test fun spotifyNeverMatchesACoverToTheOriginalAndCallsItNotFound() = runBlocking<Unit> {
+        val spotify = FakeSpotify()
+        // The original at its real length, and even at the cover's length: artist and title still differ.
+        spotify.search = JSONArray().put(result(20, "My Love Mine All Mine", "Mitski", 137))
+            .put(result(21, "My Love Mine All Mine", "Mitski", 125))
+        val cover = song("ytCoverVid1", "my love mine all mine by mitski - cover", 125).copy(artist = "Jian Ross")
+        assertEquals(SyncMatch.NotFound, spotify.api.match(cover))
+        assertEquals(SyncMatch.Matched(bare(track(20))), spotify.api.match(song("ytOrigVid01", "My Love Mine All Mine", 137).copy(artist = "Mitski")))
+    }
+
+    @Test fun spotifySearchFailuresThrowInsteadOfReportingNotFound() = runBlocking<Unit> {
+        val spotify = FakeSpotify()
+        val limited = SpotifyPlaylistSync({ "token" }, spotify.http, { _, op, v ->
+            if (op == "searchDesktop") throw java.io.IOException("Spotify searchDesktop returned HTTP 429") else spotify.pathfinder("", op, v) })
+        assertFailsWith<java.io.IOException> { limited.match(song("ytVideoId05", "Song 05", 180)) }
+        val broken = SpotifyPlaylistSync({ "token" }, spotify.http, { _, op, v ->
+            if (op == "searchDesktop") JSONObject().put("data", JSONObject()) else spotify.pathfinder("", op, v) })
+        assertFailsWith<IllegalStateException> { broken.match(song("ytVideoId06", "Song 06", 180)) }
+        // A clean, empty answer is the only "not found".
+        assertEquals(SyncMatch.NotFound, spotify.api.match(song("ytVideoId07", "Song 07", 180)))
+    }
+
+    @Test fun spotifySpacesOutConsecutiveSearches() = runBlocking<Unit> {
+        val spotify = FakeSpotify()
+        val api = SpotifyPlaylistSync({ "token" }, spotify.http, spotify.pathfinder, searchGapMs = 250)
+        val started = System.nanoTime()
+        repeat(3) { api.match(song("ytVideoId1$it", "Song 1$it", 180)) }
+        assertTrue((System.nanoTime() - started) / 1_000_000 >= 500, "three searches need at least two gaps")
     }
     private fun youtubeRow(video: String, handle: String) = JSONObject().put("musicResponsiveListItemRenderer", JSONObject()
         .put("playlistItemData", JSONObject().put("videoId", video).put("playlistSetVideoId", handle))
@@ -78,31 +211,33 @@ class PlaylistSyncTransportTest {
         assertEquals(3, result.tracks.size)
         assertTrue(result.editable)
     }
-    @Test fun spotifyWritesBatchesInOrderAndRejectsAStaleRevisionBeforeWriting() = runBlocking<Unit> {
-        val writes = mutableListOf<Pair<String, JSONObject>>()
-        var version = "v1"
-        val client = OkHttpClient.Builder().addInterceptor { chain ->
-            val req = chain.request()
-            val body = if (req.method != "GET") {
-                val buffer = okio.Buffer(); req.body!!.writeTo(buffer)
-                writes += req.method to JSONObject(buffer.readUtf8()); "{}"
-            } else when {
-                req.url.encodedPath == "/v1/me" -> """{"id":"me"}"""
-                req.url.encodedPath.endsWith("/items") -> """{"items":[],"next":null}"""
-                else -> info(version)
-            }
-            Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(body.toResponseBody()).build()
-        }.build()
-        val api = SpotifyPlaylistSync({ "token" }, client)
+    @Test fun spotifyRemovesAndReordersByOccurrenceWithoutTouchingDuplicateSiblings() = runBlocking<Unit> {
+        val spotify = FakeSpotify(a, b, a, c)
+        val original = spotify.entries.toList()
+        val api = spotify.api
+        val target = SyncSnapshot("Renamed", "Description", listOf(b, a, c, c).map(::bare))
+        api.write(api.read(id), target)
+        assertEquals(target, api.read(id).snapshot)
+        // The first copy of a stays with its occurrence ID; only the second copy is removed.
+        assertTrue(original[0] in spotify.entries); assertFalse(original[2] in spotify.entries)
+        assertTrue(original[1] in spotify.entries && original[3] in spotify.entries)
+        val ops = spotify.changes.flatMap { change -> change.getJSONArray("deltas").getJSONObject(0).getJSONArray("ops").let { o -> (0 until o.length()).map(o::getJSONObject) } }
+        assertEquals(listOf(original[2].second), ops.filter { it.getInt("kind") == 3 }.map {
+            it.getJSONObject("rem").getJSONArray("items").getJSONObject(0).getJSONObject("attributes").getString("itemId") })
+        assertEquals(1, ops.count { it.getInt("kind") == 2 })
+    }
+
+    @Test fun spotifyRejectsAStaleRevisionOrLostEditAccessBeforeWriting() = runBlocking<Unit> {
+        val spotify = FakeSpotify(a, b)
+        val api = spotify.api
         val before = api.read(id)
-        val desired = SyncSnapshot("Renamed", "Description", List(205) { id })
-        api.write(before, desired)
-        assertEquals(listOf("PUT", "POST", "POST", "PUT"), writes.map { it.first })
-        assertEquals(listOf(100, 100, 5), writes.take(3).map { it.second.getJSONArray("uris").length() })
-        assertEquals("Renamed", writes.last().second.getString("name"))
-        writes.clear(); version = "v2"
-        assertFailsWith<IllegalStateException> { api.write(before, desired) }
-        assertTrue(writes.isEmpty())
+        val desired = SyncSnapshot("Mix", "", listOf(b, a).map(::bare))
+        spotify.revision++
+        assertFailsWith<PlaylistSyncStalePreviewException> { api.write(before, desired) }
+        val fresh = api.read(id); spotify.editable = false
+        assertFailsWith<PlaylistSyncStalePreviewException> { api.write(fresh, desired) }
+        assertTrue(spotify.changes.isEmpty())
+        assertEquals(listOf(a, b), spotify.entries.map { it.first })
     }
 
     @Test fun youtubeWritesDuplicateOccurrencesByHandleAndReordersWithoutDeletingSiblings() = runBlocking<Unit> {
