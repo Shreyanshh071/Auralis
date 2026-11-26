@@ -1,5 +1,7 @@
 package com.auralis.music.ui.library
 
+import com.auralis.music.ui.glass.clipToBoundsBelowStatusBar
+
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.filled.LockOpen
@@ -619,7 +621,8 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
         glowBehindStatusBar = true,
         modifier = modifier
             .fillMaxSize()
-            .clipToBounds()
+            // Clips like clipToBounds but leaves the status-bar strip, which this page paints itself.
+            .clipToBoundsBelowStatusBar()
             .onGloballyPositioned { pageOrigin = it.positionInRoot() }
             .background(libraryBackground)
     ) {

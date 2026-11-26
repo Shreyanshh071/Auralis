@@ -67,7 +67,6 @@ import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -76,7 +75,7 @@ import com.auralis.music.ui.glass.LocalLiquidGlass
 import com.auralis.music.ui.glass.glassBarTint
 import com.auralis.music.ui.glass.glassContentColor
 import com.auralis.music.ui.glass.liquidGlass
-import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.glass.pageBackgroundGlass
 import com.auralis.music.ui.theme.dynamicPrimary
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -215,34 +214,21 @@ private fun moodIcon(title: String): ImageVector {
     }
 }
 
-/**
- * Mood chips. With liquid glass each chip is a lens; the row records its own palette wash to look
- * through, since sampling the page would sample the chips themselves (they live inside it).
- */
+/** The chips sample the Search page's background without painting a separate strip. */
 @Composable
 private fun ExploreChipRow(chips: List<HomeChip>, selected: HomeChip?, onChip: (HomeChip?) -> Unit) {
-    val appGlass = LocalLiquidGlass.current
-    Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp)) {
-        val glass = appGlass?.let { app ->
-            val backdrop = rememberLayerBackdrop()
-            val accent = MaterialTheme.dynamicPrimary
-            val page = MaterialTheme.dynamicBackground
-            Box(Modifier.matchParentSize().layerBackdrop(backdrop).background(Brush.horizontalGradient(
-                listOf(lerp(page, accent, .10f), lerp(page, accent, .22f), lerp(page, accent, .08f)))))
-            remember(backdrop, app.isDark, app.collapse) { LiquidGlassContext(backdrop, app.isDark, app.collapse) }
+    val glass = pageBackgroundGlass()
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp)
+    ) {
+        item(key = "chip_all") {
+            ExploreChip(str(R.string.search_explore_all), Icons.Rounded.AutoAwesome, selected == null, glass) { onChip(null) }
         }
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            item(key = "chip_all") {
-                ExploreChip(str(R.string.search_explore_all), Icons.Rounded.AutoAwesome, selected == null, glass) { onChip(null) }
-            }
-            items(chips, key = { "chip_${it.title}" }) { chip ->
-                ExploreChip(UiLabels.of(chip.title), moodIcon(chip.title), selected == chip, glass) {
-                    onChip(if (selected == chip) null else chip)
-                }
+        items(chips, key = { "chip_${it.title}" }) { chip ->
+            ExploreChip(UiLabels.of(chip.title), moodIcon(chip.title), selected == chip, glass) {
+                onChip(if (selected == chip) null else chip)
             }
         }
     }
