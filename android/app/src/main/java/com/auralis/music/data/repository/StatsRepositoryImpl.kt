@@ -58,8 +58,8 @@ class StatsRepositoryImpl(
         return withArtistLookups(playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp)).map { list ->
             StatsOverview(
                 totalPlayTimeMs = list.sumOf { it.event.playTimeMs },
-                songsCount = list.map { songKey(it.track.toDomain()) }.distinct().size,
-                artistsCount = list.flatMap { creditedArtists(it.track.toDomain()) }.mapNotNull { artistKey(it) }.distinct().size,
+                songsCount = list.map { facts(it).songKey }.distinct().size,
+                artistsCount = list.flatMap { credits(it) }.map { it.first }.distinct().size,
                 albumsCount = list.mapNotNull { e ->
                     e.track.album?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
                 }.distinct().size
@@ -77,13 +77,13 @@ class StatsRepositoryImpl(
         return playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp).map { list ->
             // Group by the song itself (cleaned title + artist), not the YouTube ID: the same song
             // played from its official audio and its music video used to show up twice.
-            list.groupBy { songKey(it.track.toDomain()) }
+            list.groupBy { facts(it).songKey }
                 .map { (_, events) ->
                     // Show the version that was played most.
                     val representative = events.groupBy { it.track.id }
                         .maxByOrNull { (_, e) -> e.size }!!.value.first().track
                     SongStat(
-                        track = representative.toDomain(),
+                        track = factsOf(representative).track,
                         playCount = events.count { countsAsPlay(it.event.playTimeMs, it.track.duration) },
                         timeListenedMs = events.sumOf { it.event.playTimeMs }
                     )
@@ -102,7 +102,7 @@ class StatsRepositoryImpl(
         return withArtistLookups(playbackEventDao.getEventsInRangeFlow(fromTimestamp, toTimestamp)).map { list ->
             // A collab ("Karan Aujla & Ikky") counts in full for each artist on it, like Spotify,
             // instead of becoming its own artist named after the whole credit line.
-            list.flatMap { e -> creditedArtists(e.track.toDomain()).mapNotNull { name -> artistKey(name)?.let { Triple(it, name, e) } } }
+            list.flatMap { e -> credits(e).map { (key, name) -> Triple(key, name, e) } }
                 .groupBy { it.first }
                 .map { (_, credits) ->
                     val events = credits.map { it.third }
@@ -113,7 +113,7 @@ class StatsRepositoryImpl(
                     ArtistStat(
                         name = artistName,
                         thumbnailUrl = photo,
-                        songsPlayedCount = events.map { songKey(it.track.toDomain()) }.distinct().size,
+                        songsPlayedCount = events.map { facts(it).songKey }.distinct().size,
                         timeListenedMs = events.sumOf { it.event.playTimeMs }
                     )
                 }
@@ -171,13 +171,38 @@ class StatsRepositoryImpl(
             var queued = 0
             for (e in list) { // Newest first, as the query orders them.
                 if (queued >= LOOKUPS_PER_PASS) break
-                val track = e.track.toDomain()
-                if (OfficialArtistResolver.needsLookup(track)) { OfficialArtistResolver.request(track); queued++ }
+                val f = facts(e)
+                if (f.uploaderCredit && OfficialArtistResolver.needsLookup(f.track)) { OfficialArtistResolver.request(f.track); queued++ }
             }
             list
         }
 
     private fun artistKey(raw: String): String? = ArtistCredits.key(raw)
+
+    /**
+     * What a song row works out to, computed once per row instead of once per listen on every
+     * period switch: switching 1 week / 1 month / 3 months re-ran the title cleaning and artist
+     * splitting for every listen in the range (twice for the artists), which is what made the
+     * numbers wait. A row that changes (a refreshed song) is a new key.
+     */
+    private class TrackFacts(val track: Track, val songKey: String, val uploaderCredit: Boolean)
+    private val trackFacts = java.util.concurrent.ConcurrentHashMap<com.auralis.music.data.local.entity.TrackEntity, TrackFacts>()
+    private fun factsOf(row: com.auralis.music.data.local.entity.TrackEntity): TrackFacts = trackFacts.getOrPut(row) {
+        val track = row.toDomain()
+        TrackFacts(track, songKey(track), ArtistCredits.isUploaderCredit(track))
+    }
+    private fun facts(e: PlaybackEventWithTrackTuple): TrackFacts = factsOf(e.track)
+
+    /** Each credited artist as (key, name); recomputed when a label upload's real artists arrive. */
+    private val trackCredits = java.util.concurrent.ConcurrentHashMap<com.auralis.music.data.local.entity.TrackEntity, List<Pair<String, String>>>()
+    @Volatile private var creditsRevision = Int.MIN_VALUE
+    private fun credits(e: PlaybackEventWithTrackTuple): List<Pair<String, String>> {
+        val revision = OfficialArtistResolver.revision.value
+        if (revision != creditsRevision) { trackCredits.clear(); creditsRevision = revision }
+        return trackCredits.getOrPut(e.track) {
+            creditedArtists(facts(e).track).mapNotNull { name -> artistKey(name)?.let { it to name } }
+        }
+    }
 
     /**
      * A listen counts as a "play" once it reaches 30s (or half the song, for songs under a minute).
