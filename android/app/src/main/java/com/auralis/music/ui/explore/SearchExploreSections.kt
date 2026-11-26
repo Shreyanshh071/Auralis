@@ -40,6 +40,46 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auralis.music.R
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Podcasts
+import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.SentimentSatisfied
+import androidx.compose.material.icons.rounded.Spa
+import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import com.auralis.music.ui.glass.LiquidGlassContext
+import com.auralis.music.ui.glass.LocalLiquidGlass
+import com.auralis.music.ui.glass.glassBarTint
+import com.auralis.music.ui.glass.glassContentColor
+import com.auralis.music.ui.glass.liquidGlass
+import com.auralis.music.ui.theme.dynamicBackground
+import com.auralis.music.ui.theme.dynamicPrimary
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.auralis.music.data.network.ArtistPhotoProvider
 import com.auralis.music.domain.model.Artist
 import com.auralis.music.domain.model.HomeChip
@@ -99,8 +139,12 @@ internal fun LazyListScope.searchExploreSections(
     currentTrackId: String?,
     isPlaying: Boolean
 ) {
-    if (content.chips.isNotEmpty()) item(key = "explore_chips", contentType = "explore_chips") {
-        ExploreChipRow(content.chips, content.selectedChip, actions.onChip)
+    // The explore area gets its own heading, so the chips belong to what follows them.
+    if (content.chips.isNotEmpty()) {
+        item(key = "explore_header") { SearchSectionHeader(str(R.string.opt_explore)) }
+        item(key = "explore_chips", contentType = "explore_chips") {
+            ExploreChipRow(content.chips, content.selectedChip, actions.onChip)
+        }
     }
     val chip = content.selectedChip
     if (chip == null && content.quickPicks.isNotEmpty()) {
@@ -152,34 +196,90 @@ internal fun LazyListScope.searchExploreSections(
     }
 }
 
+/** An icon for a YouTube Music mood chip, by its (English) title. */
+private fun moodIcon(title: String): ImageVector {
+    val t = title.lowercase()
+    return when {
+        "podcast" in t -> Icons.Rounded.Podcasts
+        "romance" in t || "love" in t -> Icons.Rounded.Favorite
+        "feel good" in t || "happy" in t -> Icons.Rounded.SentimentSatisfied
+        "party" in t -> Icons.Rounded.Celebration
+        "work" in t && "out" in t || "gym" in t -> Icons.Rounded.FitnessCenter
+        "relax" in t || "chill" in t -> Icons.Rounded.Spa
+        "energ" in t -> Icons.Rounded.Bolt
+        "focus" in t -> Icons.Rounded.CenterFocusStrong
+        "sleep" in t -> Icons.Rounded.Bedtime
+        "commute" in t || "drive" in t -> Icons.Rounded.DirectionsCar
+        "sad" in t -> Icons.Rounded.WaterDrop
+        else -> Icons.Rounded.MusicNote
+    }
+}
+
+/**
+ * Mood chips. With liquid glass each chip is a lens; the row records its own palette wash to look
+ * through, since sampling the page would sample the chips themselves (they live inside it).
+ */
 @Composable
 private fun ExploreChipRow(chips: List<HomeChip>, selected: HomeChip?, onChip: (HomeChip?) -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp)
-    ) {
-        item(key = "chip_all") { ExploreChip(str(R.string.search_explore_all), selected == null) { onChip(null) } }
-        items(chips, key = { "chip_${it.title}" }) { chip ->
-            ExploreChip(UiLabels.of(chip.title), selected == chip) { onChip(if (selected == chip) null else chip) }
+    val appGlass = LocalLiquidGlass.current
+    Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp)) {
+        val glass = appGlass?.let { app ->
+            val backdrop = rememberLayerBackdrop()
+            val accent = MaterialTheme.dynamicPrimary
+            val page = MaterialTheme.dynamicBackground
+            Box(Modifier.matchParentSize().layerBackdrop(backdrop).background(Brush.horizontalGradient(
+                listOf(lerp(page, accent, .10f), lerp(page, accent, .22f), lerp(page, accent, .08f)))))
+            remember(backdrop, app.isDark, app.collapse) { LiquidGlassContext(backdrop, app.isDark, app.collapse) }
+        }
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            item(key = "chip_all") {
+                ExploreChip(str(R.string.search_explore_all), Icons.Rounded.AutoAwesome, selected == null, glass) { onChip(null) }
+            }
+            items(chips, key = { "chip_${it.title}" }) { chip ->
+                ExploreChip(UiLabels.of(chip.title), moodIcon(chip.title), selected == chip, glass) {
+                    onChip(if (selected == chip) null else chip)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ExploreChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ExploreChip(label: String, icon: ImageVector, selected: Boolean, glass: LiquidGlassContext?, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Text(
-        text = label,
-        color = if (selected) colors.onPrimaryContainer else colors.onSurface,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        fontSize = 15.sp,
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(if (selected) colors.primaryContainer else colors.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp)
-    )
+    val accent = MaterialTheme.dynamicPrimary
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) .94f else 1f, spring(dampingRatio = .55f, stiffness = Spring.StiffnessMedium), label = "chipPress")
+    val content = when {
+        glass != null -> glassContentColor(glass.isDark)
+        selected -> if (accent.luminance() > .45f) Color.Black else Color.White
+        else -> colors.onSurface
+    }
+    val surface = if (glass != null) {
+        Modifier.liquidGlass(glass, CircleShape,
+            tint = if (selected) accent.copy(alpha = if (glass.isDark) .42f else .32f) else glassBarTint(glass.isDark))
+    } else {
+        Modifier.clip(CircleShape)
+            .background(if (selected) accent else colors.surfaceContainerHigh)
+            .then(if (selected) Modifier else Modifier.border(1.dp, colors.outlineVariant.copy(alpha = .45f), CircleShape))
+    }
+    Row(
+        Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(surface)
+            .clickable(interactionSource = interaction, indication = if (glass != null) null else LocalIndication.current,
+                role = Role.Button, onClick = onClick)
+            .padding(start = 12.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Icon(icon, null, tint = content.copy(alpha = if (selected) 1f else .8f), modifier = Modifier.size(18.dp))
+        Text(label, color = content, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1)
+    }
 }
 
 @Composable
@@ -203,63 +303,97 @@ private fun artistPhoto(name: String): String? {
     return photo
 }
 
-/** Your most-replayed artist: their photo, top song, and buttons for radio or their page. */
+/**
+ * Your most-replayed artist as a hero: their photo fills the card and fades under the text, with
+ * the top song and a primary radio button plus a round arrow to their page. With liquid glass the
+ * buttons are lenses over the photo (recorded inside the card, never the page it sits in).
+ */
 @Composable
 private fun ArtistSpotlightCard(artist: ArtistAffinity, actions: SearchExploreActions) {
     val colors = MaterialTheme.colorScheme
+    val appGlass = LocalLiquidGlass.current
+    val accent = MaterialTheme.dynamicPrimary
+    val base = if (appGlass != null) (if (appGlass.isDark) Color(0xFF101014) else Color(0xFFF4F4F7)) else colors.surfaceContainerHigh
+    val ink = if (appGlass != null) glassContentColor(appGlass.isDark) else colors.onSurface
     val photo = artistPhoto(artist.artistName)
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(30.dp)
+    val backdrop = rememberLayerBackdrop()
+    val glass = appGlass?.let { app -> remember(backdrop, app.isDark, app.collapse) { LiquidGlassContext(backdrop, app.isDark, app.collapse) } }
     Box(
-        Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 4.dp).clip(shape)
-            .background(colors.surfaceContainerHigh)
-            .border(1.dp, colors.outlineVariant.copy(alpha = .35f), shape)
+        Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp).height(236.dp).clip(shape)
+            .border(1.dp, ink.copy(alpha = .08f), shape)
     ) {
-        // A soft wash of the artist's photo behind the card.
-        ArtworkCard(url = photo, modifier = Modifier.matchParentSize().blur(36.dp), cornerRadius = 0.dp,
-            contentDescription = null)
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-            listOf(colors.surfaceContainerHigh.copy(alpha = .72f), colors.surfaceContainerHigh.copy(alpha = .92f)))))
-        Column(Modifier.padding(18.dp)) {
-            Text(str(R.string.search_artist_spotlight).uppercase(), color = colors.primary, fontSize = 12.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
-                modifier = Modifier.clip(CircleShape).background(colors.primary.copy(alpha = .12f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp))
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ArtworkCard(url = photo, modifier = Modifier.size(84.dp), cornerRadius = 42.dp, contentDescription = artist.artistName)
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(artist.artistName, color = colors.onSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+        // The photo on the right, washed into the card colour on the left for the text.
+        Box(Modifier.matchParentSize().then(if (glass != null) Modifier.layerBackdrop(backdrop) else Modifier).background(base)) {
+            ArtworkCard(url = photo, modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().aspectRatio(1f),
+                cornerRadius = 0.dp, contentDescription = null, highRes = true)
+            Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
+                0f to base, .38f to base.copy(alpha = .94f), .72f to base.copy(alpha = .35f), 1f to base.copy(alpha = .05f))))
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(
+                0f to Color.Transparent, .6f to Color.Transparent, 1f to base.copy(alpha = .7f))))
+            Box(Modifier.matchParentSize().background(Brush.radialGradient(listOf(accent.copy(alpha = .22f), Color.Transparent),
+                center = androidx.compose.ui.geometry.Offset(0f, 0f), radius = 700f)))
+        }
+        Column(Modifier.matchParentSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.AutoAwesome, null, tint = accent, modifier = Modifier.size(15.dp))
+                Text(str(R.string.search_artist_spotlight), color = ink.copy(alpha = .72f), fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = .3.sp)
+            }
+            Spacer(Modifier.weight(1f))
+            Text(artist.artistName, color = ink, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(.66f))
+            artist.sampleTrack?.let { song ->
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(.7f)) {
+                    ArtworkCard(url = song.thumbnail, modifier = Modifier.size(22.dp), cornerRadius = 5.dp,
+                        contentDescription = null, fallbackTrack = song)
+                    Spacer(Modifier.width(8.dp))
+                    Text(str(R.string.search_top_track, song.title), color = ink.copy(alpha = .75f), fontSize = 13.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    artist.sampleTrack?.let { song ->
-                        Text(str(R.string.search_top_track, song.title), color = colors.onSurfaceVariant, fontSize = 14.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 artist.sampleTrack?.let { song ->
-                    Row(
-                        Modifier.weight(1f).clip(CircleShape).background(colors.primary)
-                            .clickable { actions.onStartRadio(song) }.padding(vertical = 13.dp),
-                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.PlayArrow, null, tint = colors.onPrimary, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(str(R.string.search_artist_radio), color = colors.onPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    SpotlightButton(glass, primary = true, onClick = { actions.onStartRadio(song) }) { tint ->
+                        Icon(Icons.Rounded.Radio, null, tint = tint, modifier = Modifier.size(19.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(str(R.string.search_artist_radio), color = tint, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                 }
-                Box(
-                    Modifier.weight(1f).clip(CircleShape).background(colors.onSurface.copy(alpha = .08f))
-                        .clickable { actions.onOpenArtist(Artist(id = "", name = artist.artistName)) }.padding(vertical = 13.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(str(R.string.view_artist), color = colors.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                SpotlightButton(glass, primary = false, round = true,
+                    onClick = { actions.onOpenArtist(Artist(id = "", name = artist.artistName)) }) { tint ->
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, str(R.string.view_artist), tint = tint, modifier = Modifier.size(20.dp))
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SpotlightButton(glass: LiquidGlassContext?, primary: Boolean, round: Boolean = false, onClick: () -> Unit,
+    content: @Composable RowScope.(Color) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val accent = MaterialTheme.dynamicPrimary
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) .95f else 1f, spring(dampingRatio = .55f, stiffness = Spring.StiffnessMedium), label = "spotlightPress")
+    val tint = when {
+        glass != null -> glassContentColor(glass.isDark)
+        primary -> if (accent.luminance() > .45f) Color.Black else Color.White
+        else -> colors.onSurface
+    }
+    val surface = if (glass != null) Modifier.liquidGlass(glass, CircleShape,
+        tint = if (primary) accent.copy(alpha = if (glass.isDark) .5f else .38f) else glassBarTint(glass.isDark))
+    else Modifier.clip(CircleShape).background(if (primary) accent else colors.onSurface.copy(alpha = .1f))
+    Row(
+        Modifier.graphicsLayer { scaleX = scale; scaleY = scale }.then(surface)
+            .clickable(interactionSource = interaction, indication = if (glass != null) null else LocalIndication.current,
+                role = Role.Button, onClick = onClick)
+            .then(if (round) Modifier.size(48.dp) else Modifier.height(48.dp).padding(horizontal = 22.dp)),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+    ) { content(tint) }
 }
 
 @Composable

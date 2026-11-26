@@ -2838,13 +2838,18 @@ private fun PlaylistDetailView(
                 }
             }
 
-            // A slim thumb for long playlists: shows while scrolling and can be grabbed.
+            // A fast scroller for long playlists: slides in while scrolling; hold and drag the handle.
             if (displayedItems.size > 40 && !isDragging) {
                 val chromePadding = bottomChromePadding()
-                PlaylistScrollThumb(
+                PlaylistFastScroller(
                     state = playlistListState,
-                    itemCount = displayedItems.size + 3,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    songCount = displayedItems.size,
+                    // The songs follow the header (and the search-bar gap when the glass header is on).
+                    firstSongIndex = if (glassHero) 2 else 1,
+                    songAt = { displayedItems.getOrNull(it)?.track },
+                    listTopInRoot = { listTopInRoot },
+                    // The list is this glass's backdrop and the scroller sits outside it, so it can be a lens.
+                    glass = barGlass,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(
