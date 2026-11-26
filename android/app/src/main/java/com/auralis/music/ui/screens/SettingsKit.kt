@@ -36,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,6 +100,11 @@ internal fun SettingsPage(
     val listState = rememberLazyListState()
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = bottomChromePadding().calculateBottomPadding()
+    // The titles fade on their own graphics layers. A theme switch made while this page sits
+    // hidden under a pushed page (alpha 0) left those layers showing the old colours: white on a
+    // light page, dark on a dark one. Keying them on the colours rebuilds them with the new ones.
+    val titleColor = MaterialTheme.colorScheme.onBackground
+    val hintColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     OptionalGlassPage(
         background = background,
@@ -113,6 +119,7 @@ internal fun SettingsPage(
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
             item(key = "settings_page_header", contentType = "header") {
+                key(titleColor, hintColor, background) {
                 Column(
                     Modifier
                         .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 2.dp)
@@ -130,23 +137,26 @@ internal fun SettingsPage(
                         text = title,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = titleColor,
                         fontSize = 32.sp,
                         lineHeight = 36.sp
                     )
                     section.hint?.let { hint ->
                         Spacer(Modifier.height(4.dp))
-                        Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                        Text(hint, color = hintColor, fontSize = 14.sp)
                     }
+                }
                 }
             }
             content()
         }
-        PageGlowTopFade(
-            height = statusBar + HeaderHeight,
-            background = background,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+        key(background) {
+            PageGlowTopFade(
+                height = statusBar + HeaderHeight,
+                background = background,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
         FloatingPageButton(
             Icons.AutoMirrored.Filled.ArrowBack,
             str(R.string.back),
@@ -158,9 +168,9 @@ internal fun SettingsPage(
             Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 14.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) { actions(listBackdrop) }
-        Text(
+        key(titleColor) { Text(
             text = title,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = titleColor,
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
             maxLines = 1,
@@ -178,7 +188,7 @@ internal fun SettingsPage(
                     alpha = scrolled
                     translationY = (1f - scrolled) * 8.dp.toPx()
                 }
-        )
+        ) }
     }
 }
 
