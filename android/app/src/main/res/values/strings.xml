@@ -1531,4 +1531,10 @@
     <string name="artist_releases_load_failed">Couldn\'t load the full list</string>
     <string name="prefer_audio_only_versions">Prefer audio-only versions</string>
     <string name="prefer_audio_only_versions_description">Play the song release instead of its music video, without video intros or outros</string>
+    <string name="search_explore_all">All</string>
+    <string name="search_artist_spotlight">Artist spotlight</string>
+    <string name="search_top_track">Top track: %1$s</string>
+    <string name="search_artist_radio">Artist radio</string>
+    <string name="search_artists_for_you">Artists for you</string>
+    <string name="search_artists_for_you_subtitle">Your most replayed musicians</string>
 </resources>

@@ -179,6 +179,12 @@ fun ExploreScreen(
     onBack: () -> Unit = {},
     isInListenTogetherRoom: Boolean = false,
     onRecommendToRoom: ((Track) -> Unit)? = null,
+    /** Explore sections under recent searches and recently played (see [searchExploreSections]). */
+    exploreChips: List<com.auralis.music.domain.model.HomeChip> = emptyList(),
+    quickPicks: List<Track> = emptyList(),
+    topArtists: List<com.auralis.music.domain.recommendations.ArtistAffinity> = emptyList(),
+    homeSections: List<com.auralis.music.domain.model.HomeSection> = emptyList(),
+    loadChipSections: (suspend (com.auralis.music.domain.model.HomeChip) -> List<com.auralis.music.domain.model.HomeSection>)? = null,
     modifier: Modifier = Modifier
 ) {
     val themePrimary = MaterialTheme.dynamicPrimary
@@ -188,6 +194,14 @@ fun ExploreScreen(
     val retryScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    // The search page's own mood chip; Home keeps its own selection.
+    var exploreChipTitle by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val exploreChip = exploreChips.firstOrNull { it.title == exploreChipTitle }
+    val exploreChipSections by androidx.compose.runtime.produceState<List<com.auralis.music.domain.model.HomeSection>?>(null, exploreChip) {
+        value = null
+        val chip = exploreChip ?: return@produceState
+        value = runCatching { loadChipSections?.invoke(chip) }.getOrNull().orEmpty()
+    }
 
     val handleTrackClick: (Track, List<Track>) -> Unit = { track, list ->
         if (!uiState.isSearching) {
@@ -792,6 +806,26 @@ com.auralis.music.ui.theme.ArtworkThemed(renderedDetail.album.thumbnail) {
                                             }
                                         }
                                     }
+                                    searchExploreSections(
+                                        content = SearchExploreContent(
+                                            chips = exploreChips,
+                                            selectedChip = exploreChip,
+                                            chipSections = exploreChipSections,
+                                            quickPicks = quickPicks,
+                                            topArtists = topArtists,
+                                            homeSections = homeSections
+                                        ),
+                                        actions = SearchExploreActions(
+                                            onChip = { exploreChipTitle = it?.title },
+                                            onPlay = handleTrackClick,
+                                            onTrackMenu = { selectedTrackForMenu = it },
+                                            onStartRadio = onStartRadio,
+                                            onOpenArtist = handleOpenArtist,
+                                            onOpenAlbum = handleOpenAlbum
+                                        ),
+                                        currentTrackId = currentTrackId,
+                                        isPlaying = isPlaying
+                                    )
                                 }
                             }
                         }
@@ -1324,7 +1358,7 @@ private fun SuggestedArtistRow(artist: Artist, onClick: () -> Unit, modifier: Mo
 
 /** A section title with an optional text action on the right ("Clear all"). */
 @Composable
-private fun SearchSectionHeader(title: String, action: String? = null, onAction: () -> Unit = {}) {
+internal fun SearchSectionHeader(title: String, action: String? = null, onAction: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1356,16 +1390,17 @@ private fun SearchSectionHeader(title: String, action: String? = null, onAction:
 /** A recently played song: square art, title and artist under it. Tap plays, long-press opens its menu. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecentlyPlayedCard(
+internal fun RecentlyPlayedCard(
     track: Track,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    artSize: androidx.compose.ui.unit.Dp = 124.dp
 ) {
     Column(
         modifier = Modifier
-            .width(132.dp)
+            .width(artSize + 8.dp)
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(4.dp)
@@ -1373,7 +1408,7 @@ private fun RecentlyPlayedCard(
         Box {
             com.auralis.music.ui.components.ArtworkCard(
                 url = track.thumbnail,
-                modifier = Modifier.size(124.dp),
+                modifier = Modifier.size(artSize),
                 cornerRadius = 14.dp,
                 contentDescription = track.title,
                 fallbackTrack = track

@@ -936,6 +936,17 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                 order = uiState.sortOrder,
                 recentPlayedAtByTrackId = uiState.recentPlayedAtByTrackId
             )
+            // Saved artists belong to "All" as well as the Artists pill (as on Windows), after the
+            // playlists, matching the library search and sort order.
+            val displayedArtists = if (sourceFilter == null || sourceFilter == LibrarySourceFilter.ARTISTS)
+                uiState.savedArtists.filter { it.name.contains(searchQuery, ignoreCase = true) }.distinctBy { it.id }.let { artists ->
+                    when (uiState.sortOrder) {
+                        "Alphabetical (A to Z)" -> artists.sortedBy { it.name.lowercase(Locale.ROOT) }
+                        "Alphabetical (Z to A)" -> artists.sortedByDescending { it.name.lowercase(Locale.ROOT) }
+                        else -> artists.sortedByDescending { it.savedAt }
+                    }
+                } else emptyList()
+            val artistsHeading = sourceFilter == null && displayedArtists.isNotEmpty()
             val pinContext = androidx.compose.ui.platform.LocalContext.current
             remember { LibraryPinStore.load(pinContext) }
             val pinnedIds by LibraryPinStore.pinned
@@ -1001,11 +1012,6 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                             if (showCollectionShelf) {
                                 item(key = "library_collections", span = { GridItemSpan(maxLineSpan) }) { collectionShelf() }
                             }
-                            if (sourceFilter == LibrarySourceFilter.ARTISTS) {
-                                items(uiState.savedArtists, key = { "artist_${it.id}" }, contentType = { "artist" }) { artist ->
-                                    LibraryArtistGridCard(artist) { onOpenArtist(Artist(id = artist.id, name = artist.name, thumbnail = artist.thumbnail)) }
-                                }
-                            }
                             gridItemsIndexed(libraryPlaylists, key = { _, it -> it.id }, contentType = { _, _ -> "playlist" }) { index, playlist ->
                                 Box(modifier = (if (gridAnimate) Modifier.animateItem() else Modifier).layoutSwitchEntrance(index, layoutSwitchedAt)) {
                                     UserPlaylistGridCard(
@@ -1015,6 +1021,12 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                                         onLongClick = { selectedPlaylistForMenu = playlist }
                                     )
                                 }
+                            }
+                            if (artistsHeading) {
+                                item(key = "library_artists_heading", span = { GridItemSpan(maxLineSpan) }) { LibraryArtistsHeading(displayedArtists.size) }
+                            }
+                            items(displayedArtists, key = { "artist_${it.id}" }, contentType = { "artist" }) { artist ->
+                                LibraryArtistGridCard(artist) { onOpenArtist(Artist(id = artist.id, name = artist.name, thumbnail = artist.thumbnail)) }
                             }
                         }
                     } else {
@@ -1041,11 +1053,6 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                             if (showCollectionShelf) {
                                 item(key = "library_collections", contentType = "collections") { collectionShelf() }
                             }
-                            if (sourceFilter == LibrarySourceFilter.ARTISTS) {
-                                items(uiState.savedArtists, key = { "artist_${it.id}" }, contentType = { "artist" }) { artist ->
-                                    LibraryArtistRow(artist) { onOpenArtist(Artist(id = artist.id, name = artist.name, thumbnail = artist.thumbnail)) }
-                                }
-                            }
                             itemsIndexed(
                                 items = libraryPlaylists,
                                 key = { _, it -> it.id },
@@ -1059,6 +1066,10 @@ com.auralis.music.ui.theme.ArtworkThemed(selectedPl.coverUrl ?: selectedPl.track
                                         onLongClick = { selectedPlaylistForMenu = playlist }
                                     )
                                 }
+                            }
+                            if (artistsHeading) item(key = "library_artists_heading", contentType = "heading") { LibraryArtistsHeading(displayedArtists.size) }
+                            items(displayedArtists, key = { "artist_${it.id}" }, contentType = { "artist" }) { artist ->
+                                LibraryArtistRow(artist) { onOpenArtist(Artist(id = artist.id, name = artist.name, thumbnail = artist.thumbnail)) }
                             }
                         }
                     }
@@ -3032,11 +3043,7 @@ internal fun PlaylistOptionsBottomSheet(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val syncPlaylist = LocalPlaylistSync.current.takeUnless {
-        com.auralis.music.data.playlistsync.PlaylistSyncStore.imported(playlist.id)?.first ==
-            com.auralis.music.data.playlistsync.SyncService.SPOTIFY ||
-            playlist.id.startsWith("sp_") || playlist.id.startsWith("spotify:")
-    }
+    val syncPlaylist = LocalPlaylistSync.current
     var activeDialog by remember { mutableStateOf(initialDialog) }
 
     var editTitle by remember(playlist.title) { mutableStateOf(playlist.title) }
@@ -3058,7 +3065,16 @@ internal fun PlaylistOptionsBottomSheet(
     }
 
     val isSmartPlaylistMenu = playlist.id.startsWith("smart_")
-    val coverUrl = playlist.coverUrl ?: playlist.tracks.firstOrNull()?.thumbnail
+    // Same rule as the Library card: the playlist's own cover unless the card shows a song collage
+    // (blank cover, or one that's replaced by its songs), then that collage's first song. A blank
+    // saved cover used to slip past `?:` and leave a music note with no background.
+    val coverUrl = remember(playlist.coverUrl, playlist.tracks) {
+        val distinct = getDistinctArtworkTracks(playlist.tracks)
+        playlist.coverUrl?.takeIf { it.isNotBlank() && !usesTrackCollage(playlist, distinct.size) }
+            ?: distinct.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+            ?: playlist.tracks.firstOrNull { !it.thumbnail.isNullOrBlank() }?.thumbnail
+            ?: playlist.coverUrl?.takeIf { it.isNotBlank() }
+    }
     fun addPlaylistToQueue() {
         onAddToQueue?.invoke(playlist.tracks)
         Toast.makeText(context, str(R.string.added_x_tracks_to_queue, playlist.tracks.size), Toast.LENGTH_SHORT).show()
@@ -3323,7 +3339,7 @@ internal fun PlaylistOptionsBottomSheet(
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
                                 PlaylistActionRow(icon = Icons.Default.Sync,
-                                    title = "Playlist sync", subtitle = "Link YouTube Music · two-way sync",
+                                    title = "Playlist sync", subtitle = "YouTube Music or Spotify · two-way sync",
                                     onClick = { onDismiss(); syncPlaylist(playlist) })
                             }
                         }
@@ -4349,6 +4365,18 @@ private fun LibrarySortMenu(
                 if (isSelected) Icon(Icons.Default.Check, null, tint = LIME_TEXT, modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+/** Separates saved artists from the playlists above them under "All". */
+@Composable
+private fun LibraryArtistsHeading(count: Int) {
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp), verticalAlignment = Alignment.Bottom) {
+        Text("Artists", color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(Modifier.width(8.dp))
+        Text("$count", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .55f), fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 2.dp))
     }
 }
 

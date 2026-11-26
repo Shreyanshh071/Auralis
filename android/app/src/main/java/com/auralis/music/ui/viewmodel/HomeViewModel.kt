@@ -1161,6 +1161,10 @@ class HomeViewModel(
     /**
      * Toggles/Selects a YouTube Music Chip.
      */
+    /** One chip's shelves for the search page, cleaned like Home's, without changing Home's own chip or shelves. */
+    suspend fun sectionsForChip(chip: HomeChip): List<HomeSection> =
+        orderHomeSections(innerTubeClient.getHome(params = chip.params).second.filter { !isUnwantedNoiseSection(it) })
+
     fun toggleChip(chip: HomeChip?) {
         val nextChip = if (_uiState.value.selectedChip == chip) null else chip
         _uiState.update { it.copy(selectedChip = nextChip, isLoading = true) }

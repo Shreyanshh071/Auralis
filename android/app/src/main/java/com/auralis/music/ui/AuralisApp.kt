@@ -1452,6 +1452,12 @@ fun AuralisApp(
                                             val libVM = obtainLibraryViewModel()
                                             com.auralis.music.ui.explore.ExploreScreen(
                                                 uiState = searchUiState,
+                                                exploreChips = homeUiState.homeChips,
+                                                quickPicks = homeUiState.quickPicks,
+                                                topArtists = homeUiState.tasteProfile.topArtists,
+                                                // Home's shelves follow Home's chip; "All" here only shows its unfiltered ones.
+                                                homeSections = if (homeUiState.selectedChip == null) homeUiState.dynamicSections else emptyList(),
+                                                loadChipSections = homeViewModel::sectionsForChip,
                                                 onRefresh = { searchVM.refresh() },
                                                 recognitionState = recognitionState,
                                                 currentTrackId = playerUiState.currentTrack?.id,

@@ -27,10 +27,8 @@ fun PlaylistImportSyncToggle() {
         Column(Modifier.weight(1f)) {
             Text("Keep imported playlists in sync")
             val descriptionStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 18.sp)
-            Text("Two-way sync with YouTube Music playlists.", style = descriptionStyle,
+            Text("Two-way sync with YouTube Music and Spotify playlists.", style = descriptionStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Currently works with YouTube Music only. Spotify playlists can be imported, but changes won’t sync.",
-                style = descriptionStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(choice.enabled, { choice.enabled = it; choice.changed(it) })
     }
@@ -48,6 +46,8 @@ fun PlaylistCreationDialog(library: LibraryRepository, engine: PlaylistSyncEngin
     PlaylistCreationDialogLayout(name = name, onNameChange = { name = it },
         youtubeSync = service == SyncService.YOUTUBE,
         onYoutubeSyncChange = { service = if (it) SyncService.YOUTUBE else null },
+        spotifySync = service == SyncService.SPOTIFY,
+        onSpotifySyncChange = { service = if (it) SyncService.SPOTIFY else null },
         busy = busy, saved = localId != null, trackCount = request.tracks.size, error = error,
         onDismiss = onDismiss, onCreate = {
             busy = true; error = null

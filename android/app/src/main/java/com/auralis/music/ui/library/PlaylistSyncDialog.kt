@@ -17,7 +17,8 @@ val LocalPlaylistSync = staticCompositionLocalOf<((Playlist) -> Unit)?> { null }
 @Composable
 fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss: () -> Unit) {
     val links by engine.store.links.collectAsState()
-    val origin = engine.source(playlist.id)
+    // Fixed when the dialog opens, so turning a link off doesn't swap to the setup dialog mid-way.
+    val origin = remember(playlist.id) { engine.source(playlist.id) }
     if (origin == null) {
         // A locally created playlist has no import source to infer.
         PlaylistSyncSetupDialog(playlist, engine, onDismiss)
@@ -27,41 +28,48 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
     val enabled = link != null
     val status by engine.status.collectAsState()
     var busy by remember(playlist.id) { mutableStateOf(false) }
-    var pendingToggle by remember(playlist.id) { mutableStateOf<Boolean?>(null) }
+    var pending by remember(playlist.id) { mutableStateOf<Pair<SyncService, Boolean>?>(null) }
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // The playlist's own service first, then the other one, which keeps a private copy there.
+    val services = listOf(origin.first) + SyncService.entries.filter { it != origin.first }
     PlaylistSyncDialogLayout(playlistTitle = playlist.title,
         onDismissRequest = { if (!busy) onDismiss() },
         text = { Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            PlaylistSyncConnection(origin.first.label)
+            PlaylistSyncConnection((link?.service ?: origin.first).label)
             PlaylistSyncSection {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Two-way sync", style = MaterialTheme.typography.titleSmall)
-                    Text(if (pendingToggle ?: enabled) "Connected to ${origin.first.label}" else "Connect this playlist",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = pendingToggle ?: enabled, enabled = !busy, onCheckedChange = { turnOn ->
-                    pendingToggle = turnOn; busy = true; error = null
-                    scope.launch {
-                        try {
-                            if (turnOn) engine.enable(playlist.id)
-                            else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
-                        finally { busy = false; pendingToggle = null }
+            for (service in services) {
+                val on = pending?.takeIf { it.first == service }?.second
+                    ?: (link?.service == service && pending?.second != true)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Sync with ${service.label}", style = MaterialTheme.typography.titleSmall)
+                        Text(if (service == origin.first) "The same ${service.label} playlist"
+                            else "Keeps a private copy on ${service.label}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                })
+                    Switch(checked = on, enabled = !busy, onCheckedChange = { turnOn ->
+                        pending = service to turnOn; busy = true; error = null
+                        scope.launch {
+                            try {
+                                if (turnOn) engine.connect(playlist.id, service)
+                                else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
+                            finally { busy = false; pending = null }
+                        }
+                    })
+                }
             }
-            Text("Add songs in either app. Your songs and playlist edits stay in sync.",
+            Text("Syncs with one service at a time. Songs and playlist edits from either app appear on both.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (busy) PlaylistSyncStatus("Connecting playlist…", busy = true)
             else if (error != null) PlaylistSyncStatus(error!!, problem = true)
             else if (enabled) {
-                val message = status[playlist.id] ?: if (link?.interrupted == true)
-                    "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on"
+                val message = "${link!!.service.label}: " + (status[playlist.id] ?: if (link.interrupted)
+                    "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on")
                 PlaylistSyncStatus(message, problem = link?.interrupted == true ||
                     listOf("review", "fail", "error").any { message.contains(it, ignoreCase = true) })
             }

@@ -53,7 +53,9 @@ internal fun PlaylistCreationDialogLayout(
     trackCount: Int,
     error: String?,
     onDismiss: () -> Unit,
-    onCreate: () -> Unit
+    onCreate: () -> Unit,
+    spotifySync: Boolean = false,
+    onSpotifySyncChange: ((Boolean) -> Unit)? = null
 ) {
     val glass = LocalLiquidGlass.current
     val pageView = LocalView.current
@@ -108,11 +110,14 @@ internal fun PlaylistCreationDialogLayout(
                             Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("Save to", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                                 PlaylistCreationDestination("Auralis only", "Save in your Auralis library",
-                                    selected = !youtubeSync, youtube = false, enabled = !busy && !saved,
-                                    onClick = { onYoutubeSyncChange(false) })
+                                    selected = !youtubeSync && !spotifySync, youtube = false, enabled = !busy && !saved,
+                                    onClick = { onYoutubeSyncChange(false); onSpotifySyncChange?.invoke(false) })
                                 PlaylistCreationDestination("YouTube Music", "Private playlist with two-way sync",
                                     selected = youtubeSync, youtube = true, enabled = !busy && !saved,
                                     onClick = { onYoutubeSyncChange(true) })
+                                if (onSpotifySyncChange != null) PlaylistCreationDestination("Spotify", "Private playlist with two-way sync",
+                                    selected = spotifySync, youtube = true, enabled = !busy && !saved,
+                                    onClick = { onSpotifySyncChange(true) })
                             }
                             if (trackCount > 0) Text(if (trackCount == 1) "1 song will be added" else "$trackCount songs will be added",
                                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
