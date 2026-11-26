@@ -48,8 +48,8 @@ internal fun WrappedHomeCard(onClick: () -> Unit, modifier: Modifier = Modifier)
             // would sample the bar itself. Record a separate palette wash under
             // the lens instead; the live theme supplies its song-derived colour.
             val backdrop = rememberLayerBackdrop()
-            val glass = remember(backdrop, appGlass.isDark, appGlass.collapse) {
-                LiquidGlassContext(backdrop, appGlass.isDark, appGlass.collapse)
+            val glass = remember(backdrop, appGlass) {
+                appGlass.over(backdrop)
             }
             Box(Modifier.matchParentSize().layerBackdrop(backdrop).background(Brush.linearGradient(
                 listOf(lerp(surface, accent, .46f), lerp(surface, secondary, .20f), lerp(surface, accent, .12f)))))

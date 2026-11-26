@@ -124,7 +124,10 @@ internal fun TourLiquidGlassPreview(
 
     val isDark = MaterialTheme.dynamicSurface.luminance() < .5f
 
-    val glass = remember(backdrop, isDark) { LiquidGlassContext(backdrop, isDark = isDark, collapse = collapse) }
+    val plainGlass = remember(backdrop, isDark) { LiquidGlassContext(backdrop, isDark = isDark, collapse = collapse) }
+    val glass = remember(plainGlass, appearance.frostGlass) {
+        if (appearance.frostGlass) LiquidGlassContext(backdrop, isDark = isDark, collapse = collapse, frost = true) else plainGlass
+    }
 
     val demoAppearance = appearance.copy(
 
@@ -245,7 +248,7 @@ internal fun TourLiquidGlassPreview(
                 LocalLiquidGlass provides if (appearance.liquidGlass) glass else null,
 
                 LocalMiniPlayerGlass provides if (com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(demoAppearance) ==
-                    com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS) glass else null,
+                    com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS) plainGlass else null,
                 com.auralis.music.ui.player.LocalFrostedMiniPlayer provides
                     (com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(demoAppearance) ==
                         com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.FROSTED)

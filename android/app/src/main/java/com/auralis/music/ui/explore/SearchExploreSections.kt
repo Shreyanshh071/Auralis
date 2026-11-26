@@ -304,7 +304,7 @@ private fun ArtistSpotlightCard(artist: ArtistAffinity, actions: SearchExploreAc
     val photo = artistPhoto(artist.artistName)
     val shape = RoundedCornerShape(30.dp)
     val backdrop = rememberLayerBackdrop()
-    val glass = appGlass?.let { app -> remember(backdrop, app.isDark, app.collapse) { LiquidGlassContext(backdrop, app.isDark, app.collapse) } }
+    val glass = appGlass?.let { app -> remember(backdrop, app) { app.over(backdrop) } }
     Box(
         Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp).height(236.dp).clip(shape)
             .border(1.dp, ink.copy(alpha = .08f), shape)

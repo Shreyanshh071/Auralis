@@ -896,9 +896,9 @@ fun AuralisApp(
     // The pages are recorded into glassBackdrop (over the app background, so the glass never
     // samples transparency); the dock and mini player render it as glass. Scrolling a page down
     // minimizes the dock and tucks the mini player into the dock row.
-    // Glass is built for dark pages: it turns off on light themes and returns with a dark one.
-    val glassEnabled = appearanceSettings.liquidGlass &&
-        androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < .5f
+    // Glass and Frost both work on light and dark themes; Frost swaps the lens for a flat veil.
+    val glassEnabled = appearanceSettings.liquidGlass
+    val frostEnabled = glassEnabled && appearanceSettings.frostGlass
     // "Liquid glass" as the mini-player background style: glass on the mini player only.
     val miniPlayerSurface = com.auralis.music.ui.player.MiniPlayerBackgrounds.surface(appearanceSettings)
     val miniPlayerGlass = miniPlayerSurface == com.auralis.music.ui.player.MiniPlayerBackgrounds.Surface.LIQUID_GLASS
@@ -954,8 +954,14 @@ fun AuralisApp(
     val anyGlassContext = remember(combinedGlassBackdrop, glassIsDark) {
         com.auralis.music.ui.glass.LiquidGlassContext(combinedGlassBackdrop, glassIsDark, dockCollapse)
     }
-    val glassContext = if (glassEnabled) anyGlassContext else null
-    // The selected mini-player background applies in both expanded and tucked forms.
+    // The app style: real glass, or the same recordings drawn as Frost.
+    val appGlassContext = remember(anyGlassContext, frostEnabled) {
+        if (frostEnabled) com.auralis.music.ui.glass.LiquidGlassContext(
+            combinedGlassBackdrop, glassIsDark, dockCollapse, frost = true) else anyGlassContext
+    }
+    val glassContext = if (glassEnabled) appGlassContext else null
+    // The selected mini-player background applies in both expanded and tucked forms; its own
+    // "Liquid glass" style stays real glass even when the app style is Frost.
     val miniGlassContext = if (miniPlayerGlass) anyGlassContext else null
     chromeCollapse[0] = dockCollapse
     LaunchedEffect(currentDestination, collapseOnScroll) { dockMinimize.expand() }
@@ -1214,9 +1220,9 @@ fun AuralisApp(
                         val tabHeaderBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop(
                             onDraw = glassBackdropDraw
                         )
-                        val tabHeaderGlass = remember(tabHeaderBackdrop, glassIsDark) {
+                        val tabHeaderGlass = remember(tabHeaderBackdrop, glassIsDark, frostEnabled) {
                             com.auralis.music.ui.glass.LiquidGlassContext(
-                                tabHeaderBackdrop, glassIsDark, dockCollapse
+                                tabHeaderBackdrop, glassIsDark, dockCollapse, frost = frostEnabled
                             )
                         }
 
@@ -2155,8 +2161,8 @@ fun AuralisApp(
             val playerContentGlass = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
             val playerOverlayBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(
                 combinedGlassBackdrop, playerBackgroundGlass, playerContentGlass)
-            val playerOverlayGlass = remember(playerOverlayBackdrop, glassIsDark) {
-                com.auralis.music.ui.glass.LiquidGlassContext(playerOverlayBackdrop, glassIsDark, dockCollapse)
+            val playerOverlayGlass = remember(playerOverlayBackdrop, glassIsDark, frostEnabled) {
+                com.auralis.music.ui.glass.LiquidGlassContext(playerOverlayBackdrop, glassIsDark, dockCollapse, frost = frostEnabled)
             }
 
             // Atmospheric background layer behind sheet (static fullscreen blurred artwork / gradient)

@@ -1512,6 +1512,11 @@
     <string name="settings_hint_system">Permissions and app info</string>
     <string name="settings_hint_about">Version and credits</string>
     <string name="liquid_glass_dark_only">Only available on dark themes.</string>
+    <string name="app_style">App style</string>
+    <string name="app_style_glass">Glass</string>
+    <string name="app_style_frost">Frost</string>
+    <string name="app_style_solid_summary">Solid dock, mini player and pages.</string>
+    <string name="app_style_frost_summary">Frosted dock, mini player and pages: a soft blur with no lens.</string>
     <string name="downloads">Downloads</string>
     <string name="metadata">Metadata</string>
     <string name="settings_hint_downloads">Metadata saved in your downloads</string>

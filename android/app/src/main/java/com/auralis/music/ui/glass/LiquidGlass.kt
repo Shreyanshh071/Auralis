@@ -69,8 +69,34 @@ internal fun glassContentColor(isDark: Boolean): Color = if (isDark) Color.White
 class LiquidGlassContext(
     val backdrop: Backdrop,
     val isDark: Boolean,
-    val collapse: State<Float>
-)
+    val collapse: State<Float>,
+    /** App style Frost: a flat, heavily blurred veil instead of the lens, rim and shadow. */
+    val frost: Boolean = false
+) {
+    /** The same look over another recording (page headers, dialogs, the player overlay). */
+    fun over(backdrop: Backdrop): LiquidGlassContext = LiquidGlassContext(backdrop, isDark, collapse, frost)
+}
+
+// Frost (after Melo's MeloGlass.kt, aarush-io/melo): heavier blur, a denser flat veil and a
+// hairline edge, with no saturation, lens, highlight or shadow.
+private val FROST_BLUR = 24.dp
+private val FROST_EDGE = 0.5.dp
+
+internal fun frostFill(isDark: Boolean, carriesText: Boolean = false): Color {
+    val base = if (isDark) Color(0xFF1C1C1E) else Color(0xFFF7F7F9)
+    val alpha = if (isDark) 0.65f else 0.6f
+    return base.copy(alpha = if (carriesText) alpha + 0.15f else alpha)
+}
+
+internal fun frostEdgeColor(isDark: Boolean): Color =
+    if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+
+private fun frostIndicatorColor(isDark: Boolean): Color =
+    if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f)
+
+/** Grey tints only make glass readable; on frost the veil already does that. */
+private fun Color.isNeutral(): Boolean =
+    maxOf(red, green, blue) - minOf(red, green, blue) < 0.04f
 
 /**
  * 0 -> 1 as the dock minimizes on scroll and the mini player tucks in beside it. Independent of
@@ -127,9 +153,47 @@ fun Modifier.liquidGlass(
         return this
             .then(if (pressLayer != null) Modifier.graphicsLayer(pressLayer) else Modifier)
             .background(if (glass.isDark) Color(0xFF1A1A1A).copy(alpha = 0.92f) else Color(0xFFF2F2F2).copy(alpha = 0.94f), shape)
-            .border(0.75.dp, rimBrush(glass.isDark), shape)
+            .then(if (glass.frost) Modifier.border(FROST_EDGE, frostEdgeColor(glass.isDark), shape)
+                else Modifier.border(0.75.dp, rimBrush(glass.isDark), shape))
     }
     val density = LocalDensity.current
+    if (glass.frost) {
+        val veil = frostFill(glass.isDark, carriesText = tint.alpha >= 0.6f)
+        // Selection pills and accent tints still need to show; grey readability tints don't.
+        val overlay = when {
+            tint == glassIndicatorTint(glass.isDark) -> frostIndicatorColor(glass.isDark)
+            tint.isNeutral() -> null
+            else -> tint
+        }
+        val frostBlurPx = with(density) { FROST_BLUR.toPx() } * GLASS_RESOLUTION_SCALE
+        return this.drawBackdrop(
+            backdrop = glass.backdrop,
+            shape = { shape },
+            layerBlock = pressLayer,
+            effects = { blur(frostBlurPx) },
+            highlight = null,
+            shadow = null,
+            backdropScale = GLASS_RESOLUTION_SCALE,
+            onDrawSurface = {
+                val outline = shape.createOutline(size, layoutDirection, this)
+                drawOutline(outline, veil)
+                if (overlay != null) drawOutline(outline, overlay)
+                val pressed = press?.progress ?: 0f
+                if (pressed > 0f) {
+                    val touch = press?.touch?.takeIf { it.isSpecified } ?: center
+                    drawOutline(
+                        outline,
+                        Brush.radialGradient(
+                            listOf((if (glass.isDark) Color.White else Color.Black).copy(alpha = 0.08f * pressed), Color.Transparent),
+                            center = touch,
+                            radius = size.minDimension * 1.2f
+                        )
+                    )
+                }
+            }
+        ).border(FROST_EDGE, frostEdgeColor(glass.isDark), shape)
+            .then(if (press != null) Modifier.glassPress(press) else Modifier)
+    }
     // 8dp blur / 24dp lens at one-third capture resolution.
     // Effects stay constant during presses; only the surface transform animates.
     val blurPx = with(density) { blurRadius.toPx() } * GLASS_RESOLUTION_SCALE

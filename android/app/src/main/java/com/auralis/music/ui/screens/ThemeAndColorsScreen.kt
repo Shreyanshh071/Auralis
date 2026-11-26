@@ -260,19 +260,23 @@ fun ThemeAndColorsScreen(
 
     val rootView = androidx.compose.ui.platform.LocalView.current
     // The change rebuilds the page, so the switch slides first and the crossfade starts after it.
-    var glassSwitchOn by androidx.compose.runtime.remember(settings.liquidGlass) {
-        androidx.compose.runtime.mutableStateOf(settings.liquidGlass)
+    // App style: 0 Solid, 1 Glass, 2 Frost. The toggle moves first and the crossfade follows.
+    val savedStyle = if (!settings.liquidGlass) 0 else if (settings.frostGlass) 2 else 1
+    var shownStyle by androidx.compose.runtime.remember(savedStyle) {
+        androidx.compose.runtime.mutableStateOf(savedStyle)
     }
     val glassScope = androidx.compose.runtime.rememberCoroutineScope()
     val pendingGlassChange = androidx.compose.runtime.remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    val setLiquidGlass = { enabled: Boolean ->
-        glassSwitchOn = enabled
-        // Changing the theme rebuilds the whole app, so rapid flips wait for the last one.
+    val setAppStyle = { style: Int ->
+        shownStyle = style
+        // Changing the style rebuilds the whole app, so rapid taps wait for the last one.
         pendingGlassChange[0]?.cancel()
         pendingGlassChange[0] = glassScope.launch {
             kotlinx.coroutines.delay(GlassSwitchSettleMillis)
-            if (enabled != settings.liquidGlass) {
-                com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) { onUpdateSettings(settings.copy(liquidGlass = enabled)) }
+            if (style != savedStyle) {
+                com.auralis.music.ui.theme.ThemeCrossfade.run(rootView) {
+                    onUpdateSettings(settings.copy(liquidGlass = style != 0, frostGlass = style == 2))
+                }
             }
         }
         Unit
@@ -370,13 +374,26 @@ fun ThemeAndColorsScreen(
                         else settings.copy(colorPalette = CuratedPalettes.first().id, dynamicTheme = false))
                 }
 
-                // Liquid glass (dark themes only)
-                ThemeSwitchItem(4, 5, Icons.Rounded.BlurOn, str(R.string.liquid_glass),
-                    if (!isDark) str(R.string.liquid_glass_dark_only)
-                    else if (com.auralis.music.ui.glass.isLiquidGlassSupported()) str(R.string.glass_dock_and_mini_player_scrolling_dow)
-                    else str(R.string.glass_dock_and_mini_player_live_blur_nee),
-                    checked = glassSwitchOn && isDark, enabled = isDark, accent = accent, onBackground = onBackground) { on ->
-                    setLiquidGlass(on)
+                // App style: Solid, Glass or Frost, on light and dark themes alike
+                ThemeGroupItem(4, 5, Icons.Rounded.BlurOn, str(R.string.app_style), onBackground) {
+                    val styles = listOf(str(R.string.solid), str(R.string.app_style_glass), str(R.string.app_style_frost))
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        styles.forEachIndexed { index, label ->
+                            ConnectedToggle(label, shownStyle == index, index, styles.lastIndex, accent, onBackground, Modifier.weight(1f)) {
+                                if (shownStyle != index) setAppStyle(index)
+                            }
+                        }
+                    }
+                    Text(
+                        when {
+                            shownStyle == 0 -> str(R.string.app_style_solid_summary)
+                            !com.auralis.music.ui.glass.isLiquidGlassSupported() -> str(R.string.glass_dock_and_mini_player_live_blur_nee)
+                            shownStyle == 2 -> str(R.string.app_style_frost_summary)
+                            else -> str(R.string.glass_dock_and_mini_player_scrolling_dow)
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = onBackground.copy(alpha = .6f),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             }
 

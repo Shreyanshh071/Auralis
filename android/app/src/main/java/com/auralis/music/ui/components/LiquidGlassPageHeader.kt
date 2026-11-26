@@ -79,7 +79,7 @@ class LiquidGlassHeaderPageState {
 internal fun rememberPageHeaderGlass(backdrop: Backdrop): LiquidGlassContext? {
     val appGlass = LocalLiquidGlass.current
     return remember(appGlass, backdrop) {
-        appGlass?.let { LiquidGlassContext(backdrop, it.isDark, it.collapse) }
+        appGlass?.over(backdrop)
     }
 }
 

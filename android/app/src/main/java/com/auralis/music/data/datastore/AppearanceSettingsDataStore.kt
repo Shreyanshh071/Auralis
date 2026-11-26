@@ -60,6 +60,7 @@ class AppearanceSettingsDataStore(
                 dynamicTheme = preferences[DYNAMIC_THEME] ?: defaults.dynamicTheme,
                 dynamicIconColors = preferences[DYNAMIC_ICON_COLORS] ?: defaults.dynamicIconColors,
                 liquidGlass = preferences[LIQUID_GLASS] ?: defaults.liquidGlass,
+                frostGlass = preferences[FROST_GLASS] ?: defaults.frostGlass,
                 appTheme = preferences[APP_THEME] ?: defaults.appTheme,
                 colorPalette = preferences[COLOR_PALETTE] ?: defaults.colorPalette,
 
@@ -151,6 +152,7 @@ class AppearanceSettingsDataStore(
         val DYNAMIC_THEME = booleanPreferencesKey("dynamic_theme")
         val DYNAMIC_ICON_COLORS = booleanPreferencesKey("dynamic_icon_colors")
         val LIQUID_GLASS = booleanPreferencesKey("liquid_glass")
+        val FROST_GLASS = booleanPreferencesKey("frost_glass")
         val APP_THEME = stringPreferencesKey("app_theme")
         val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
@@ -233,6 +235,7 @@ class AppearanceSettingsDataStore(
                 preferences[DYNAMIC_THEME] = settings.dynamicTheme
                 preferences[DYNAMIC_ICON_COLORS] = settings.dynamicIconColors
                 preferences[LIQUID_GLASS] = settings.liquidGlass
+                preferences[FROST_GLASS] = settings.frostGlass
                 preferences[APP_THEME] = settings.appTheme
                 preferences[COLOR_PALETTE] = settings.colorPalette
 

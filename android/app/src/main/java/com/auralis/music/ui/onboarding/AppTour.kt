@@ -86,7 +86,7 @@ fun AppTour(
     val ink = Color(0xFFF0F2F7)
     val accent = Color(0xFFE5CB9E)
     val titles = listOf("Your music. Your Auralis.", "Make it yours.", "Light or dark?", "A little more glass.", "Hear every detail.", "Feel every word.", "Discover features.", "You’re in control.", "Join our community.", "Where is your sound?")
-    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Pick how Auralis looks. The preview follows your choice.", "Compare solid and liquid glass. Scroll behind the dock and mini player, and press the glass controls. Your choice is saved.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Everything Auralis has to offer for your music journey.", "Allow what works for you. Everything here is optional, and you can change it later.", "Auralis is open source and grows with its community. Your help makes a difference.", "Choose your music region and language. Next, pick your artists.")
+    val hints = listOf("A little tour before your first play.", "Try the player, lyrics and queue controls. Silent demo.", "Pick how Auralis looks. The preview follows your choice.", "Compare Solid, Glass and Frost, on light or dark. Scroll behind the dock and mini player, and press the glass controls. Your choice is saved.", "Choose how much data your music uses.", "Try every lyrics style, exactly as it plays in Auralis.", "Everything Auralis has to offer for your music journey.", "Allow what works for you. Everything here is optional, and you can change it later.", "Auralis is open source and grows with its community. Your help makes a difference.", "Choose your music region and language. Next, pick your artists.")
     TourBackdrop {
         // Capture the same usable window as the full player, before tour chrome takes space.
         // Insets are consumed here once, so the embedded players cannot subtract them again.
@@ -181,10 +181,13 @@ fun AppTour(
                                 scope.launch { appearanceStore.updateSettings(appearance.copy(appTheme = value)) }
                             }
                         }
-                        3 -> TourChoices(listOf("Off (default)", "On"), if (appearance.liquidGlass) "On" else "Off (default)", accent, ink, columns = 2) { value ->
+                        3 -> TourChoices(listOf("Solid (default)", "Glass", "Frost"),
+                            if (!appearance.liquidGlass) "Solid (default)" else if (appearance.frostGlass) "Frost" else "Glass",
+                            accent, ink, columns = 3) { value ->
                             scope.launch {
                                 appearanceStore.updateSettings(appearance.copy(
-                                    liquidGlass = value == "On"
+                                    liquidGlass = value != "Solid (default)",
+                                    frostGlass = value == "Frost"
                                 ))
                             }
                         }

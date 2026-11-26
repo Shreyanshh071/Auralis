@@ -60,13 +60,13 @@ class LiquidGlassTourTest {
             compose.onNodeWithText("Next").performClick()
             compose.mainClock.advanceTimeBy(350)
             compose.onNodeWithText("A little more glass.").assertIsDisplayed()
-            compose.onNodeWithText("Off (default)").assertIsSelected()
+            compose.onNodeWithText("Solid (default)").assertIsSelected()
             compose.onAllNodesWithText(com.auralis.music.ui.i18n.str(R.string.quick_picks)).onFirst().assertIsDisplayed()
             capture("tour-glass-off.png")
-            compose.onNodeWithText("On", substring = false).performClick()
+            compose.onNodeWithText("Glass", substring = false).performClick()
             compose.waitUntil(5_000) { runBlocking { store.settingsFlow.first().liquidGlass } }
             compose.mainClock.advanceTimeBy(350)
-            compose.onNodeWithText("On", substring = false).assertIsSelected()
+            compose.onNodeWithText("Glass", substring = false).assertIsSelected()
             capture("tour-glass-on.png")
             compose.onNodeWithTag("tour-glass-feed").performTouchInput { swipeUp() }
             compose.mainClock.advanceTimeBy(350)
@@ -77,10 +77,10 @@ class LiquidGlassTourTest {
             compose.mainClock.advanceTimeBy(500)
             compose.onNodeWithTag("tour-preview-chrome").assert(
                 SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Expanded"))
-            compose.onNodeWithText("Off (default)").performClick()
+            compose.onNodeWithText("Solid (default)").performClick()
             compose.waitUntil(5_000) { runBlocking { !store.settingsFlow.first().liquidGlass } }
             compose.mainClock.advanceTimeBy(350)
-            compose.onNodeWithText("Off (default)").assertIsSelected()
+            compose.onNodeWithText("Solid (default)").assertIsSelected()
             for (title in listOf("Hear every detail.", "Feel every word.", "Discover features.", "You’re in control.", "Join our community.", "Where is your sound?")) {
                 compose.onNodeWithText("Next").performClick()
                 compose.mainClock.advanceTimeBy(350)

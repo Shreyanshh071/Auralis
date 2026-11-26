@@ -10,6 +10,8 @@ data class AppearanceSettings(
     val colorPalette: String = "Dynamic",
     /** Liquid glass dock and mini player, with scroll-to-minimize. */
     val liquidGlass: Boolean = false,
+    /** App style Frost: the glass surfaces become a flat, heavily blurred veil (no lens, rim or shadow). */
+    val frostGlass: Boolean = false,
 
     // ── Mini-player ──
     val miniPlayerDesign: String = "New mini player",

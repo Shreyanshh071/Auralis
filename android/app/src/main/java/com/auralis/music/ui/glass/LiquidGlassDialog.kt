@@ -38,7 +38,7 @@ internal fun Modifier.liquidGlassDialog(
         }
     }
     val alignedGlass = remember(glass, alignedBackdrop) {
-        LiquidGlassContext(alignedBackdrop, glass.isDark, glass.collapse)
+        glass.over(alignedBackdrop)
     }
     this.onGloballyPositioned {
         fun origin(view: View): Offset {
