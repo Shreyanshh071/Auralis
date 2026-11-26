@@ -52,7 +52,7 @@ class SpotifyPlaylistSync(
             check(response.isSuccessful) { when (response.code) {
                 401 -> "Spotify sign-in expired. Reconnect your Spotify account."
                 403 -> "Spotify did not allow this playlist change. Sync is paused; your local playlist is kept."
-                404 -> "This Spotify playlist no longer exists or isn't available to your account."
+                404 -> throw PlaylistGoneException("This Spotify playlist no longer exists or isn't available to your account.")
                 409, 412 -> throw PlaylistSyncStalePreviewException("Spotify changed before uploading. Checking the latest changes.")
                 429 -> "Spotify is rate-limiting requests. Sync is pending; try again later."
                 else -> "Spotify sync failed (HTTP ${response.code}). Your local playlist is kept."
@@ -150,6 +150,26 @@ class SpotifyPlaylistSync(
             // Keep the stored entry's ID; relinked releases report a different nested URI.
             track.copy(id = "sp_${entry.uri.removePrefix("spotify:track:")}")
         }
+    }
+
+    /**
+     * Playlists in the signed-in library with this name that the account can edit: when someone
+     * else's playlist was imported, the engine links to the account's own copy with the same songs.
+     */
+    override suspend fun editablePlaylistsNamed(title: String): List<String> {
+        val wanted = title.trim()
+        val named = mutableListOf<String>()
+        var offset = 0
+        while (true) {
+            val library = query("libraryV3", SpotifyWebApi.libraryVariables(offset, 50))
+                .optJSONObject("data")?.optJSONObject("me")?.optJSONObject("libraryV3")
+                ?: error("Spotify did not return your library. Sync retries automatically.")
+            val items = library.optJSONArray("items") ?: JSONArray()
+            SpotifyLibrary.parseGqlPlaylists(items).filter { it.title.trim().equals(wanted, ignoreCase = true) }.forEach { named += it.id }
+            offset += items.length()
+            if (!SpotifyLibrary.hasMorePages(items.length(), offset, library.optInt("totalCount", -1))) break
+        }
+        return named.distinct().filter { id -> runCatching { contents(id).editable }.getOrDefault(false) }
     }
 
     override suspend fun create(title: String, description: String): String {

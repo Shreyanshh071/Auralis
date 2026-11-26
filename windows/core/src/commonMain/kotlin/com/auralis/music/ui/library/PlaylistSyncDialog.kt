@@ -16,7 +16,9 @@ import kotlinx.coroutines.launch
 val LocalPlaylistSync = staticCompositionLocalOf<((Playlist) -> Unit)?> { null }
 
 @Composable
-fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss: () -> Unit) {
+fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine,
+    /** The app's notification pill, for warnings that close the dialog. */
+    showMessage: (String) -> Unit = {}, onDismiss: () -> Unit) {
     val links by engine.store.links.collectAsState()
     // Fixed when the dialog opens, so turning a link off doesn't swap to the setup dialog mid-way.
     val origin = remember(playlist.id) { engine.source(playlist.id) }
@@ -28,6 +30,7 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
     val link = links.firstOrNull { it.localId == playlist.id && it.enabled }
     val enabled = link != null
     val status by engine.status.collectAsState()
+    val stopped by engine.stopped.collectAsState()
     var busy by remember(playlist.id) { mutableStateOf(false) }
     var pending by remember(playlist.id) { mutableStateOf<Pair<SyncService, Boolean>?>(null) }
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
@@ -55,6 +58,10 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
                                 if (turnOn) engine.connect(playlist.id, service)
                                 else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
                             } catch (e: CancellationException) { throw e }
+                            catch (e: PlaylistNotInAccountException) {
+                                // Same warning for YouTube Music and Spotify, in the notification pill.
+                                onDismiss(); showMessage(e.message.orEmpty())
+                            }
                             catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
                             finally { busy = false; pending = null }
                         }
@@ -69,6 +76,8 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("Connecting playlist sync…", style = MaterialTheme.typography.bodySmall)
             } else if (enabled) Text("${link!!.service.label}: " + (status[playlist.id] ?: if (link?.interrupted == true) "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on"), style = MaterialTheme.typography.bodySmall)
+            // Turned itself off because the linked playlist is gone: the switch is off, the reason stays.
+            else stopped[playlist.id]?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Done") } })
 }

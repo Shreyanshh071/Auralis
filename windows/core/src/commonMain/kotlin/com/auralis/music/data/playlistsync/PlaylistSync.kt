@@ -14,6 +14,12 @@ import org.json.JSONObject
 enum class SyncService(val label: String) { YOUTUBE("YouTube Music"), SPOTIFY("Spotify") }
 /** The transport rejected a stale proposal before sending any playlist edit. */
 class PlaylistSyncStalePreviewException(message: String) : IllegalStateException(message)
+/** The linked playlist was deleted on the service (or the account lost it): sync turns itself off. */
+class PlaylistGoneException(message: String) : IllegalStateException(message)
+/** The imported playlist isn't the signed-in account's and it has no copy with the same name and songs. */
+class PlaylistNotInAccountException(message: String) : IllegalStateException(message)
+/** Songs that just turned out to be missing on a linked playlist's service and stay in Auralis only. */
+data class AuralisOnlyNotice(val playlistTitle: String, val service: SyncService, val songs: List<String>)
 data class SyncSnapshot(val title: String, val description: String, val ids: List<String>)
 /** How a local song maps onto the service. Only a clean search with no acceptable result is [NotFound]. */
 sealed interface SyncMatch {
@@ -53,7 +59,9 @@ data class PlaylistSyncLink(val localId: String, val service: SyncService, val r
     val unmatchedIds: Set<String> = emptySet())
 data class PlaylistSyncPreview(val local: Playlist, val remote: RemoteSyncPlaylist?, val service: SyncService,
     val account: String, val localSnapshot: SyncSnapshot, val mapping: Map<String, String>, val merged: SyncSnapshot?,
-    val ownCopy: Boolean = false, val unmatchedIds: Set<String> = emptySet())
+    val ownCopy: Boolean = false, val unmatchedIds: Set<String> = emptySet(),
+    /** Titles of songs this check found missing online on an already-linked playlist (for a one-time notice). */
+    val newlyAuralisOnly: List<String> = emptyList())
 enum class SyncChoice { MERGE, AURALIS, REMOTE }
 
 /** Occurrence keys preserve intentional duplicate tracks, rather than deduplicating by recording. */
@@ -167,6 +175,19 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
     private val pollIntervalMs: Long = 5_000, private val localDebounceMs: Long = 150,
     private val retryDelayMs: Long = 1_000, private val checkTimeoutMs: Long = 30_000) {
     val status = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Fires once per sync that leaves newly added songs in Auralis only, so the app can say why. */
+    val auralisOnlyAdded = MutableSharedFlow<AuralisOnlyNotice>(extraBufferCapacity = 8)
+    /** Why sync turned itself off for a playlist (its remote copy is gone), until it's turned on again. */
+    val stopped = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** The remote playlist is gone: unlink (keeping the Auralis playlist) and remember why. */
+    private fun stopGone(id: String, e: PlaylistGoneException) {
+        epochs.compute(id) { _, previous -> (previous ?: 0L) + 1 }
+        store.unlink(id)
+        val text = "${e.message} Sync was turned off; your Auralis playlist is kept."
+        stopped.update { it + (id to text) }
+        message(id, text)
+        com.auralis.music.util.Log.w("PlaylistSync", "Remote playlist gone; sync turned off for $id")
+    }
     private val lock = Mutex()
     private var worker: Job? = null
     private val epochs = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -210,7 +231,6 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
      */
     private suspend fun connectPreview(local: Playlist, service: SyncService, remoteId: String): PlaylistSyncPreview {
         val api = remote(service)
-        if (service != SyncService.YOUTUBE) return preview(local, service, remoteId)
         api.account()
         val first = try { api.read(remoteId) }
             catch (e: CancellationException) { throw e }
@@ -225,7 +245,7 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             } catch (e: CancellationException) { throw e }
             catch (e: java.io.IOException) { throw e }
             catch (_: Exception) { null }
-        } ?: error("\u201C${local.title}\u201D isn't in the ${service.label} account you're signed in to. " +
+        } ?: throw PlaylistNotInAccountException("\u201C${local.title}\u201D isn't in the ${service.label} account you're signed in to. " +
             "Sign in with the account that owns it, or use a playlist in your account with the same name and songs.")
         return own.copy(ownCopy = true)
     }
@@ -313,6 +333,7 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
         // playlist drops out, so re-adding it later (say, once it's released) checks it afresh.
         val knownMissing = existing?.unmatchedIds.orEmpty()
         val unmatched = linkedSetOf<String>()
+        val newlyMissing = mutableListOf<String>()
         val ids = mutableListOf<String>()
         for (track in local.tracks) {
             val mapped = mapping[track.id]
@@ -320,7 +341,7 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             if (track.id in knownMissing || track.id in unmatched) { unmatched += track.id; continue }
             when (val found = api.match(track)) {
                 is SyncMatch.Matched -> { mapping[track.id] = found.remoteId; ids += found.remoteId }
-                SyncMatch.NotFound -> unmatched += track.id
+                SyncMatch.NotFound -> { unmatched += track.id; if (existing != null) newlyMissing += track.title }
                 SyncMatch.Ambiguous -> error("Cannot confidently match ‘${track.title}’ on ${service.label}. Sync is paused; neither playlist was changed.")
             }
         }
@@ -328,7 +349,8 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
         val merged = if (existing != null && target != null && !existing.interrupted)
             PlaylistSyncMerge.merge(existing.base, snapshot, target.snapshot) else if (target != null)
                 PlaylistSyncMerge.merge(SyncSnapshot(snapshot.title, snapshot.description, emptyList()), snapshot, target.snapshot) else null
-        PlaylistSyncPreview(local, target, service, account, snapshot, mapping, merged, unmatchedIds = unmatched)
+        PlaylistSyncPreview(local, target, service, account, snapshot, mapping, merged, unmatchedIds = unmatched,
+            newlyAuralisOnly = newlyMissing)
     }
     private fun upToDate(unmatched: Set<String>, service: SyncService): String = if (unmatched.isEmpty()) "Up to date"
         else "Up to date · ${unmatched.size} song${if (unmatched.size == 1) "" else "s"} kept in Auralis only (not on ${service.label})"
@@ -386,6 +408,9 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             store.put(link.copy(base = target, mapping = mapping, syncedAt = System.currentTimeMillis(), interrupted = false,
                 pendingTarget = null, pendingLocal = null, failure = null))
             message(local.id, upToDate(preview.unmatchedIds, preview.service))
+            stopped.update { it - local.id }
+            if (preview.newlyAuralisOnly.isNotEmpty())
+                auralisOnlyAdded.tryEmit(AuralisOnlyNotice(target.title, preview.service, preview.newlyAuralisOnly))
             com.auralis.music.util.Log.i("PlaylistSync", "${link.service} sync verified: ${target.ids.size} tracks, ${preview.unmatchedIds.size} Auralis only")
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -421,6 +446,9 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
         } catch (e: CancellationException) {
             if (epochs.getOrDefault(id, 0L) == epoch) message(id, "Sync pending. Will check when Auralis resumes.")
             throw e
+        } catch (e: PlaylistGoneException) {
+            if (epochs.getOrDefault(id, 0L) == epoch) stopGone(id, e)
+            return
         } catch (e: Exception) {
             if (epochs.getOrDefault(id, 0L) != epoch) return
             message(id, failureText(e, link.service))
@@ -456,9 +484,12 @@ class PlaylistSyncEngine(private val library: LibraryRepository, val store: Play
             // but remember it so the next check doesn't search for it again.
             if (p.unmatchedIds != link.unmatchedIds) store.links.value.firstOrNull { it.localId == id && it.enabled }
                 ?.let { store.put(it.copy(unmatchedIds = p.unmatchedIds)) }
+            if (p.newlyAuralisOnly.isNotEmpty())
+                auralisOnlyAdded.tryEmit(AuralisOnlyNotice(local.title, link.service, p.newlyAuralisOnly))
             message(id, upToDate(p.unmatchedIds, link.service)); return
         }
-        apply(p.copy(merged = merged), SyncChoice.MERGE)
+        try { apply(p.copy(merged = merged), SyncChoice.MERGE) }
+        catch (e: PlaylistGoneException) { if (epochs.getOrDefault(id, 0L) == epoch) stopGone(id, e) }
     }
-    fun disable(id: String) { epochs.compute(id) { _, previous -> (previous ?: 0L) + 1 }; store.unlink(id); message(id, "Sync off. Both playlists are kept.") }
+    fun disable(id: String) { epochs.compute(id) { _, previous -> (previous ?: 0L) + 1 }; store.unlink(id); stopped.update { it - id }; message(id, "Sync off. Both playlists are kept.") }
 }

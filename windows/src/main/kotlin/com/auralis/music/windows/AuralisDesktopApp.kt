@@ -341,6 +341,16 @@ fun AuralisDesktopApp(
         )
     }
     val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    // A second pill under the main one, for a short "why" (a song kept in Auralis only).
+    val noteSnackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    androidx.compose.runtime.LaunchedEffect(playlistSync) {
+        playlistSync.auralisOnlyAdded.collect { notice ->
+            val service = notice.service.label
+            val text = if (notice.songs.size == 1) "“${notice.songs.single()}” is saved in Auralis only — it isn't on $service"
+                else "${notice.songs.size} songs are saved in Auralis only — they aren't on $service"
+            launch { noteSnackbar.currentSnackbarData?.dismiss(); noteSnackbar.showSnackbar(text) }
+        }
+    }
     val showUnavailable: (String) -> Unit = { message ->
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar(message) }
     }
@@ -687,11 +697,12 @@ fun AuralisDesktopApp(
             libraryViewModel.onPlaylistImported = { id ->
                 try { playlistSync.enable(id) }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: com.auralis.music.data.playlistsync.PlaylistNotInAccountException) { showUnavailable("Imported. ${e.message}") }
                 catch (e: Exception) { showUnavailable("Imported. Sync could not start: ${e.message}") }
             }
         }
         syncPlaylists.firstOrNull { it.id == syncPlaylistId }?.let { playlist ->
-            com.auralis.music.ui.library.PlaylistSyncDialog(playlist, playlistSync) { syncPlaylistId = null }
+            com.auralis.music.ui.library.PlaylistSyncDialog(playlist, playlistSync, showMessage = showUnavailable) { syncPlaylistId = null }
         }
         if (showLyricsProviders && lyrics != null)
             com.auralis.music.windows.player.LyricsProviderPicker(lyrics) { showLyricsProviders = false }
@@ -1061,7 +1072,11 @@ fun AuralisDesktopApp(
                             )
                         }
                         }
-                        DesktopNotificationPillHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 18.dp))
+                        Column(Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DesktopNotificationPillHost(snackbar)
+                            DesktopNotificationPillHost(noteSnackbar)
+                        }
                         com.auralis.music.windows.update.DesktopUpdatePrompt(Modifier.align(Alignment.BottomEnd).padding(start = 16.dp, end = 16.dp, bottom = 18.dp))
                     }
                     if (showNowPlaying && playback != null && lyrics != null) {

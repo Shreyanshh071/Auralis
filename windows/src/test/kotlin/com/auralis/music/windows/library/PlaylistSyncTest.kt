@@ -28,13 +28,14 @@ class PlaylistSyncTest {
         override suspend fun read(id: String): RemoteSyncPlaylist {
             reads += id
             beforeRead?.invoke()
+            if (gone) throw PlaylistGoneException("This Spotify playlist no longer exists or isn't available to your account.")
             if (fail) error("Offline")
             return RemoteSyncPlaylist(id, user, current, current.ids.map(::track), "$revision", editable)
         }
         override suspend fun create(title: String, description: String): String { creations++; return "created" }
         override suspend fun identify(track: Track) = track.id.takeUnless { it == "unmatched" }
         /** Songs the service cleanly doesn't have, and how often each was looked up. */
-        var missing = emptySet<String>(); var matchError = false
+        var missing = emptySet<String>(); var matchError = false; var gone = false
         val lookups = java.util.concurrent.ConcurrentHashMap<String, Int>()
         override suspend fun match(track: Track): SyncMatch {
             lookups.merge(track.id, 1, Int::plus)
@@ -105,6 +106,46 @@ class PlaylistSyncTest {
                 assertEquals(service to "original", engine.source(local.id), "Turning off must retain the original import source")
             } finally { dir.deleteRecursively() }
         }
+    }
+
+    /** A Spotify account that can read a friend's playlist but edit only its own [mine]. */
+    private class SpotifyAccount(val mine: MutableMap<String, SyncSnapshot>) : PlaylistSyncRemote {
+        override val service = SyncService.SPOTIFY
+        var writes = 0
+        override suspend fun account() = "me"
+        override suspend fun read(id: String): RemoteSyncPlaylist {
+            val list = mine[id] ?: SyncSnapshot("Road Trip", "", listOf("a"))
+            return RemoteSyncPlaylist(id, "me", list, list.ids.map { Track(it, "Song $it", "Artist", duration = 180) }, "1", id in mine)
+        }
+        override suspend fun editablePlaylistsNamed(title: String) = mine.filterValues { it.title.equals(title, true) }.keys.toList()
+        override suspend fun create(title: String, description: String) = error("Must not create a playlist")
+        override suspend fun identify(track: Track) = track.id
+        override suspend fun write(before: RemoteSyncPlaylist, target: SyncSnapshot) { writes++; mine[before.id] = target }
+    }
+
+    @Test fun aFriendsSpotifyPlaylistLinksToTheAccountsOwnCopyWithTheSameNameAndSongs() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("spotify-own-copy").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.restorePlaylist("imported:spotify:friends000000000000000", "Road Trip")
+            library.replacePlaylistTracks(local.id, listOf(track("a")))
+            val account = SpotifyAccount(mutableMapOf(
+                "mine0000000000000000aa" to SyncSnapshot("Road Trip", "", listOf("a")),
+                "decoy000000000000000aa" to SyncSnapshot("Road Trip", "", listOf("x"))))
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.SPOTIFY to account))
+            engine.enable(local.id)
+            assertEquals("mine0000000000000000aa", store.links.value.single().remoteId)
+            assertTrue(store.links.value.single().ownCopy)
+            library.addTrackToPlaylist(local.id, track("b")); engine.sync(local.id)
+            assertEquals(listOf("a", "b"), account.mine.getValue("mine0000000000000000aa").ids)
+            assertEquals(listOf("x"), account.mine.getValue("decoy000000000000000aa").ids)
+            // No same-named copy with the same songs: the YouTube-style message, nothing created.
+            engine.disable(local.id); account.mine.remove("mine0000000000000000aa")
+            val message = assertFailsWith<PlaylistNotInAccountException> { engine.enable(local.id) }.message.orEmpty()
+            assertTrue("isn't in the Spotify account" in message, message)
+            assertTrue(store.links.value.isEmpty())
+        } finally { dir.deleteRecursively() }
     }
 
     @Test fun anImportedPlaylistCanSwitchToAPrivateCopyOnTheOtherServiceAndBack() = runBlocking<Unit> {
@@ -586,6 +627,46 @@ class PlaylistSyncTest {
             library.addTrackToPlaylist(local.id, track("cover")); engine.sync(local.id)
             assertEquals(2, remote.lookups["cover"])
             assertEquals(listOf("a", "cover"), remote.current.ids)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun addingASongTheServiceLacksAnnouncesItOnceButTheFirstLinkDoesNot() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("auralis-only-notice").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Mix")
+            library.replacePlaylistTracks(local.id, listOf(track("a"), track("old-cover")))
+            val remote = Remote(snap()).apply { missing = setOf("old-cover", "cover") }
+            val engine = PlaylistSyncEngine(library, PlaylistSyncStore(Memory()), mapOf(SyncService.SPOTIFY to remote))
+            val notices = java.util.concurrent.CopyOnWriteArrayList<AuralisOnlyNotice>()
+            val collector = launch(Dispatchers.Unconfined) { engine.auralisOnlyAdded.collect { notices += it } }
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            assertTrue(notices.isEmpty(), "linking reports Auralis-only songs in its status, not as an 'added' notice")
+            library.addTrackToPlaylist(local.id, track("cover").copy(title = "My Cover")); engine.sync(local.id)
+            assertEquals(listOf(AuralisOnlyNotice("Mix", SyncService.SPOTIFY, listOf("My Cover"))), notices.toList())
+            repeat(2) { engine.sync(local.id) }
+            assertEquals(1, notices.size, "a known Auralis-only song is announced once")
+            collector.cancel()
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun aDeletedRemotePlaylistTurnsSyncOffAndKeepsTheReasonUntilItIsTurnedOnAgain() = runBlocking<Unit> {
+        val dir = Files.createTempDirectory("remote-gone").toFile()
+        try {
+            val library = DesktopLibraryRepository(java.io.File(dir, "library.json"))
+            val local = library.createPlaylist("Mix"); library.addTrackToPlaylist(local.id, track("a"))
+            val remote = Remote(snap())
+            val store = PlaylistSyncStore(Memory())
+            val engine = PlaylistSyncEngine(library, store, mapOf(SyncService.SPOTIFY to remote))
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            remote.gone = true
+            engine.sync(local.id)  // no exception: it's a final state, not something to retry
+            assertTrue(store.links.value.isEmpty(), "the switch reads the link, so it turns off")
+            assertTrue("no longer exists" in engine.stopped.value.getValue(local.id))
+            assertEquals(listOf("a"), library.getPlaylist(local.id).first()!!.tracks.map { it.id })
+            remote.gone = false
+            engine.connectCreated(local.id, SyncService.SPOTIFY)
+            assertNull(engine.stopped.value[local.id])
         } finally { dir.deleteRecursively() }
     }
 
