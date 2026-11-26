@@ -531,6 +531,16 @@ fun AuralisApp(
         com.auralis.music.data.playlistsync.AndroidPlaylistSync.create(context, viewModelProvider.libraryRepository)
     }
     LaunchedEffect(playlistSync) { playlistSync.start(coroutineScope) }
+    LaunchedEffect(playlistSync) {
+        // Shown under "Added to playlist": the song is saved here, but the service doesn't have it.
+        playlistSync.auralisOnlyAdded.collect { notice ->
+            val service = notice.service.label
+            com.auralis.music.ui.components.AppPillManager.showNote(
+                if (notice.songs.size == 1) "\u201C${notice.songs.single()}\u201D is saved in Auralis only \u2014 it isn't on $service"
+                else "${notice.songs.size} songs are saved in Auralis only \u2014 they aren't on $service"
+            )
+        }
+    }
     var playlistCreationRequest by remember { mutableStateOf<com.auralis.music.ui.library.PlaylistCreationRequest?>(null) }
     val importSyncChoice = remember { com.auralis.music.ui.library.ImportSyncChoice() }
     SideEffect {
@@ -540,6 +550,9 @@ fun AuralisApp(
             vm.onPlaylistImported = { id ->
                 try { playlistSync.enable(id) }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: com.auralis.music.data.playlistsync.PlaylistNotInAccountException) {
+                    com.auralis.music.ui.components.AppPillManager.showPill("Imported. ${e.message}", durationMs = 5500L)
+                }
                 catch (e: Exception) { com.auralis.music.ui.components.AppPillManager.showPill("Imported. Sync could not start: ${e.message}") }
             }
         }
@@ -3084,26 +3097,85 @@ fun AuralisApp(
         com.auralis.music.ui.components.DownloadMetadataPromptHost()
 
         // ── SLEEK COMPACT IN-APP TOAST PILL ──
+        // The main pill, and under it an optional note (e.g. why a song stayed in Auralis only).
         val appPill by com.auralis.music.ui.components.AppPillManager.pillState.collectAsState()
+        val appNote by com.auralis.music.ui.components.AppPillManager.noteState.collectAsState()
+        val pillBubble: @Composable (String, (@Composable (Color) -> Unit)?, () -> Unit) -> Unit = { message, icon, onTap ->
+            val pillShape = RoundedCornerShape(24.dp)
+            val surfaceColor = MaterialTheme.dynamicSurface
+            val isDark = surfaceColor.luminance() < 0.5f
+            val pillContentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+            Box(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .then(com.auralis.music.ui.glass.LocalLiquidGlass.current?.let { glass ->
+                        Modifier.liquidGlass(glass, pillShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
+                    } ?: Modifier
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = pillShape,
+                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.12f),
+                        spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
+                    )
+                    .clip(pillShape)
+                    // Blurs exactly what's on screen behind the pill (see pillHazeState).
+                    .hazeEffect(
+                        state = pillHazeState,
+                        style = HazeStyle(
+                            backgroundColor = Color.Transparent,
+                            tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
+                            blurRadius = 24.dp,
+                            noiseFactor = 0.02f
+                        )
+                    ) {
+                        blurEnabled = true
+                    }
+                    .border(
+                        width = 0.75.dp,
+                        color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
+                        shape = pillShape
+                    )
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onTap
+                    )
+                    .padding(horizontal = 14.dp, vertical = 7.5.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (icon != null) {
+                        icon(pillContentColor)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = message,
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = pillContentColor,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+        val pillEnter = slideInVertically(
+            initialOffsetY = { it },
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+        ) + fadeIn(tween(160))
+        val pillExit = slideOutVertically(
+            targetOffsetY = { it },
+            animationSpec = tween(180, easing = FastOutLinearInEasing)
+        ) + fadeOut(tween(160))
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(1200f),
             contentAlignment = Alignment.BottomCenter
         ) {
-            AnimatedVisibility(
-                visible = appPill != null,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                ) + fadeIn(tween(160)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
-                    animationSpec = tween(180, easing = FastOutLinearInEasing)
-                ) + fadeOut(tween(160)),
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .navigationBarsPadding()
                     .padding(
@@ -3112,70 +3184,30 @@ fun AuralisApp(
                         end = 24.dp
                     )
             ) {
-                val pill = appPill
-                if (pill != null) {
-                    val pillShape = RoundedCornerShape(24.dp)
-                    val surfaceColor = MaterialTheme.dynamicSurface
-                    val isDark = surfaceColor.luminance() < 0.5f
-                    val pillContentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-                    Box(
-                        modifier = Modifier
-                            .wrapContentSize()
-                            .then(com.auralis.music.ui.glass.LocalLiquidGlass.current?.let { glass ->
-                                Modifier.liquidGlass(glass, pillShape, tint = com.auralis.music.ui.glass.glassBarTint(glass.isDark))
-                            } ?: Modifier
-                            .shadow(
-                                elevation = 10.dp,
-                                shape = pillShape,
-                                ambientColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.12f),
-                                spotColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.18f)
-                            )
-                            .clip(pillShape)
-                            // Blurs exactly what's on screen behind the pill (see pillHazeState).
-                            .hazeEffect(
-                                state = pillHazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Color.Transparent,
-                                    tint = HazeTint(surfaceColor.copy(alpha = if (isDark) 0.35f else 0.45f)),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.02f
-                                )
-                            ) {
-                                blurEnabled = true
-                            }
-                            .border(
-                                width = 0.75.dp,
-                                color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f),
-                                shape = pillShape
-                            )
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { com.auralis.music.ui.components.AppPillManager.dismiss() }
-                            .padding(horizontal = 14.dp, vertical = 7.5.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (pill.iconRes != null) {
-                                Icon(
-                                    painter = androidx.compose.ui.res.painterResource(id = pill.iconRes),
-                                    contentDescription = null,
-                                    tint = pillContentColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text(
-                                text = pill.message,
-                                modifier = Modifier.weight(1f, fill = false),
-                                color = pillContentColor,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                lineHeight = 18.sp
+                AnimatedVisibility(visible = appPill != null, enter = pillEnter, exit = pillExit) {
+                    // Keeps the last message while it slides away.
+                    var shown by remember { mutableStateOf(appPill) }
+                    if (appPill != null) shown = appPill
+                    shown?.let { pill ->
+                        val res = pill.iconRes
+                        val pillIcon: (@Composable (Color) -> Unit)? = if (res == null) null else { tint ->
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = res),
+                                contentDescription = null,
+                                tint = tint,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
+                        pillBubble(pill.message, pillIcon) { com.auralis.music.ui.components.AppPillManager.dismiss() }
+                    }
+                }
+                AnimatedVisibility(visible = appNote != null, enter = pillEnter, exit = pillExit) {
+                    var shown by remember { mutableStateOf(appNote) }
+                    if (appNote != null) shown = appNote
+                    shown?.let { note ->
+                        pillBubble(note, { tint: Color ->
+                            Icon(Icons.Default.Info, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+                        }) { com.auralis.music.ui.components.AppPillManager.dismissNote() }
                     }
                 }
             }

@@ -27,6 +27,7 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
     val link = links.firstOrNull { it.localId == playlist.id && it.enabled }
     val enabled = link != null
     val status by engine.status.collectAsState()
+    val stopped by engine.stopped.collectAsState()
     var busy by remember(playlist.id) { mutableStateOf(false) }
     var pending by remember(playlist.id) { mutableStateOf<Pair<SyncService, Boolean>?>(null) }
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
@@ -56,6 +57,12 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
                                 if (turnOn) engine.connect(playlist.id, service)
                                 else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.disable(playlist.id) }
                             } catch (e: CancellationException) { throw e }
+                            catch (e: PlaylistNotInAccountException) {
+                                // Same warning for YouTube Music and Spotify, in the glass pill (a dialog
+                                // window would hide it), with the dialog out of the way.
+                                onDismiss()
+                                com.auralis.music.ui.components.AppPillManager.showPill(e.message.orEmpty(), durationMs = 5500L)
+                            }
                             catch (e: Exception) { error = e.message ?: "Could not connect playlist sync. Your songs are kept." }
                             finally { busy = false; pending = null }
                         }
@@ -71,8 +78,11 @@ fun PlaylistSyncDialog(playlist: Playlist, engine: PlaylistSyncEngine, onDismiss
                 val message = "${link!!.service.label}: " + (status[playlist.id] ?: if (link.interrupted)
                     "Sync pending${link.failure?.let { ": $it" }.orEmpty()}" else "Sync is on")
                 PlaylistSyncStatus(message, problem = link?.interrupted == true ||
-                    listOf("review", "fail", "error").any { message.contains(it, ignoreCase = true) })
+                    listOf("review", "fail", "error", "paused", "no longer", "isn't", "can't", "cannot", "expired", "rate-limit")
+                        .any { message.contains(it, ignoreCase = true) })
             }
+            // Turned itself off because the linked playlist is gone: the switch is off, the reason stays.
+            else stopped[playlist.id]?.let { PlaylistSyncStatus(it, problem = true) }
             Text("Checks for changes every five seconds while Auralis is open. Turning sync off keeps both playlists.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }, confirmButton = { Button(onClick = onDismiss, enabled = !busy,

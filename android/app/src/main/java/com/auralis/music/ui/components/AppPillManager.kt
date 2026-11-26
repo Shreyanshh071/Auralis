@@ -40,4 +40,23 @@ object AppPillManager {
         dismissJob?.cancel()
         _pillState.value = null
     }
+
+    private var noteJob: Job? = null
+    private val _noteState = MutableStateFlow<String?>(null)
+    /** A second pill under the main one, for a short "why" (e.g. a song kept in Auralis only). */
+    val noteState: StateFlow<String?> = _noteState.asStateFlow()
+
+    fun showNote(message: String, durationMs: Long = 4000L) {
+        noteJob?.cancel()
+        _noteState.value = message
+        noteJob = scope.launch {
+            delay(durationMs)
+            _noteState.value = null
+        }
+    }
+
+    fun dismissNote() {
+        noteJob?.cancel()
+        _noteState.value = null
+    }
 }

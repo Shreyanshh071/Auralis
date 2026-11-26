@@ -23,6 +23,9 @@ class PlaylistSyncTransportTest {
         val pages = mutableListOf<String>(); val changes = mutableListOf<JSONObject>(); val creates = mutableListOf<JSONObject>()
         val rootlist = mutableListOf<JSONObject>()
         var search = JSONArray()
+        /** The signed-in library (id to name) and which of those playlists this account can't edit. */
+        val library = mutableListOf<Pair<String, String>>()
+        val readOnly = mutableSetOf<String>()
         fun rev() = "rev$revision"
         fun song(uri: String, seconds: Long = 180): JSONObject = JSONObject().put("__typename", "Track").put("uri", uri).put("name", "Song ${uri.takeLast(2)}")
             .put("artists", JSONObject().put("items", JSONArray().put(JSONObject().put("profile", JSONObject().put("name", "Artist")))))
@@ -52,7 +55,7 @@ class PlaylistSyncTransportTest {
                     val from = req.url.queryParameter("from")!!.toInt(); val length = req.url.queryParameter("length")!!.toInt()
                     JSONObject().put("revision", rev()).put("length", entries.size).put("ownerUsername", "me")
                         .put("attributes", JSONObject().put("name", name).put("description", description))
-                        .put("capabilities", JSONObject().put("canEditItems", editable))
+                        .put("capabilities", JSONObject().put("canEditItems", editable && path.substringAfterLast('/') !in readOnly))
                         .put("contents", JSONObject().put("items", JSONArray(entries.drop(from).take(length).map { (uri, item) ->
                             JSONObject().put("uri", uri).put("attributes", JSONObject().put("itemId", item)) }))).toString()
                 }
@@ -81,6 +84,10 @@ class PlaylistSyncTransportTest {
                             .put("itemV2", JSONObject().put("data", if (uri in missingDetails) JSONObject.NULL else song(uri))) })))))
             }
             "searchDesktop" -> JSONObject().put("data", JSONObject().put("searchV2", JSONObject().put("tracksV2", JSONObject().put("items", search))))
+            "libraryV3" -> JSONObject().put("data", JSONObject().put("me", JSONObject().put("libraryV3", JSONObject()
+                .put("totalCount", library.size).put("items", JSONArray(library.drop(variables.getInt("offset")).take(variables.getInt("limit")).map { (id, name) ->
+                    JSONObject().put("item", JSONObject().put("__typename", "PlaylistResponseWrapper").put("_uri", "spotify:playlist:$id")
+                        .put("data", JSONObject().put("__typename", "Playlist").put("name", name))) })))))
             else -> error("Unexpected $operation")
         } }
         val api get() = SpotifyPlaylistSync({ "token" }, http, pathfinder)
@@ -145,6 +152,25 @@ class PlaylistSyncTransportTest {
             .put("artists", JSONObject().put("items", JSONArray().put(JSONObject().put("profile", JSONObject().put("name", artist)))))
             .put("trackDuration", JSONObject().put("totalMilliseconds", seconds * 1000))
             .put("albumOfTrack", JSONObject().put("name", "The Land Is Inhospitable and So Are We"))))
+
+    @Test fun spotifyFindsOnlyTheAccountsOwnEditablePlaylistsWithTheSameName() = runBlocking<Unit> {
+        val spotify = FakeSpotify(a).apply {
+            library += "mineAAAAAAAAAAAAAAAAAA" to "Road Trip"
+            library += "followedBBBBBBBBBBBBBB" to "road trip "
+            library += "otherCCCCCCCCCCCCCCCCC" to "Gym"
+            readOnly += "followedBBBBBBBBBBBBBB"
+        }
+        assertEquals(listOf("mineAAAAAAAAAAAAAAAAAA"), spotify.api.editablePlaylistsNamed(" Road trip"))
+        assertEquals(emptyList(), spotify.api.editablePlaylistsNamed("Chill"))
+    }
+
+    @Test fun spotifyReportsADeletedPlaylistAsGone() = runBlocking<Unit> {
+        val gone = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(404).message("x").body("{}".toResponseBody()).build()
+        }.build()
+        val api = SpotifyPlaylistSync({ "token" }, gone, FakeSpotify().pathfinder)
+        assertTrue("no longer exists" in assertFailsWith<PlaylistGoneException> { api.read(id) }.message!!)
+    }
 
     @Test fun spotifyNeverMatchesACoverToTheOriginalAndCallsItNotFound() = runBlocking<Unit> {
         val spotify = FakeSpotify()
