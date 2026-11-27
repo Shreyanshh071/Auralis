@@ -20,8 +20,11 @@ object DesktopCaches {
     fun install(maxImageMb: Int = 512) {
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)
-                // A quarter of the heap: a long playlist's covers stay decoded when scrolling back.
-                .memoryCache { MemoryCache.Builder().maxSizePercent(context, .25).build() }
+                // A fixed budget, not a share of the heap: decoded covers live outside the Java heap,
+                // and a quarter of the default heap (a quarter of the PC's RAM) let them grow past
+                // 1.5 GB on a 24 GB PC. 256 MB holds ~400 grid covers (400x400), so scrolling back
+                // through a long playlist still finds them decoded; older ones reload from disk at once.
+                .memoryCache { MemoryCache.Builder().maxSizeBytes(256L * 1024 * 1024).build() }
                 .diskCache {
                     DiskCache.Builder().directory(File(desktopAppDataDir(), "artwork-cache").toOkioPath())
                         .maxSizeBytes(maxImageMb.coerceIn(128, 2048) * 1024L * 1024L).build()

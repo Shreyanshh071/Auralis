@@ -138,6 +138,7 @@ fun main(args: Array<String>) {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         Log.e(TAG, "Fatal uncaught exception on thread '${thread.name}': ${throwable.message}", throwable)
         runCatching { singleInstanceLock?.close() }
+        ExitGuard.arm()
         kotlin.system.exitProcess(1)
     }
 
@@ -520,6 +521,12 @@ fun main(args: Array<String>) {
         LaunchedEffect(mainWindowShown, windowState.isMinimized) {
             com.auralis.music.windows.connect.DesktopConnect.windowShown = mainWindowShown && !windowState.isMinimized
         }
+        // In the tray or minimized for a while (not immersive mode, which draws), memory goes back to Windows.
+        LaunchedEffect(windowVisible, windowState.isMinimized, immersive.trigger == null) {
+            if ((windowVisible && !windowState.isMinimized) || immersive.trigger != null) return@LaunchedEffect
+            kotlinx.coroutines.delay(15_000)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.auralis.music.windows.media.WorkingSetTrim.trim() }
+        }
         var components by remember { mutableStateOf<ReadyComponents?>(null) }
         // Shown again from the tray, the window stays cloaked until it has drawn (see setWindowCloaked).
         var revealPending by remember { mutableStateOf(false) }
@@ -583,6 +590,7 @@ fun main(args: Array<String>) {
         }
 
         val closeApp: () -> Unit = {
+            ExitGuard.arm()
             runCatching { flushWindowState() }
             runCatching { systemTray?.close() }
             runCatching { composeWindow?.isVisible = false }

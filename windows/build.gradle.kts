@@ -218,6 +218,14 @@ compose.desktop {
                 "-Dsun.java2d.d3d=false",
                 // Keep hardware acceleration and current-frame Windows screenshots.
                 "-Dskiko.renderApi=DIRECT3D",
+                // Heap: the app uses ~100 MB of Java heap (measured 2026-11-27), but with no ceiling the
+                // JVM allowed a quarter of the PC's RAM (6 GB on 24 GB) and kept what it grew to. A 2 GB
+                // ceiling is still ~20x the need; idle periodic collections and a low free ratio hand
+                // unused heap back to Windows instead of keeping it committed.
+                "-Xmx2g",
+                "-XX:G1PeriodicGCInterval=60000",
+                "-XX:MinHeapFreeRatio=10",
+                "-XX:MaxHeapFreeRatio=30",
                 "-XX:SharedArchiveFile=\$APPDIR/$cdsArchive",
                 "-XX:DumpLoadedClassList=\$APPDIR/auralis-classes.lst",
                 "-Dauralis.cdsArchive=$cdsArchive"
