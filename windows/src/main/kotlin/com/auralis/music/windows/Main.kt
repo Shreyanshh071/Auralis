@@ -530,6 +530,11 @@ fun main(args: Array<String>) {
         var components by remember { mutableStateOf<ReadyComponents?>(null) }
         // Shown again from the tray, the window stays cloaked until it has drawn (see setWindowCloaked).
         var revealPending by remember { mutableStateOf(false) }
+        // The window opens cloaked and appears once the app draws smoothly at its final size. Shown at
+        // once, it laid out at the restored width inside the maximized window for ~1.5s, then jumped,
+        // and its title bar (above the startup cover) filled in piece by piece: logo, search, account
+        // name, avatar (screen recording 2026-11-27).
+        var startupCloaked by remember { mutableStateOf(!isMac && !launchMinimized) }
 
         LaunchedEffect(Unit) {
             components = componentsDeferred.await()
@@ -760,8 +765,13 @@ fun main(args: Array<String>) {
             state = windowState
         ) {
             // Cloaking preserves the Compose scene while the screensaver owns the display.
-            LaunchedEffect(immersive.trigger, windowVisible, embeddedImmersive) {
-                setWindowCloaked(window.windowHandle, immersive.trigger != null && !embeddedImmersive)
+            LaunchedEffect(immersive.trigger, windowVisible, embeddedImmersive, startupCloaked) {
+                setWindowCloaked(window.windowHandle, startupCloaked || (immersive.trigger != null && !embeddedImmersive))
+            }
+            // Never left invisible: a very slow cold start still shows the window after 8s.
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(8_000)
+                startupCloaked = false
             }
             LaunchedEffect(embeddedImmersive) {
                 if (embeddedImmersive) {
@@ -1015,6 +1025,7 @@ fun main(args: Array<String>) {
                 }
                 Log.i(TAG, "UI settled ${System.currentTimeMillis() - launchStarted}ms after launch")
                 appSettled = true
+                startupCloaked = false
             }
             val coverAlpha = androidx.compose.animation.core.animateFloatAsState(if (appSettled) 0f else 1f,
                 androidx.compose.animation.core.tween(160), label = "startupCover")
