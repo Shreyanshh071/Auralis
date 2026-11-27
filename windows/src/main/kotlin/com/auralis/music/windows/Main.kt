@@ -914,6 +914,11 @@ fun main(args: Array<String>) {
                     override fun componentHidden(e: java.awt.event.ComponentEvent) =
                         com.auralis.music.windows.dev.StartupSampler.windowEventIfRequested(dataDir, "hidden")
                 })
+                // Coming back to Auralis looks for a release published since the last check.
+                window.addWindowFocusListener(object : java.awt.event.WindowAdapter() {
+                    override fun windowGainedFocus(e: java.awt.event.WindowEvent) =
+                        com.auralis.music.windows.update.DesktopUpdater.onWindowFocused()
+                })
                 window.addWindowStateListener { e ->
                     val iconified = java.awt.Frame.ICONIFIED
                     if (e.newState and iconified != 0 && e.oldState and iconified == 0)

@@ -27,8 +27,14 @@ import kotlin.coroutines.coroutineContext
 internal object DesktopUpdater {
     private const val TAG = "AuralisUpdate"
     private const val STARTUP_DELAY_MS = 8_000L
-    private const val CHECK_INTERVAL_MS = 24 * 60 * 60_000L
-    private const val TICK_MS = 60 * 60_000L
+    // Hourly, so a release published while Auralis is open shows its prompt the same hour (a daily
+    // check left a running app silent until the next day). GitHub allows 60 unsigned calls an hour.
+    private const val CHECK_INTERVAL_MS = 60 * 60_000L
+    /** A failed background check (offline, GitHub rate limit) is retried this soon, not a full interval later. */
+    private const val RETRY_AFTER_FAILURE_MS = 15 * 60_000L
+    /** Coming back to the window checks again once this long has passed since the last check. */
+    private const val FOCUS_CHECK_GAP_MS = 15 * 60_000L
+    private const val TICK_MS = 5 * 60_000L
 
     sealed interface State {
         data object Idle : State
@@ -81,17 +87,35 @@ internal object DesktopUpdater {
             val packaged = System.getProperty("jpackage.app-version") != null
             if (!packaged && System.getProperty(UpdateFeed.PROPERTY).isNullOrBlank()) return@launch
             delay(STARTUP_DELAY_MS)
-            var lastCheck = 0L
+            checksEnabled = true
             while (isActive) {
-                // Settings → Updates → "Automatically check for updates".
-                if (com.auralis.music.windows.settings.UpdatePreferences.autoCheck &&
-                    System.currentTimeMillis() - lastCheck >= CHECK_INTERVAL_MS) {
-                    lastCheck = System.currentTimeMillis()
-                    check(manual = false)
-                }
+                if (System.currentTimeMillis() >= nextCheckAt) backgroundCheck()
                 delay(TICK_MS)
             }
         }
+    }
+
+    @Volatile private var checksEnabled = false
+    @Volatile private var lastCheckAt = 0L
+    @Volatile private var nextCheckAt = 0L
+
+    /** The Auralis window came to the front: check again if the last check is a while ago. */
+    fun onWindowFocused() {
+        if (!checksEnabled || System.currentTimeMillis() - lastCheckAt < FOCUS_CHECK_GAP_MS) return
+        scope.launch { backgroundCheck() }
+    }
+
+    private suspend fun backgroundCheck() {
+        // Settings → Updates → "Automatically check for updates".
+        if (!com.auralis.music.windows.settings.UpdatePreferences.autoCheck) {
+            nextCheckAt = System.currentTimeMillis() + CHECK_INTERVAL_MS
+            return
+        }
+        // Nothing left to look for once a newer release is downloaded or offered.
+        if (state.value is State.Ready || state.value is State.Downloading) return
+        lastCheckAt = System.currentTimeMillis()
+        nextCheckAt = lastCheckAt + CHECK_INTERVAL_MS
+        if (check(manual = false) is State.Failed) nextCheckAt = System.currentTimeMillis() + RETRY_AFTER_FAILURE_MS
     }
 
     private fun reconcileInstall() {
