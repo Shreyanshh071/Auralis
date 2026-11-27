@@ -49,6 +49,9 @@ internal object YouTubeBrowserSignIn {
         return candidates.firstOrNull { it.isFile && it.canExecute() }?.let { Browser(it, true, "Auralis sign-in", bundled = true) }
     }
 
+    /** The installed Chromium browser (looked up once), which also runs YouTube's player script unseen. */
+    val chromiumExe: File? by lazy { runCatching { browser() }.getOrNull()?.takeIf { it.chromium }?.exe }
+
     /** The browser to sign in with: any Chromium browser installed, else Firefox or Zen. */
     fun browser(): Browser? {
         val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")

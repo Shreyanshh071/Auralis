@@ -178,15 +178,42 @@ object DesktopStreamResolver {
         val profile = profileKey
         val route = RouteScope.current()
         if (!refresh) links.get(target, profile, route)?.takeIf { !hostBlocked(it.url) }?.let { return ResolutionResult.Resolved(it) }
-        if (isRestricted(target)) return ResolutionResult.Failed(PlaybackFailure(FailureCategory.RESTRICTED, "resolve", detail = "known restriction"))
+        if (isRestricted(target)) return signedIn(target, profile, route)
+            ?: ResolutionResult.Failed(PlaybackFailure(FailureCategory.RESTRICTED, "resolve", detail = "known restriction"))
         cooldownFailure("resolve")?.let { return it }
         val budget = budgetFor(priority, "resolve")
         if (budget.exhausted) return ResolutionResult.Failed(PlaybackFailure(FailureCategory.BUDGET_EXHAUSTED, "resolve", detail = budget.toString()))
         val epoch = epochOf(target).get()
         val key = "$target|$profile|$route|$epoch"
-        return audioFlights.await(key, priority) { ticket ->
+        val result = audioFlights.await(key, priority) { ticket ->
             withContext(PlaybackIntentContext(budget)) { lookUp(target, profile, route, epoch, ticket, budget) }
         }
+        if (result is ResolutionResult.Failed && result.failure.category in SIGN_IN_HELPS)
+            signedIn(target, profile, route)?.let { return it }
+        return result
+    }
+
+    /** Refusals that the user's own YouTube sign-in gets past (age or account checks). */
+    private val SIGN_IN_HELPS = setOf(FailureCategory.RESTRICTED, FailureCategory.LOGIN_REQUIRED)
+
+    /**
+     * The video through the user's YouTube sign-in ([DesktopSignedInStream]), checked like any other
+     * stream before it's handed to the player; null when signed out or YouTube still refuses.
+     */
+    private suspend fun signedIn(target: String, profile: String, route: String): ResolutionResult? {
+        if (!DesktopSignedInStream.usable) return null
+        val stream = DesktopSignedInStream.resolve(target) ?: return null
+        val status = probe(stream.url)
+        if (!DesktopStreamProbe.playable(status)) {
+            Log.w(TAG, "Signed-in stream for $target failed its audio check: ${FailureClassifier.classifyMedia(status, stream.url)}")
+            DesktopSignedInStream.onRejected()
+            return null
+        }
+        val resource = PlaybackResource(target, stream.url, FailureClassifier.expiresAtMs(stream.url) ?: (System.currentTimeMillis() + 3600_000L),
+            stream.itag, stream.mimeType ?: PlaybackResource.mimeOf(stream.url), PlaybackResource.clenOf(stream.url), stream.client)
+            .copy(profile = profile, route = route, sessionGeneration = NewPipeDownloader.sessionGeneration)
+        links.put(resource)
+        return ResolutionResult.Resolved(resource)
     }
 
     private suspend fun lookUp(target: String, profile: String, route: String, epoch: Long,

@@ -15,6 +15,19 @@ fun main(rawArgs: Array<String>) = runBlocking {
     // -PstreamClients=IOS (or VISIONOS,IOS) checks the clients Settings can switch to.
     System.getProperty("auralis.streamClients")?.split(',')?.filter { it.isNotBlank() }?.toSet()
         ?.let { DesktopStreamResolver.enabledClients = it; println("CLIENTS $it") }
+    // -PsignedIn=true: the app's YouTube sign-in, read only (rotated cookies aren't saved), so
+    // age-restricted videos go through the signed-in path like in the app.
+    if (System.getProperty("auralis.signedIn") == "true") {
+        val stored = com.auralis.music.windows.profile.ProtectedYouTubeStore(
+            java.io.File(com.auralis.music.util.desktopAppDataDir(), "youtube-session.properties"))
+        com.auralis.music.data.network.YouTubeSession.init(object : com.auralis.music.util.KeyValueStore {
+            override fun getString(key: String, default: String) = stored.getString(key, default)
+            override fun putStrings(values: Map<String, String>) = Unit
+            override fun clear() = Unit
+        })
+        com.auralis.music.windows.profile.installSignedInPlayback(java.io.File(System.getProperty("java.io.tmpdir"), "auralis-probe-zemer"))
+        println("SIGNED IN ${com.auralis.music.data.network.YouTubeSession.isSignedIn}; usable=${com.auralis.music.desktop.playback.DesktopSignedInStream.usable}")
+    }
     val started = System.currentTimeMillis()
     val target = if (args.size >= 4) com.auralis.music.desktop.playback.DesktopPlaybackMatch.videoId(
         com.auralis.music.domain.model.Track(id = id, title = args[1], artist = args[2], duration = args[3].toLong())) else id
@@ -28,6 +41,8 @@ fun main(rawArgs: Array<String>) = runBlocking {
     }
     println("RESOLVE $id -> ${if (url == null) "null" else "ok"} in ${System.currentTimeMillis() - started}ms; backoff=${com.auralis.music.data.network.YouTubeBackoff.active}")
     target?.let { println("VIDEO $it -> ${if (DesktopStreamResolver.resolveVideo(it) == null) "none (still picture or no stream)" else "video"}") }
+    // The unseen browser would keep this process alive.
+    com.zemer.cipher.ZemerCipher.shutdown()
     if (url == null) return@runBlocking
     println("CLIENT " + Regex("[?&]c=([^&]+)").find(url)?.groupValues?.get(1) + " HOST " + java.net.URI(url).host)
     val client = com.auralis.music.data.network.NetworkClientProvider.okHttpClient

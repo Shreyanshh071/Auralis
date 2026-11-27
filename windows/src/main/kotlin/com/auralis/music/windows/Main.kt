@@ -213,6 +213,7 @@ fun main(args: Array<String>) {
         }
 
         com.auralis.music.desktop.playback.DesktopStreamResolver.warmUp()
+        com.auralis.music.windows.profile.installSignedInPlayback(java.io.File(dataDir, "cache/zemer-cipher"))
         com.auralis.music.data.network.provider.AmllLyricsSource.indexCacheDir = java.io.File(dataDir, "cache").apply { mkdirs() }
 
         val libraryDeferred = async {

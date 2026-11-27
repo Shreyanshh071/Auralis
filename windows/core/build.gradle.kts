@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 // The Windows app's core: its own copy of Auralis's Kotlin code (started from the phone's), so the
 // Windows app can change freely without touching the Android app. The Android app never builds
@@ -44,6 +45,31 @@ val bundleDesktopStrings by tasks.registering(Sync::class) {
         into("brand")
     }
     into(layout.buildDirectory.dir("generated/auralisStrings/desktopResources"))
+}
+
+// The PoToken API key for signed-in restricted playback (desktop zemer-cipher), from the same place
+// the Android build reads it; generated into the build so it never sits in version control.
+val generatePoTokenKey by tasks.registering {
+    val secrets = rootProject.file("secrets.properties")
+    val key = providers.environmentVariable("AURALIS_POTOKEN_API_KEY")
+        .orElse(providers.gradleProperty("auralisPotokenApiKey"))
+        .orElse(provider {
+            val properties = Properties()
+            if (secrets.isFile) secrets.inputStream().use { stream -> properties.load(stream) }
+            properties.getProperty("POTOKEN_API_KEY", "")
+        })
+    val outDir = layout.buildDirectory.dir("generated/zemerResources")
+    inputs.property("keyHash", key.map { it.trim().hashCode() })
+    outputs.dir(outDir)
+    doLast {
+        val value = key.get().trim()
+        require(value.isEmpty() || Regex("AIza[0-9A-Za-z_-]{35}").matches(value)) {
+            "PoToken API key must be a valid Google API key; configure AURALIS_POTOKEN_API_KEY or POTOKEN_API_KEY in secrets.properties"
+        }
+        val file = outDir.get().file("zemer-cipher/potoken.properties").asFile
+        file.parentFile.mkdirs()
+        file.writeText(if (value.isEmpty()) "" else "POTOKEN_API_KEY=$value\n")
+    }
 }
 
 kotlin {
@@ -93,6 +119,7 @@ kotlin {
         }
         val desktopMain by getting {
             resources.srcDir(bundleDesktopStrings.map { layout.buildDirectory.dir("generated/auralisStrings/desktopResources").get() })
+            resources.srcDir(generatePoTokenKey.map { layout.buildDirectory.dir("generated/zemerResources").get() })
             dependencies {
                 implementation(libs.org.json)
                 // Desktop audio playback through libVLC.

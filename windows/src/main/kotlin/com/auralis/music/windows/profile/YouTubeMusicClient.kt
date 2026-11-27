@@ -128,6 +128,12 @@ internal class YouTubeMusicClient(
         result
     }
 
+    /** The selected account as YouTube Music's page reports it, for signed-in playback requests. */
+    suspend fun signedInAccount(): com.auralis.music.desktop.playback.DesktopSignedInStream.Account {
+        resolveScope()
+        return com.auralis.music.desktop.playback.DesktopSignedInStream.Account(cookie, scope.authUser, scope.pageId, scope.dataSyncId, scope.visitor)
+    }
+
     suspend fun identity(): YouTubeIdentity = parseYouTubeIdentity(post("account/account_menu"))
         ?: error("YouTube did not confirm the account. Please reconnect your browser profile.")
 
