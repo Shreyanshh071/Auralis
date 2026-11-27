@@ -773,6 +773,34 @@ fun main(args: Array<String>) {
                 kotlinx.coroutines.delay(8_000)
                 startupCloaked = false
             }
+            // A maximized window is first created at its restored size and maximized after. The app
+            // used to compose and lay out at that size (~1.4s measured with trace-frames: C566 L274,
+            // then C548) and then all over again at full size. It now waits, cloaked, for the full size.
+            var atFinalSize by remember { mutableStateOf(isMac || windowState.placement != WindowPlacement.Maximized) }
+            LaunchedEffect(window) {
+                if (atFinalSize) return@LaunchedEffect
+                kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                    while (true) {
+                        val usable = runCatching {
+                            val config = window.graphicsConfiguration
+                            val insets = java.awt.Toolkit.getDefaultToolkit().getScreenInsets(config)
+                            config.bounds.width - insets.left - insets.right
+                        }.getOrDefault(0)
+                        val maximized = window.extendedState and java.awt.Frame.MAXIMIZED_BOTH == java.awt.Frame.MAXIMIZED_BOTH
+                        if (window.isShowing && maximized && window.width >= usable - 16) break
+                        withFrameNanos { }
+                    }
+                }
+                atFinalSize = true
+            }
+            // Revealed, the whole app (title bar too) eases in from slightly small and transparent.
+            // It starts only once frames come smoothly (see appSettled), so the motion itself is smooth.
+            val openReveal = remember { androidx.compose.animation.core.Animatable(if (startupCloaked) 0f else 1f) }
+            LaunchedEffect(startupCloaked) {
+                if (startupCloaked || openReveal.value >= 1f) return@LaunchedEffect
+                withFrameNanos { } // the uncloaked window's first frame shows the start of the motion
+                openReveal.animateTo(1f, androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
             LaunchedEffect(embeddedImmersive) {
                 if (embeddedImmersive) {
                     nativeFrame?.fullscreen = true
@@ -1007,7 +1035,7 @@ fun main(args: Array<String>) {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, pb, this)
                 }
             }
-            val ready = components
+            val ready = components.takeIf { atFinalSize }
             // The app's first frames are slow (cold code, images, shaders): a fade over them stuttered
             // as a half-transparent ghost. It draws them under an opaque cover below its title bar and
             // is revealed once frames come smoothly, so the switch is one clean step.
@@ -1048,7 +1076,13 @@ fun main(args: Array<String>) {
                     drawContent()
                     com.auralis.music.windows.dev.FrameLog.drawFinished()
                 } else Modifier)) {
-                Box(Modifier.fillMaxSize().layout { measurable, constraints ->
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    // Read here (draw phase), so the reveal never recomposes the app.
+                    val t = openReveal.value
+                    alpha = t
+                    scaleX = 0.965f + 0.035f * t
+                    scaleY = scaleX
+                }.layout { measurable, constraints ->
                     val appConstraints = if (embeddedCoverActive) retainedAppConstraints.get() ?: constraints
                         else constraints.also { retainedAppConstraints.set(it) }
                     val content = measurable.measure(appConstraints)
