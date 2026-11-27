@@ -780,7 +780,9 @@ fun main(args: Array<String>) {
         ) {
             // Cloaking preserves the Compose scene while the screensaver owns the display.
             LaunchedEffect(immersive.trigger, windowVisible, embeddedImmersive, startupCloaked) {
-                setWindowCloaked(window.windowHandle, startupCloaked || (immersive.trigger != null && !embeddedImmersive))
+                val cloak = startupCloaked || (immersive.trigger != null && !embeddedImmersive)
+                val ok = setWindowCloaked(window.windowHandle, cloak)
+                if (immersive.trigger == null) Log.i(TAG, "Window cloak=$cloak ok=$ok showing=${window.isShowing} ${System.currentTimeMillis() - launchStarted}ms after launch")
             }
             // Never left invisible: a very slow cold start still shows the window after 8s.
             LaunchedEffect(Unit) {
@@ -967,8 +969,10 @@ fun main(args: Array<String>) {
                         com.auralis.music.windows.dev.StartupSampler.sampleResizeIfRequested(dataDir)
                         com.auralis.music.windows.dev.GpuExperiment.runIfRequested(dataDir, window)
                     }
-                    override fun componentShown(e: java.awt.event.ComponentEvent) =
+                    override fun componentShown(e: java.awt.event.ComponentEvent) {
+                        Log.i(TAG, "Window shown (cloaked=${isWindowCloaked(window.windowHandle)}) ${System.currentTimeMillis() - launchStarted}ms after launch")
                         com.auralis.music.windows.dev.StartupSampler.windowEventIfRequested(dataDir, "shown")
+                    }
                     override fun componentHidden(e: java.awt.event.ComponentEvent) =
                         com.auralis.music.windows.dev.StartupSampler.windowEventIfRequested(dataDir, "hidden")
                 })
@@ -1051,11 +1055,14 @@ fun main(args: Array<String>) {
                 if (ready == null) return@LaunchedEffect
                 val first = withFrameNanos { it }
                 Log.i(TAG, "UI shown ${System.currentTimeMillis() - launchStarted}ms after launch")
+                // Settled = every frame under 25ms for 350ms straight (3s ceiling). Four quick frames
+                // weren't enough: late covers and data kept making 60-76ms frames right after, and the
+                // reveal animation stuttered through them (recording + trace-frames, 2026-11-27).
                 var last = first
-                var smooth = 0
-                while (smooth < 4 && last - first < 2_000_000_000L) {
+                var smoothSince = first
+                while (last - smoothSince < 350_000_000L && last - first < 3_000_000_000L) {
                     val now = withFrameNanos { it }
-                    smooth = if (now - last < 40_000_000L) smooth + 1 else 0
+                    if (now - last >= 25_000_000L) smoothSince = now
                     last = now
                 }
                 Log.i(TAG, "UI settled ${System.currentTimeMillis() - launchStarted}ms after launch")
@@ -1085,8 +1092,9 @@ fun main(args: Array<String>) {
                 } else Modifier)) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     // Read here (draw phase), so the reveal never recomposes the app.
+                    // Scale only: a fading alpha made Skia composite the whole window offscreen each
+                    // frame. The fade is a scrim drawn over the app instead (see below).
                     val t = openReveal.value
-                    alpha = t
                     scaleX = 0.965f + 0.035f * t
                     scaleY = scaleX
                 }.layout { measurable, constraints ->
@@ -1153,6 +1161,11 @@ fun main(args: Array<String>) {
                 )
                 }
                 }
+                // The opening fade: a scrim over the whole window (title bar too), read in the draw phase.
+                androidx.compose.foundation.layout.Spacer(Modifier.fillMaxSize().drawBehind {
+                    val a = 1f - openReveal.value
+                    if (a > 0f) drawRect(Color(0xFF0F0E13), alpha = a)
+                })
                 if (showStartupCover) Box(Modifier.fillMaxSize().padding(top = TITLE_BAR_HEIGHT)
                     .graphicsLayer { alpha = coverAlpha.value }.background(Color(0xFF0F0E13))
                     // Clicks don't reach controls that aren't visible yet.

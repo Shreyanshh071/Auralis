@@ -359,6 +359,13 @@ internal class NativeWindowFrame(private val window: Window, handle: Long,
  * the tray, an OpenGL window displayed black until Skia's first buffer swap; cloaked, it draws that
  * frame unseen and appears with its content.
  */
+/** DWMWA_CLOAKED: nonzero when the window is cloaked (by the app, the shell or another desktop). */
+internal fun isWindowCloaked(handle: Long): Int = runCatching {
+    val value = Memory(4).apply { setInt(0, 0) }
+    NativeLibrary.getInstance("dwmapi").getFunction("DwmGetWindowAttribute").invokeInt(arrayOf(Pointer(handle), 14, value, 4))
+    value.getInt(0)
+}.getOrDefault(-1)
+
 internal fun setWindowCloaked(handle: Long, cloaked: Boolean) = runCatching {
     val value = Memory(4).apply { setInt(0, if (cloaked) 1 else 0) }
     NativeLibrary.getInstance("dwmapi").getFunction("DwmSetWindowAttribute")
