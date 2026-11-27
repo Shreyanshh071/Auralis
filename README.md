@@ -5,10 +5,10 @@
   <br />
 
   <a href="https://github.com/Shreyanshh071/Auralis/releases/latest"><img src="https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="42" alt="Download for Android" /></a>
-  <a href="https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.0"><img src="https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge" height="42" alt="Download for Windows" /></a>
+  <a href="https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.1"><img src="https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge" height="42" alt="Download for Windows" /></a>
   <a href="https://github.com/Shreyanshh071/Auralis/releases/tag/v1.0.1-macos"><img src="https://img.shields.io/badge/Download-macOS%20(beta)-111111?style=for-the-badge&logo=apple&logoColor=white" height="42" alt="Download for macOS" /></a>
   <br />
-  <a href="https://discord.gg/6Q2YKz73S"><img src="https://img.shields.io/badge/Join%20the-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="42" alt="Join the Auralis Discord" /></a>
+  <a href="https://discord.gg/nPUZBWcyuQ"><img src="https://img.shields.io/badge/Join%20the-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="42" alt="Join the Auralis Discord" /></a>
 
   <br />
   <br />
@@ -27,9 +27,13 @@
 
   <br />
 
-  [Website](https://auralis-self-nu.vercel.app) • [Download](#-download) • [Discord](https://discord.gg/6Q2YKz73S) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
+  [Website](https://auralis-self-nu.vercel.app) • [Download](#-download) • [Discord](https://discord.gg/nPUZBWcyuQ) • [Screenshots](#-screenshots) • [Features](#-key-features) • [FAQ](#-frequently-asked-questions-faq) • [Tech Stack](#%EF%B8%8F-architecture--tech-stack) • [Credits](#-credits) • [Sponsor](#-sponsor-this-project)
 
 </div>
+
+## Why Auralis?
+
+Auralis brings syllable-synced lyrics from 14 sources to Android, Windows and macOS, alongside a shared desktop experience across both operating systems. Move playback between phone and PC with Auralis Connect, or listen in sync with friends using Listen Together. Spotify Canvas and animated covers bring motion to the player, while Liquid Glass gives the interface a translucent look.
 
 > [!WARNING]
 > **Regional Restriction** — If YouTube Music is unavailable in your region, this app will not work without a VPN or proxy connecting to a supported region.
@@ -60,8 +64,8 @@
 
 | Platform | Download | Notes |
 | :--- | :--- | :--- |
-| **Android** | [Auralis-v1.1.4-universal.apk](https://github.com/Shreyanshh071/Auralis/releases/latest) | Android 7.0+ · [Release notes](docs/release-notes-v1.1.4.md) |
-| **Windows** | [Auralis-1.0.0.msi](https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.0) | Installer · updates itself from Settings → Updates |
+| **Android** | [Auralis-v1.1.4.1-universal.apk](https://github.com/Shreyanshh071/Auralis/releases/latest) | Android 7.0+ · [Release notes](docs/release-notes-v1.1.4.md) |
+| **Windows** | [Auralis-1.0.1.msi](https://github.com/Shreyanshh071/Auralis/releases/tag/windows-v1.0.1) | Installer · updates itself from Settings → Updates |
 | **macOS** | [Auralis-1.0.1.dmg](https://github.com/Shreyanshh071/Auralis/releases/tag/v1.0.1-macos) | Beta |
 
 The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64` CPUs — one download works on all of them.
@@ -72,6 +76,11 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 
 <div align="center">
   <img src="docs/showcase-strip.svg" width="100%" alt="Auralis screens scrolling by: lyrics, players, artist pages, Listen Together, library, recognition, stats and Wrapped" />
+</div>
+
+<div align="center">
+  <img src="docs/readme/pc-home.jpg" width="100%" alt="Auralis desktop home, with recommendations and the now-playing panel" /><br />
+  <sub><b>Desktop · Home and Now Playing</b></sub>
 </div>
 
 <details>
@@ -171,7 +180,24 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 <td align="center" width="33%" valign="top">
 <h3>💜</h3>
 <b>Your library, everywhere</b><br />
-<sub>Import from Spotify and YouTube Music, and sync it all with your Auralis account.</sub>
+<sub>Import playlists from Spotify, YouTube Music, Deezer, Tidal and Amazon Music, and sync your library with your Auralis account.</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%" valign="top">
+<h3>🎞️</h3>
+<b>Spotify Canvas</b><br />
+<sub>Watch available Canvas videos in the player, with animated album covers as a fallback.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>🎚️</h3>
+<b>AutoMix</b><br />
+<sub>Prepare the next song for smoother transitions.</sub>
+</td>
+<td align="center" width="33%" valign="top">
+<h3>🍃</h3>
+<b>Reduce effects</b><br />
+<sub>Use lighter visuals for smoothness and battery life, with an optional battery saver setting.</sub>
 </td>
 </tr>
 </table>
@@ -189,7 +215,7 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Play anything available on YouTube Music** — search, browse and listen.
 - **Offline downloads** — save songs and whole playlists.
 - **Offline song cache** — songs you've played can replay without internet, up to a size you choose.
-- **Gapless playback** and **Spatial Audio**.
+- **Gapless playback**, **Spatial Audio** and **AutoMix** transitions.
 - **Persistent queue** — your queue is still there when you reopen the app.
 - **Endless listening** — more songs load automatically when your queue is about to finish.
 - **Audio quality options** — choose Auto, High, Standard or Data Saver.
@@ -208,10 +234,10 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 - **Listen Together** — join a room with a code and hear the same song with friends.
 - **Auralis Connect** — move your music between your phone and PC, and control playback from either one.
 - **Spotify integration** — sign in to bring over your playlists and Liked Songs.
-- **Playlist import** for Spotify and YouTube Music.
+- **Playlist import** for Spotify, YouTube Music, Deezer, Tidal and Amazon Music, plus automatic library import.
 - **Discord Rich Presence** — show your song, artist, cover and progress.
 - **Listening stats** — real listening time, top songs, top artists and Wrapped.
-- **Cloud sync** — back up your likes, playlists, artists, stats and settings with your Auralis account.
+- **Cloud sync** — back up your likes, playlists, artists and stats with your Auralis account.
 
 </td>
 <td valign="top" width="50%">
@@ -219,7 +245,7 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 #### Lyrics
 
 - **Syllable-synced lyrics** — every word and syllable lights up as it's sung, with fluid animations that go well beyond standard animated lyrics. Sync and motion at this level are rarely found in a music player.
-- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [Musixmatch](https://www.musixmatch.com), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com), [Genius](https://genius.com) and [YouTube Music](https://music.youtube.com).
+- **Lyrics providers** — credit to [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), [Better Lyrics](https://github.com/better-lyrics/better-lyrics), [AMLL](https://github.com/amll-dev/amll-ttml-db), [LyricsPlus](https://github.com/ibratabian17/LyricsPlus), [Paxsenix](https://lyrics.paxsenix.org), [Unison](https://unison.boidu.dev), [LRCLIB](https://lrclib.net), [KuGou](https://www.kugou.com), [QQ Music](https://y.qq.com), [NetEase](https://music.163.com), [JioSaavn](https://www.jiosaavn.com), [Genius](https://genius.com) and [YouTube Music](https://music.youtube.com).
 
 - **AI translation and romanization**, including Pinyin and Romaji, for supported songs.
 - **Lyric cards** — share your favourite lines as images.
@@ -228,7 +254,8 @@ The APK (~41 MB) supports Android 7.0+ devices with `arm64-v8a`, `armeabi-v7a`, 
 #### Experience
 
 - **Liquid Glass mode** — a see-through glass look for the dock, buttons, sheets and menus on dark themes.
-- **Animated album canvas** — motion artwork on the now-playing screen.
+- **Spotify Canvas and animated covers** — play available Canvas videos on the full player, with animated or still artwork as a fallback. Control Canvas, animated covers and Wi-Fi-only loading in Appearance.
+- **Reduce effects** — lighten visuals for smoother performance and battery life, optionally when battery saver is on.
 - **Three player designs** — New, Old and Immersive.
 - **Artwork-driven colours** — the player takes its colours from the current song.
 - **High-resolution artwork** and smooth motion on 90/120 Hz displays.
@@ -324,7 +351,7 @@ The app itself — native **Jetpack Compose** and **AndroidX Media3**, shrunk wi
 <summary><b>Which APK should I download? Do I need to know my phone's CPU architecture?</b></summary>
 <br>
 
-Download `Auralis-v1.1.4-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
+Download `Auralis-v1.1.4.1-universal.apk` from the [latest release](https://github.com/Shreyanshh071/Auralis/releases/latest). It supports Android 7.0+ devices using `arm64-v8a`, `armeabi-v7a`, `x86`, or `x86_64`; you do not need to choose a separate APK for those CPUs.
 </details>
 
 <details>
@@ -336,7 +363,7 @@ Fresh installs start with a starter set of songs from curated artists (*Tame Imp
 
 <br />
 
-> 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs — or ask the community on **[Discord](https://discord.gg/6Q2YKz73S)**.
+> 🌐 **Have more questions?** Visit our official website & help center at **[auralis-self-nu.vercel.app/#faq](https://auralis-self-nu.vercel.app/#faq)** for additional FAQs, setup guides, and feature walkthroughs — or ask the community on **[Discord](https://discord.gg/nPUZBWcyuQ)**.
 
 ---
 
@@ -350,7 +377,7 @@ Auralis is built on the work of many people. Thank you to all of them.
 - **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**, **[Unison](https://unison.boidu.dev)**, **[LyricsPlus](https://github.com/ibratabian17/LyricsPlus)** and **[Paxsenix](https://lyrics.paxsenix.org)** — word-synced lyrics.
 - **[AMLL TTML Database](https://github.com/amll-dev/amll-ttml-db)** — community-made word-synced lyrics.
 - **[LRCLIB](https://lrclib.net)** — open, community-synced lyrics.
-- **[Musixmatch](https://www.musixmatch.com)**, **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)**, **[Genius](https://genius.com)** and **[YouTube Music](https://music.youtube.com)** — lyrics.
+- **[KuGou](https://www.kugou.com)**, **[QQ Music](https://y.qq.com)**, **[NetEase](https://music.163.com)**, **[JioSaavn](https://www.jiosaavn.com)**, **[Genius](https://genius.com)** and **[YouTube Music](https://music.youtube.com)** — lyrics.
 
 **Music & playback**
 
@@ -360,11 +387,6 @@ Auralis is built on the work of many people. Thank you to all of them.
 - **Apple Music**, **Tidal** and **Vivi Music** — animated album canvas sources.
 - **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — the approach behind the JioSaavn 320kbps audio in High Quality (GPL-3.0).
 - **[Kuromoji](https://github.com/atilika/kuromoji)** — offline Japanese tokenisation and kanji readings (Apache-2.0).
-
-**Design & interface**
-
-- **[BitChord](https://github.com/kushagrasinghx/BitChord)** by kushagrasinghx — Apple Music artist photo lookup (GPL-3.0).
-- **[Metrolist](https://github.com/MetrolistGroup/Metrolist)** — a reference for Content settings and interface details.
 
 **Services**
 
