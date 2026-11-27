@@ -883,7 +883,7 @@ class PlayerViewModel(
             val isSameQueue = queueManager.state.queue.isNotEmpty() &&
                               targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
             val qState = if (isSameQueue && preserveQueueSource) queueManager.selectIndex(targetIndex)
-                else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = effectiveIsUserQueue, keepShuffle = _playerSettings.value.permanentShuffle)
+                else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = effectiveIsUserQueue)
             _uiState.update {
                 it.copy(
                     currentTrack = qState.currentTrack,
@@ -1220,11 +1220,31 @@ class PlayerViewModel(
         }
     }
 
-    fun toggleShuffle() {
+    fun toggleShuffle() = setShuffle(!_uiState.value.isShuffled)
+
+    /**
+     * Play button for a whole list. With shuffle on it starts on a random song and shuffles the
+     * rest (like Spotify); otherwise it plays from the top.
+     */
+    fun playAll(tracks: List<Track>, sourcePlaylistTitle: String? = null) {
+        if (tracks.isEmpty()) return
+        val start = if (_uiState.value.isShuffled) tracks.indices.random() else 0
+        playTrack(tracks[start], tracks, start, sourcePlaylistTitle = sourcePlaylistTitle)
+    }
+
+    /** "Shuffle play": turns the device-wide shuffle on and plays [tracks] from a random song. */
+    fun playShuffled(tracks: List<Track>, sourcePlaylistTitle: String? = null) {
+        if (tracks.isEmpty()) return
+        if (!_uiState.value.isShuffled) setShuffle(true)
+        val start = tracks.indices.random()
+        playTrack(tracks[start], tracks, start, sourcePlaylistTitle = sourcePlaylistTitle)
+    }
+
+    fun setShuffle(on: Boolean) {
         if (audioPlayer != null) {
-            audioPlayer.toggleShuffle()
+            audioPlayer.setShuffle(on)
         } else {
-            val qState = queueManager.toggleShuffle()
+            val qState = queueManager.setShuffle(on)
             _uiState.update {
                 it.copy(
                     queue = qState.queue,

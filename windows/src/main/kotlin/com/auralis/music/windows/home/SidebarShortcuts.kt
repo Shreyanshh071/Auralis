@@ -196,7 +196,7 @@ internal fun SidebarShortcuts(viewModel: HomeViewModel, library: LibraryReposito
                         if (savedAlbums.any { it.id == album.id }) library.removeAlbum(album.id)
                         else library.saveAlbum(SavedAlbum(album.id, album.title, album.author.orEmpty(), album.thumbnail))
                     } },
-                    onShuffle = { withTracks { tracks -> tracks.shuffled().let { playback?.playFrom(it.first(), it) } } },
+                    onShuffle = { withTracks { tracks -> if (tracks.isNotEmpty()) { playback?.setShuffle(true); playback?.playFrom(tracks.random(), tracks) } } },
                     onShare = { platform.shareText(album.title, "https://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}", "Share album") },
                     onPlayNext = { withTracks { tracks -> tracks.asReversed().forEach { playback?.playNext(it) } } },
                     onAddToQueue = { withTracks { tracks -> tracks.forEach { playback?.addToQueue(it) } } },

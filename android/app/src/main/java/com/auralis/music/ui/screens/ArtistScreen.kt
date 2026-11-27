@@ -12,6 +12,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -151,6 +153,7 @@ fun ArtistScreen(
     var allReleases by remember(artistPage.artist.id) { mutableStateOf<AllReleases?>(null) }
 
     val accent = MaterialTheme.dynamicPrimary
+    val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
     val pageBackground = MaterialTheme.dynamicBackground
     val listState = rememberLazyListState()
     // Records the list alone, so the pinned bar's glass bends the page without sampling itself.
@@ -220,13 +223,11 @@ fun ArtistScreen(
                     isSubscribed = isSubscribed,
                     enabled = artistPage.topSongs.isNotEmpty(),
                     accent = accent,
-                    onPlay = { artistPage.topSongs.firstOrNull()?.let { onTrackClick(it, artistPage.topSongs) } },
-                    onShuffle = {
-                        if (artistPage.topSongs.isNotEmpty()) {
-                            val shuffled = artistPage.topSongs.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
-                        }
+                    onPlay = {
+                        val songs = artistPage.topSongs
+                        if (songs.isNotEmpty()) onTrackClick(songs[shuffleControl?.startIndex(songs) ?: 0], songs)
                     },
+                    onShuffle = { shuffleControl?.toggle?.invoke() },
                     onRadio = { artistPage.topSongs.firstOrNull()?.let(onStartRadio) },
                     onToggleSubscribe = {
                         onToggleSubscribe(
@@ -653,7 +654,15 @@ internal fun ArtistActions(
             Spacer(Modifier.width(6.dp))
             Text(str(R.string.play), color = onAccent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
-        ArtistRoundAction(Icons.Default.Shuffle, str(R.string.shuffle), neutral, neutralContent, enabled, onShuffle)
+        // The device-wide shuffle switch: lit while on, like Spotify's.
+        val shuffleOn = com.auralis.music.ui.player.LocalShuffleControl.current?.isOn == true
+        ArtistRoundAction(
+            Icons.Default.Shuffle, str(R.string.shuffle),
+            if (shuffleOn) accent.copy(alpha = .22f) else neutral,
+            if (shuffleOn) accent else neutralContent,
+            enabled = true, onClick = onShuffle,
+            selected = shuffleOn
+        )
         ArtistRoundAction(Icons.Default.Radio, str(R.string.radio), neutral, neutralContent, enabled, onRadio)
         ArtistRoundAction(
             icon = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
@@ -673,16 +682,22 @@ private fun ArtistRoundAction(
     fill: Color,
     content: Color,
     enabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    selected: Boolean? = null
 ) {
     Box(
         Modifier
             .size(52.dp)
             .pageGlassSelection(CircleShape, true, fill, fill)
-            .tactileBounce(scaleDown = 0.90f, enabled = enabled) { onClick() },
+            .tactileBounce(scaleDown = 0.90f, enabled = enabled) { onClick() }
+            .then(if (selected != null) Modifier.semantics { stateDescription = if (selected) "On" else "Off" } else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, description, tint = content, modifier = Modifier.size(22.dp))
+        // Spotify-style dot under a lit toggle.
+        if (selected == true) Box(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp).size(4.dp).background(content, CircleShape)
+        )
     }
 }
 

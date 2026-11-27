@@ -400,11 +400,13 @@ fun ArtistScreen(
                     Spacer(modifier = Modifier.weight(1f))
 
                     // Shuffle / Quick Play Floating Button (Liquid Glass enabled)
+                    // Shuffle play: turns the device-wide shuffle switch on and plays the top songs.
+                    val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
                     val shuffleAction = {
-                        if (artistPage.topSongs.isNotEmpty()) {
-                            val shuffled = artistPage.topSongs.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
-                        }
+                        val songs = artistPage.topSongs
+                        if (shuffleControl != null) shuffleControl.shufflePlay(songs, onTrackClick)
+                        else if (songs.isNotEmpty()) songs.shuffled().let { onTrackClick(it.first(), it) }
+                        Unit
                     }
 
                     if (isLiquidGlass) {

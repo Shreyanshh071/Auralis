@@ -134,6 +134,7 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import com.auralis.music.ui.player.playAllOrFirst
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -1990,6 +1991,7 @@ private fun PlaylistDetailView(
     // liquid glass (the page's own backdrop can't be used here: these buttons are part of it).
     val heroBackdrop = rememberLayerBackdrop()
     val heroGlass = com.auralis.music.ui.components.rememberPageHeaderGlass(heroBackdrop)?.takeIf { heroMode }
+    val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
     val topBarButton: Modifier = if (heroGlass != null) {
         Modifier.liquidGlass(heroGlass, CircleShape)
     } else Modifier
@@ -2105,8 +2107,8 @@ private fun PlaylistDetailView(
                         if (wideTable) DesktopPlaylistHero(
                             playlist, savedAlbums,
                             owner = if (userName.isNotBlank() && !userName.contains("listener", ignoreCase = true)) userName else "You",
-                            onPlay = { displayedTracks.firstOrNull()?.let { onPlayTrack(it, displayedTracks) } },
-                            onShuffle = { displayedTracks.shuffled().let { tracks -> tracks.firstOrNull()?.let { onPlayTrack(it, tracks) } } },
+                            onPlay = { shuffleControl.playAllOrFirst(displayedTracks, onPlayTrack) },
+                            onShuffle = { shuffleControl?.toggle?.invoke() },
                             onOptions = { showOptionsMenu = true }
                         )
                         // Searching folds the cover, title and buttons away so results sit right under
@@ -2295,28 +2297,29 @@ private fun PlaylistDetailView(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Shuffle Button
+                            // Shuffle: the device-wide switch, lit with a dot while on (like Spotify).
+                            val shuffleOn = shuffleControl?.isOn == true
+                            val shuffleAccent = MaterialTheme.colorScheme.primary
                             Box(
                                 modifier = Modifier
                                     .size(52.dp)
                                     .then(
-                                        if (heroGlass != null) Modifier.liquidGlass(heroGlass, CircleShape)
-                                        else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
-                                    )
-                                    .clickable {
-                                        if (displayedTracks.isNotEmpty()) {
-                                            val shuffled = displayedTracks.shuffled()
-                                            onPlayTrack(shuffled.first(), shuffled)
+                                        if (heroGlass != null) {
+                                            if (shuffleOn) Modifier.liquidGlass(heroGlass, CircleShape, tint = shuffleAccent.copy(alpha = .34f))
+                                            else Modifier.liquidGlass(heroGlass, CircleShape)
                                         }
-                                    },
+                                        else Modifier.clip(CircleShape).background(if (shuffleOn) shuffleAccent.copy(alpha = .22f) else MaterialTheme.colorScheme.surfaceVariant)
+                                    )
+                                    .clickable { shuffleControl?.toggle?.invoke() },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = str(Strings.shuffle),
-                                    tint = if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (shuffleOn) shuffleAccent else if (heroGlass != null) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(22.dp)
                                 )
+                                if (shuffleOn) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp).size(4.dp).clip(CircleShape).background(shuffleAccent))
                             }
 
                             Spacer(modifier = Modifier.width(16.dp))
@@ -2335,7 +2338,7 @@ private fun PlaylistDetailView(
                                     )
                                     .clickable {
                                         if (displayedTracks.isNotEmpty()) {
-                                            onPlayTrack(displayedTracks.first(), displayedTracks)
+                                            shuffleControl.playAllOrFirst(displayedTracks, onPlayTrack)
                                         }
                                     },
                                 contentAlignment = Alignment.Center

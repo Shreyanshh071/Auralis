@@ -91,8 +91,14 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         startIndex: Int = 0,
         preserveOrderIfSame: Boolean = false,
         isUserQueue: Boolean = false,
+        /** False keeps [tracks] in the order given (a synced or restored queue); the mode stays as is. */
         keepShuffle: Boolean = true
     ): QueueState {
+        // Picking another song from the list that's already playing shuffled keeps the shuffled
+        // order: only switching shuffle on or off reshuffles.
+        if (keepShuffle && !preserveOrderIfSame && isPlayingShuffled(tracks)) {
+            return playWithinShuffle(tracks[startIndex.coerceIn(0, tracks.size - 1)])
+        }
         if (!preserveOrderIfSame || originalQueue.isEmpty() || originalQueue.map { it.id } != tracks.map { it.id }) {
             originalQueue = tracks.toList()
             playNextQueue.clear()
@@ -100,11 +106,10 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         }
         val index = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
 
-        // Shuffle is a mode, not a property of one queue: when it is on and a new list starts
-        // (playlist, album, search result...), keep it on — the tapped song plays first and the
+        // Shuffle is a device-wide mode, like Spotify: when it is on and a new list starts
+        // (playlist, album, search result...), it stays on — the tapped song plays first and the
         // rest of the new list is shuffled behind it. originalQueue (set above) still holds the
-        // in-order list, so turning shuffle off restores it. Previously every new list silently
-        // turned shuffle off.
+        // in-order list, so turning shuffle off restores it.
         if (!preserveOrderIfSame && keepShuffle && state.isShuffled && tracks.size > 1) {
             val start = tracks[index]
             val rest = tracks.filterIndexed { i, _ -> i != index }.shuffled()
@@ -122,9 +127,43 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         state = QueueState(
             queue = tracks.toList(),
             currentIndex = if (tracks.isNotEmpty()) index else -1,
-            isShuffled = if (preserveOrderIfSame || keepShuffle) state.isShuffled else false,
+            isShuffled = state.isShuffled,
             repeatMode = state.repeatMode,
             isUserQueue = isUserQueue
+        )
+        syncUserQueuesWithUpcoming()
+        return state
+    }
+
+    /**
+     * Whether [tracks] is the list already playing shuffled: the list as it was started (autoplay
+     * may have added songs after it) or the shuffled queue itself.
+     */
+    fun isPlayingShuffled(tracks: List<Track>): Boolean {
+        if (!state.isShuffled || tracks.size <= 1 || state.currentTrack == null) return false
+        val ids = tracks.map { it.id }
+        val fromOriginal = originalQueue.size >= tracks.size && originalQueue.take(tracks.size).map { it.id } == ids
+        return fromOriginal || state.queue.map { it.id } == ids
+    }
+
+    /**
+     * Plays [track] without reshuffling: it moves up to play now, and everything still to come
+     * keeps its shuffled order behind it. The song that was playing stays in History.
+     */
+    private fun playWithinShuffle(track: Track): QueueState {
+        val cur = state.currentIndex
+        val q = state.queue
+        val target = (cur + 1 until q.size).firstOrNull { q[it].id == track.id }
+            ?: q.indices.firstOrNull { q[it].id == track.id }
+            ?: return state
+        if (target == cur) return state
+        val order = q.indices.filter { it != target }.toMutableList()
+        val insertAt = order.indexOf(cur) + 1
+        order.add(insertAt, target)
+        state = state.copy(
+            queue = order.map { q[it] },
+            currentIndex = insertAt,
+            listenedIndices = order.indices.filter { order[it] in state.listenedIndices }.toSet()
         )
         syncUserQueuesWithUpcoming()
         return state
@@ -252,55 +291,73 @@ class AudioQueueManager(initialState: QueueState = QueueState()) {
         return state.currentTrack
     }
 
-    fun toggleShuffle(): QueueState {
-        val curTrack = state.currentTrack
-        val nextShuffled = !state.isShuffled
+    /**
+     * Spotify-style shuffle switch. On: the playing song stays put, songs the user queued (Play
+     * next / Add to queue) stay right behind it in their order, everything else is shuffled.
+     * Off: the list goes back to its original order around the playing song, the user's queued
+     * songs still right behind it. With nothing loaded it only flips the mode.
+     */
+    fun toggleShuffle(): QueueState = setShuffle(!state.isShuffled)
 
-        val newQueue = if (nextShuffled) {
-            if (curTrack != null) {
-                val remaining = state.queue.filter { it.id != curTrack.id }.shuffled()
-                listOf(curTrack) + remaining
-            } else {
-                state.queue.shuffled()
+    fun setShuffle(on: Boolean): QueueState {
+        if (on == state.isShuffled) return state
+        val cur = state.currentIndex
+        if (cur !in state.queue.indices) {
+            state = state.copy(isShuffled = on)
+            return state
+        }
+        val userCount = (playNextQueue.size + addToQueueList.size)
+            .coerceAtMost(state.queue.size - cur - 1)
+        val userIdx = (cur + 1..cur + userCount).toList()
+        val rest = state.queue.indices.filter { it != cur && it !in userIdx }
+
+        val order: List<Int>
+        val newIndex: Int
+        if (on) {
+            order = listOf(cur) + userIdx + rest.shuffled()
+            newIndex = 0
+        } else {
+            val remaining = rest.toMutableList()
+            val curId = state.queue[cur].id
+            val curOriginal = originalQueue.indexOfFirst { it.id == curId }
+            val before = mutableListOf<Int>()
+            val after = mutableListOf<Int>()
+            originalQueue.forEachIndexed { oi, item ->
+                if (oi == curOriginal) return@forEachIndexed
+                val qi = remaining.firstOrNull { state.queue[it].id == item.id } ?: return@forEachIndexed
+                remaining.remove(qi)
+                if (curOriginal >= 0 && oi < curOriginal) before += qi else after += qi
             }
-        } else {
-            if (originalQueue.isNotEmpty()) originalQueue else state.queue
+            // Whatever the original list never had (queued songs already played) stays as history.
+            order = before + remaining + listOf(cur) + userIdx + after
+            newIndex = before.size + remaining.size
         }
-
-        val newIndex = if (curTrack != null) {
-            newQueue.indexOfFirst { it.id == curTrack.id }.coerceAtLeast(0)
-        } else {
-            0
-        }
-
-        playNextQueue.clear()
-        addToQueueList.clear()
-
+        val newQueue = order.map { state.queue[it] }
         state = state.copy(
             queue = newQueue,
             currentIndex = newIndex,
-            isShuffled = nextShuffled,
-            listenedIndices = remapListened(newQueue)
+            isShuffled = on,
+            listenedIndices = order.indices.filter { order[it] in state.listenedIndices }.toSet()
         )
         return state
     }
 
+    /** The list in the order it was started (what turning shuffle off goes back to). */
+    val originalOrder: List<Track> get() = originalQueue
+
     /**
      * Restores the shuffle *mode* after an app restart. The persisted queue is already in its
-     * shuffled order, so this only sets the flag (no reshuffle); new lists will then be shuffled.
+     * shuffled order, so this only sets the flag (no reshuffle); [originalOrderIds] brings back
+     * the order turning shuffle off returns to.
      */
-    fun restoreShuffleFlag(isShuffled: Boolean): QueueState {
+    fun restoreShuffleFlag(isShuffled: Boolean, originalOrderIds: List<String> = emptyList()): QueueState {
         state = state.copy(isShuffled = isShuffled)
+        if (originalOrderIds.isNotEmpty()) {
+            val pool = state.queue.toMutableList()
+            val restored = originalOrderIds.mapNotNull { id -> pool.firstOrNull { it.id == id }?.also { pool.remove(it) } }
+            if (restored.isNotEmpty()) originalQueue = restored + pool
+        }
         return state
-    }
-
-    private fun remapListened(tracks: List<Track>): Set<Int> {
-        val remaining = state.queue.indices.toMutableList()
-        return tracks.mapIndexedNotNull { newIndex, track ->
-            val oldIndex = remaining.firstOrNull { state.queue[it] == track }
-            if (oldIndex != null) remaining.remove(oldIndex)
-            newIndex.takeIf { oldIndex in state.listenedIndices }
-        }.toSet()
     }
 
     fun setRepeatMode(mode: RepeatMode): QueueState {

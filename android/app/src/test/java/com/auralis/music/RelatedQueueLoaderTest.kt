@@ -97,16 +97,76 @@ class RelatedQueueLoaderTest {
         RelatedQueueLoader.load(seed, listOf(seed), { throw CancellationException() }, { error("Cancelled") })
     }
 
-    @Test fun permanentShuffleKeepsChoiceButNeverForcesItOn() {
+    @Test fun shuffleIsADeviceWideModeThatOutlivesEveryList() {
         val manager = AudioQueueManager()
         manager.setQueue(listOf(seed, song("a")))
         manager.toggleShuffle()
-        val shuffled = manager.setQueue(listOf(song("b"), song("c")), keepShuffle = true)
+        val shuffled = manager.setQueue(listOf(song("b"), song("c")))
         assertTrue(shuffled.isShuffled)
         assertEquals("b", shuffled.currentTrack?.id)
-        assertTrue(manager.setQueue(listOf(song("single")), keepShuffle = true).isShuffled)
-        assertFalse(manager.setQueue(listOf(song("d"), song("e")), keepShuffle = false).isShuffled)
-        assertFalse(manager.setQueue(listOf(seed), keepShuffle = true).isShuffled)
+        assertTrue(manager.setQueue(listOf(song("single"))).isShuffled)
+        // A synced/restored queue keeps its given order, but the switch stays on.
+        val synced = manager.setQueue(listOf(song("d"), song("e"), song("f")), keepShuffle = false)
+        assertEquals(listOf("d", "e", "f"), synced.queue.map { it.id })
+        assertTrue(synced.isShuffled)
+        assertFalse(manager.toggleShuffle().isShuffled)
+        assertFalse(manager.setQueue(listOf(song("g"), song("h"))).isShuffled)
+    }
+
+    @Test fun shuffleWithNothingLoadedOnlyFlipsTheMode() {
+        val manager = AudioQueueManager()
+        assertTrue(manager.toggleShuffle().isShuffled)
+        val (first, list) = song("x") to (0..9).map { song("s$it") }
+        val started = manager.setQueue(listOf(first) + list, 0)
+        assertTrue(started.isShuffled)
+        assertEquals("x", started.currentTrack?.id)
+        assertEquals((listOf(first) + list).map { it.id }.toSet(), started.queue.map { it.id }.toSet())
+    }
+
+    @Test fun togglingKeepsUserQueuedSongsNextAndRestoresOrderAroundTheCurrentSong() {
+        val manager = AudioQueueManager()
+        val songs = (0..9).map { song("s$it") }
+        manager.setQueue(songs, 3)
+        manager.playNext(song("next"))
+        manager.addToQueue(song("later"))
+        val on = manager.toggleShuffle()
+        assertEquals(listOf("s3", "next", "later"), on.queue.take(3).map { it.id })
+        assertEquals(0, on.currentIndex)
+        val off = manager.toggleShuffle()
+        assertEquals(listOf("s0", "s1", "s2", "s3", "next", "later", "s4", "s5", "s6", "s7", "s8", "s9"), off.queue.map { it.id })
+        assertEquals("s3", off.currentTrack?.id)
+    }
+
+    @Test fun pickingAnotherSongWhileShuffledKeepsTheShuffledOrder() {
+        val manager = AudioQueueManager()
+        val songs = (0..11).map { song("s$it") }
+        manager.toggleShuffle()
+        val shuffled = manager.setQueue(songs, 0).queue.map { it.id }
+        val picked = shuffled[7]
+        // The same list again (as a playlist page passes it), another song tapped.
+        val after = manager.setQueue(songs, songs.indexOfFirst { it.id == picked })
+        assertEquals(picked, after.currentTrack?.id)
+        assertEquals(shuffled.filter { it != picked }, after.queue.map { it.id }.filter { it != picked })
+        assertEquals(shuffled[1], after.queue[after.currentIndex + 1].id)
+        assertTrue(after.isShuffled)
+        // The shuffled queue itself passed back (e.g. from the queue screen) doesn't reshuffle either.
+        val again = manager.setQueue(after.queue, after.currentIndex + 2)
+        assertEquals(after.queue.map { it.id }.filter { it != again.currentTrack?.id }, again.queue.map { it.id }.filter { it != again.currentTrack?.id })
+        // A different list still starts its own shuffle.
+        val other = (0..5).map { song("o$it") }
+        assertEquals(other.map { it.id }.toSet(), manager.setQueue(other, 2).queue.map { it.id }.toSet())
+        // Only the switch reshuffles: off restores the list order.
+        assertEquals(other.map { it.id }, manager.toggleShuffle().queue.map { it.id })
+    }
+
+    @Test fun restoredShuffleCanStillGoBackToTheOriginalOrder() {
+        val manager = AudioQueueManager()
+        val songs = (0..5).map { song("s$it") }
+        manager.setQueue(listOf(songs[2], songs[5], songs[0], songs[4], songs[1], songs[3]), 0, keepShuffle = false)
+        manager.restoreShuffleFlag(true, songs.map { it.id })
+        val off = manager.toggleShuffle()
+        assertEquals(songs.map { it.id }, off.queue.map { it.id })
+        assertEquals("s2", off.currentTrack?.id)
     }
 
     @Test fun disablingShuffleKeepsGeneratedSongsInTheQueue() {

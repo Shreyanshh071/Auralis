@@ -304,6 +304,16 @@ fun DownloadedHubView(
                     }
                 }
             } else {
+                // Play follows the device-wide shuffle switch; Shuffle turns it on and plays.
+                val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
+                fun playAll(list: List<Track>) {
+                    if (shuffleControl != null) shuffleControl.playAll(list, onPlayTracks)
+                    else list.firstOrNull()?.let { onPlayTracks(it, list) }
+                }
+                fun shufflePlay(list: List<Track>) {
+                    if (shuffleControl != null) shuffleControl.shufflePlay(list, onPlayTracks)
+                    else list.shuffled().firstOrNull()?.let { onPlayTracks(it, list) }
+                }
                 LazyColumn(
                     contentPadding = bottomChromePadding(start = 16.dp, end = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -314,17 +324,8 @@ fun DownloadedHubView(
                         item(key = "all_downloaded_banner") {
                             AllDownloadedSongsCard(
                                 totalTracks = downloadedTracks.size,
-                                onPlayAll = {
-                                    orderedDownloads.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, orderedDownloads)
-                                    }
-                                },
-                                onShuffle = {
-                                    val shuffled = orderedDownloads.shuffled()
-                                    shuffled.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, shuffled)
-                                    }
-                                },
+                                onPlayAll = { playAll(orderedDownloads) },
+                                onShuffle = { shufflePlay(orderedDownloads) },
                                 onClick = {
                                     onOpenFolder(
                                         Playlist(
@@ -380,17 +381,8 @@ fun DownloadedHubView(
                                         )
                                     )
                                 },
-                                onPlayAll = {
-                                    folder.downloadedTracks.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, folder.downloadedTracks)
-                                    }
-                                },
-                                onShuffle = {
-                                    val shuffled = folder.downloadedTracks.shuffled()
-                                    shuffled.firstOrNull()?.let { first ->
-                                        onPlayTracks(first, shuffled)
-                                    }
-                                },
+                                onPlayAll = { playAll(folder.downloadedTracks) },
+                                onShuffle = { shufflePlay(folder.downloadedTracks) },
                                 onRetry = {
                                     folder.jobId?.let { onRetryJob(it) }
                                 },

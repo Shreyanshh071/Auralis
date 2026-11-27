@@ -240,9 +240,6 @@ fun SettingsScreen(
                                     SettingsSwitchRow(Icons.Default.Restore, str(R.string.persistent_queue), str(R.string.restore_your_queue_and_position_after_re), settings.persistentQueue, { value ->
                                         settingsScope.launch { settingsStore.setPersistentQueue(value) }
                                     })
-                                    SettingsSwitchRow(Icons.Default.Shuffle, str(R.string.permanent_shuffle), str(R.string.permanent_shuffle_description), settings.permanentShuffle, { value ->
-                                        settingsScope.launch { settingsStore.setPermanentShuffle(value) }
-                                    })
                                     SettingsSwitchRow(Icons.Default.AllInclusive, str(R.string.auto_load_more_songs), str(R.string.add_recommendations_as_your_radio_queue), settings.autoLoadMore, { value ->
                                         settingsScope.launch { settingsStore.setAutoLoadMore(value) }
                                     })

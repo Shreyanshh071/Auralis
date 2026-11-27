@@ -141,7 +141,7 @@ class AndroidConnectPlayer(private val context: Context, private val player: Aur
     }
 
     override fun setShuffle(on: Boolean) {
-        if (player.queueState.value.isShuffled != on) player.fromConnect { player.toggleShuffle() }
+        if (player.queueState.value.isShuffled != on) player.fromConnect { player.setShuffle(on) }
     }
 
     override fun setRepeat(mode: RepeatMode) = player.fromConnect { player.setRepeatMode(mode) }

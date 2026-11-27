@@ -339,17 +339,16 @@ fun AlbumScreen(
 
                     // Action Buttons: Play All & Shuffle
                     val buttonShape = RoundedCornerShape(24.dp)
+                    // Play follows the device-wide shuffle switch; Shuffle flips it (like Spotify).
+                    val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
+                    val shuffleOn = shuffleControl?.isOn == true
                     val playAction = {
                         if (tracks.isNotEmpty()) {
-                            onTrackClick(tracks.first(), tracks)
+                            onTrackClick(tracks[shuffleControl?.startIndex(tracks) ?: 0], tracks)
                         }
                     }
-                    val shuffleAction = {
-                        if (tracks.isNotEmpty()) {
-                            val shuffled = tracks.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
-                        }
-                    }
+                    val shuffleAction = { shuffleControl?.toggle?.invoke(); Unit }
+                    val shuffleText = if (shuffleOn) themePrimary else if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -408,6 +407,7 @@ fun AlbumScreen(
                                     )
                                     .clip(buttonShape)
                                     .background(glassPillBg)
+                                    .then(if (shuffleOn) Modifier.background(themePrimary.copy(alpha = .18f)) else Modifier)
                                     .border(width = 1.dp, brush = glassSpecularRim, shape = buttonShape)
                                     .specularHighlight(buttonShape, highlightAlpha = 0.25f)
                                     .tactileBounce(scaleDown = 0.94f) { shuffleAction() },
@@ -420,7 +420,7 @@ fun AlbumScreen(
                                     Icon(
                                         imageVector = Icons.Default.Shuffle,
                                         contentDescription = str(Strings.shuffle),
-                                        tint = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
+                                        tint = shuffleText,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -428,7 +428,7 @@ fun AlbumScreen(
                                         text = str(Strings.shuffle),
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 15.sp,
-                                        color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
+                                        color = shuffleText
                                     )
                                 }
                             }
@@ -462,14 +462,14 @@ fun AlbumScreen(
 
                             OutlinedButton(
                                 onClick = shuffleAction,
-                                enabled = tracks.isNotEmpty(),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
                                     .tactileBounce(scaleDown = 0.94f),
                                 shape = buttonShape,
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.onBackground
+                                    contentColor = if (shuffleOn) themePrimary else MaterialTheme.colorScheme.onBackground,
+                                    containerColor = if (shuffleOn) themePrimary.copy(alpha = .14f) else Color.Transparent
                                 )
                             ) {
                                 Icon(

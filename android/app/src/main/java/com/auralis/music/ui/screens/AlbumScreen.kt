@@ -133,6 +133,7 @@ fun AlbumScreen(
     }
 
     val accent = MaterialTheme.dynamicPrimary
+    val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
     val pageBackground = MaterialTheme.dynamicBackground
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Records the list alone, for the frost under the pinned bar.
@@ -207,13 +208,8 @@ fun AlbumScreen(
                         isSubscribed = isSaved,
                         enabled = tracks.isNotEmpty(),
                         accent = accent,
-                        onPlay = { tracks.firstOrNull()?.let { onTrackClick(it, tracks) } },
-                        onShuffle = {
-                            if (tracks.isNotEmpty()) {
-                                val shuffled = tracks.shuffled()
-                                onTrackClick(shuffled.first(), shuffled)
-                            }
-                        },
+                        onPlay = { if (tracks.isNotEmpty()) onTrackClick(tracks[shuffleControl?.startIndex(tracks) ?: 0], tracks) },
+                        onShuffle = { shuffleControl?.toggle?.invoke() },
                         onRadio = { tracks.firstOrNull()?.let(onStartRadio) },
                         onToggleSubscribe = {
                             onToggleSaveAlbum?.invoke(

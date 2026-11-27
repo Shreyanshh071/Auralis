@@ -34,6 +34,7 @@ import com.auralis.music.util.Log
 import com.auralis.music.util.PropertiesFileKeyValueStore
 import com.auralis.music.util.desktopAppDataDir
 import javax.imageio.ImageIO
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.filterNotNull
@@ -289,6 +290,15 @@ fun main(args: Array<String>) {
         if (restoredSession != null && pb != null) {
             pb.restoreQueue(restoredSession.queue.ifEmpty { listOf(restoredSession.track) }, restoredSession.queueIndex)
         }
+        // Shuffle is one device-wide switch (like Spotify): it comes back on after a restart,
+        // with the order turning it off returns to.
+        val desktopPrefs = com.auralis.music.windows.settings.DesktopPreferences.store
+        if (pb != null && desktopPrefs.bool("shuffleMode")) {
+            val pool = restoredSession?.queue.orEmpty().toMutableList()
+            val sourceOrder = desktopPrefs.text("shuffleSourceOrder").split(',').filter { it.isNotBlank() }
+                .mapNotNull { id -> pool.firstOrNull { it.id == id }?.also { pool.remove(it) } }
+            pb.restoreShuffleMode(true, if (sourceOrder.isEmpty()) emptyList() else sourceOrder + pool)
+        }
 
         if (pb != null) recorderScope.launch {
             stores.settings.settingsFlow.collect { settings ->
@@ -313,6 +323,14 @@ fun main(args: Array<String>) {
                             queueIndex = q.index
                         )
                     }
+                }
+            }
+            appScope.launch {
+                kotlinx.coroutines.flow.combine(pb.shuffleEnabled, pb.queue) { on, _ ->
+                    on to if (on) pb.shuffleSourceOrder.joinToString(",") { it.id } else ""
+                }.distinctUntilChanged().collect { (on, order) ->
+                    if (desktopPrefs.bool("shuffleMode") != on) desktopPrefs.set("shuffleMode", on)
+                    if (desktopPrefs.text("shuffleSourceOrder") != order) desktopPrefs.set("shuffleSourceOrder", order)
                 }
             }
             appScope.launch {

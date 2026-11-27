@@ -36,4 +36,32 @@ class PlayFromListOrderTest {
             assertEquals("local:4", jumped.tracks.getOrNull(jumped.index + 1)?.id)
         } finally { playback.release(); scope.coroutineContext[Job]?.cancelAndJoin(); dir.deleteRecursively() }
     }
+
+    @Test fun pickingAnotherSongWhileShuffledKeepsTheShuffledOrder() = runBlocking {
+        val dir = kotlin.io.path.createTempDirectory("play-from-shuffle").toFile()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val player = assertNotNull(VlcAudioPlayer.createOrNull(testVlcDirectory()))
+        val wave = File(dir, "silent.wav")
+        AudioInputStream(java.io.ByteArrayInputStream(ByteArray(8 * 8000 * 2)), AudioFormat(8000f, 16, 1, true, false), 64000)
+            .use { AudioSystem.write(it, AudioFileFormat.Type.WAVE, wave) }
+        val playback = DesktopPlaybackController(player, scope, offlineFile = { wave })
+        playback.autoLoadMore = false; playback.preloadNext = false; playback.setVolume(0f)
+        try {
+            val playlist = (0 until 12).map { Track("local:$it", "Song $it", "Artist", duration = 8) }
+            playback.setShuffle(true)
+            playback.playFrom(playlist[0], playlist, automatic = false)
+            val shuffled = playback.queue.value.tracks.map { it.id }
+            // Another song from the same list: it plays now, the rest keeps its shuffled order.
+            val picked = shuffled[7]
+            playback.playFrom(playlist.first { it.id == picked }, playlist, automatic = false)
+            val after = playback.queue.value
+            assertEquals(picked, after.current?.id)
+            assertEquals(shuffled.filter { it != picked }, after.tracks.map { it.id }.filter { it != picked })
+            assertEquals(shuffled[1], after.tracks.getOrNull(after.index + 1)?.id)
+            assertTrue(playback.shuffleEnabled.value)
+            // Only switching shuffle off and on again reshuffles (and off restores the list order).
+            playback.setShuffle(false)
+            assertEquals(playlist.map { it.id }, playback.queue.value.tracks.map { it.id })
+        } finally { playback.release(); scope.coroutineContext[Job]?.cancelAndJoin(); dir.deleteRecursively() }
+    }
 }

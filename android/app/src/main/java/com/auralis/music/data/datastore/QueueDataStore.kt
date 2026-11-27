@@ -35,7 +35,9 @@ data class PersistedQueue(
     val isUserQueue: Boolean = false,
     val isShuffled: Boolean = false,
     val repeatMode: String = "OFF",
-    val listenedIndices: Set<Int> = emptySet()
+    val listenedIndices: Set<Int> = emptySet(),
+    /** Ids in the order the list was started, so shuffle off can restore it after a restart. */
+    val originalOrderIds: List<String> = emptyList()
 )
 
 class QueueDataStore(private val context: Context) {
@@ -63,7 +65,8 @@ class QueueDataStore(private val context: Context) {
                 isUserQueue = isUser,
                 isShuffled = shuffled,
                 repeatMode = repeat,
-                listenedIndices = prefs[LISTENED_INDICES].orEmpty().split(',').mapNotNull { it.toIntOrNull() }.toSet()
+                listenedIndices = prefs[LISTENED_INDICES].orEmpty().split(',').mapNotNull { it.toIntOrNull() }.toSet(),
+                originalOrderIds = prefs[ORIGINAL_ORDER].orEmpty().split('\n').filter { it.isNotBlank() }
             )
         }
 
@@ -74,7 +77,8 @@ class QueueDataStore(private val context: Context) {
         isUserQueue: Boolean = false,
         isShuffled: Boolean = false,
         repeatMode: String = "OFF",
-        listenedIndices: Set<Int> = emptySet()
+        listenedIndices: Set<Int> = emptySet(),
+        originalOrderIds: List<String> = emptyList()
     ) {
         val json = serializeTracks(tracks)
         dataStore.edit { prefs ->
@@ -85,6 +89,7 @@ class QueueDataStore(private val context: Context) {
             prefs[IS_SHUFFLED] = isShuffled
             prefs[REPEAT_MODE] = repeatMode
             prefs[LISTENED_INDICES] = listenedIndices.sorted().joinToString(",")
+            prefs[ORIGINAL_ORDER] = originalOrderIds.joinToString("\n")
         }
     }
 
@@ -97,6 +102,7 @@ class QueueDataStore(private val context: Context) {
             prefs.remove(IS_SHUFFLED)
             prefs.remove(REPEAT_MODE)
             prefs.remove(LISTENED_INDICES)
+            prefs.remove(ORIGINAL_ORDER)
         }
     }
 
@@ -108,6 +114,7 @@ class QueueDataStore(private val context: Context) {
         private val IS_USER_QUEUE = booleanPreferencesKey("persisted_is_user_queue")
         private val IS_SHUFFLED = booleanPreferencesKey("persisted_is_shuffled")
         private val REPEAT_MODE = stringPreferencesKey("persisted_repeat_mode")
+        private val ORIGINAL_ORDER = stringPreferencesKey("persisted_original_order")
 
         internal fun serializeTracks(tracks: List<Track>): String {
             val array = JSONArray()

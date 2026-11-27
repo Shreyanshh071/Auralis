@@ -297,7 +297,7 @@ internal fun DesktopHome(
                 if (savedAlbums.any { it.id == album.id }) library.removeAlbum(album.id)
                 else library.saveAlbum(SavedAlbum(album.id, album.title, album.author.orEmpty(), album.thumbnail))
             } },
-            onShuffle = { withAlbumTracks(album) { tracks -> tracks.shuffled().let { play(it.first(), it) } } },
+            onShuffle = { withAlbumTracks(album) { tracks -> if (tracks.isNotEmpty()) { playback?.setShuffle(true); play(tracks.random(), tracks) } } },
             onShare = { platform.shareText(album.title, "https://music.youtube.com/playlist?list=${album.id.removePrefix("VL")}", "Share album") },
             onPlayNext = { withAlbumTracks(album) { tracks -> tracks.asReversed().forEach { playback?.playNext(it) } } },
             onAddToQueue = { withAlbumTracks(album) { tracks -> tracks.forEach { playback?.addToQueue(it) } } },

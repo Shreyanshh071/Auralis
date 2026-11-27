@@ -95,7 +95,9 @@ internal fun DesktopPlaylistHero(
             Spacer(Modifier.height(20.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 PlayButton(enabled = count > 0, onClick = onPlay)
-                HeroIcon(Icons.Default.Shuffle, "Shuffle", enabled = count > 0, onClick = onShuffle)
+                // The device-wide shuffle switch, lit while on (like Spotify's).
+                val shuffleOn = com.auralis.music.ui.player.LocalShuffleControl.current?.isOn == true
+                HeroIcon(Icons.Default.Shuffle, if (shuffleOn) "Turn shuffle off" else "Turn shuffle on", selected = shuffleOn, onClick = onShuffle)
                 HeroIcon(Icons.Default.MoreHoriz, "Playlist options", onClick = onOptions)
             }
         }
@@ -121,17 +123,20 @@ private fun PlayButton(enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun HeroIcon(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun HeroIcon(icon: ImageVector, description: String, enabled: Boolean = true, selected: Boolean = false, onClick: () -> Unit) {
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
+    val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
     Box(
         Modifier.size(44.dp).clip(CircleShape)
-            .background(Color.White.copy(alpha = if (hovered && enabled) .16f else .08f))
-            .border(1.dp, Color.White.copy(alpha = .12f), CircleShape)
+            .background(if (selected) accent.copy(alpha = if (hovered) .30f else .22f) else Color.White.copy(alpha = if (hovered && enabled) .16f else .08f))
+            .border(1.dp, if (selected) accent.copy(alpha = .5f) else Color.White.copy(alpha = .12f), CircleShape)
             .hoverable(hover)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, description, tint = Color.White.copy(alpha = if (enabled) .92f else .4f), modifier = Modifier.size(22.dp))
+        Icon(icon, description, tint = if (selected) accent else Color.White.copy(alpha = if (enabled) .92f else .4f), modifier = Modifier.size(22.dp))
+        // Spotify-style dot under a lit toggle.
+        if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp).size(4.dp).clip(CircleShape).background(accent))
     }
 }

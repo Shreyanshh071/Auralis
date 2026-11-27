@@ -458,7 +458,6 @@ internal fun SettingsSearchField(value: String, onSubmit: () -> Unit = {}, onVal
     }
     SettingsGroup("Queue") {
         SettingToggle("Prevent duplicates", "Do not add the same song twice to the upcoming queue", prefs.bool("preventDuplicates",true)) { prefs.set("preventDuplicates",it) }
-        SettingToggle("Sticky shuffle", "Keep shuffling when you start a different album or playlist", prefs.bool("stickyShuffle")) { prefs.set("stickyShuffle", it) }
         SettingToggle("Shuffle whole queue", "When shuffling, include earlier songs while retaining the current track", prefs.bool("shuffleWholeQueue")) { prefs.set("shuffleWholeQueue",it) }
     }
     SettingsGroup("Search") {

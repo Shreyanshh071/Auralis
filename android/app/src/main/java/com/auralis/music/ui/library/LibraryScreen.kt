@@ -2505,6 +2505,10 @@ private fun PlaylistDetailView(
                             Modifier.liquidGlass(heroGlass, CircleShape, tint = com.auralis.music.ui.glass.glassBarTint(heroGlass.isDark))
                         } else Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         val roundTint = if (heroGlass != null) onAccentColor else MaterialTheme.colorScheme.onSurface
+                        val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
+                        val shuffleLitFill: Modifier = if (heroGlass != null) {
+                            Modifier.liquidGlass(heroGlass, CircleShape, tint = LIME_TEXT.copy(alpha = if (heroGlass.isDark) .34f else .24f))
+                        } else Modifier.clip(CircleShape).background(LIME_TEXT.copy(alpha = .22f))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2522,7 +2526,10 @@ private fun PlaylistDetailView(
                                         else Modifier.clip(RoundedCornerShape(26.dp)).background(LIME_TEXT)
                                     )
                                     .tactileBounce(scaleDown = 0.95f) {
-                                        if (displayedTracks.isNotEmpty()) onPlayTrack(displayedTracks.first(), displayedTracks)
+                                        if (displayedTracks.isNotEmpty()) {
+                                            val start = shuffleControl?.startIndex(displayedTracks) ?: 0
+                                            onPlayTrack(displayedTracks[start], displayedTracks)
+                                        }
                                     },
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
@@ -2531,16 +2538,16 @@ private fun PlaylistDetailView(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(str(R.string.play), color = onAccentColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
+                            // The device-wide shuffle switch (lit with a dot while on, like Spotify).
+                            val shuffleOn = shuffleControl?.isOn == true
                             Box(
-                                modifier = Modifier.size(52.dp).then(roundFill).tactileBounce(scaleDown = 0.90f) {
-                                    if (displayedTracks.isNotEmpty()) {
-                                        val shuffled = displayedTracks.shuffled()
-                                        onPlayTrack(shuffled.first(), shuffled)
-                                    }
-                                },
+                                modifier = Modifier.size(52.dp)
+                                    .then(if (shuffleOn) shuffleLitFill else roundFill)
+                                    .tactileBounce(scaleDown = 0.90f) { shuffleControl?.toggle?.invoke() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Shuffle, str(R.string.shuffle), tint = roundTint, modifier = Modifier.size(22.dp))
+                                Icon(Icons.Default.Shuffle, str(R.string.shuffle), tint = if (shuffleOn) LIME_TEXT else roundTint, modifier = Modifier.size(22.dp))
+                                if (shuffleOn) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp).size(4.dp).background(LIME_TEXT, CircleShape))
                             }
                             Box(
                                 modifier = Modifier.size(52.dp).then(roundFill).tactileBounce(scaleDown = 0.90f) { showOptionsMenu = true },

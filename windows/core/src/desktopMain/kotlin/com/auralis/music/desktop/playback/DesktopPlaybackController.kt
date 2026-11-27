@@ -306,13 +306,32 @@ class DesktopPlaybackController(
 
     fun toggleShuffle() = setShuffle(!shuffleEngaged)
 
+    /**
+     * The device-wide shuffle switch, like Spotify's: it reorders what's playing around the
+     * current song, stays on for every list played afterwards, and (saved by the app) survives
+     * restarts. With nothing loaded it only flips the mode.
+     */
     fun setShuffle(on: Boolean) {
         if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(on))) return
         if (roomControl != null || on == shuffleEngaged) return
-        if (on) shuffleUpcoming() else {
+        if (on) {
+            if (_queue.value.current == null) shuffleEngaged = true else shuffleUpcoming()
+        } else {
             shuffleEngaged = false
             _queue.value = _queue.value.inSourceOrder(unshuffledTracks)
         }
+    }
+
+    /** The list in the order it was started: what turning shuffle off goes back to. */
+    val shuffleSourceOrder: List<Track> get() = unshuffledTracks
+
+    /**
+     * Brings the shuffle switch back at launch. The restored queue is already in its shuffled
+     * order, so nothing is reshuffled; [sourceOrder] is what turning shuffle off returns to.
+     */
+    fun restoreShuffleMode(on: Boolean, sourceOrder: List<Track> = emptyList()) {
+        shuffleEngaged = on
+        unshuffledTracks = if (on) sourceOrder else emptyList()
     }
 
     fun syncRoomQueue(tracks: List<Track>, index: Int) {
@@ -601,15 +620,42 @@ class DesktopPlaybackController(
     private fun playAllowed(track: Track, list: List<Track>, automatic: Boolean) {
         if (intercepted("play_track", track)) return
         if (connect(com.auralis.music.data.connect.ConnectIntent.Load(list.ifEmpty { listOf(track) }, list.indexOfFirst { it.id == track.id }.coerceAtLeast(0)))) return
-        autoRadio.reset(automatic)
-        pendingResumeMs = null
         val supplied = list.ifEmpty { listOf(track) }
         val unique = if (preventDuplicates) supplied.distinctBy { it.id } else supplied
+        if (shuffleEngaged && playWithinShuffle(track, unique)) return
+        autoRadio.reset(automatic)
+        pendingResumeMs = null
         unshuffledTracks = unique.toList()
         val tracks = if (shuffleEngaged) listOf(track) + unique.filter { it.id != track.id }.shuffled() else unique
         val index = tracks.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
         consecutiveFailures = 0
         load(Queue(tracks, index))
+    }
+
+    /**
+     * Picking another song from the list already playing shuffled keeps the shuffled order (only
+     * switching shuffle on or off reshuffles): [track] moves up to play now, and everything still
+     * to come keeps its order behind it. False when [list] is a different list.
+     */
+    private fun playWithinShuffle(track: Track, list: List<Track>): Boolean {
+        val q = _queue.value
+        if (q.current == null || list.size <= 1) return false
+        val ids = list.map { it.id }
+        val sameList = (unshuffledTracks.size >= ids.size && unshuffledTracks.take(ids.size).map { it.id } == ids) ||
+            q.tracks.map { it.id } == ids
+        if (!sameList) return false
+        val target = (q.index + 1 until q.tracks.size).firstOrNull { q.tracks[it].id == track.id }
+            ?: q.tracks.indices.firstOrNull { q.tracks[it].id == track.id }
+            ?: return false
+        pendingResumeMs = null
+        consecutiveFailures = 0
+        if (target == q.index) { load(q); return true }
+        val heard = q.listenedIndices + q.index
+        val order = q.tracks.indices.filter { it != target }.toMutableList()
+        val insertAt = order.indexOf(q.index) + 1
+        order.add(insertAt, target)
+        load(Queue(order.map { q.tracks[it] }, insertAt, order.indices.filter { order[it] in heard }.toSet()))
+        return true
     }
 
     fun togglePlayPause() {

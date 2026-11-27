@@ -988,6 +988,25 @@ fun AuralisApp(
         }
     )
 
+    // The device-wide shuffle switch every Shuffle button reads (a remote Connect session's
+    // shuffle when this phone is controlling another device).
+    // Read only inside derivedStateOf, so a queue change doesn't recompose the app root.
+    val localQueueState = viewModelProvider.audioPlayer.queueState.collectAsState()
+    val connectRemote = com.auralis.music.data.connect.AuralisConnect.remote.collectAsState()
+    val shuffleOnState = remember(localQueueState, connectRemote) {
+        androidx.compose.runtime.derivedStateOf { connectRemote.value?.shuffle ?: localQueueState.value.isShuffled }
+    }
+    val shuffleControl = remember(viewModelProvider, shuffleOnState) {
+        com.auralis.music.ui.player.ShuffleControl(
+            state = shuffleOnState,
+            toggle = {
+                if (guestControlBlocked()) notifyGuestControlBlocked()
+                else viewModelProvider.audioPlayer.toggleShuffle()
+            },
+            turnOn = { if (!guestControlBlocked()) viewModelProvider.audioPlayer.setShuffle(true) }
+        )
+    }
+
     // One SharedTransitionLayout for the whole app: the mini-player lives in the
     // Scaffold's bottom bar and Now Playing is a sibling overlay, so the only way the
     // two can hand the artwork over is through a shared parent that outlives both.
@@ -998,6 +1017,7 @@ fun AuralisApp(
             .background(MaterialTheme.dynamicBackground)
     ) {
     CompositionLocalProvider(
+        com.auralis.music.ui.player.LocalShuffleControl provides shuffleControl,
         com.auralis.music.ui.player.LocalPlayerModalVisualState provides remember {
             com.auralis.music.ui.player.PlayerModalVisualState()
         },
@@ -1400,8 +1420,7 @@ fun AuralisApp(
                                                     coroutineScope.launch {
                                                         val tracks = obtainSearchViewModel().getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
-                                                            val shuffled = tracks.shuffled()
-                                                            obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
+                                                            shuffleControl.shufflePlay(tracks) { first, list -> obtainPlayerViewModel().playTrack(first, list, list.indexOf(first)) }
                                                             android.widget.Toast.makeText(context, str(R.string.shuffling_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
@@ -1533,8 +1552,7 @@ fun AuralisApp(
                                                     coroutineScope.launch {
                                                         val tracks = searchVM.getAlbumTracks(album)
                                                         if (tracks.isNotEmpty()) {
-                                                            val shuffled = tracks.shuffled()
-                                                            obtainPlayerViewModel().playTrack(shuffled.first(), shuffled, 0)
+                                                            shuffleControl.shufflePlay(tracks) { first, list -> obtainPlayerViewModel().playTrack(first, list, list.indexOf(first)) }
                                                             android.widget.Toast.makeText(context, str(R.string.shuffling_x, album.title), android.widget.Toast.LENGTH_SHORT).show()
                                                         }
                                                     }

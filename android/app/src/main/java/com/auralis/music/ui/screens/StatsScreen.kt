@@ -793,14 +793,15 @@ fun StatsScreen(
                                 )
                                 // In the header, not floating: a floating button always sat on some row's menu.
                                 val shuffleContent = com.auralis.music.ui.glass.pageGlassActionColor(MaterialTheme.colorScheme.onPrimary)
+                                val shuffleControl = com.auralis.music.ui.player.LocalShuffleControl.current
                                 Row(
                                     modifier = Modifier
                                         .pageGlassSelection(CircleShape, true, themePrimary, themePrimary)
                                         .tactileBounce(0.92f) {
-                                            val shuffled = topSongs.map { it.track }.shuffled()
-                                            if (shuffled.isNotEmpty()) {
-                                                onPlayTrack(shuffled.first(), shuffled)
-                                            }
+                                            // Shuffle play: turns the device-wide shuffle on.
+                                            val songs = topSongs.map { it.track }
+                                            if (shuffleControl != null) shuffleControl.shufflePlay(songs, onPlayTrack)
+                                            else songs.shuffled().firstOrNull()?.let { onPlayTrack(it, songs) }
                                         }
                                         .padding(horizontal = 16.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically,

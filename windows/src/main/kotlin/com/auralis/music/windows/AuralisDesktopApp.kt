@@ -652,12 +652,24 @@ fun AuralisDesktopApp(
     com.auralis.music.windows.settings.DesktopThemeOverrides {
     val shortcutPinIds by remember(homeViewModel) { homeViewModel.uiState.map { it.pinnedSpeedDialIds }.distinctUntilChanged() }.collectAsState(emptySet())
     val popupGlass = rememberPopupGlassSource()
+    // The device-wide shuffle switch every Shuffle button reads (the remote session's when this
+    // computer controls another device). Read only in derivedStateOf: no root recomposition.
+    val shuffleEnabledState = (playback?.shuffleEnabled ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
+    val connectRemoteState = (playback?.connectRemote ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState()
+    val shuffleControl = remember(playback, shuffleEnabledState, connectRemoteState) {
+        com.auralis.music.ui.player.ShuffleControl(
+            state = androidx.compose.runtime.derivedStateOf { connectRemoteState.value?.shuffle ?: shuffleEnabledState.value },
+            toggle = { playback?.toggleShuffle() },
+            turnOn = { playback?.setShuffle(true) }
+        )
+    }
     var showLyricsProviders by remember { mutableStateOf(false) }
     val menuInvocation = remember { com.auralis.music.windows.library.MenuInvocationAnchor() }
     com.auralis.music.windows.player.ArtworkAppBackground(backgroundArtwork, artworkPalette,
         modifier = Modifier.recordPopupGlass(popupGlass).then(com.auralis.music.windows.library.menuInvocationRecorder(menuInvocation))) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalPopupGlassSource provides popupGlass,
+        com.auralis.music.ui.player.LocalShuffleControl provides shuffleControl,
         com.auralis.music.ui.components.LocalTypingFocusTracker provides typingFocusTracker,
         com.auralis.music.ui.lyrics.LocalLyricsProviderPicker provides
             if (lyrics != null) ({ showLyricsProviders = true }) else null,

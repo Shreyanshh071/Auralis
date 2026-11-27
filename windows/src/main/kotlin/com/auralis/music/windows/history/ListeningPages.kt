@@ -282,7 +282,7 @@ fun ListeningStatsPage(
             }
         }
         if (topTracks.isNotEmpty()) ExtendedFloatingActionButton(
-            onClick = { topTracks.shuffled().let { playback?.playFrom(it.first(), it) } },
+            onClick = { playback?.setShuffle(true); playback?.playFrom(topTracks.random(), topTracks) },
             icon = { Icon(Icons.Rounded.Shuffle, null) }, text = { Text(desktopText("Shuffle")) },
             containerColor = colours.surfaceContainerHigh, contentColor = accent,
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))

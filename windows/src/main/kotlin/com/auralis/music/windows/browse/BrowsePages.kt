@@ -100,7 +100,7 @@ fun BrowsePages(
                     onAddToPlaylist = libraryViewModel::addTrackToPlaylist,
                     onPlayNextAlbum = { page.tracks.asReversed().forEach { playback?.playNext(it) } },
                     onAddToQueueAlbum = { page.tracks.forEach { playback?.addToQueue(it) } },
-                    onShuffleAlbum = { page.tracks.shuffled().let { if (it.isNotEmpty()) play(it.first(), it) } },
+                    onShuffleAlbum = { if (page.tracks.isNotEmpty()) { playback?.setShuffle(true); play(page.tracks.random(), page.tracks) } },
                     onTrackClick = play,
                     onFavoriteToggle = { track -> scope.launch { library.toggleFavorite(track) } },
                     onPlayNext = { playback?.playNext(it) },

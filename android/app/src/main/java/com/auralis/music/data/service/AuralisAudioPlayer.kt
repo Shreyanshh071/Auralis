@@ -230,12 +230,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                                 tracks = persisted.tracks,
                                 startIndex = persisted.currentIndex,
                                 preserveOrderIfSame = false,
-                                isUserQueue = persisted.isUserQueue && persisted.tracks.size > 1
+                                isUserQueue = persisted.isUserQueue && persisted.tracks.size > 1,
+                                keepShuffle = false
                             )
                             queueManager.setRepeatMode(repeatMode)
                             // Shuffle was saved but never restored, so it silently turned off
                             // every time the app restarted.
-                            queueManager.restoreShuffleFlag(persisted.isShuffled)
+                            queueManager.restoreShuffleFlag(persisted.isShuffled, persisted.originalOrderIds)
                             queueManager.restoreListenedIndices(persisted.listenedIndices)
                             _queueState.value = queueManager.state
                             val cur = queueManager.state.currentTrack
@@ -252,7 +253,13 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
             } catch (e: Exception) {
                 Log.w("AuralisPlayback", "[Persistence] Failed to restore queue on init: ${e.message}")
             } finally {
+                // Shuffle is one device-wide switch: it comes back even when the queue wasn't saved.
+                val shuffleMode = try { settingsDataStore.shuffleMode() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
                 withContext(Dispatchers.Main) {
+                    if (shuffleMode != null && shuffleMode != queueManager.state.isShuffled) {
+                        _queueState.value = queueManager.setShuffle(shuffleMode)
+                        syncUpcomingGaplessTrack()
+                    }
                     queueRestoreComplete = true
                     persistQueue()
                     if (com.auralis.music.domain.recommendations.AutoQueuePolicy.needsRefill(queueManager.state)) requestAutoQueueExtension()
@@ -1365,7 +1372,8 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                             isUserQueue = qState.isUserQueue,
                             isShuffled = qState.isShuffled,
                             repeatMode = qState.repeatMode.name,
-                            listenedIndices = qState.listenedIndices
+                            listenedIndices = qState.listenedIndices,
+                            originalOrderIds = if (qState.isShuffled) queueManager.originalOrder.map { it.id } else emptyList()
                         )
                     } else {
                         queueDataStore.clearPersistedQueue()
@@ -1464,9 +1472,11 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         if (tracks.isEmpty() || index !in tracks.indices) return
         stop()
         queueGenerationId.incrementAndGet()
-        queueManager.setQueue(tracks, index, preserveOrderIfSame = false, isUserQueue = true)
+        // The session's order already reflects its shuffle: load it as is, then take its mode.
+        queueManager.setQueue(tracks, index, preserveOrderIfSame = false, isUserQueue = true, keepShuffle = false)
         queueManager.setRepeatMode(repeat)
         queueManager.restoreShuffleFlag(shuffle)
+        rememberShuffleMode(shuffle)
         _queueState.value = queueManager.state
         val track = tracks[index]
         _currentTrack.value = track
@@ -1479,6 +1489,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     fun applyConnectQueueFlags(shuffle: Boolean, repeat: com.auralis.music.domain.model.RepeatMode) {
         queueManager.setRepeatMode(repeat)
         queueManager.restoreShuffleFlag(shuffle)
+        rememberShuffleMode(shuffle)
         _queueState.value = queueManager.state
         persistQueue()
     }
@@ -1629,7 +1640,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     ) {
         Log.d("AuralisPlayback", "[AuralisAudioPlayer] syncPlayTrack from host: '${track.title}', pos=${initialPositionMs}ms")
         val qState = if (newQueue.isNotEmpty()) {
-            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = false, isUserQueue = true)
+            queueManager.setQueue(newQueue, startIndex, preserveOrderIfSame = false, isUserQueue = true, keepShuffle = false)
         } else {
             queueManager.playTrack(track, isUserQueue = true)
         }
@@ -1650,7 +1661,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         val q = newQueue.toMutableList()
         // Keep the exact copy playing here (it may be the host's matched video id).
         if (cur != null && currentIndex in q.indices) q[currentIndex] = cur
-        _queueState.value = queueManager.setQueue(q, currentIndex.coerceIn(0, q.lastIndex), preserveOrderIfSame = false, isUserQueue = true)
+        _queueState.value = queueManager.setQueue(q, currentIndex.coerceIn(0, q.lastIndex), preserveOrderIfSame = false, isUserQueue = true, keepShuffle = false)
     }
 
     fun syncResume() {
@@ -1735,7 +1746,9 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
         // Signed in while another device of the account plays: the pick plays there.
         if (connect(com.auralis.music.data.connect.ConnectIntent.Load(newQueue.ifEmpty { listOf(track) }, if (newQueue.isEmpty()) 0 else startIndex, connectContext))) return
         val isSingleSongSelection = !preserveQueueSource && !isUserQueue && (newQueue.isEmpty() || newQueue.size == 1)
-        if (!preserveQueueSource && (isSingleSongSelection || newQueue.map { it.id } != queueManager.state.queue.map { it.id })) {
+        // Another song from the list already playing shuffled is not a new queue (see setQueue).
+        val withinShuffle = !isSingleSongSelection && queueManager.isPlayingShuffled(newQueue)
+        if (!preserveQueueSource && !withinShuffle && (isSingleSongSelection || newQueue.map { it.id } != queueManager.state.queue.map { it.id })) {
             lastAutoQueueAttemptMs = 0L
             queueGenerationId.incrementAndGet()
             autoQueueJob?.cancel()
@@ -1762,7 +1775,7 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
                           targetQueue.map { it.id } == queueManager.state.queue.map { it.id }
         val qState = if (isSameQueue && preserveQueueSource) {
             queueManager.selectIndex(targetIndex)
-        } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = isUserQueue, keepShuffle = runtimeSettings.permanentShuffle)
+        } else queueManager.setQueue(targetQueue, targetIndex, preserveOrderIfSame = isSameQueue && preserveQueueSource, isUserQueue = isUserQueue)
         _queueState.value = qState
 
         play(track, initialSeekMs = initialPositionMs)
@@ -2082,13 +2095,31 @@ class AuralisAudioPlayer private constructor(context: Context) : PlaybackClockSo
     }
 
     fun toggleShuffle(): com.auralis.music.domain.model.QueueState {
-        connectHook?.remote()?.let { remote -> if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(!remote.shuffle))) return queueManager.state }
-        val qState = queueManager.toggleShuffle()
+        val on = connectHook?.remote()?.let { !it.shuffle } ?: !queueManager.state.isShuffled
+        return setShuffle(on)
+    }
+
+    /**
+     * The device-wide shuffle switch (like Spotify): reorders what's playing around the current
+     * song, stays on for every list started afterwards, and survives restarts.
+     */
+    fun setShuffle(on: Boolean): com.auralis.music.domain.model.QueueState {
+        connectHook?.remote()?.let { if (connect(com.auralis.music.data.connect.ConnectIntent.Shuffle(on))) return queueManager.state }
+        val qState = queueManager.setShuffle(on)
         _queueState.value = qState
-        Log.d("AuralisPlayback", "[AuralisAudioPlayer] toggleShuffle -> isShuffled=${qState.isShuffled}")
+        Log.d("AuralisPlayback", "[AuralisAudioPlayer] setShuffle -> isShuffled=${qState.isShuffled}")
         syncUpcomingGaplessTrack()
         persistQueue()
+        rememberShuffleMode(qState.isShuffled)
         return qState
+    }
+
+    private fun rememberShuffleMode(on: Boolean) {
+        scope.launch(Dispatchers.IO) {
+            try { settingsDataStore.setShuffleMode(on) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                Log.w("AuralisPlayback", "[Persistence] Failed to save shuffle mode: ${e.message}")
+            }
+        }
     }
 
     fun toggleRepeat(): com.auralis.music.domain.model.RepeatMode {

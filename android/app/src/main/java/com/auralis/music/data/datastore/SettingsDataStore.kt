@@ -8,6 +8,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.auralis.music.domain.model.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
@@ -34,6 +35,7 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
         val SKIP_GAPLESS_ALBUMS = booleanPreferencesKey("skip_gapless_albums")
         val PERSISTENT_QUEUE = booleanPreferencesKey("persistent_queue")
         val PERMANENT_SHUFFLE = booleanPreferencesKey("permanent_shuffle")
+        val SHUFFLE_MODE = booleanPreferencesKey("shuffle_mode")
         val AUTO_LOAD_MORE = booleanPreferencesKey("auto_load_more")
         val STOP_MUSIC_ON_TASK_CLEAR = booleanPreferencesKey("stop_music_on_task_clear")
         val PAUSE_ON_MEDIA_MUTE = booleanPreferencesKey("pause_on_media_mute")
@@ -162,6 +164,18 @@ class SettingsDataStore internal constructor(private val dataStore: DataStore<Pr
 
     suspend fun setPermanentShuffle(enabled: Boolean) {
         dataStore.edit { it[PERMANENT_SHUFFLE] = enabled }
+    }
+
+    /**
+     * Shuffle is one switch for the whole device (like Spotify): it outlives the queue, so it is
+     * kept here even when the queue itself isn't saved. Null until the switch was first used.
+     */
+    suspend fun shuffleMode(): Boolean? = try {
+        dataStore.data.first()[SHUFFLE_MODE]
+    } catch (_: IOException) { null }
+
+    suspend fun setShuffleMode(enabled: Boolean) {
+        dataStore.edit { it[SHUFFLE_MODE] = enabled }
     }
 
     suspend fun setAutoLoadMore(enabled: Boolean) {
