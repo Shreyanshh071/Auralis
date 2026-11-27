@@ -381,14 +381,28 @@ fun main(args: Array<String>) {
                 minHeight = minWindowHeight(isMac),
             )
         }
+        // Windows: a window saved maximized is created at the full work-area size instead of its restored
+        // size. It used to be created at the restored size and maximized only when shown, so the whole
+        // app was composed and laid out at 1307x726 first (~1.9s, trace-frames C1230 L685, 2026-11-27)
+        // and then again at full size. Its restored bounds are put back after it maximizes.
+        val startMaximizedOn = remember {
+            if (isMac || savedWindowState.placement != WindowPlacement.Maximized) null
+            else currentUsableScreenBounds().let { screens ->
+                val pos = savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute
+                val cx = pos?.let { it.x.value + savedWindowState.size.width.value / 2f }
+                val cy = pos?.let { it.y.value + savedWindowState.size.height.value / 2f }
+                screens.firstOrNull { s -> cx != null && cy != null && cx in s.x..(s.x + s.width) && cy in s.y..(s.y + s.height) }
+                    ?: screens.firstOrNull()
+            }
+        }
         val windowState = rememberWindowState(
             placement = if (isMac && savedWindowState.placement == WindowPlacement.Fullscreen) {
                 WindowPlacement.Floating
             } else {
                 savedWindowState.placement
             },
-            size = savedWindowState.size,
-            position = savedWindowState.position
+            size = startMaximizedOn?.let { androidx.compose.ui.unit.DpSize(it.width.dp, it.height.dp) } ?: savedWindowState.size,
+            position = startMaximizedOn?.let { androidx.compose.ui.window.WindowPosition.Absolute(it.x.dp, it.y.dp) } ?: savedWindowState.position
         )
         var persistedWindowState by remember {
             mutableStateOf(
@@ -773,25 +787,18 @@ fun main(args: Array<String>) {
                 kotlinx.coroutines.delay(8_000)
                 startupCloaked = false
             }
-            // A maximized window is first created at its restored size and maximized after. The app
-            // used to compose and lay out at that size (~1.4s measured with trace-frames: C566 L274,
-            // then C548) and then all over again at full size. It now waits, cloaked, for the full size.
-            var atFinalSize by remember { mutableStateOf(isMac || windowState.placement != WindowPlacement.Maximized) }
+            // Created at full size (see startMaximizedOn): once Windows has maximized it, its restore
+            // bounds go back to the saved restored size and position.
             LaunchedEffect(window) {
-                if (atFinalSize) return@LaunchedEffect
-                kotlinx.coroutines.withTimeoutOrNull(1_500) {
-                    while (true) {
-                        val usable = runCatching {
-                            val config = window.graphicsConfiguration
-                            val insets = java.awt.Toolkit.getDefaultToolkit().getScreenInsets(config)
-                            config.bounds.width - insets.left - insets.right
-                        }.getOrDefault(0)
-                        val maximized = window.extendedState and java.awt.Frame.MAXIMIZED_BOTH == java.awt.Frame.MAXIMIZED_BOTH
-                        if (window.isShowing && maximized && window.width >= usable - 16) break
-                        withFrameNanos { }
-                    }
+                val screen = startMaximizedOn ?: return@LaunchedEffect
+                kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                    while (!(window.isShowing && window.extendedState and java.awt.Frame.MAXIMIZED_BOTH == java.awt.Frame.MAXIMIZED_BOTH)) withFrameNanos { }
+                    val size = savedWindowState.size
+                    val pos = savedWindowState.position as? androidx.compose.ui.window.WindowPosition.Absolute
+                    val x = pos?.x?.value ?: (screen.x + (screen.width - size.width.value) / 2f)
+                    val y = pos?.y?.value ?: (screen.y + (screen.height - size.height.value) / 2f)
+                    setRestoreBounds(window, screen.x, screen.y, x, y, size.width.value, size.height.value)
                 }
-                atFinalSize = true
             }
             // Revealed, the whole app (title bar too) eases in from slightly small and transparent.
             // It starts only once frames come smoothly (see appSettled), so the motion itself is smooth.
@@ -1035,7 +1042,7 @@ fun main(args: Array<String>) {
                     com.auralis.music.windows.media.bindMediaControls(window.windowHandle, pb, this)
                 }
             }
-            val ready = components.takeIf { atFinalSize }
+            val ready = components
             // The app's first frames are slow (cold code, images, shaders): a fade over them stuttered
             // as a half-transparent ghost. It draws them under an opaque cover below its title bar and
             // is revealed once frames come smoothly, so the switch is one clean step.
