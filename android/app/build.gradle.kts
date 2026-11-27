@@ -40,8 +40,8 @@ android {
         applicationId = "com.auralis.music"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.1.4"
+        versionCode = 10
+        versionName = "1.1.4.1"
         testInstrumentationRunner = if (providers.gradleProperty("motionArtworkTests").isPresent)
             "com.auralis.music.MotionArtworkTestRunner" else "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
