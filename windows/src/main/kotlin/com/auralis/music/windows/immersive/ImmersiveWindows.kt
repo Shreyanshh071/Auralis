@@ -189,7 +189,8 @@ internal fun ImmersiveWindows(
                                 shownDisplays = shown,
                                 thisDisplay = display,
                                 onToggleDisplay = actions::toggleDisplay,
-                                onLeave = session::close
+                                onLeave = session::close,
+                                onOpenInApp = session::openInApp
                             )
                         }
                     }

@@ -43,13 +43,14 @@ import com.auralis.music.windows.search.DesktopArtwork
 internal fun NowPlayingSidebar(playback: DesktopPlaybackController, lyrics: DesktopLyricsController, onExpand: () -> Unit, modifier: Modifier,
     palette: com.auralis.music.ui.theme.ArtworkPalette, onCollapse: () -> Unit,
     library: com.auralis.music.domain.repository.LibraryRepository? = null,
-    onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}, mainPlayerOpen: Boolean = false) {
+    onOpenQueue: () -> Unit = {}, onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {}, mainPlayerOpen: Boolean = false,
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}) {
     val queue by playback.queue.collectAsState()
     val track = queue.current ?: return
     var credits by remember(track.id) { mutableStateOf(SongCredits.cached(track.id)) }
     LaunchedEffect(track.id) { if (credits == null) credits = SongCredits.fetch(track.id) }
     val artists = remember(track.artist, credits) { sidebarArtists(track.artist, credits.orEmpty()) }
-    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, clock = playback.clock, playback = playback, onOpenArtist = onOpenArtist, artists = artists, mainPlayerOpen = mainPlayerOpen, extraCards = { cardModifier ->
+    NowPlayingSidebarContent(track, onExpand, modifier, palette, onCollapse, clock = playback.clock, playback = playback, onOpenArtist = onOpenArtist, artists = artists, mainPlayerOpen = mainPlayerOpen, onOpenAlbum = onOpenAlbum, extraCards = { cardModifier ->
         // Below lyrics: who made the song, then what's next (Spotify's Now Playing view, without tours).
         SidebarCreditsCard(track, library, onOpenArtist, cardModifier, credits)
         SidebarNextInQueueCard(playback, onOpenQueue, cardModifier)
@@ -79,6 +80,8 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
     onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
     artists: List<com.auralis.music.domain.model.Artist> = sidebarArtists(track.artist, emptyList()),
     mainPlayerOpen: Boolean = false,
+    // Null: the title is plain text (previews and pop-outs that don't navigate).
+    onOpenAlbum: ((com.auralis.music.domain.model.PlaylistResult) -> Unit)? = null,
     lyricContent: @Composable () -> Unit) {
     BoxWithConstraints(modifier) {
     var lyricsCollapsed by remember { mutableStateOf(false) }
@@ -114,7 +117,12 @@ internal fun NowPlayingSidebarContent(track: Track, onExpand: () -> Unit, modifi
                 DesktopArtwork(track.thumbnail, Modifier.fillMaxSize(), 12.dp, track.title, highRes = true)
             }
         }
-        Text(track.title, Modifier.width(coverSize), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2)
+        // The title opens the song's album, as in the player bar.
+        val album = if (onOpenAlbum != null) rememberTrackAlbum(track) else null
+        Box(Modifier.width(coverSize)) {
+            BarLink(track.title, if (album != null && onOpenAlbum != null) { { onOpenAlbum(album) } } else null,
+                MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), Color.White, maxLines = 2)
+        }
         SidebarArtistNames(artists, onOpenArtist, Modifier.width(coverSize))
         androidx.compose.animation.AnimatedVisibility(!lyricsWindow,
             enter = androidx.compose.animation.fadeIn(tween(220)) + androidx.compose.animation.expandVertically(tween(300)),

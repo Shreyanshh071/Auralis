@@ -76,7 +76,8 @@ internal fun EmbeddedImmersive(
                         thisDisplay = display,
                         onToggleDisplay = {},
                         onLeave = session::close,
-                        animateEntry = false
+                        animateEntry = false,
+                        onOpenInApp = session::openInApp
                     )
                 }
             }

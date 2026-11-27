@@ -56,17 +56,87 @@ import androidx.compose.ui.unit.dp
 import com.auralis.music.desktop.playback.DesktopPlaybackController
 import com.auralis.music.desktop.playback.VlcAudioPlayer
 import com.auralis.music.windows.search.DesktopArtwork
+import com.auralis.music.data.network.AlbumMetadataResolver
+import com.auralis.music.data.network.ResolvedAlbum
+import com.auralis.music.domain.model.Artist
+import com.auralis.music.domain.model.PlaylistResult
+import com.auralis.music.domain.model.Track
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 
 /** The bar along the bottom of the window: the current song, the controls and the seek bar. */
 @Composable
 fun NowPlayingBar(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit = {},
-    onOpenQueue: () -> Unit = onOpenPlayer, onOpenLyrics: () -> Unit = onOpenPlayer) {
-    NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue, onOpenLyrics)
+    onOpenQueue: () -> Unit = onOpenPlayer, onOpenLyrics: () -> Unit = onOpenPlayer,
+    onOpenArtist: (Artist) -> Unit = {}, onOpenAlbum: (PlaylistResult) -> Unit = {}) {
+    NowPlayingBarContent(controller, onOpenPlayer, onOpenQueue, onOpenLyrics, onOpenArtist, onOpenAlbum)
+}
+
+/**
+ * The album the playing song belongs to, or null while unknown or when it has none (a single).
+ * Same rules as the track menu's "Go to album": the song's own album when it is a real one,
+ * otherwise a lookup (cached across the app, so the menu and the bar share it).
+ */
+@Composable
+internal fun rememberTrackAlbum(track: Track): PlaylistResult? {
+    fun ResolvedAlbum.asAlbum() = albumTitle.takeIf { it.isNotBlank() && !isSingle }?.let {
+        PlaylistResult(id = albumId ?: "album-${track.id}", title = it,
+            author = artistName ?: track.artist, thumbnail = albumArt ?: track.thumbnail)
+    }
+    val own = remember(track.id, track.album, track.albumId) {
+        val album = track.album
+        if (album.isNullOrBlank() || AlbumMetadataResolver.needsResolving(album, track.title)) null
+        else {
+            val cached = AlbumMetadataResolver.getCached(track.title, track.artist, album)
+            PlaylistResult(id = track.albumId ?: cached?.albumId ?: "album-${track.id}", title = album,
+                author = cached?.artistName ?: track.artist, thumbnail = cached?.albumArt ?: track.thumbnail)
+        }
+    }
+    var looked by remember(track.id) {
+        mutableStateOf(AlbumMetadataResolver.getCached(track.title, track.artist, track.album)?.asAlbum())
+    }
+    androidx.compose.runtime.LaunchedEffect(track.id, own == null) {
+        if (own == null && looked == null) {
+            looked = runCatching { AlbumMetadataResolver.resolveAlbum(track.title, track.artist, track.album) }
+                .getOrNull()?.asAlbum()
+        }
+    }
+    return own ?: looked
+}
+
+/**
+ * The song's credited artists, each a link to their page. Credits (fetched by the Now Playing
+ * sidebar) give channel ids and split "A & B" credits correctly when known.
+ */
+@Composable
+internal fun TrackArtistLinks(track: Track, onOpenArtist: (Artist) -> Unit, style: androidx.compose.ui.text.TextStyle,
+    color: Color, modifier: Modifier = Modifier, horizontalArrangement: Arrangement.Horizontal = Arrangement.Start) {
+    val artists = remember(track.id, track.artist) {
+        sidebarArtists(track.artist, SongCredits.cached(track.id).orEmpty())
+    }
+    Row(modifier, horizontalArrangement = horizontalArrangement, verticalAlignment = Alignment.CenterVertically) {
+        artists.forEachIndexed { index, artist ->
+            BarLink(artist.name, { onOpenArtist(artist) }, style, color, Modifier.weight(1f, fill = false))
+            if (index < artists.lastIndex) Text(", ", style = style, color = color)
+        }
+    }
+}
+
+/** Title or artist text that links somewhere: underlined on hover, as on Spotify. */
+@Composable
+internal fun BarLink(text: String, onClick: (() -> Unit)?, style: androidx.compose.ui.text.TextStyle, color: Color,
+    modifier: Modifier = Modifier, textAlign: androidx.compose.ui.text.style.TextAlign? = null, maxLines: Int = 1) {
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by source.collectIsHoveredAsState()
+    Text(text,
+        modifier = if (onClick == null) modifier else modifier
+            .clickable(interactionSource = source, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+        style = style, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis, textAlign = textAlign,
+        textDecoration = if (hovered && onClick != null) androidx.compose.ui.text.style.TextDecoration.Underline else null)
 }
 
 @Composable
 private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenPlayer: () -> Unit,
-    onOpenQueue: () -> Unit, onOpenLyrics: () -> Unit) {
+    onOpenQueue: () -> Unit, onOpenLyrics: () -> Unit, onOpenArtist: (Artist) -> Unit, onOpenAlbum: (PlaylistResult) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -104,22 +174,22 @@ private fun NowPlayingBarContent(controller: DesktopPlaybackController?, onOpenP
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f, fill = false)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    track?.title ?: "Nothing playing",
+                if (track == null) Text(
+                    "Nothing playing",
                     modifier = Modifier.weight(1f, fill = false),
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (track != null) colors.onSurface else colors.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                if (track != null) PlayerPlaylistButton(track)
+                ) else {
+                    // The title opens the song's album (not a link while it has none, e.g. a single).
+                    val album = rememberTrackAlbum(track)
+                    BarLink(track.title, album?.let { { onOpenAlbum(it) } }, MaterialTheme.typography.titleMedium,
+                        colors.onSurface, Modifier.weight(1f, fill = false))
+                    PlayerPlaylistButton(track)
+                }
                 }
                 if (track != null) {
-                    Text(
-                        track.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
+                    TrackArtistLinks(track, onOpenArtist, MaterialTheme.typography.bodySmall, colors.onSurfaceVariant)
                     com.auralis.music.windows.connect.ConnectOutputLabel { connectMenu = true }
                 }
             }

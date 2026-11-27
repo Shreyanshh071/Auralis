@@ -557,6 +557,10 @@ fun main(args: Array<String>) {
                 win.requestFocus()
             }
         }
+        // A link in immersive mode (album or artist) opens its page in the main window.
+        LaunchedEffect(immersive.browseRequest) {
+            if (immersive.browseRequest != null) openWindow()
+        }
 
         DisposableEffect(components) {
             val comp = components
@@ -1079,6 +1083,8 @@ fun main(args: Array<String>) {
                         }
                     },
                     playerRequests = playerRequests,
+                    immersiveBrowse = immersive.browseRequest,
+                    onImmersiveBrowseHandled = { immersive.browseRequest = null },
                     titleBar = { actions ->
                         if (!playerFullscreen) {
                             ChromeTitleBar(actions)

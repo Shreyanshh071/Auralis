@@ -178,7 +178,8 @@ internal fun ImmersiveScreen(
     thisDisplay: ImmersiveDisplay,
     onToggleDisplay: (Int) -> Unit,
     onLeave: () -> Unit,
-    animateEntry: Boolean = true
+    animateEntry: Boolean = true,
+    onOpenInApp: (ImmersiveBrowse) -> Unit = {}
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
@@ -259,7 +260,8 @@ internal fun ImmersiveScreen(
                             track, view, onView, playback, displays, shownDisplays, thisDisplay, onToggleDisplay, onLeave,
                             Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
                                 .hoverable(dockInteraction),
-                            artwork = highRes
+                            artwork = highRes,
+                            onOpenInApp = onOpenInApp
                         )
                     }
                 }
@@ -734,7 +736,8 @@ private val PhoneIndicatorEdge = Color.White.copy(alpha = .10f)
 private fun ImmersiveControls(
     track: Track?, view: ImmersiveView, onView: (ImmersiveView) -> Unit, playback: DesktopPlaybackController,
     displays: List<ImmersiveDisplay>, shownDisplays: List<ImmersiveDisplay>, thisDisplay: ImmersiveDisplay,
-    onToggleDisplay: (Int) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier, artwork: String? = null
+    onToggleDisplay: (Int) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier, artwork: String? = null,
+    onOpenInApp: (ImmersiveBrowse) -> Unit = {}
 ) {
     LiquidPopupSurface(
         modifier, tint = PhoneGlassTint, cornerRadius = DockRadius,
@@ -751,10 +754,14 @@ private fun ImmersiveControls(
                 Spacer(Modifier.width(14.dp))
                 // Shrinks on a narrow (portrait) display rather than pushing the controls off.
                 Column(Modifier.weight(1f, fill = false).widthIn(max = DockTextWidth)) {
-                    Text(track.title, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, fontSize = 12.sp, lineHeight = 15.sp, color = Color.White.copy(alpha = .7f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Title opens the album, each artist their page, in the main window (leaving immersive).
+                    val album = com.auralis.music.windows.player.rememberTrackAlbum(track)
+                    com.auralis.music.windows.player.BarLink(track.title,
+                        album?.let { { onOpenInApp(ImmersiveBrowse.OpenAlbum(it)) } },
+                        androidx.compose.ui.text.TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold),
+                        Color.White)
+                    com.auralis.music.windows.player.TrackArtistLinks(track, { onOpenInApp(ImmersiveBrowse.OpenArtist(it)) },
+                        androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 15.sp), Color.White.copy(alpha = .7f))
                     Spacer(Modifier.height(4.dp))
                     ImmersiveProgress(playback, track, Modifier.fillMaxWidth())
                 }

@@ -122,7 +122,9 @@ internal fun PlayerScreen(
     onImmersive: () -> Unit = {},
     stageChoice: StagePlaybackChoice,
     playerVisible: Boolean,
-    drawControls: Boolean
+    drawControls: Boolean,
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}
 ) {
     val queue by playback.queue.collectAsState()
     val track = queue.current
@@ -246,35 +248,28 @@ internal fun PlayerScreen(
                             Spacer(Modifier.height(22.dp))
                             PlayerSeekBar(playback, seekBackdrop, Modifier.width(coverSize))
                             Spacer(Modifier.height(18.dp))
-                            Text(
-                                text = track?.title.orEmpty(),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.width(coverSize)
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = track?.artist.orEmpty(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontSize = 22.sp,
-                                color = Color.White.copy(alpha = 0.75f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.width(coverSize)
-                            )
+                            // Title opens the album, each artist their page (as in the bar below).
+                            val titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                            val artistStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 22.sp)
+                            if (track == null) {
+                                Text("", style = titleStyle, modifier = Modifier.width(coverSize))
+                            } else {
+                                val album = rememberTrackAlbum(track)
+                                Box(Modifier.width(coverSize), contentAlignment = Alignment.Center) {
+                                    BarLink(track.title, album?.let { { onOpenAlbum(it) } }, titleStyle, Color.White,
+                                        textAlign = TextAlign.Center)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                TrackArtistLinks(track, onOpenArtist, artistStyle, Color.White.copy(alpha = 0.75f),
+                                    Modifier.width(coverSize), Arrangement.Center)
+                            }
                             PlayerConnectRow()
                         }
                     }
                     stageTransition.AnimatedVisibility(visible = { it }, modifier = Modifier.matchParentSize(),
                         enter = fadeIn(fade), exit = fadeOut(fade)) {
                         if (track != null) CanvasPlayerDock(playback, track, glassBackdrop,
-                            Modifier.fillMaxSize().padding(bottom = 48.dp))
+                            Modifier.fillMaxSize().padding(bottom = 48.dp), onOpenArtist, onOpenAlbum)
                     }
                 }
                 if (wide) {
@@ -661,20 +656,23 @@ private fun CanvasPlayerDock(
     playback: DesktopPlaybackController,
     track: com.auralis.music.domain.model.Track,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenArtist: (com.auralis.music.domain.model.Artist) -> Unit = {},
+    onOpenAlbum: (com.auralis.music.domain.model.PlaylistResult) -> Unit = {}
 ) {
     val volume by playback.volume.collectAsState()
     Column(modifier, verticalArrangement = Arrangement.Bottom) {
         Column(Modifier.widthIn(max = 300.dp).fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(track.title, modifier = Modifier.weight(1f, fill = false),
-                    fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
-                    color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val album = rememberTrackAlbum(track)
+                BarLink(track.title, album?.let { { onOpenAlbum(it) } },
+                    androidx.compose.ui.text.TextStyle(fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold),
+                    Color.White, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(4.dp))
                 PlayerPlaylistButton(track)
             }
-            Text(track.artist, fontSize = 11.sp, lineHeight = 14.sp,
-                color = Color.White.copy(alpha = .75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            TrackArtistLinks(track, onOpenArtist, androidx.compose.ui.text.TextStyle(fontSize = 11.sp, lineHeight = 14.sp),
+                Color.White.copy(alpha = .75f))
             PlayerSeekBar(playback, backdrop, Modifier.fillMaxWidth(), compact = true)
             Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
                 PlayerConnectRow(compact = true, iconOnly = true)

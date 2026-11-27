@@ -50,6 +50,17 @@ internal class ImmersiveSession {
     }
 
     fun close() { trigger = null }
+
+    /** An album or artist a link in immersive mode asked the main window to open; it then clears it. */
+    var browseRequest by mutableStateOf<ImmersiveBrowse?>(null)
+
+    /** Leaves immersive mode for that page in the main window. */
+    fun openInApp(target: ImmersiveBrowse) { browseRequest = target; close() }
+}
+
+sealed interface ImmersiveBrowse {
+    data class OpenArtist(val artist: com.auralis.music.domain.model.Artist) : ImmersiveBrowse
+    data class OpenAlbum(val album: com.auralis.music.domain.model.PlaylistResult) : ImmersiveBrowse
 }
 
 /** One connected display, in the window coordinates AWT places windows in. */

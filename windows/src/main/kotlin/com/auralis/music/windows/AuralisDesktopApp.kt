@@ -129,6 +129,9 @@ fun AuralisDesktopApp(
     onToggleLockScreenPreview: () -> Unit = {},
     /** Bumped when immersive mode steps back to the player. */
     playerRequests: Int = 0,
+    /** An album or artist a link in immersive mode asked to open; cleared through [onImmersiveBrowseHandled]. */
+    immersiveBrowse: com.auralis.music.windows.immersive.ImmersiveBrowse? = null,
+    onImmersiveBrowseHandled: () -> Unit = {},
 ) {
     val musicLibrary = remember(library) { com.auralis.music.desktop.library.MusicLibraryRepository(library) }
     val musicSearch = remember(searchRepository) { com.auralis.music.desktop.library.MusicSearchRepository(searchRepository) }
@@ -168,6 +171,13 @@ fun AuralisDesktopApp(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val searchState = remember { com.auralis.music.windows.search.DesktopSearchState(musicSearch, scope) { !stores.privacy.settingsFlow.first().pauseSearchHistory } }
     val browse = remember { com.auralis.music.desktop.browse.DesktopBrowseState(musicSearch, scope) }
+    androidx.compose.runtime.LaunchedEffect(immersiveBrowse) {
+        when (val target = immersiveBrowse ?: return@LaunchedEffect) {
+            is com.auralis.music.windows.immersive.ImmersiveBrowse.OpenArtist -> { showPlayer = false; browse.openArtist(target.artist) }
+            is com.auralis.music.windows.immersive.ImmersiveBrowse.OpenAlbum -> { showPlayer = false; browse.openAlbum(target.album) }
+        }
+        onImmersiveBrowseHandled()
+    }
     val languageChanges by com.auralis.music.data.network.ContentSettingsSource.languageChanges.collectAsState()
     androidx.compose.runtime.LaunchedEffect(languageChanges) {
         if (languageChanges > 0) {
@@ -1129,7 +1139,8 @@ fun AuralisDesktopApp(
                                     onCollapse = { rightCollapsed = true },
                                     library = musicLibrary,
                                     onOpenQueue = { sidePanel = com.auralis.music.windows.player.SidePanel.QUEUE },
-                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) }, mainPlayerOpen = showPlayer)
+                                    onOpenArtist = { showPlayer = false; browse.openArtist(it) }, mainPlayerOpen = showPlayer,
+                                    onOpenAlbum = { showPlayer = false; browse.openAlbum(it) })
                         }
                         }
                         }
@@ -1155,7 +1166,9 @@ fun AuralisDesktopApp(
                     onOpenQueue = { if (canShowPlayer) sidePanel = if (sidePanel == com.auralis.music.windows.player.SidePanel.QUEUE)
                         com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.QUEUE },
                     onOpenLyrics = { if (canShowPlayer) sidePanel = if (sidePanel == com.auralis.music.windows.player.SidePanel.LYRICS)
-                        com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS }
+                        com.auralis.music.windows.player.SidePanel.NOW_PLAYING else com.auralis.music.windows.player.SidePanel.LYRICS },
+                    onOpenArtist = { showPlayer = false; browse.openArtist(it) },
+                    onOpenAlbum = { showPlayer = false; browse.openAlbum(it) }
                 )
                 }
             }
@@ -1189,7 +1202,9 @@ fun AuralisDesktopApp(
                         onImmersive = onOpenImmersive,
                         stageChoice = stageChoice,
                         playerVisible = fullPlayerVisible,
-                        drawControls = drawPlayer
+                        drawControls = drawPlayer,
+                        onOpenArtist = { showPlayer = false; browse.openArtist(it) },
+                        onOpenAlbum = { showPlayer = false; browse.openAlbum(it) }
                     )
                 }
             }
