@@ -91,7 +91,7 @@ fun DesktopAppearanceSettings(onDismiss: () -> Unit) {
                 com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS,
                 com.auralis.music.domain.model.LyricsAnimationMode.FLUID, com.auralis.music.domain.model.LyricsAnimationMode.APPLE_MUSIC_V2)
             val current = com.auralis.music.domain.model.LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation)
-                .takeIf { it in styles } ?: com.auralis.music.domain.model.LyricsAnimationMode.METRO_LYRICS
+                .takeIf { it in styles } ?: com.auralis.music.domain.model.LyricsAnimationMode.SPICY_LYRICS
             Choice("Lyrics style", current.displayName, styles.map { it.displayName }) { update { copy(lyricsAnimation = it) } }
         }
         item { Choice("Text position", settings.lyricsTextPosition, listOf("Left", "Centre", "Right")) { update { copy(lyricsTextPosition = it) } } }

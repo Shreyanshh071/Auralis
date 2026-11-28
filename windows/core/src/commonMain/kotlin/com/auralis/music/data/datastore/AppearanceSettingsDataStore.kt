@@ -109,7 +109,7 @@ class AppearanceSettingsDataStore(private val dataStore: DataStore<Preferences>)
             val resolvedAnimation = if (legacyExpLyrics && (storedAnimation == null || storedAnimation == LyricsAnimationMode.AURALIS.displayName)) {
                 LyricsAnimationMode.METRO_LYRICS.displayName
             } else {
-                storedAnimation ?: LyricsAnimationMode.METRO_LYRICS.displayName
+                storedAnimation ?: LyricsAnimationMode.SPICY_LYRICS.displayName
             }
 
             return AppearanceSettings(

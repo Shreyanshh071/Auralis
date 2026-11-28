@@ -36,7 +36,7 @@ data class AppearanceSettings(
     val changeLyricsOnTap: Boolean = true,
     val autoScrollLyrics: Boolean = true,
     val hideStatusBarOnFullscreen: Boolean = false,
-    val lyricsAnimation: String = LyricsAnimationMode.METRO_LYRICS.displayName,
+    val lyricsAnimation: String = LyricsAnimationMode.SPICY_LYRICS.displayName,
     val enableGlowingLyricsEffect: Boolean = false,
     val standardLyricsBlur: Boolean = true,
     val lyricsTextSize: Float = 22f,

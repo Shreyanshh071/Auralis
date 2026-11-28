@@ -153,7 +153,7 @@ internal fun AppearanceSettingsPane(store: AppearanceSettingsDataStore) {
             LyricsAnimationMode.FLUID,
             LyricsAnimationMode.APPLE_MUSIC_V2
         )
-        val current = LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).takeIf { it in styles } ?: LyricsAnimationMode.METRO_LYRICS
+        val current = LyricsAnimationMode.fromDisplayName(settings.lyricsAnimation).takeIf { it in styles } ?: LyricsAnimationMode.SPICY_LYRICS
         SettingChoice("Lyrics animation style", "Timing and visual transition mode", current.displayName, styles.map { it.displayName }) {
             update { copy(lyricsAnimation = it) }
         }
