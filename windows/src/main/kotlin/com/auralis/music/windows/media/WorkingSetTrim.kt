@@ -18,14 +18,15 @@ internal object WorkingSetTrim {
     private const val TAG = "WorkingSetTrim"
     private val windows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
 
-    fun trim() {
+    /** [collect]: a full GC first (only when nothing is on screen; it pauses drawing briefly). */
+    fun trim(collect: Boolean = true) {
         if (!windows) return
         runCatching {
-            System.gc()
+            if (collect) System.gc()
             // K32EmptyWorkingSet on GetCurrentProcess()'s pseudo-handle (-1).
             val ok = NativeLibrary.getInstance("kernel32").getFunction("K32EmptyWorkingSet")
                 .invokeInt(arrayOf(Pointer.createConstant(-1L))) != 0
-            Log.i(TAG, if (ok) "Working set emptied while hidden" else "Working set not emptied")
+            Log.i(TAG, if (ok) "Working set emptied (collect=$collect)" else "Working set not emptied")
         }.onFailure { Log.w(TAG, "Working set trim failed: ${it.message}") }
     }
 }

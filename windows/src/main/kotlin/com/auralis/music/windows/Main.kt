@@ -541,6 +541,26 @@ fun main(args: Array<String>) {
             kotlinx.coroutines.delay(15_000)
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.auralis.music.windows.media.WorkingSetTrim.trim() }
         }
+        // Open but behind other windows for a minute (the usual way music plays), memory goes back too:
+        // 2026-11-28 the visible, unfocused app sat at 1071 MB with a 148 MB heap. Once per stretch
+        // in the background; what it still uses comes straight back from memory.
+        LaunchedEffect(Unit) {
+            var inactiveSince = 0L
+            var trimmedThisStretch = false
+            while (true) {
+                kotlinx.coroutines.delay(10_000)
+                val active = composeWindow?.isActive == true
+                val now = System.currentTimeMillis()
+                if (active) { inactiveSince = 0L; trimmedThisStretch = false; continue }
+                if (inactiveSince == 0L) inactiveSince = now
+                if (!trimmedThisStretch && windowVisible && !windowState.isMinimized && immersive.trigger == null &&
+                    now - inactiveSince >= 60_000L) {
+                    trimmedThisStretch = true
+                    // No full GC here: the window is still on screen (lyrics may be animating).
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.auralis.music.windows.media.WorkingSetTrim.trim(collect = false) }
+                }
+            }
+        }
         var components by remember { mutableStateOf<ReadyComponents?>(null) }
         // Shown again from the tray, the window stays cloaked until it has drawn (see setWindowCloaked).
         var revealPending by remember { mutableStateOf(false) }
